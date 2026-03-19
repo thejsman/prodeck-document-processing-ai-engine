@@ -1,0 +1,134 @@
+'use client';
+
+import type { PluginTokens, TestimonialsContent } from '../../../types/presentation';
+import { Reveal } from '../shared/Reveal';
+import { NoiseOverlay } from '../shared/NoiseOverlay';
+import { GlassCard } from '../shared/GlassCard';
+import { Headline, Label, Body } from '../shared/Typography';
+
+interface Props {
+  content: TestimonialsContent;
+  tokens: PluginTokens;
+  imageUrl: string | null;
+  index: number;
+}
+
+export function TestimonialsSection({ content, tokens }: Props) {
+  const items = content.items ?? [];
+
+  return (
+    <section
+      style={{
+        position: 'relative',
+        padding: 'clamp(4rem, 8vw, 7rem) 2rem',
+        background: `linear-gradient(180deg, ${tokens.surfaceCard} 0%, ${tokens.surface} 100%)`,
+        overflow: 'hidden',
+      }}
+    >
+      <NoiseOverlay opacity={tokens.noiseOpacity} />
+
+      {/* Decorative quote mark */}
+      <div style={{
+        position: 'absolute',
+        top: '5%',
+        left: '3%',
+        fontFamily: 'Georgia, serif',
+        fontSize: 'clamp(12rem, 25vw, 22rem)',
+        fontWeight: 700,
+        color: tokens.accent,
+        opacity: 0.05,
+        lineHeight: 1,
+        pointerEvents: 'none',
+        zIndex: 1,
+        userSelect: 'none',
+      }}>
+        &ldquo;
+      </div>
+
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
+        <Reveal>
+          <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 16 }}>
+            {content.eyebrow}
+          </Label>
+        </Reveal>
+
+        <Reveal delay={80}>
+          <Headline tokens={tokens} style={{ textAlign: 'center', marginBottom: 56 }}>
+            {content.headline}
+          </Headline>
+        </Reveal>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${Math.min(items.length, 3)}, 1fr)`,
+          gap: 'clamp(1rem, 2vw, 1.5rem)',
+        }}>
+          {items.map((item, i) => (
+            <Reveal key={i} delay={160 + i * 80}>
+              <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {/* Quote mark */}
+                <div style={{
+                  fontFamily: 'Georgia, serif',
+                  fontSize: '3rem',
+                  lineHeight: 0.8,
+                  color: tokens.accent,
+                  fontWeight: 700,
+                }}>
+                  &ldquo;
+                </div>
+
+                {/* Quote text */}
+                <p style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '1rem',
+                  lineHeight: 1.75,
+                  color: tokens.text,
+                  fontStyle: 'italic',
+                  margin: 0,
+                  flex: 1,
+                }}>
+                  {item.quote}
+                </p>
+
+                {/* Attribution */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 20, borderTop: `1px solid ${tokens.border}` }}>
+                  {/* Avatar */}
+                  <div style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
+                    border: `1px solid ${tokens.accent}50`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    color: tokens.accent,
+                  }}>
+                    {item.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                  </div>
+                  <div>
+                    <div style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontWeight: 600,
+                      fontSize: '0.875rem',
+                      color: tokens.text,
+                    }}>
+                      {item.name}
+                    </div>
+                    <Body tokens={tokens} style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                      {item.title} · {item.company}
+                    </Body>
+                  </div>
+                </div>
+              </GlassCard>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

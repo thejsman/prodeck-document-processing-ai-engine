@@ -1,0 +1,61 @@
+# -------------------------------------------------------------------
+# AI Engine — API image
+#
+# HTTP adapter with auth, audit, and namespace RBAC.
+# Delegates to @ai-engine/runtime — no business logic here.
+#
+#   docker build -f deployment/Dockerfile.api -t ai-engine-api .
+# -------------------------------------------------------------------
+
+# ── Stage 1: build engine + API service ──────────────────────────
+FROM node:20-slim AS build
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/ packages/
+COPY agents/ agents/
+COPY plugins/ plugins/
+COPY services/ services/
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm build
+
+# ── Stage 2: runtime ─────────────────────────────────────────────
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build /app /app
+
+# Python dependencies required by plugins
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+        requests \
+        numpy \
+        faiss-cpu \
+        pyyaml \
+        openai
+
+# Config and data directories
+RUN mkdir -p /engine/data/templates /engine/output /app/config
+COPY config/api_keys.example.json /app/config/api_keys.json
+
+# Seed built-in proposal templates (user can add more via the API)
+COPY plugins/processor-proposal-generator/templates/*.yaml /engine/data/templates/
+
+ENV NODE_ENV=production
+ENV WORKDIR=/engine
+ENV PORT=3000
+ENV API_KEYS_PATH=/app/config/api_keys.json
+ENV AUDIT_LOG_PATH=/engine/audit.log
+
+EXPOSE 3000
+
+CMD ["node", "/app/services/api/dist/index.js"]

@@ -1,0 +1,91 @@
+# -------------------------------------------------------------------
+# AI Engine — Production Compose (OpenAI + Nginx TLS)
+#
+# Prerequisites:
+#   1. Copy .env.production.example to .env.production and fill values
+#   2. Run nginx/init-letsencrypt.sh once to bootstrap SSL
+#
+# Start:
+#   docker compose -p ai-engine -f deployment/docker-compose.prod.yml \
+#     --env-file deployment/.env.production up -d
+#
+# Stop:
+#   docker compose -p ai-engine -f deployment/docker-compose.prod.yml down
+# -------------------------------------------------------------------
+
+services:
+
+  # ── API service ──────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    environment:
+      - LLM_PROVIDER=openai
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-gpt-4o-mini}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - WORKDIR=/engine
+      - PORT=3000
+      - API_KEYS_PATH=/app/config/api_keys.json
+      - AUDIT_LOG_PATH=/engine/audit.log
+    volumes:
+      - engine_data:/engine
+      - ${API_KEYS_HOST_PATH:-../config/api_keys.km-digital.json}:/app/config/api_keys.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Web UI ───────────────────────────────────────────────────────
+  ui:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.ui
+    environment:
+      - API_URL=http://api:3000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const http=require('http');http.get('http://localhost:3001',r=>{process.exit(r.statusCode<400?0:1)}).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Nginx reverse proxy + TLS termination ────────────────────────
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    depends_on:
+      ui:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Certbot (on-demand, not auto-started) ────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    profiles: ["certbot"]
+
+volumes:
+  engine_data:
+    driver: local
+  letsencrypt_certs:
+    external: true
+    name: ai-engine_letsencrypt_certs
+  certbot_webroot:
+    driver: local

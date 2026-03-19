@@ -1,0 +1,407 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import type { LayoutAST, PluginTokens } from '../../types/presentation';
+import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
+import { MicrositeNav } from './MicrositeNav';
+import { HeroSection } from './sections/HeroSection';
+import { ChallengeSection } from './sections/ChallengeSection';
+import { ApproachSection } from './sections/ApproachSection';
+import { DeliverablesSection } from './sections/DeliverablesSection';
+import { TimelineSection } from './sections/TimelineSection';
+import { PricingSection } from './sections/PricingSection';
+import { WhyUsSection } from './sections/WhyUsSection';
+import { NextStepsSection } from './sections/NextStepsSection';
+import { GenericSection } from './sections/GenericSection';
+import { TestimonialsSection } from './sections/TestimonialsSection';
+import { ShowcaseSection } from './sections/ShowcaseSection';
+import { BenefitsSection } from './sections/BenefitsSection';
+import { ProblemSection } from './sections/ProblemSection';
+import { StatsSection } from './sections/StatsSection';
+
+import type {
+  HeroContent,
+  ChallengeContent,
+  ApproachContent,
+  DeliverablesContent,
+  TimelineContent,
+  PricingContent,
+  WhyUsContent,
+  NextStepsContent,
+  GenericContent,
+  TestimonialsContent,
+  ShowcaseContent,
+  BenefitsContent,
+  ProblemContent,
+  StatsContent,
+} from '../../types/presentation';
+
+/** Unique stable DOM id for the fullscreen scroll container */
+const SCROLL_CONTAINER_ID = 'ms-fullscreen-scroll';
+
+interface Props {
+  ast: LayoutAST;
+  onClose?: () => void;
+  onBack?: () => void;
+  onRegenerate?: () => void;
+  onEdit?: () => void;
+  /** 'fullscreen' (default) renders as a fixed full-viewport overlay; 'embedded' renders inline for the editor canvas. */
+  mode?: 'fullscreen' | 'embedded';
+}
+
+/** Wraps each section with scroll-triggered visibility animation. */
+function AnimatedSection({
+  id,
+  children,
+  behavior,
+  index,
+}: {
+  id: string;
+  children: React.ReactNode;
+  behavior?: LayoutAST['behavior'];
+  index: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(index === 0); // hero always visible
+
+  useEffect(() => {
+    if (index === 0) return;
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.unobserve(el); } },
+      { threshold: 0.08 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [index]);
+
+  const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
+  const delay = Math.min(index * 0.04, 0.24);
+
+  const animStyle: React.CSSProperties = effect === 'none'
+    ? {}
+    : {
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'none' : effect === 'slide-up' ? 'translateY(28px)' : 'none',
+        transition: visible
+          ? `opacity 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}s`
+          : 'none',
+      };
+
+  return (
+    <div ref={ref} id={id} style={animStyle}>
+      {children}
+    </div>
+  );
+}
+
+function renderSection(
+  section: LayoutAST['sections'][number],
+  tokens: PluginTokens,
+  brand: LayoutAST['brand'],
+  index: number,
+  allSections: LayoutAST['sections'],
+  brief?: LayoutAST['brief'],
+) {
+  const imageUrl = section.image.url;
+
+  let inner: React.ReactNode;
+  switch (section.sectionType) {
+    case 'hero': {
+      const heroRaw = section.content as unknown as Record<string, unknown>;
+      inner = (
+        <HeroSection
+          content={section.content as HeroContent}
+          tokens={tokens}
+          brand={brand}
+          imageUrl={imageUrl}
+          index={index}
+          sections={allSections}
+          brief={brief as { keyOutcomes?: string[] } | undefined}
+          variant={typeof heroRaw.variant === 'string' ? heroRaw.variant : undefined}
+          ui={heroRaw.ui as { showCTA?: boolean; layout?: string; mediaPosition?: string } | undefined}
+          behavior={heroRaw.behavior as { hasParallax?: boolean; animation?: string } | undefined}
+          sectionId={section.id}
+        />
+      );
+      break;
+    }
+    case 'challenge':
+      inner = <ChallengeSection content={section.content as ChallengeContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'approach':
+      inner = <ApproachSection content={section.content as ApproachContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'deliverables':
+      inner = <DeliverablesSection content={section.content as DeliverablesContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'timeline':
+      inner = <TimelineSection content={section.content as TimelineContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'pricing':
+      inner = <PricingSection content={section.content as PricingContent} tokens={tokens} imageUrl={imageUrl} index={index} sections={allSections} />;
+      break;
+    case 'whyus':
+      inner = <WhyUsSection content={section.content as WhyUsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'nextsteps':
+      inner = <NextStepsSection content={section.content as NextStepsContent} tokens={tokens} imageUrl={imageUrl} index={index} sections={allSections} />;
+      break;
+    case 'testimonials':
+      inner = <TestimonialsSection content={section.content as TestimonialsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'showcase':
+      inner = <ShowcaseSection content={section.content as ShowcaseContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'benefits':
+      inner = <BenefitsSection content={section.content as BenefitsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'problem':
+      inner = <ProblemSection content={section.content as ProblemContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'stats':
+      inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    default:
+      inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+  }
+
+  return inner;
+}
+
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
+  const plugin = getPlugin(ast.plugin);
+  const mergedTokens = ast.customTokens
+    ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
+    : undefined;
+  const tokens = resolveTokens(ast.plugin, ast.brand.primaryColor, mergedTokens);
+  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| heroFont:', tokens.heroFont);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    const fonts = ast.customFonts?.length ? ast.customFonts : plugin.fonts;
+    fonts.forEach((font) => {
+      if (!document.querySelector(`link[href="${font.url}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = font.url;
+        document.head.appendChild(link);
+      }
+    });
+  }, [plugin, ast.customFonts]);
+
+  const downloadHTML = () => {
+    setDownloading(true);
+    try {
+      const el = contentRef.current;
+      if (!el) return;
+      const fontLinks = (ast.customFonts?.length ? ast.customFonts : plugin.fonts)
+        .map(f => `<link rel="stylesheet" href="${f.url}">`)
+        .join('\n');
+      const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+${fontLinks}
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden}
+@media(max-width:768px){
+  .ms-grid-3{grid-template-columns:1fr!important}
+  .ms-stats-row{flex-direction:column!important}
+  .ms-hero-ctas{flex-direction:column!important;width:100%!important}
+  .ms-split{flex-direction:column!important}
+}
+</style>
+</head>
+<body>
+${el.innerHTML}
+</body>
+</html>`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title.toLowerCase().replace(/\s+/g, '-')}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // In embedded mode the caller supplies its own scroll container — use a plain div.
+  const isEmbedded = mode === 'embedded';
+
+  return (
+    <div
+      id={isEmbedded ? undefined : SCROLL_CONTAINER_ID}
+      ref={scrollRef}
+      data-parallax={ast.behavior?.parallax ? 'true' : 'false'}
+      style={isEmbedded ? {
+        background: tokens.bg,
+        overflowX: 'hidden',
+        minHeight: '100%',
+      } : {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        background: tokens.bg,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+      }}
+    >
+      <style>{`
+        @media (max-width: 768px) {
+          .ms-grid-3 { grid-template-columns: 1fr !important; }
+          .ms-stats-row { flex-direction: column !important; }
+          .ms-hero-ctas { flex-direction: column !important; width: 100% !important; }
+          .ms-split { flex-direction: column !important; }
+        }
+        @media (max-width: 960px) {
+          .ms-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+        .ms-parallax-bg { background-attachment: fixed; background-size: cover; }
+        @media (max-width: 768px) { .ms-parallax-bg { background-attachment: scroll; } }
+      `}</style>
+
+      {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
+      <MicrositeNav
+        tokens={tokens}
+        brand={ast.brand}
+        sections={ast.sections ?? []}
+        scrollContainerId={SCROLL_CONTAINER_ID}
+      />
+
+      {/* Sections */}
+      <div ref={contentRef}>
+        {(ast.sections ?? []).map((section, i) => {
+          const raw = section.content as unknown as Record<string, unknown>;
+          console.log('SECTION →', section.sectionType, raw?.variant, raw?.ui);
+          return (
+            <AnimatedSection key={section.id} id={section.id} behavior={ast.behavior} index={i}>
+              {renderSection(section, tokens, ast.brand, i, ast.sections, ast.brief)}
+            </AnimatedSection>
+          );
+        })}
+
+        <footer
+          style={{
+            padding: '40px 24px env(safe-area-inset-bottom, 40px)',
+            textAlign: 'center',
+            borderTop: `1px solid ${tokens.border}`,
+            background: tokens.bg,
+          }}
+        >
+          <p style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: 12, color: tokens.textSubtle, margin: 0 }}>
+            {ast.brand.companyName}{ast.brand.tagline ? ` — ${ast.brand.tagline}` : ''}
+          </p>
+        </footer>
+      </div>
+
+      {/* Control bar — hidden in embedded mode (editor provides its own controls) */}
+      {!isEmbedded && mounted && createPortal(
+        <div style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          zIndex: 99999,
+        }}>
+          {onBack && (
+            <button
+              onClick={onBack}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 100,
+                border: `1px solid ${tokens.border}`,
+                background: `${tokens.bg}ee`,
+                backdropFilter: 'blur(12px)',
+                color: tokens.textMuted,
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: tokens.cardShadow,
+              }}
+            >
+              ← Back
+            </button>
+          )}
+          {onRegenerate && (
+            <button
+              onClick={onRegenerate}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 100,
+                border: `1px solid ${tokens.border}`,
+                background: `${tokens.bg}ee`,
+                backdropFilter: 'blur(12px)',
+                color: tokens.textMuted,
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: tokens.cardShadow,
+              }}
+            >
+              ↺ Regenerate
+            </button>
+          )}
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 100,
+                border: `1px solid ${tokens.border}`,
+                background: `${tokens.bg}ee`,
+                backdropFilter: 'blur(12px)',
+                color: tokens.textMuted,
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: tokens.cardShadow,
+              }}
+            >
+              ✏ Edit
+            </button>
+          )}
+          <button
+            onClick={downloadHTML}
+            disabled={downloading}
+            style={{
+              padding: '9px 18px',
+              borderRadius: 100,
+              border: 'none',
+              background: tokens.accent,
+              color: tokens.dark ? tokens.bg : '#fff',
+              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              cursor: downloading ? 'wait' : 'pointer',
+              boxShadow: `0 4px 16px ${tokens.glowColor}`,
+            }}
+          >
+            {downloading ? 'Preparing…' : '↓ Download HTML'}
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+export { SCROLL_CONTAINER_ID };

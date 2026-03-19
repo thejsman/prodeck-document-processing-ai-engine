@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "packages/providers/*"
+  - "packages/tools/*"
+  - "plugins/*"
+  - "services/*"
+  - "agents/*"

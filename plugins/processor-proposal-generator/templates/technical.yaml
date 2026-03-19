@@ -1,0 +1,115 @@
+name: technical
+version: "1.0"
+description: Deep-dive technical proposal template — architecture, stack, integrations, and delivery
+
+sections:
+  - title: "Technical Executive Summary"
+    query: "technical overview architecture objectives engineering goals"
+    instruction: >
+      Write a 'Technical Executive Summary' for a proposal to {client}
+      in the {industry} industry. Summarise the core engineering
+      challenge, the proposed technical approach, and why it is the
+      right solution. Keep it sharp — 2 paragraphs maximum, written
+      for a technical decision-maker.
+
+  - title: "Current State & Technical Gaps"
+    query: "current architecture legacy systems technical debt pain points limitations"
+    instruction: >
+      Write the 'Current State & Technical Gaps' section for a proposal
+      to {client} in the {industry} industry. Diagnose the existing
+      architecture, highlight specific technical debt, bottlenecks, or
+      capability gaps, and explain why they must be addressed. Be
+      specific — reference systems, versions, or patterns where context
+      is available.
+
+  - title: "Proposed Architecture"
+    query: "architecture design system components services data flow"
+    instruction: >
+      Write the 'Proposed Architecture' section for a proposal to
+      {client} in the {industry} industry. Describe the target
+      architecture in detail: key components, services, data flows,
+      and design principles (e.g. event-driven, microservices, cloud-
+      native). Explain the rationale for major architectural decisions.
+
+  - title: "Technology Stack & Rationale"
+    query: "technology stack tools frameworks languages platforms infrastructure"
+    instruction: >
+      Write the 'Technology Stack & Rationale' section for a proposal
+      to {client} in the {industry} industry. List every significant
+      technology choice (languages, frameworks, databases, cloud
+      services, observability tools) and justify each selection with
+      explicit reasoning — performance, scalability, team capability,
+      ecosystem maturity, or cost.
+
+  - title: "Integration Architecture"
+    query: "integrations APIs third-party systems data pipelines connectors"
+    instruction: >
+      Write the 'Integration Architecture' section for a proposal to
+      {client} in the {industry} industry. Detail how the new system
+      will connect to existing internal systems and external services.
+      Cover API contracts, messaging patterns, data formats, and
+      error-handling strategies for each major integration point.
+
+  - title: "Infrastructure & Deployment"
+    query: "infrastructure cloud deployment DevOps CI/CD containers Kubernetes"
+    instruction: >
+      Write the 'Infrastructure & Deployment' section for a proposal
+      to {client} in the {industry} industry. Describe the deployment
+      model (cloud provider, containers, IaC), CI/CD pipeline design,
+      environment strategy (dev/staging/prod), and operational tooling
+      for monitoring, alerting, and incident response.
+
+  - title: "Security & Compliance Architecture"
+    query: "security authentication authorisation encryption compliance data protection"
+    instruction: >
+      Write the 'Security & Compliance Architecture' section for a
+      proposal to {client} in the {industry} industry. Cover identity
+      and access management, data encryption (at rest and in transit),
+      network security, secrets management, and any compliance
+      requirements (e.g. GDPR, HIPAA, SOC 2, ISO 27001) that constrain
+      the design.
+
+  - title: "Performance & Scalability Design"
+    query: "performance scalability SLA throughput latency load capacity"
+    instruction: >
+      Write the 'Performance & Scalability Design' section for a
+      proposal to {client} in the {industry} industry. Specify
+      performance targets (latency, throughput, uptime SLAs), explain
+      how the architecture achieves them (caching, horizontal scaling,
+      async processing, CDN, etc.), and describe how the system will
+      behave under peak load.
+
+  - title: "Testing & Quality Assurance Strategy"
+    query: "testing QA quality unit integration end-to-end performance testing"
+    instruction: >
+      Write the 'Testing & Quality Assurance Strategy' section for a
+      proposal to {client} in the {industry} industry. Define the full
+      testing pyramid: unit, integration, contract, end-to-end, and
+      performance tests. Include tooling, coverage targets, and how
+      quality gates are enforced in the CI/CD pipeline.
+
+  - title: "Technical Delivery Plan"
+    query: "delivery plan sprints milestones engineering tasks phases"
+    instruction: >
+      Write the 'Technical Delivery Plan' section for a proposal to
+      {client} in the {industry} industry. Break down the build into
+      engineering sprints or phases with concrete technical milestones
+      (e.g. 'API contract defined', 'core service deployed to staging',
+      'load test passed'). Include team composition and key dependencies.
+
+  - title: "Pricing & Commercials"
+    query: "pricing cost budget commercials payment terms"
+    instruction: >
+      Write the 'Pricing & Commercials' section for a proposal to
+      {client} in the {industry} industry. Include a pricing
+      structure overview, payment terms, and any assumptions.
+      Use placeholder figures where specifics are unavailable.
+
+  - title: "Technical Risks & Mitigations"
+    query: "technical risks unknowns dependencies third-party constraints mitigation"
+    instruction: >
+      Write the 'Technical Risks & Mitigations' section for a proposal
+      to {client} in the {industry} industry. Identify the top
+      engineering risks (integration unknowns, scalability concerns,
+      third-party dependencies, team skill gaps) and provide a concrete
+      mitigation strategy for each. Use a risk register format.

@@ -1,0 +1,6 @@
+{
+  "name": "pdf-extractor",
+  "type": "extractor",
+  "apiVersion": "0.1",
+  "entry": "dist/index.js"
+}

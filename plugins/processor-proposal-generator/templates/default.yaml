@@ -1,0 +1,71 @@
+name: default
+version: "2.0"
+description: Standard enterprise proposal template
+
+sections:
+  - title: "Executive Summary"
+    query: "executive summary overview of the engagement scope and objectives"
+    instruction: >
+      Write a concise Executive Summary for a proposal to {client}
+      in the {industry} industry. Summarise the engagement scope,
+      key objectives, and value proposition. Keep it to 2-3 paragraphs.
+
+  - title: "Understanding of Requirements"
+    query: "client requirements needs challenges pain points"
+    instruction: >
+      Write the 'Understanding of Requirements' section for a proposal
+      to {client} in the {industry} industry. Demonstrate a clear
+      understanding of the client's needs, challenges, and desired
+      outcomes based on the provided context.
+
+  - title: "Proposed Solution"
+    query: "proposed solution approach methodology technology"
+    instruction: >
+      Write the 'Proposed Solution' section for a proposal to {client}
+      in the {industry} industry. Describe the recommended approach,
+      methodology, and technology stack. Explain why this solution
+      addresses the client's requirements.
+
+  - title: "Scope of Work"
+    query: "scope of work deliverables tasks workstreams"
+    instruction: >
+      Write the 'Scope of Work' section for a proposal to {client}
+      in the {industry} industry. Define the deliverables, tasks,
+      workstreams, and boundaries of the engagement. Use bullet points.
+
+  - title: "Implementation Plan"
+    query: "implementation plan phases milestones rollout"
+    instruction: >
+      Write the 'Implementation Plan' section for a proposal to
+      {client} in the {industry} industry. Outline the phased
+      approach, key milestones, and dependencies.
+
+  - title: "Timeline"
+    query: "timeline schedule duration milestones dates"
+    instruction: >
+      Write the 'Timeline' section for a proposal to {client}
+      in the {industry} industry. Present a realistic project
+      timeline with phases and estimated durations.
+
+  - title: "Pricing & Commercials"
+    query: "pricing cost budget commercials payment terms"
+    instruction: >
+      Write the 'Pricing & Commercials' section for a proposal to
+      {client} in the {industry} industry. Include a pricing
+      structure overview, payment terms, and any assumptions.
+      Use placeholder figures where specifics are unavailable.
+
+  - title: "Risk & Compliance Considerations"
+    query: "risk compliance regulatory mitigation security"
+    instruction: >
+      Write the 'Risk & Compliance Considerations' section for a
+      proposal to {client} in the {industry} industry. Identify
+      key risks, mitigation strategies, and relevant compliance
+      or regulatory considerations.
+
+  - title: "Next Steps"
+    query: "next steps action items follow up sign off"
+    instruction: >
+      Write the 'Next Steps' section for a proposal to {client}
+      in the {industry} industry. Provide clear action items,
+      decision points, and a recommended path forward.

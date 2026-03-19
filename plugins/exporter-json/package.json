@@ -1,0 +1,17 @@
+{
+  "name": "@ai-engine/plugin-exporter-json",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "JSON exporter plugin",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"No tests yet\"",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/plugin-sdk": "workspace:*"
+  }
+}

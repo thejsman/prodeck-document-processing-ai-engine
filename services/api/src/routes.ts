@@ -1,0 +1,312 @@
+/**
+ * Route handlers — thin delegation to @ai-engine/runtime.
+ */
+
+import { readFile, readdir, stat, mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import {
+  ingestDocuments,
+  queryKnowledgeBase,
+  listNamespaces,
+} from '@ai-engine/runtime';
+import { appendEpisodicEntry, truncate } from './memory-util.js';
+import { filterByAccess, type AuthContext } from './auth.js';
+import {
+  resolvePolicy,
+  executeWithPolicy,
+  withProviderEnv,
+  type ProviderPolicyConfig,
+  type ProviderInfo,
+} from './provider-policy.js';
+
+// ---------------------------------------------------------------------------
+// Helpers — lightweight file collection (mirrors CLI logic)
+// ---------------------------------------------------------------------------
+
+const INGESTABLE_EXTENSIONS = new Set([
+  '.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm',
+  '.log', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+  '.ts', '.js', '.py', '.java', '.c', '.cpp', '.h', '.hpp',
+  '.rs', '.go', '.rb', '.php', '.sh', '.bash', '.zsh',
+  '.css', '.scss', '.less', '.sql', '.r', '.m', '.swift',
+  '.kt', '.scala', '.ex', '.exs', '.erl', '.hs', '.lua',
+  '.pl', '.pm', '.tex', '.rst', '.adoc', '.org',
+  '.pdf',
+]);
+
+function isIngestable(filePath: string): boolean {
+  return INGESTABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+async function collectFiles(
+  inputPath: string,
+): Promise<{ fileName: string; content: string }[]> {
+  const resolved = path.resolve(inputPath);
+  const inputStat = await stat(resolved);
+
+  if (inputStat.isFile()) {
+    if (!isIngestable(resolved)) {
+      throw new Error(`Not a recognized file type: ${resolved}`);
+    }
+    const content = await readFile(resolved, 'utf-8');
+    return [{ fileName: path.basename(resolved), content }];
+  }
+
+  if (inputStat.isDirectory()) {
+    return collectFromDirectory(resolved);
+  }
+
+  throw new Error(`Input path is neither a file nor a directory: ${resolved}`);
+}
+
+async function collectFromDirectory(
+  dirPath: string,
+): Promise<{ fileName: string; content: string }[]> {
+  const results: { fileName: string; content: string }[] = [];
+  const entries = (await readdir(dirPath, { withFileTypes: true })).sort(
+    (a, b) => a.name.localeCompare(b.name),
+  );
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const fullPath = path.join(dirPath, entry.name);
+
+    if (entry.isFile() && isIngestable(fullPath)) {
+      const content = await readFile(fullPath, 'utf-8');
+      results.push({ fileName: entry.name, content });
+    } else if (entry.isDirectory()) {
+      const nested = await collectFromDirectory(fullPath);
+      for (const item of nested) {
+        results.push({
+          fileName: path.join(entry.name, item.fileName),
+          content: item.content,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Path safety
+// ---------------------------------------------------------------------------
+
+function safePath(base: string, userPath: string): string {
+  const resolved = path.resolve(base, userPath);
+  const rel = path.relative(base, resolved);
+  if (rel.startsWith('..')) {
+    throw new Error('Invalid path — traversal outside data directory');
+  }
+  return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Request decoration helper
+// ---------------------------------------------------------------------------
+
+function attachProviderInfo(req: FastifyRequest, info: ProviderInfo): void {
+  (req as FastifyRequest & { __providerInfo: ProviderInfo }).__providerInfo = info;
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+export function registerRoutes(
+  app: FastifyInstance,
+  workdir: string,
+  policyConfig: ProviderPolicyConfig | null,
+): void {
+
+  // POST /ingest
+  app.post('/ingest', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { path?: string; namespace?: string } | undefined;
+
+    if (!body?.path) {
+      return reply.code(400).send({ error: 'Missing required field: path' });
+    }
+
+    const namespace = body.namespace ?? 'default';
+    const inputPath = safePath(workdir, body.path);
+    const storageDir = path.join(workdir, 'namespaces', namespace);
+
+    const documents = await collectFiles(inputPath);
+
+    if (documents.length === 0) {
+      return reply.send({ documents: 0, chunks: 0 });
+    }
+
+    if (policyConfig) {
+      const policy = resolvePolicy(policyConfig, namespace, 'ingest');
+      const { result, usedFallback, provider } = await executeWithPolicy(
+        policy,
+        () => ingestDocuments({ documents, storageDir, namespace }),
+      );
+
+      attachProviderInfo(req, { provider, usedFallback, policySource: policy.source });
+      return reply.send(result);
+    }
+
+    const result = await ingestDocuments({ documents, storageDir, namespace });
+    return reply.send(result);
+  });
+
+  // POST /query
+  app.post('/query', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as {
+      question?: string;
+      namespace?: string;
+      stream?: boolean;
+    } | undefined;
+
+    if (!body?.question) {
+      return reply.code(400).send({ error: 'Missing required field: question' });
+    }
+
+    const namespace = body.namespace ?? 'default';
+    const storageDir = path.join(workdir, 'namespaces', namespace);
+
+    if (body.stream) {
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+
+      // After writeHead, errors must be written as SSE events — Fastify's error
+      // handler cannot send a new HTTP response once headers are already sent.
+      try {
+        if (policyConfig) {
+          const policy = resolvePolicy(policyConfig, namespace, 'query');
+
+          // Streaming — no fallback (partial SSE data cannot be retried).
+          const promise = withProviderEnv(policy, () =>
+            queryKnowledgeBase({
+              question: body.question!,
+              storageDir,
+              namespace,
+              stream: true,
+              onChunk: (chunk: string) => {
+                reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+              },
+            }),
+          );
+
+          attachProviderInfo(req, {
+            provider: policy.provider,
+            usedFallback: false,
+            policySource: policy.source,
+          });
+
+          const result = await promise;
+          void appendEpisodicEntry(workdir, namespace, {
+            timestamp: new Date().toISOString(),
+            source: 'chat-query',
+            content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
+          });
+          reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
+          reply.raw.end();
+          return;
+        }
+
+        const result = await queryKnowledgeBase({
+          question: body.question,
+          storageDir,
+          namespace,
+          stream: true,
+          onChunk: (chunk: string) => {
+            reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          },
+        });
+
+        void appendEpisodicEntry(workdir, namespace, {
+          timestamp: new Date().toISOString(),
+          source: 'chat-query',
+          content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
+        });
+        reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
+        reply.raw.end();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
+        reply.raw.end();
+      }
+      return;
+    }
+
+    if (policyConfig) {
+      const policy = resolvePolicy(policyConfig, namespace, 'query');
+      const { result, usedFallback, provider } = await executeWithPolicy(
+        policy,
+        () => queryKnowledgeBase({ question: body.question!, storageDir, namespace }),
+      );
+
+      attachProviderInfo(req, { provider, usedFallback, policySource: policy.source });
+      void appendEpisodicEntry(workdir, namespace, {
+        timestamp: new Date().toISOString(),
+        source: 'chat-query',
+        content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
+      });
+      return reply.send(result);
+    }
+
+    const result = await queryKnowledgeBase({
+      question: body.question,
+      storageDir,
+      namespace,
+    });
+
+    void appendEpisodicEntry(workdir, namespace, {
+      timestamp: new Date().toISOString(),
+      source: 'chat-query',
+      content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
+    });
+    return reply.send(result);
+  });
+
+  // GET /namespaces
+  app.get('/namespaces', async (req: FastifyRequest, reply: FastifyReply) => {
+    const auth = (req as FastifyRequest & { auth: AuthContext }).auth;
+    const all = await listNamespaces(workdir);
+    const visible = filterByAccess(all, auth.allowedNamespaces);
+    return reply.send({ namespaces: visible });
+  });
+
+  // POST /namespaces
+  app.post('/namespaces', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { name?: string } | undefined;
+
+    if (!body?.name) {
+      return reply.code(400).send({ error: 'Missing required field: name' });
+    }
+
+    const name = body.name.trim();
+
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+      return reply.code(400).send({
+        error: 'Invalid namespace name. Use lowercase alphanumeric characters and dashes only (e.g. "acme-corp").',
+      });
+    }
+
+    const nsDir = path.join(workdir, 'namespaces', name);
+
+    // Check for duplicate
+    try {
+      const s = await stat(nsDir);
+      if (s.isDirectory()) {
+        return reply.code(409).send({ error: `Namespace "${name}" already exists` });
+      }
+    } catch {
+      // Does not exist — proceed.
+    }
+
+    // Create directory structure
+    await mkdir(path.join(nsDir, 'uploads'), { recursive: true });
+    await mkdir(path.join(nsDir, 'proposals'), { recursive: true });
+    await mkdir(path.join(nsDir, 'index'), { recursive: true });
+
+    return reply.code(201).send({ namespace: name });
+  });
+}

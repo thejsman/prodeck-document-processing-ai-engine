@@ -1,0 +1,18 @@
+{
+  "defaultProvider": "openai",
+  "defaultTemplate": "fintech-compliance",
+  "tone": "formal",
+  "chunkStrategy": "paragraph",
+  "pricingDefaults": {
+    "ratePerWeek": 1500
+  },
+
+  "_storageNote": "Remove this _storageNote key and uncomment the storage block below to switch this namespace to S3. AWS credentials go in deployment/.env (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) or via an IAM role — not here.",
+
+  "_storageSample": {
+    "type": "s3",
+    "bucket": "your-bucket-name",
+    "region": "ap-south-1",
+    "basePrefix": "prod"
+  }
+}

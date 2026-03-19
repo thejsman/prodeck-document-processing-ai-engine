@@ -1,0 +1,114 @@
+# -------------------------------------------------------------------
+# AI Engine — Docker Compose blueprint
+#
+# Start everything:  docker compose up
+# Stop everything:   docker compose down
+# Rebuild:           docker compose up --build
+# -------------------------------------------------------------------
+
+services:
+
+  # ── Local LLM ────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── One-shot: pull models on first boot ──────────────────────────
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: >
+      /bin/sh -c "
+        echo 'Pulling generation model: $${OLLAMA_GENERATION_MODEL:-mistral}' &&
+        ollama pull $${OLLAMA_GENERATION_MODEL:-mistral} &&
+        echo 'Pulling embedding model: $${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}' &&
+        ollama pull $${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text} &&
+        echo 'Models ready.'
+      "
+    restart: "no"
+
+  # ── API service ──────────────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_GENERATION_MODEL=${OLLAMA_GENERATION_MODEL:-mistral}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-}
+    volumes:
+      - engine_data:/data
+      - ${API_KEYS_PATH:-../config/api_keys.example.json}:/app/config/api_keys.json:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Web UI ──────────────────────────────────────────────────────
+  ui:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.ui
+    ports:
+      - "${UI_PORT:-3001}:3001"
+    environment:
+      - API_URL=http://api:3000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── CLI (on-demand, not started by default) ──────────────────────
+  engine:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.engine
+    profiles: ["cli"]
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_GENERATION_MODEL=${OLLAMA_GENERATION_MODEL:-mistral}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - engine_data:/data
+
+volumes:
+  ollama_models:
+    driver: local
+  engine_data:
+    driver: local

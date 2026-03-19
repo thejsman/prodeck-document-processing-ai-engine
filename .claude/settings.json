@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"taskkill /PID 5104 /F 2>&1\")",
+      "Bash(powershell -Command \"Stop-Process -Id 5104 -Force\")",
+      "Bash(curl -s -H \"Authorization: Bearer admin-key\" -X POST http://localhost:3000/agent/run -H \"Content-Type: application/json\" -d \"{\"\"agent\"\":\"\"microsite-generator\"\",\"\"namespace\"\":\"\"acme\"\",\"\"input\"\":{\"\"metadata\"\":{\"\"proposalMarkdown\"\":\"\"## Executive Summary\\\\nThis proposal outlines our solution.\\\\n\\\\n## Problem Statement\\\\nThe client needs a better system.\"\"}}}\")",
+      "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like ''*dist/index*'' } | Select-Object Id, CommandLine\")"
+    ]
+  }
+}

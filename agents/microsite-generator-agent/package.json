@@ -1,0 +1,16 @@
+{
+  "name": "@ai-engine/agent-microsite-generator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Converts proposal markdown into a presentation microsite (MDX + diagrams)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/core": "workspace:*"
+  }
+}

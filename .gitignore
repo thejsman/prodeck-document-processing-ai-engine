@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+.next/
+
+# Generated data / vector indexes
+*.faiss
+chunks.json
+data/
+kb/
+output/
+!packages/cli/src/output/
+rag-workspace/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# API keys (real keys — example file is committed)
+config/api_keys.json
+config/api_keys.*.json
+!config/api_keys.example.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage & tests
+coverage/
+.nyc_output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+
+# Runtime-generated namespace data (uploads, vector indexes, proposals)
+services/api/namespaces/
+

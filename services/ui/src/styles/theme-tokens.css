@@ -1,0 +1,71 @@
+/**
+ * Theme design tokens.
+ *
+ * Dark mode is the default (:root).
+ * Light mode is activated by adding the "light" class to <html>.
+ *
+ * All component styles must reference these tokens — never hardcode colors.
+ *
+ * Bridge aliases (--color-*) keep existing component styles working without
+ * requiring a full codebase refactor.
+ */
+
+/* ── Dark (default) ────────────────────────────────────────────── */
+
+:root {
+  /* Surface */
+  --bg:         #0b0f17;
+  --panel:      #121826;
+  --panel-soft: #151c2e;
+  --border:     #1f2937;
+
+  /* Text */
+  --text:       #e5e7eb;
+  --muted:      #9ca3af;
+
+  /* Accent */
+  --primary:      #5b8cff;
+  --primary-soft: #2a3f8f;
+
+  /* Status */
+  --success: #22c55e;
+  --danger:  #ef4444;
+  --warning: #f59e0b;
+
+  /* ── Bridge aliases (backward-compat with existing --color-* usage) ── */
+  --color-bg:           var(--bg);
+  --color-surface:      var(--panel);
+  --color-text:         var(--text);
+  --color-text-muted:   var(--muted);
+  --color-primary:      var(--primary);
+  --color-primary-hover:#4a7aee;
+  --color-border:       var(--border);
+  --color-error:        var(--danger);
+  --color-success:      var(--success);
+}
+
+/* ── Light ──────────────────────────────────────────────────────── */
+
+.light {
+  /* Surface */
+  --bg:         #f7f9fc;
+  --panel:      #ffffff;
+  --panel-soft: #f1f5f9;
+  --border:     #e5e7eb;
+
+  /* Text */
+  --text:       #111827;
+  --muted:      #6b7280;
+
+  /* Accent */
+  --primary:      #3b82f6;
+  --primary-soft: #dbeafe;
+
+  /* Status */
+  --success: #16a34a;
+  --danger:  #dc2626;
+  --warning: #d97706;
+
+  /* Bridge alias overrides — derived automatically via var() */
+  --color-primary-hover: #2563eb;
+}

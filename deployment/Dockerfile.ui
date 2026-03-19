@@ -1,0 +1,45 @@
+# -------------------------------------------------------------------
+# AI Engine — UI image
+#
+# Next.js standalone app for proposal generation and knowledge queries.
+# Pure Node.js — no Python needed.
+#
+#   docker build -f deployment/Dockerfile.ui -t ai-engine-ui .
+# -------------------------------------------------------------------
+
+# ── Stage 1: build ────────────────────────────────────────────────
+FROM node:20-slim AS build
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/ packages/
+COPY agents/ agents/
+COPY plugins/ plugins/
+COPY services/ services/
+
+RUN pnpm install --frozen-lockfile
+
+# API_URL must be set at build time — Next.js bakes rewrites into the build output
+ENV API_URL=http://api:3000
+RUN pnpm build
+
+# ── Stage 2: runtime ─────────────────────────────────────────────
+FROM node:20-slim
+
+WORKDIR /app
+
+# Next.js standalone output includes everything needed
+COPY --from=build /app/services/ui/.next/standalone ./
+COPY --from=build /app/services/ui/.next/static ./services/ui/.next/static
+
+ENV NODE_ENV=production
+ENV PORT=3001
+ENV HOSTNAME=0.0.0.0
+ENV API_URL=http://api:3000
+
+EXPOSE 3001
+
+CMD ["node", "services/ui/server.js"]

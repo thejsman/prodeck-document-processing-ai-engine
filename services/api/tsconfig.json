@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/planner" },
+    { "path": "../../packages/runtime" },
+    { "path": "../../packages/tools/extract-section" },
+    { "path": "../../packages/tools/generate-content" },
+    { "path": "../../packages/tools/search-documents" },
+    { "path": "../../packages/tools/generate-mermaid" },
+    { "path": "../../packages/tools/save-asset" },
+    { "path": "../../agents/proposal-section-agent" },
+    { "path": "../../agents/microsite-generator-agent" }
+  ]
+}

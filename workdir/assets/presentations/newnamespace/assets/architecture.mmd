@@ -1,0 +1,16 @@
+graph TD
+    A[User Interaction] -->|RESTful API Calls| B[API Gateway]
+    B -->|Routes Requests| C[Microservices]
+    C -->|Business Functions| D[User Management]
+    C -->|Business Functions| E[Data Processing]
+    C -->|Business Functions| F[Order Fulfillment]
+    C -->|Business Functions| G[Reporting]
+    C -->|Event-Driven| H[Message Broker]
+    H -->|Asynchronous Communication| C
+    C -->|Data Needs| I[Data Management Layer]
+    I -->|SQL| J[Transactional Data]
+    I -->|NoSQL| K[Unstructured Data]
+    L[Service Discovery] --> C
+    M[Cloud Infrastructure] --> C
+    N[Monitoring and Logging] --> C
+    B -->|Authentication & Other Concerns| O[Client Requests]

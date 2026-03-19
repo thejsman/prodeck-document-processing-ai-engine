@@ -1,0 +1,6 @@
+{
+  "name": "@ai-engine/providers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI provider adapters parent package"
+}

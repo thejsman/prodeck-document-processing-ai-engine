@@ -1,0 +1,307 @@
+/**
+ * Knowledge bridge — programmatic interface to the FAISS-backed
+ * knowledge store.  Delegates to `knowledge_store.py` via the
+ * same JSON-over-stdin protocol the CLI used to call inline.
+ *
+ * Lives in runtime because it performs side effects (subprocess,
+ * file system reads).
+ */
+
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export interface IngestParams {
+  readonly documents: ReadonlyArray<{ fileName: string; content: string }>;
+  readonly storageDir: string;
+  readonly namespace: string;
+}
+
+export interface IngestResult {
+  readonly documents: number;
+  readonly chunks: number;
+  readonly provider?: string;
+}
+
+export interface QueryParams {
+  readonly question: string;
+  readonly storageDir: string;
+  readonly namespace: string;
+  readonly stream?: boolean;
+  readonly onChunk?: (chunk: string) => void;
+}
+
+export interface QueryResult {
+  readonly answer: string;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function pythonScriptDir(): string {
+  // Resolve relative to this file (dist/knowledge/knowledge-bridge.js → ../../../.. = project root)
+  return path.resolve(__dirname, '../../../../plugins/processor-local-faiss-rag');
+}
+
+function resolvePython(scriptDir: string): string {
+  const venv = path.join(scriptDir, '.venv', 'bin', 'python3');
+  return existsSync(venv) ? venv : 'python3';
+}
+
+function spawnKnowledgeStore(
+  payload: unknown,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const scriptDir = pythonScriptDir();
+    const scriptPath = path.join(scriptDir, 'knowledge_store.py');
+
+    const child = spawn(resolvePython(scriptDir), [scriptPath], {
+      cwd: scriptDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`Failed to spawn python3: ${err.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        let errorMessage = `Python process exited with code ${code}`;
+        if (stderr) {
+          try {
+            const parsed = JSON.parse(stderr) as { error?: string; type?: string };
+            const msg = parsed.error || '';
+            errorMessage = msg || (parsed.type ? `${parsed.type} (no message)` : errorMessage);
+          } catch {
+            errorMessage = stderr.trim() || errorMessage;
+          }
+        }
+        reject(new Error(errorMessage));
+      } else {
+        resolve({ stdout, stderr });
+      }
+    });
+
+    child.stdin.write(JSON.stringify(payload));
+    child.stdin.end();
+  });
+}
+
+// Sentinel written by knowledge_store.py after streaming all tokens, before
+// the final result JSON.  Must match knowledge_store.STREAM_SENTINEL exactly.
+const STREAM_SENTINEL = '\n<<<RESULT_JSON>>>\n';
+
+function spawnKnowledgeStoreStreaming(
+  payload: unknown,
+  onChunk: (chunk: string) => void,
+): Promise<QueryResult> {
+  return new Promise((resolve, reject) => {
+    const scriptDir = pythonScriptDir();
+    const scriptPath = path.join(scriptDir, 'knowledge_store.py');
+
+    const child = spawn(resolvePython(scriptDir), [scriptPath], {
+      cwd: scriptDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // All stdout received so far.
+    let accumulated = '';
+    // How many characters of `accumulated` have already been emitted as tokens.
+    let emittedUpTo = 0;
+    // Set to the index of the sentinel once found (-1 = not yet found).
+    let sentinelAt = -1;
+    let stderr = '';
+
+    child.stdout.on('data', (data: Buffer) => {
+      accumulated += data.toString();
+
+      // Once the sentinel has been found, stop emitting token chunks.
+      if (sentinelAt !== -1) return;
+
+      sentinelAt = accumulated.indexOf(STREAM_SENTINEL);
+
+      if (sentinelAt !== -1) {
+        // Emit any token text before the sentinel that hasn't been sent yet.
+        const tokenEnd = sentinelAt;
+        if (tokenEnd > emittedUpTo) {
+          onChunk(accumulated.slice(emittedUpTo, tokenEnd));
+          emittedUpTo = tokenEnd;
+        }
+      } else {
+        // Sentinel not yet found.  Emit up to SENTINEL.length-1 chars before
+        // the tail so we don't accidentally split a sentinel across two chunks.
+        const safeEnd = Math.max(emittedUpTo, accumulated.length - (STREAM_SENTINEL.length - 1));
+        if (safeEnd > emittedUpTo) {
+          onChunk(accumulated.slice(emittedUpTo, safeEnd));
+          emittedUpTo = safeEnd;
+        }
+      }
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`Failed to spawn python3: ${err.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        let errorMessage = `Python process exited with code ${code}`;
+        if (stderr) {
+          try {
+            const parsed = JSON.parse(stderr) as { error?: string; type?: string };
+            const msg = parsed.error || '';
+            errorMessage = msg || (parsed.type ? `${parsed.type} (no message)` : errorMessage);
+          } catch {
+            errorMessage = stderr.trim() || errorMessage;
+          }
+        }
+        reject(new Error(errorMessage));
+        return;
+      }
+
+      // On clean exit: resolve the final sentinel index, emit any remaining
+      // token text, then parse the JSON that follows the sentinel.
+      const finalSentinelAt = accumulated.indexOf(STREAM_SENTINEL);
+
+      if (finalSentinelAt !== -1) {
+        // Emit anything between emittedUpTo and the sentinel.
+        if (finalSentinelAt > emittedUpTo) {
+          onChunk(accumulated.slice(emittedUpTo, finalSentinelAt));
+        }
+        const jsonStr = accumulated.slice(finalSentinelAt + STREAM_SENTINEL.length);
+        try {
+          const parsed = JSON.parse(jsonStr) as { result: { answer: string } };
+          resolve(parsed.result);
+        } catch {
+          // Fallback: reconstruct from accumulated tokens.
+          resolve({ answer: accumulated.slice(0, finalSentinelAt) });
+        }
+      } else {
+        // No sentinel — the provider didn't stream (e.g. non-streaming fallback).
+        // Emit any remaining text and try to parse as JSON.
+        if (accumulated.length > emittedUpTo) {
+          onChunk(accumulated.slice(emittedUpTo));
+        }
+        try {
+          const parsed = JSON.parse(accumulated) as { result: { answer: string } };
+          resolve(parsed.result);
+        } catch {
+          resolve({ answer: accumulated });
+        }
+      }
+    });
+
+    child.stdin.write(JSON.stringify(payload));
+    child.stdin.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function ingestDocuments(
+  params: IngestParams,
+): Promise<IngestResult> {
+  const payload = {
+    operation: 'ingest',
+    storageDir: params.storageDir,
+    namespace: params.namespace,
+    documents: params.documents,
+  };
+
+  const { stdout } = await spawnKnowledgeStore(payload);
+  const parsed = JSON.parse(stdout) as {
+    result: { documents: number; chunks: number };
+  };
+
+  return parsed.result;
+}
+
+export async function queryKnowledgeBase(
+  params: QueryParams,
+): Promise<QueryResult> {
+  const payload = {
+    operation: 'query',
+    storageDir: params.storageDir,
+    namespace: params.namespace,
+    question: params.question,
+    stream: params.stream ?? false,
+  };
+
+  if (params.stream && params.onChunk) {
+    // spawnKnowledgeStoreStreaming emits token chunks via onChunk and returns
+    // the parsed QueryResult once the sentinel + JSON have been received.
+    return spawnKnowledgeStoreStreaming(payload, params.onChunk);
+  }
+
+  const { stdout } = await spawnKnowledgeStore(payload);
+  const parsed = JSON.parse(stdout) as {
+    result: { answer: string };
+  };
+
+  return parsed.result;
+}
+
+export async function listNamespaces(workdir: string): Promise<string[]> {
+  const namespacesDir = path.join(workdir, 'namespaces');
+
+  try {
+    const entries = await readdir(namespacesDir, { withFileTypes: true });
+    const namespaces: string[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      if (await isValidNamespace(namespacesDir, entry.name)) {
+        namespaces.push(entry.name);
+      }
+    }
+
+    return namespaces.sort();
+  } catch {
+    // namespaces directory doesn't exist yet.
+    return [];
+  }
+}
+
+async function isValidNamespace(
+  namespacesDir: string,
+  name: string,
+): Promise<boolean> {
+  const nsDir = path.join(namespacesDir, name);
+
+  // Has a FAISS index (ingested namespace).
+  try {
+    const s = await stat(path.join(nsDir, 'index.faiss'));
+    if (s.isFile()) return true;
+  } catch { /* not present */ }
+
+  // Has an uploads/ subdirectory (explicitly created namespace).
+  try {
+    const s = await stat(path.join(nsDir, 'uploads'));
+    if (s.isDirectory()) return true;
+  } catch { /* not present */ }
+
+  return false;
+}

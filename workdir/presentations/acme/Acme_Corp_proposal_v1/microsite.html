@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proposal for Acme Corp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #1e293b;
+            background-color: #ffffff;
+            overflow-x: hidden;
+        }
+        a {
+            text-decoration: none;
+            color: #2563eb;
+        }
+        h1, h2, h3 {
+            margin: 0;
+            padding: 20px;
+            color: #2563eb;
+        }
+        h1 {
+            font-size: 2.5em;
+            text-align: center;
+        }
+        h2 {
+            font-size: 2em;
+            margin-top: 40px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        h3 {
+            font-size: 1.5em;
+            margin-top: 20px;
+            color: #1e293b;
+        }
+        .hero {
+            background: linear-gradient(90deg, rgba(37,99,235,1) 0%, rgba(37,99,235,0.8) 100%);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+            margin: 20px auto;
+            background-color: #f8fafc;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            animation: fadeInUp 0.5s ease-in-out;
+        }
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 250px;
+            height: 100%;
+            background-color: #2563eb;
+            color: white;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+        }
+        .sidebar a {
+            color: white;
+            padding: 10px 0;
+            transition: background 0.3s;
+        }
+        .sidebar a:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .menu-toggle {
+            display: none;
+            cursor: pointer;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .table th, .table td {
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+        }
+        .table th {
+            background-color: #2563eb;
+            color: white;
+        }
+        .table tr:nth-child(even) {
+            background-color: #f1f5f9;
+        }
+        .bullets {
+            list-style-type: none;
+            padding: 0;
+        }
+        .bullets li {
+            position: relative;
+            padding-left: 20px;
+        }
+        .bullets li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 10px;
+            height: 10px;
+            background-color: #2563eb;
+            border-radius: 50%;
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        @media (max-width: 768px) {
+            .sidebar {
+                position: absolute;
+                width: 100%;
+                height: auto;
+                display: none;
+            }
+            .menu-toggle {
+                display: block;
+                background: #2563eb;
+                color: white;
+                padding: 10px;
+                text-align: center;
+            }
+            .content {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>Navigation</h2>
+        <a href="#executive-summary">Technical Executive Summary</a>
+        <a href="#current-state">Current State & Technical Gaps</a>
+        <a href="#proposed-architecture">Proposed Architecture</a>
+        <a href="#technology-stack">Technology Stack & Rationale</a>
+        <a href="#integration-architecture">Integration Architecture</a>
+        <a href="#infrastructure-deployment">Infrastructure & Deployment</a>
+        <a href="#security-compliance">Security & Compliance Architecture</a>
+        <a href="#performance-scalability">Performance & Scalability Design</a>
+        <a href="#testing-qa">Testing & Quality Assurance Strategy</a>
+        <a href="#technical-delivery">Technical Delivery Plan</a>
+        <a href="#pricing-commercials">Pricing & Commercials</a>
+        <a href="#technical-risks">Technical Risks & Mitigations</a>
+    </div>
+
+    <div class="menu-toggle" onclick="toggleMenu()">☰ Menu</div>
+
+    <div class="hero">
+        <h1>Proposal for Acme Corp</h1>
+        <p>Integrating a Scalable IT Infrastructure</p>
+    </div>
+
+    <div class="content" id="executive-summary">
+        <h2>Technical Executive Summary</h2>
+        <p>Acme Corp faces the challenge of integrating a scalable and efficient IT infrastructure that can adapt to evolving market demands while maintaining high performance and security standards. Currently, the organization operates with a fragmented architecture that inhibits agility and creates maintenance overheads...</p>
+    </div>
+
+    <div class="content" id="current-state">
+        <h2>Current State & Technical Gaps</h2>
+        <p>Acme Corp's current IT architecture is experiencing significant challenges that impede scalability, efficiency, and innovation...</p>
+    </div>
+
+    <div class="content" id="proposed-architecture">
+        <h2>Proposed Architecture</h2>
+        <p>The proposed architecture for Acme Corp is designed to meet the evolving demands of the IT industry while ensuring robustness, scalability, and seamless integration...</p>
+        <h3>Key Components</h3>
+        <ol class="bullets">
+            <li>Microservices</li>
+            <li>API Gateway</li>
+            <li>Service Discovery</li>
+            <li>Data Management Layer</li>
+            <li>Message Broker</li>
+            <li>Cloud Infrastructure</li>
+            <li>Monitoring and Logging</li>
+        </ol>
+    </div>
+
+    <div class="content" id="technology-stack">
+        <h2>Technology Stack & Rationale</h2>
+        <h3>Programming Languages and Frameworks</h3>
+        <ol class="bullets">
+            <li>Python</li>
+            <li>Node.js</li>
+            <li>React</li>
+        </ol>
+        <h3>Databases</h3>
+        <ol class="bullets">
+            <li>PostgreSQL</li>
+            <li>MongoDB</li>
+        </ol>
+        <h3>Cloud Services</h3>
+        <ol class="bullets">
+            <li>Amazon Web Services (AWS)</li>
+            <li>Docker</li>
+        </ol>
+    </div>
+
+    <div class="content" id="integration-architecture">
+        <h2>Integration Architecture</h2>
+        <p>The integration architecture is pivotal in ensuring seamless connectivity between the new system and Acme Corp's existing internal systems, as well as external services...</p>
+    </div>
+
+    <div class="content" id="infrastructure-deployment">
+        <h2>Infrastructure & Deployment</h2>
+        <p>We propose utilizing a robust and scalable cloud deployment model, leveraging Amazon Web Services (AWS) due to its vast ecosystem...</p>
+    </div>
+
+    <div class="content" id="security-compliance">
+        <h2>Security & Compliance Architecture</h2>
+        <p>In the IT industry, where data integrity and privacy are paramount, our proposed security and compliance architecture for Acme Corp is designed to address the multifaceted challenges...</p>
+    </div>
+
+    <div class="content" id="performance-scalability">
+        <h2>Performance & Scalability Design</h2>
+        <p>In our proposed solution for Acme Corp, we have established clear performance targets to ensure that your system operates efficiently and reliably...</p>
+    </div>
+
+    <div class="content" id="testing-qa">
+        <h2>Testing & Quality Assurance Strategy</h2>
+        <p>In our commitment to delivering high-quality software, we propose a comprehensive Testing and Quality Assurance (QA) Strategy that adheres to the full testing pyramid...</p>
+    </div>
+
+    <div class="content" id="technical-delivery">
+        <h2>Technical Delivery Plan</h2>
+        <p>The technical delivery of the proposed solution for Acme Corp will be structured into four engineering phases, each comprising a set of sprints with defined milestones...</p>
+    </div>
+
+    <div class="content" id="pricing-commercials">
+        <h2>Pricing & Commercials</h2>
+        <table class="table">
+            <tr>
+                <th>Item</th>
+                <th>Value</th>
+            </tr>
+            <tr>
+                <td>Team Size</td>
+                <td>4</td>
+            </tr>
+            <tr>
+                <td>Duration</td>
+                <td>10 weeks</td>
+            </tr>
+            <tr>
+                <td>Rate per Person per Week</td>
+                <td>$2,500.00</td>
+            </tr>
+            <tr>
+                <td>Weekly Cost</td>
+                <td>$10,000.00</td>
+            </tr>
+            <tr>
+                <td><strong>Total Estimated Cost</strong></td>
+                <td><strong>$100,000.00</strong></td>
+            </tr>
+        </table>
+        <p><strong>Payment Terms:</strong> Net-30 from invoice date, billed monthly in arrears.</p>
+        <p><strong>Assumptions:</strong> Rates are based on standard business hours...</p>
+    </div>
+
+    <div class="content" id="technical-risks">
+        <h2>Technical Risks & Mitigations</h2>
+        <table class="table">
+            <tr>
+                <th>Risk Description</th>
+                <th>Impact Level</th>
+                <th>Likelihood</th>
+                <th>Mitigation Strategy</th>
+            </tr>
+            <tr>
+                <td>Integration Unknowns</td>
+                <td>High</td>
+                <td>Medium</td>
+                <td>Conduct a thorough integration assessment during the initial phases...</td>
+            </tr>
+            <tr>
+                <td>Scalability Concerns</td>
+                <td>High</td>
+                <td>Medium</td>
+                <td>Implement a scalable architecture from day one using microservices...</td>
+            </tr>
+            <tr>
+                <td>Third-party Dependencies</td>
+                <td>Medium</td>
+                <td>High</td>
+                <td>Create a comprehensive vendor management plan...</td>
+            </tr>
+            <tr>
+                <td>Team Skill Gaps</td>
+                <td>Medium</td>
+                <td>Medium</td>
+                <td>Assess the current skill levels of team members...</td>
+            </tr>
+        </table>
+    </div>
+
+    <footer style="text-align:center; padding: 20px; background-color: #f8fafc;">
+        <p>Generated by AI Engine</p>
+        <p>Date: March 10, 2026</p>
+    </footer>
+
+    <script>
+        function toggleMenu() {
+            const sidebar = document.querySelector('.sidebar');
+            const isVisible = sidebar.style.display === 'block';
+            sidebar.style.display = isVisible ? 'none' : 'block';
+        }
+    </script>
+</body>
+</html>

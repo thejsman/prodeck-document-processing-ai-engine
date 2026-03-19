@@ -1,0 +1,5 @@
+{
+  "legal-team-key": ["legal"],
+  "finance-team-key": ["finance"],
+  "admin-key": ["*"]
+}

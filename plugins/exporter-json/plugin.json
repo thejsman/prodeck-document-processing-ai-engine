@@ -1,0 +1,6 @@
+{
+  "name": "json-exporter",
+  "type": "exporter",
+  "apiVersion": "0.1",
+  "entry": "dist/index.js"
+}

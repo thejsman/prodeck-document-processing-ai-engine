@@ -1,0 +1,9 @@
+name: generic-documents
+version: "1.0"
+steps:
+  - type: extract
+    ref: pdf-extractor
+  - type: process
+    ref: summarizer
+  - type: export
+    ref: json-exporter

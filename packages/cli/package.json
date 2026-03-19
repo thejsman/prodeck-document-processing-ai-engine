@@ -1,0 +1,26 @@
+{
+  "name": "@ai-engine/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLI adapter for the AI document processing engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ai-engine": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"No tests yet\"",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/agent-microsite-generator": "workspace:*",
+    "@ai-engine/agent-proposal-section": "workspace:*",
+    "@ai-engine/tool-extract-section": "workspace:*",
+    "@ai-engine/types": "workspace:*",
+    "@ai-engine/core": "workspace:*",
+    "@ai-engine/runtime": "workspace:*",
+    "@ai-engine/planner": "workspace:*"
+  }
+}

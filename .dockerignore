@@ -1,0 +1,61 @@
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+
+# TypeScript build output (rebuilt inside container)
+dist/
+**/dist/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Next.js build cache
+.next/
+**/.next/
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Git metadata
+.git/
+.gitignore
+
+# Runtime data (mounted via volumes, not baked into image)
+data/
+workdir/
+rag-workspace/
+kb/
+namespaces/
+*.faiss
+chunks.json
+*.log
+
+# Secrets and environment
+.env
+.env.*
+!.env.example
+config/api_keys.json
+config/api_keys.*.json
+!config/api_keys.example.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test/coverage
+coverage/
+.nyc_output/
+
+# Deployment docs and nginx (not needed inside app images)
+deployment/nginx/
+deployment/*.md
+deployment/.env*

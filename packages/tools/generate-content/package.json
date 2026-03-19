@@ -1,0 +1,16 @@
+{
+  "name": "@ai-engine/tool-generate-content",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool: generate or enhance content via LLM",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/core": "workspace:*"
+  }
+}

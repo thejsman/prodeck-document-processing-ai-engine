@@ -1,0 +1,13 @@
+{
+  "name": "@ai-engine/layout-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure, deterministic layout engine that converts proposal sections into structured MDX presentation layouts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  }
+}

@@ -1,0 +1,51 @@
+# -------------------------------------------------------------------
+# AI Engine — CLI image
+#
+# Builds the full monorepo (Node + Python) for direct CLI usage.
+#
+#   docker build -f deployment/Dockerfile.engine -t ai-engine .
+#   docker run --rm ai-engine --help
+# -------------------------------------------------------------------
+
+# ── Stage 1: build ────────────────────────────────────────────────
+FROM node:20-slim AS build
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+# Install Node dependencies first (layer cache)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/ packages/
+COPY plugins/ plugins/
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm build
+
+# ── Stage 2: runtime ─────────────────────────────────────────────
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build /app /app
+
+# Python dependencies required by plugins
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+        requests \
+        numpy \
+        faiss-cpu \
+        pyyaml \
+        openai
+
+# Persistent data lives here
+RUN mkdir -p /data
+
+ENV NODE_ENV=production
+
+ENTRYPOINT ["node", "packages/cli/dist/index.js"]
+CMD ["--help"]

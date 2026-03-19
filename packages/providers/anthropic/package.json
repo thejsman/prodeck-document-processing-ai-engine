@@ -1,0 +1,16 @@
+{
+  "name": "@ai-engine/provider-anthropic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Anthropic provider adapter",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"No tests yet\"",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/types": "workspace:*"
+  }
+}

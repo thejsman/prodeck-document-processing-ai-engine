@@ -1,0 +1,17 @@
+{
+  "name": "ai-engine-document-processing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI-first, open-source AI document processing engine",
+  "license": "MIT",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "typescript": "^5.9.3"
+  }
+}

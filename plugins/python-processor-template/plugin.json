@@ -1,0 +1,6 @@
+{
+  "name": "python-processor",
+  "type": "processor",
+  "apiVersion": "0.1",
+  "entry": "dist/index.js"
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "default": {
+    "ingest": {
+      "provider": "ollama",
+      "models": {},
+      "options": {},
+      "fallback": null
+    },
+    "query": {
+      "provider": "ollama",
+      "models": {},
+      "options": {},
+      "fallback": null
+    }
+  },
+  "namespaces": {}
+}
