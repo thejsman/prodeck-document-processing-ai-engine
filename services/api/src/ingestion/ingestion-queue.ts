@@ -46,7 +46,7 @@ class IngestionQueue {
     this.policyConfig = policyConfig;
   }
 
-  enqueue(job: Omit<IngestionJob, 'id'>): void {
+  enqueue(job: Omit<IngestionJob, 'id'>): string {
     const fullJob: IngestionJob = {
       ...job,
       id: crypto.randomUUID(),
@@ -56,6 +56,7 @@ class IngestionQueue {
       // Defer to next microtask so current request handler can return first
       Promise.resolve().then(() => this.processNext());
     }
+    return fullJob.id;
   }
 
   private async processNext(): Promise<void> {

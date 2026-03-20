@@ -43,6 +43,7 @@ function mapType(t?: string): ExecutionType {
     case "RFP":       return "rfp"
     case "DIAGRAM":   return "diagram"
     case "ANALYSIS":  return "analysis"
+    case "INGESTION": return "ingestion"
     default:          return "proposal"
   }
 }
@@ -54,6 +55,7 @@ interface SSEPayload {
   status: string
   artifactId?: string
   type?: string
+  title?: string
   message?: string
 }
 
@@ -77,7 +79,7 @@ function handleMessage(event: MessageEvent): void {
     console.debug("[ExecutionTransport] event received", payload)
   }
 
-  const { executionId, status, artifactId, type, message } = payload
+  const { executionId, status, artifactId, type, title, message } = payload
   const store = useExecutionStore.getState()
   const frontendStatus = mapStatus(status)
   const existing = store.executions[executionId]
@@ -86,6 +88,7 @@ function handleMessage(event: MessageEvent): void {
     store.updateExecution(executionId, {
       status: frontendStatus,
       ...(artifactId !== undefined && { artifactId }),
+      ...(title !== undefined && { title }),
       ...(message !== undefined && { message }),
       lastUpdatedAt: Date.now(),
     })
@@ -96,6 +99,7 @@ function handleMessage(event: MessageEvent): void {
       type: mapType(type),
       status: frontendStatus,
       artifactId,
+      title,
       message,
       lastUpdatedAt: Date.now(),
     })
