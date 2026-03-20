@@ -24,6 +24,8 @@ docs/              Architecture and feature documentation
 examples/          Runnable pipeline examples
 ```
 
+---
+
 ## Quick start
 
 ```bash
@@ -79,12 +81,12 @@ PROVIDER_POLICY_PATH=config/provider_policy.json node services/api/dist/index.js
 
 Endpoints:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET`  | `/health` | Health check |
-| `POST` | `/ingest` | Ingest documents into a namespace |
-| `POST` | `/query` | Query a namespace |
-| `GET`  | `/namespaces` | List accessible namespaces |
+| Method | Path          | Description                       |
+| ------ | ------------- | --------------------------------- |
+| `GET`  | `/health`     | Health check                      |
+| `POST` | `/ingest`     | Ingest documents into a namespace |
+| `POST` | `/query`      | Query a namespace                 |
+| `GET`  | `/namespaces` | List accessible namespaces        |
 
 The provider routing policy (`config/provider_policy.json`) enables per-namespace, per-operation provider selection with automatic fallback. See [docs/FEATURES.md](docs/FEATURES.md) for full documentation.
 
@@ -100,15 +102,15 @@ See [deployment/README.md](deployment/README.md) for details.
 
 ## CLI commands
 
-| Command | Description |
-|---------|-------------|
-| `ai-engine run <pipeline> <input>` | Execute a pipeline |
-| `ai-engine ingest <path>` | Ingest documents into FAISS index |
-| `ai-engine query "<question>"` | Query the knowledge base |
-| `ai-engine eval --dataset <file>` | Evaluate retrieval & generation quality |
-| `ai-engine generate-proposal --client <n>` | Generate a structured proposal |
-| `ai-engine namespaces` | List available namespaces |
-| `ai-engine` (no args) | Enter interactive mode |
+| Command                                    | Description                             |
+| ------------------------------------------ | --------------------------------------- |
+| `ai-engine run <pipeline> <input>`         | Execute a pipeline                      |
+| `ai-engine ingest <path>`                  | Ingest documents into FAISS index       |
+| `ai-engine query "<question>"`             | Query the knowledge base                |
+| `ai-engine eval --dataset <file>`          | Evaluate retrieval & generation quality |
+| `ai-engine generate-proposal --client <n>` | Generate a structured proposal          |
+| `ai-engine namespaces`                     | List available namespaces               |
+| `ai-engine` (no args)                      | Enter interactive mode                  |
 
 ## Documentation
 
