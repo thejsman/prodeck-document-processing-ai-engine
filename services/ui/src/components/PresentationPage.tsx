@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { useExecutionStore } from '@/core/execution/execution-store';
 import {
   fetchNamespaces,
   fetchProposals,
@@ -180,6 +181,8 @@ async function extractLogoColors(
 // ── Main Component ───────────────────────────────────────────────────────────
 export function PresentationPage() {
   const { apiKey } = useAuth();
+  const addExecution = useExecutionStore((s) => s.addExecution);
+  const updateExecution = useExecutionStore((s) => s.updateExecution);
 
   // Wizard state
   const [step, setStep] = useState<StepId>('upload');
@@ -332,6 +335,14 @@ export function PresentationPage() {
     setProgress([]);
     setLayoutAST(null);
 
+    const execId = crypto.randomUUID();
+    addExecution({
+      id: execId,
+      type: 'microsite',
+      status: 'running',
+      title: selectedProposal?.client ?? selectedNamespace,
+    });
+
     try {
       setProgress([{ text: 'Parsing document structure...', done: true }]);
       setProgress(p => [...p, { text: 'Sending to microsite-generator agent...', done: false }]);
@@ -394,13 +405,15 @@ export function PresentationPage() {
 
       setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
       setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
+      updateExecution(execId, { status: 'completed' });
       setTimeout(() => setStep('preview'), 600);
     } catch (e) {
       setError((e as Error).message);
+      updateExecution(execId, { status: 'failed', errorMessage: (e as Error).message });
     } finally {
       setGenerating(false);
     }
-  }, [apiKey, selectedNamespace, mdContent, generatedMarkdown, selectedPlugin, brand, customPrompt, designBrief, synthesizedDesign]);
+  }, [apiKey, selectedNamespace, mdContent, generatedMarkdown, selectedPlugin, brand, customPrompt, designBrief, synthesizedDesign, addExecution, updateExecution, selectedProposal]);
 
   // ── Preview mode: delegate entirely to Microsite (it handles fullscreen + portal buttons) ──
   if (step === 'preview' && layoutAST) {
