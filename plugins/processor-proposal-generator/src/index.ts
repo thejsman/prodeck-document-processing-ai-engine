@@ -24,6 +24,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExecutionContext } from '@ai-engine/runtime';
@@ -75,6 +76,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCRIPT_PATH = path.resolve(__dirname, '..', 'processor.py');
 
+function resolvePython(scriptDir: string): string {
+  const faissPluginDir = path.resolve(__dirname, '../../processor-local-faiss-rag');
+  const venv = path.join(faissPluginDir, '.venv', 'bin', 'python3');
+  return existsSync(venv) ? venv : 'python3';
+}
+
 // ---------------------------------------------------------------------------
 // Python subprocess
 // ---------------------------------------------------------------------------
@@ -85,7 +92,7 @@ export function spawnProposalGenerator(
   return new Promise((resolve, reject) => {
     const scriptDir = path.dirname(SCRIPT_PATH);
 
-    const child = spawn('python3', [SCRIPT_PATH], {
+    const child = spawn(resolvePython(scriptDir), [SCRIPT_PATH], {
       cwd: scriptDir,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

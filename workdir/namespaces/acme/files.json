@@ -15,6 +15,19 @@
     "fileName": "meeting.txt",
     "size": 21800,
     "uploadedAt": "2026-03-05T11:37:52.293Z",
+    "status": "failed",
+    "error": "Traceback (most recent call last):\n  File \"/home/sumit-rawat/react_projects/prodeck/plugins/processor-local-faiss-rag/knowledge_store.py\", line 17, in <module>\n    from vector_store import FaissVectorStore\n  File \"/home/sumit-rawat/react_projects/prodeck/plugins/processor-local-faiss-rag/vector_store.py\", line 7, in <module>\n    import numpy as np\nModuleNotFoundError: No module named 'numpy'"
+  },
+  {
+    "fileName": "kmdig-rfp.md",
+    "size": 7939,
+    "uploadedAt": "2026-03-21T18:23:57.240Z",
+    "status": "indexed"
+  },
+  {
+    "fileName": "kmdig-tech-stack.md",
+    "size": 6840,
+    "uploadedAt": "2026-03-21T18:23:57.240Z",
     "status": "indexed"
   }
 ]

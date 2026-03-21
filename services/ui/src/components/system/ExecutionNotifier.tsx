@@ -12,6 +12,7 @@ const COMPLETION_TITLES: Record<ExecutionType, string> = {
   rfp: "RFP generated",
   diagram: "Diagram generated",
   analysis: "Analysis complete",
+  ingestion: "Ingestion complete",
 }
 
 const ARTIFACT_ROUTES: Partial<Record<ExecutionType, string>> = {
