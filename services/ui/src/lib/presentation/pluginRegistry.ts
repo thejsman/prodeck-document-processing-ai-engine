@@ -167,6 +167,37 @@ export function getPlugin(id: string): PluginMeta {
   return PLUGINS.find((p) => p.id === id) ?? PLUGINS[0];
 }
 
+/**
+ * Fetch the live plugin list from the API.
+ * Falls back to the static PLUGINS array on error.
+ */
+export async function fetchPluginsFromApi(apiKey: string): Promise<PluginMeta[]> {
+  try {
+    const res = await fetch('/api/plugins', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return PLUGINS;
+    const data = (await res.json()) as { plugins?: unknown[] };
+    if (!Array.isArray(data.plugins) || data.plugins.length === 0) return PLUGINS;
+
+    return (data.plugins as Array<{
+      id: string;
+      manifest: { displayName: string; [k: string]: unknown };
+      tokens: PluginTokens;
+      fonts: { family: string; url: string }[];
+    }>).map(p => ({
+      id: p.id,
+      name: p.manifest.displayName ?? p.id,
+      description: String((p.manifest as Record<string, unknown>).description ?? ''),
+      character: String((p.manifest as Record<string, unknown>).character ?? ''),
+      tokens: p.tokens,
+      fonts: p.fonts ?? [],
+    }));
+  } catch {
+    return PLUGINS;
+  }
+}
+
 /** Apply brand primaryColor as accent override */
 export function applyBrandOverride(tokens: PluginTokens, brandPrimary: string): PluginTokens {
   if (!brandPrimary) return tokens;

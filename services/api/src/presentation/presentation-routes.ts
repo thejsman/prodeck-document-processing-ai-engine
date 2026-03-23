@@ -8,9 +8,11 @@
  *   POST /presentations/:namespace/:proposalId/config — update theme config
  *   POST /presentations/:namespace/:proposalId/generate — generate microsite via microsite-generator-agent
  *   GET  /presentations/:namespace/:proposalId/microsite — read generated MDX content
+ *   POST /presentations/:namespace/:proposalId/design-edit — AI-driven design or content edit
+ *   POST /presentations/:namespace/:proposalId/publish — export to self-contained HTML
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { env } from 'node:process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -26,29 +28,14 @@ import {
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
-
-/**
- * Fetch a contextual landscape photo URL from the Unsplash API.
- * Returns null when no key is configured or the request fails.
- */
-async function fetchUnsplashImageUrl(query: string): Promise<string | null> {
-  const key = env.UNSPLASH_ACCESS_KEY;
-  if (!key?.trim()) return null;
-  const words = query.trim().split(/\s+/);
-  const candidates = [query, words.slice(0, 3).join(' '), words.slice(0, 2).join(' '), words[0]]
-    .filter((q, i, arr) => q && arr.indexOf(q) === i);
-  for (const q of candidates) {
-    try {
-      const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(q)}&orientation=landscape&client_id=${key}`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const photo = await res.json() as { urls?: { regular?: string }; errors?: string[] };
-      if (photo.errors?.length || !photo.urls?.regular) continue;
-      return photo.urls.regular;
-    } catch { continue; }
-  }
-  return null;
-}
+import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
+import { renderMicrositeToHtml } from './html-exporter.js';
+import {
+  fetchUnsplashImageUrl,
+  generateDalle3Image,
+  buildDallePrompt,
+  resolveImageSource,
+} from '../image-routes.js';
 
 function checkNamespaceAccess(
   auth: AuthContext,
@@ -276,21 +263,40 @@ export function registerPresentationRoutes(
         },
       });
 
-      // Resolve hero background image via Unsplash API and patch the saved AST
-      const ast = result.json as { sections?: Array<{ sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> }> } | null | undefined;
+      // Resolve images for all visual sections in parallel
+      type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
+      const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
       if (ast?.sections) {
-        const hero = ast.sections.find(s => s.sectionType === 'hero' && s.image.source === 'unsplash');
-        if (hero) {
-          const query = (hero.content.imageQuery as string | undefined) || hero.image.query;
-          if (query) {
-            const imageUrl = await fetchUnsplashImageUrl(query);
-            if (imageUrl) {
-              hero.image.url = imageUrl;
-              const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-              await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
+        const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+        const accentColor = ast.brand?.primaryColor;
+
+        await Promise.all(
+          ast.sections.map(async (sec) => {
+            const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
+            if (!query?.trim()) return;
+
+            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+            if (chosenSource === 'gradient') {
+              sec.image.source = 'gradient';
+              return;
             }
-          }
-        }
+
+            sec.image.source = chosenSource;
+
+            if (chosenSource === 'dalle') {
+              const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
+              const url = await generateDalle3Image(prompt);
+              if (url) sec.image.url = url;
+            } else {
+              const url = await fetchUnsplashImageUrl(query);
+              if (url) sec.image.url = url;
+            }
+          }),
+        );
+
+        const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+        await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
       }
 
       return reply.send({ assets: result.assets ?? [] });
@@ -317,6 +323,112 @@ export function registerPresentationRoutes(
         return reply.send({ ast: null });
       }
       throw err;
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/design-edit
+  // Apply AI-driven design or content edits to an existing microsite AST.
+  // Body: { instruction, targetSectionId?, currentAst, commit?: boolean }
+  // Returns: { ast, mode, changed, summary }
+  app.post('/presentations/:namespace/:proposalId/design-edit', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as {
+      instruction?: string;
+      targetSectionId?: string;
+      currentAst?: Record<string, unknown>;
+      commit?: boolean;
+    };
+
+    const instruction = body.instruction?.trim();
+    if (!instruction) {
+      return reply.code(400).send({ error: 'instruction is required' });
+    }
+
+    // Load AST from body or fall back to saved file
+    let currentAst = body.currentAst;
+    if (!currentAst) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      try {
+        const raw = await readFile(astPath, 'utf-8');
+        currentAst = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return reply.code(404).send({ error: `No microsite AST found for ${namespace}/${proposalId}` });
+      }
+    }
+
+    const generateFn = llmGenerateFn(namespace);
+
+    const agent = new DesignEditorAgent();
+    const result = await agent.run({
+      namespace,
+      metadata: {
+        currentAst,
+        instruction,
+        targetSectionId: body.targetSectionId,
+        generateFn,
+      },
+    });
+
+    const editResult = result.json as { ast: Record<string, unknown>; mode: string; changed: string[] } | null;
+    if (!editResult) {
+      return reply.code(500).send({ error: 'Design editor returned no result' });
+    }
+
+    // Optionally save patched AST back to disk
+    if (body.commit !== false) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      await writeFile(astPath, JSON.stringify(editResult.ast, null, 2), 'utf-8');
+    }
+
+    return reply.send({
+      ast: editResult.ast,
+      mode: editResult.mode,
+      changed: editResult.changed,
+      summary: result.markdown ?? '',
+    });
+  });
+
+  // POST /presentations/:namespace/:proposalId/publish
+  // Export the microsite AST to a self-contained HTML file.
+  // Body: { ast?: Record<string, unknown>, format?: 'html' }
+  // Returns: { downloadUrl: string, size: number }
+  app.post('/presentations/:namespace/:proposalId/publish', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { ast?: Record<string, unknown>; format?: string } | undefined;
+
+    // Load AST from body or fall back to saved file
+    let ast = body?.ast;
+    if (!ast) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      try {
+        const raw = await readFile(astPath, 'utf-8');
+        ast = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return reply.code(404).send({ error: `No microsite AST found for ${namespace}/${proposalId}` });
+      }
+    }
+
+    try {
+      const html = renderMicrositeToHtml(ast as Parameters<typeof renderMicrositeToHtml>[0]);
+      const exportsDir = path.join(workdir, 'exports', namespace);
+      await mkdir(exportsDir, { recursive: true });
+      const fileName = `${proposalId}.html`;
+      const filePath = path.join(exportsDir, fileName);
+      await writeFile(filePath, html, 'utf-8');
+
+      return reply.send({
+        downloadUrl: `/exports/${namespace}/${fileName}`,
+        size: Buffer.byteLength(html, 'utf-8'),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(500).send({ error: `HTML export failed: ${message}` });
     }
   });
 }

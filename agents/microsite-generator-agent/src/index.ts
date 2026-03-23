@@ -821,7 +821,7 @@ function buildSectionRulesContext(type: SectionType, rules: Record<string, unkno
   return `\n\n━━ SECTION DESIGN RULES — ${type.toUpperCase()} (user-specified, NON-NEGOTIABLE) ━━\n${parts.map(p => `• ${p}`).join('\n')}`;
 }
 
-function buildSectionPrompt(
+export function buildSectionPrompt(
   type: SectionType,
   heading: string,
   rawBody: string,

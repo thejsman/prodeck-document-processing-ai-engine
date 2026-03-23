@@ -14,7 +14,7 @@ import {
   type SynthesizedDesignSystem,
 } from '@/lib/api';
 import type { LayoutAST, BrandConfig } from '@/types/presentation';
-import { PLUGINS } from '@/lib/presentation/pluginRegistry';
+import { PLUGINS, fetchPluginsFromApi } from '@/lib/presentation/pluginRegistry';
 import type { PluginMeta } from '@/types/presentation';
 import { Microsite } from './microsite/Microsite';
 import { MicrositeEditor } from './microsite/editor/MicrositeEditor';
@@ -215,6 +215,9 @@ export function PresentationPage() {
   const [logoExtracting, setLogoExtracting] = useState(false);
   const [colorsAutoExtracted, setColorsAutoExtracted] = useState(false);
 
+  // Plugin list — fetched from API on mount, falls back to static PLUGINS
+  const [pluginList, setPluginList] = useState<PluginMeta[]>(PLUGINS);
+
   // Step 3
   const [designBrief, setDesignBrief] = useState('');
   const [brandImagePrompt, setBrandImagePrompt] = useState<string>('');
@@ -264,6 +267,12 @@ export function PresentationPage() {
       });
     }
   }, [selectedNamespace]);
+
+  // Fetch plugin list from API once on mount (Phase 5: dynamic discovery)
+  useEffect(() => {
+    if (!apiKey) return;
+    fetchPluginsFromApi(apiKey).then(setPluginList).catch(() => {});
+  }, [apiKey]);
 
   useEffect(() => {
     if (step !== 'upload' || !apiKey) return;
@@ -421,6 +430,8 @@ export function PresentationPage() {
       return (
         <MicrositeEditor
           ast={layoutAST}
+          namespace={selectedNamespace}
+          proposalId={selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace}
           onClose={() => setShowEditor(false)}
           onExport={editedAst => {
             setLayoutAST(editedAst);
@@ -881,7 +892,7 @@ export function PresentationPage() {
                 })()}
 
                 {/* ── Theme cards ── */}
-                {PLUGINS.map(plugin => {
+                {pluginList.map(plugin => {
                   const active = selectedPlugin === plugin.id;
                   return (
                     <div
@@ -975,7 +986,7 @@ export function PresentationPage() {
               {/* Selection hint */}
               <p className="muted" style={{ fontSize: 11, marginTop: 10, marginBottom: 0 }}>
                 {selectedPlugin
-                  ? `Theme selected: ${PLUGINS.find(p => p.id === selectedPlugin)?.name}. Click the name again to deselect.`
+                  ? `Theme selected: ${pluginList.find(p => p.id === selectedPlugin)?.name}. Click the name again to deselect.`
                   : 'No theme selected — microsite will use clean default styling.'}
               </p>
 

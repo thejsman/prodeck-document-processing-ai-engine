@@ -13,6 +13,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@ai-engine/agent-design-editor": "workspace:*",
     "@ai-engine/agent-microsite-generator": "workspace:*",
     "@ai-engine/agent-proposal-section": "workspace:*",
     "@ai-engine/core": "workspace:*",

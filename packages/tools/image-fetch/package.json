@@ -1,0 +1,16 @@
+{
+  "name": "@ai-engine/tool-image-fetch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool: fetch images from Unsplash or generate with DALL-E 3",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/core": "workspace:*"
+  }
+}

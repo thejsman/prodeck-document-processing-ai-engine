@@ -5,6 +5,8 @@ import type { LayoutAST } from '../../../types/presentation';
 import { EditProvider, useEditContext } from './EditContext';
 import { EditPanel } from './EditPanel';
 import { Microsite } from '../Microsite';
+import { DesignAgentPanel } from './DesignAgentPanel';
+import { PublishModal } from './PublishModal';
 
 // ── Canvas — reads editedAst from context ─────────────────────────────────
 
@@ -34,10 +36,14 @@ function EditorCanvas() {
 interface InnerProps {
   onClose: () => void;
   onExport: (editedAst: LayoutAST) => void;
+  namespace: string;
+  proposalId: string;
 }
 
-function EditorInner({ onClose, onExport }: InnerProps) {
+function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const ctx = useEditContext()!;
+  const [showDesignPanel, setShowDesignPanel] = useState(false);
+  const [showPublishModal, setShowPublishModal] = useState(false);
 
   return (
     <div
@@ -91,6 +97,36 @@ function EditorInner({ onClose, onExport }: InnerProps) {
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button
+            onClick={() => setShowDesignPanel((v) => !v)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 6,
+              border: '1px solid #e2e8f0',
+              background: showDesignPanel ? '#6366f1' : '#fff',
+              color: showDesignPanel ? '#fff' : '#475569',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            ✦ Design AI
+          </button>
+          <button
+            onClick={() => setShowPublishModal(true)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 6,
+              border: '1px solid #e2e8f0',
+              background: '#fff',
+              color: '#475569',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            ↑ Publish
+          </button>
+          <button
             onClick={() => onExport(ctx.ast)}
             style={{
               padding: '6px 14px',
@@ -103,7 +139,7 @@ function EditorInner({ onClose, onExport }: InnerProps) {
               cursor: 'pointer',
             }}
           >
-            Export
+            Save
           </button>
         </div>
       </div>
@@ -132,6 +168,29 @@ function EditorInner({ onClose, onExport }: InnerProps) {
           <EditPanel ast={ctx.ast} />
         </div>
       </div>
+
+      {/* Publish modal */}
+      {showPublishModal && (
+        <PublishModal
+          ast={ctx.ast}
+          namespace={namespace}
+          proposalId={proposalId}
+          onClose={() => setShowPublishModal(false)}
+        />
+      )}
+
+      {/* Design AI panel (slide-in from right edge) */}
+      {showDesignPanel && (
+        <DesignAgentPanel
+          ast={ctx.ast}
+          namespace={namespace}
+          proposalId={proposalId}
+          onApply={(newAst) => {
+            ctx.replaceAst(newAst);
+          }}
+          onClose={() => setShowDesignPanel(false)}
+        />
+      )}
     </div>
   );
 }
@@ -140,12 +199,14 @@ function EditorInner({ onClose, onExport }: InnerProps) {
 
 interface Props {
   ast: LayoutAST;
+  namespace: string;
+  proposalId: string;
   onClose: () => void;
-  /** Called when user clicks Export — receives the fully-edited AST */
+  /** Called when user clicks Save — receives the fully-edited AST */
   onExport?: (editedAst: LayoutAST) => void;
 }
 
-export function MicrositeEditor({ ast, onClose, onExport }: Props) {
+export function MicrositeEditor({ ast, namespace, proposalId, onClose, onExport }: Props) {
   const [editedAst, setEditedAst] = useState<LayoutAST>(() => JSON.parse(JSON.stringify(ast)) as LayoutAST);
 
   const handleExport = (ea: LayoutAST) => {
@@ -161,6 +222,8 @@ export function MicrositeEditor({ ast, onClose, onExport }: Props) {
       <EditorInner
         onClose={onClose}
         onExport={handleExport}
+        namespace={namespace}
+        proposalId={proposalId}
       />
     </EditProvider>
   );

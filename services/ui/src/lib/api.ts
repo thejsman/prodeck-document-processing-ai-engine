@@ -534,6 +534,40 @@ export async function fetchMicrositeContent(
   return data.ast;
 }
 
+export async function designEditMicrosite(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { instruction: string; targetSectionId?: string; currentAst?: unknown; commit?: boolean },
+): Promise<{ ast: unknown; mode: string; changed: string[]; summary: string }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/design-edit`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  return handleResponse<{ ast: unknown; mode: string; changed: string[]; summary: string }>(res);
+}
+
+export async function publishMicrosite(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  ast?: unknown,
+): Promise<{ downloadUrl: string; size: number }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ast, format: 'html' }),
+    },
+  );
+  return handleResponse<{ downloadUrl: string; size: number }>(res);
+}
+
 // ---------------------------------------------------------------------------
 // Namespace Configuration
 // ---------------------------------------------------------------------------

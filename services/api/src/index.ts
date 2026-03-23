@@ -16,6 +16,11 @@ const PROVIDER_POLICY_PATH = process.env.PROVIDER_POLICY_PATH
   ? path.resolve(process.env.PROVIDER_POLICY_PATH)
   : undefined;
 
+// Presenter plugins dir: defaults to <project-root>/plugins, configurable via env
+const PLUGINS_DIR = process.env.PLUGINS_DIR
+  ? path.resolve(process.env.PLUGINS_DIR)
+  : path.resolve(process.cwd(), '../../plugins');
+
 async function main(): Promise<void> {
   const app = await createServer({
     port: PORT,
@@ -24,6 +29,7 @@ async function main(): Promise<void> {
     apiKeysPath: API_KEYS_PATH,
     auditLogPath: AUDIT_LOG_PATH,
     providerPolicyPath: PROVIDER_POLICY_PATH,
+    pluginsDir: PLUGINS_DIR,
   });
 
   await app.listen({ port: PORT, host: HOST });

@@ -31,6 +31,16 @@ export interface EditContextValue {
   selectSection: (sectionId: string) => void;
   clearSelection: () => void;
   updateField: (sectionId: string, fieldPath: string, value: unknown) => void;
+  /** Replace the entire AST (e.g. after a design-editor-agent apply) */
+  replaceAst: (ast: LayoutAST) => void;
+  /** Add an item to an array field in a section's content */
+  addArrayItem: (sectionId: string, arrayPath: string, template: unknown) => void;
+  /** Remove an item from an array field by index */
+  removeArrayItem: (sectionId: string, arrayPath: string, index: number) => void;
+  /** Move an array item (drag-reorder) */
+  moveArrayItem: (sectionId: string, arrayPath: string, from: number, to: number) => void;
+  /** Replace the entire content of a section (e.g. after AI rewrite) */
+  updateSection: (sectionId: string, newContent: unknown) => void;
 }
 
 const EditContext = createContext<EditContextValue | null>(null);
@@ -97,14 +107,26 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     setSelection(null);
   }, []);
 
+  const notify = useCallback((next: LayoutAST) => {
+    if (onChange) setTimeout(() => onChange(next), 0);
+  }, [onChange]);
+
   const updateField = useCallback(
     (sectionId: string, fieldPath: string, value: unknown) => {
       setAst(prev => {
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
-          // Special key: update image.url (not inside content)
           if (fieldPath === '__imageUrl') {
             return { ...sec, image: { ...sec.image, url: value as string | null } };
+          }
+          if (fieldPath === '__imageQuery') {
+            return { ...sec, image: { ...sec.image, query: value as string } };
+          }
+          if (fieldPath === '__imageSource') {
+            return { ...sec, image: { ...sec.image, source: value as string } };
+          }
+          if (fieldPath === '__bgColor') {
+            return { ...sec, bgColor: value as string };
           }
           return {
             ...sec,
@@ -112,13 +134,98 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
           };
         }) as typeof prev.sections;
         const next: LayoutAST = { ...prev, sections };
-        // Use setTimeout to call onChange outside of the React render cycle
-        // This avoids the "Cannot update a component while rendering a different component" warning
-        if (onChange) setTimeout(() => onChange(next), 0);
+        notify(next);
         return next;
       });
     },
-    [onChange],
+    [notify],
+  );
+
+  const replaceAst = useCallback((newAst: LayoutAST) => {
+    setAst(newAst);
+    notify(newAst);
+  }, [notify]);
+
+  const addArrayItem = useCallback(
+    (sectionId: string, arrayPath: string, template: unknown) => {
+      setAst(prev => {
+        const sections = prev.sections.map(sec => {
+          if (sec.id !== sectionId) return sec;
+          const content = sec.content as unknown as Record<string, unknown>;
+          const arr = (content[arrayPath] as unknown[]) ?? [];
+          const updated = setDeep(content, arrayPath, [...arr, template]);
+          return { ...sec, content: updated as unknown as typeof sec.content };
+        }) as typeof prev.sections;
+        const next: LayoutAST = { ...prev, sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
+  const removeArrayItem = useCallback(
+    (sectionId: string, arrayPath: string, index: number) => {
+      setAst(prev => {
+        const sections = prev.sections.map(sec => {
+          if (sec.id !== sectionId) return sec;
+          const content = sec.content as unknown as Record<string, unknown>;
+          const arr = [...((content[arrayPath] as unknown[]) ?? [])];
+          arr.splice(index, 1);
+          const updated = setDeep(content, arrayPath, arr);
+          return { ...sec, content: updated as unknown as typeof sec.content };
+        }) as typeof prev.sections;
+        const next: LayoutAST = { ...prev, sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
+  const moveArrayItem = useCallback(
+    (sectionId: string, arrayPath: string, from: number, to: number) => {
+      setAst(prev => {
+        // Special case: reorder top-level sections
+        if (sectionId === '__sections__' && arrayPath === '__sections__') {
+          const arr = [...prev.sections];
+          const [item] = arr.splice(from, 1);
+          arr.splice(to, 0, item);
+          const next: LayoutAST = { ...prev, sections: arr as typeof prev.sections };
+          notify(next);
+          return next;
+        }
+        const sections = prev.sections.map(sec => {
+          if (sec.id !== sectionId) return sec;
+          const content = sec.content as unknown as Record<string, unknown>;
+          const arr = [...((content[arrayPath] as unknown[]) ?? [])];
+          const [item] = arr.splice(from, 1);
+          arr.splice(to, 0, item);
+          const updated = setDeep(content, arrayPath, arr);
+          return { ...sec, content: updated as unknown as typeof sec.content };
+        }) as typeof prev.sections;
+        const next: LayoutAST = { ...prev, sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
+  const updateSection = useCallback(
+    (sectionId: string, newContent: unknown) => {
+      setAst(prev => {
+        const sections = prev.sections.map(sec =>
+          sec.id === sectionId
+            ? { ...sec, content: newContent as typeof sec.content }
+            : sec,
+        ) as typeof prev.sections;
+        const next: LayoutAST = { ...prev, sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
   );
 
   return (
@@ -132,6 +239,11 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         selectSection,
         clearSelection,
         updateField,
+        replaceAst,
+        addArrayItem,
+        removeArrayItem,
+        moveArrayItem,
+        updateSection,
       }}
     >
       {children}

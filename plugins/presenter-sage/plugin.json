@@ -1,0 +1,20 @@
+{
+  "name": "sage",
+  "displayName": "Sage Organic",
+  "version": "1.0.0",
+  "sdkVersion": "0.1",
+  "type": "presenter",
+  "entry": "./dist/index.js",
+  "capabilities": {
+    "presentation": {
+      "sectionTypes": [
+        "hero", "challenge", "approach", "deliverables", "timeline",
+        "pricing", "whyus", "nextsteps", "testimonials", "showcase",
+        "benefits", "problem", "stats", "metrics", "security",
+        "techstack", "testing", "generic"
+      ],
+      "supportsCustomTokens": true,
+      "imageSourceTypes": ["unsplash", "dalle", "gradient", "custom-url"]
+    }
+  }
+}

@@ -20,6 +20,9 @@ import { BenefitsSection } from './sections/BenefitsSection';
 import { ProblemSection } from './sections/ProblemSection';
 import { StatsSection } from './sections/StatsSection';
 
+import { useEditContext } from './editor/EditContext';
+import { SectionEditOverlay } from './editor/SectionEditOverlay';
+
 import type {
   HeroContent,
   ChallengeContent,
@@ -171,6 +174,45 @@ function renderSection(
   return inner;
 }
 
+// ── Section overlay wrapper (editor-only) ────────────────────────────────────
+
+function SectionWithOverlay({
+  section,
+  index,
+  total,
+  tokens,
+  brand,
+  allSections,
+  brief,
+  behavior,
+}: {
+  section: LayoutAST['sections'][number];
+  index: number;
+  total: number;
+  tokens: PluginTokens;
+  brand: LayoutAST['brand'];
+  allSections: LayoutAST['sections'];
+  brief?: LayoutAST['brief'];
+  behavior?: LayoutAST['behavior'];
+}) {
+  const editCtx = useEditContext();
+  const inner = renderSection(section, tokens, brand, index, allSections, brief);
+  // Apply per-section background override if set (from inline editor)
+  const sectionInner = section.bgColor
+    ? <div style={{ background: section.bgColor }}>{inner}</div>
+    : inner;
+
+  return (
+    <AnimatedSection key={section.id} id={section.id} behavior={behavior} index={index}>
+      {editCtx ? (
+        <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
+          {sectionInner}
+        </SectionEditOverlay>
+      ) : sectionInner}
+    </AnimatedSection>
+  );
+}
+
 export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
   const plugin = getPlugin(ast.plugin);
   const mergedTokens = ast.customTokens
@@ -284,15 +326,19 @@ ${el.innerHTML}
 
       {/* Sections */}
       <div ref={contentRef}>
-        {(ast.sections ?? []).map((section, i) => {
-          const raw = section.content as unknown as Record<string, unknown>;
-          console.log('SECTION →', section.sectionType, raw?.variant, raw?.ui);
-          return (
-            <AnimatedSection key={section.id} id={section.id} behavior={ast.behavior} index={i}>
-              {renderSection(section, tokens, ast.brand, i, ast.sections, ast.brief)}
-            </AnimatedSection>
-          );
-        })}
+        {(ast.sections ?? []).map((section, i) => (
+          <SectionWithOverlay
+            key={section.id}
+            section={section}
+            index={i}
+            total={ast.sections.length}
+            tokens={tokens}
+            brand={ast.brand}
+            allSections={ast.sections}
+            brief={ast.brief}
+            behavior={ast.behavior}
+          />
+        ))}
 
         <footer
           style={{

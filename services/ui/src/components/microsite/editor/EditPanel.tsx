@@ -244,42 +244,186 @@ function SectionFieldsPanel({ sectionId, sectionType, content, selection }: Sect
   );
 }
 
-// ── Approach pillars panel ─────────────────────────────────────────────────
+// ── Generic array panel ────────────────────────────────────────────────────
 
-interface Pillar { iconHint: string; name: string; description: string; }
+interface ArrayItemField { key: string; label: string; multiline?: boolean; }
 
-function ApproachPillarsPanel({ sectionId, pillars }: { sectionId: string; pillars: Pillar[] }) {
+interface ArrayPanelProps {
+  sectionId: string;
+  arrayPath: string;
+  title: string;
+  items: Record<string, unknown>[];
+  fields: ArrayItemField[];
+  itemTemplate: Record<string, unknown>;
+  addLabel?: string;
+}
+
+function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTemplate, addLabel = 'Add item' }: ArrayPanelProps) {
   const ctx = useEditContext()!;
-  if (!pillars?.length) return null;
+  const canAdd = 'addArrayItem' in ctx;
+  const canRemove = 'removeArrayItem' in ctx;
+  const canMove = 'moveArrayItem' in ctx;
+
   return (
     <div style={{ marginTop: 16 }}>
-      <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', marginBottom: 10, fontFamily: 'system-ui' }}>
-        Pillars
-      </p>
-      {pillars.map((p, i) => (
-        <div key={i} style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
-          <p style={{ fontSize: 11, fontWeight: 600, margin: '0 0 6px', color: 'var(--color-text-muted)', fontFamily: 'system-ui' }}>
-            Pillar {i + 1}
-          </p>
-          <input
-            type="text"
-            placeholder="Name"
-            value={p.name}
-            onChange={e => ctx.updateField(sectionId, `pillars.${i}.name`, e.target.value)}
-            style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, marginBottom: 6, boxSizing: 'border-box' }}
-          />
-          <textarea
-            placeholder="Description"
-            value={p.description}
-            onChange={e => ctx.updateField(sectionId, `pillars.${i}.description`, e.target.value)}
-            rows={2}
-            style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }}
-          />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', margin: 0, fontFamily: 'system-ui' }}>
+          {title}
+        </p>
+        {canAdd && (
+          <button
+            onClick={() => ctx.addArrayItem(sectionId, arrayPath, { ...itemTemplate })}
+            style={{ padding: '3px 10px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+          >
+            + {addLabel}
+          </button>
+        )}
+      </div>
+      {items.map((item, i) => (
+        <div key={i} style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', fontFamily: 'system-ui' }}>
+              #{i + 1}
+            </span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {canMove && i > 0 && (
+                <button
+                  onClick={() => ctx.moveArrayItem(sectionId, arrayPath, i, i - 1)}
+                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  title="Move up"
+                >↑</button>
+              )}
+              {canMove && i < items.length - 1 && (
+                <button
+                  onClick={() => ctx.moveArrayItem(sectionId, arrayPath, i, i + 1)}
+                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  title="Move down"
+                >↓</button>
+              )}
+              {canRemove && (
+                <button
+                  onClick={() => ctx.removeArrayItem(sectionId, arrayPath, i)}
+                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', fontSize: 11, cursor: 'pointer', color: '#dc2626' }}
+                  title="Remove"
+                >×</button>
+              )}
+            </div>
+          </div>
+          {fields.map(f => {
+            const val = typeof item[f.key] === 'string' ? (item[f.key] as string) : '';
+            const handleChange = (v: string) => ctx.updateField(sectionId, `${arrayPath}.${i}.${f.key}`, v);
+            return (
+              <div key={f.key} style={{ marginBottom: 6 }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {f.label}
+                </label>
+                {f.multiline ? (
+                  <textarea
+                    value={val}
+                    onChange={e => handleChange(e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={val}
+                    onChange={e => handleChange(e.target.value)}
+                    style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, boxSizing: 'border-box' }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       ))}
+      {items.length === 0 && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', textAlign: 'center', padding: '12px 0' }}>
+          No items yet. Click "+ {addLabel}" to add one.
+        </p>
+      )}
     </div>
   );
 }
+
+// ── Array config per section type ─────────────────────────────────────────
+
+interface ArrayConfig {
+  arrayPath: string;
+  title: string;
+  fields: ArrayItemField[];
+  template: Record<string, unknown>;
+  addLabel?: string;
+}
+
+const ARRAY_CONFIGS: Partial<Record<SectionType, ArrayConfig>> = {
+  approach: {
+    arrayPath: 'pillars',
+    title: 'Pillars',
+    fields: [
+      { key: 'name', label: 'Name' },
+      { key: 'description', label: 'Description', multiline: true },
+      { key: 'iconHint', label: 'Icon hint' },
+    ],
+    template: { iconHint: 'star', name: 'New pillar', description: '' },
+    addLabel: 'Add pillar',
+  },
+  deliverables: {
+    arrayPath: 'items',
+    title: 'Deliverables',
+    fields: [
+      { key: 'title', label: 'Title' },
+      { key: 'description', label: 'Description', multiline: true },
+      { key: 'meta', label: 'Meta' },
+    ],
+    template: { title: 'New deliverable', description: '', meta: '' },
+    addLabel: 'Add deliverable',
+  },
+  benefits: {
+    arrayPath: 'items',
+    title: 'Benefits',
+    fields: [
+      { key: 'iconHint', label: 'Icon hint' },
+      { key: 'title', label: 'Title' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { iconHint: 'check', title: 'New benefit', description: '' },
+    addLabel: 'Add benefit',
+  },
+  testimonials: {
+    arrayPath: 'items',
+    title: 'Testimonials',
+    fields: [
+      { key: 'quote', label: 'Quote', multiline: true },
+      { key: 'author', label: 'Author' },
+      { key: 'role', label: 'Role / Company' },
+    ],
+    template: { quote: '', author: '', role: '' },
+    addLabel: 'Add testimonial',
+  },
+  stats: {
+    arrayPath: 'stats',
+    title: 'Stats',
+    fields: [
+      { key: 'value', label: 'Value' },
+      { key: 'label', label: 'Label' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { value: '0', label: 'New stat', description: '' },
+    addLabel: 'Add stat',
+  },
+  timeline: {
+    arrayPath: 'phases',
+    title: 'Phases',
+    fields: [
+      { key: 'label', label: 'Label' },
+      { key: 'title', label: 'Title' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { label: 'Phase', title: 'New phase', description: '' },
+    addLabel: 'Add phase',
+  },
+};
 
 // ── Main EditPanel ─────────────────────────────────────────────────────────
 
@@ -372,33 +516,56 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
               selection={selection}
             />
 
-            {/* Approach pillars */}
-            {section.sectionType === 'approach' && Array.isArray(content.pillars) && (
-              <ApproachPillarsPanel
-                sectionId={section.id}
-                pillars={content.pillars as Pillar[]}
-              />
-            )}
+            {/* Array item editing for sections that have lists */}
+            {(() => {
+              const arrCfg = ARRAY_CONFIGS[section.sectionType];
+              if (!arrCfg) return null;
+              const items = (content[arrCfg.arrayPath] as Record<string, unknown>[] | undefined) ?? [];
+              return (
+                <ArrayItemPanel
+                  sectionId={section.id}
+                  arrayPath={arrCfg.arrayPath}
+                  title={arrCfg.title}
+                  items={items}
+                  fields={arrCfg.fields}
+                  itemTemplate={arrCfg.template}
+                  addLabel={arrCfg.addLabel}
+                />
+              );
+            })()}
 
-            {/* Image URL for hero */}
-            {section.sectionType === 'hero' && (
-              <div style={{ marginTop: 20 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
-                  Hero Background Image URL
+            {/* Image controls — shown for all sections that have an image */}
+            {section.image && (
+              <div style={{ marginTop: 20, padding: '12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', marginBottom: 10, fontFamily: 'system-ui', margin: '0 0 10px' }}>
+                  Section Image
+                </p>
+                <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Search query
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. modern office collaboration"
+                  value={typeof section.image.query === 'string' ? section.image.query : ''}
+                  onChange={e => ctx.updateField(section.id, '__imageQuery', e.target.value)}
+                  style={{ width: '100%', padding: '6px 9px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, marginBottom: 8, boxSizing: 'border-box' }}
+                />
+                <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Image URL (override)
                 </label>
                 <input
                   type="text"
                   placeholder="https://images.unsplash.com/..."
                   value={typeof section.image.url === 'string' ? section.image.url : ''}
-                  onChange={e => {
-                    // Update image url — this is on the section not content, so handled differently
-                    ctx.updateField(section.id, '__imageUrl', e.target.value);
-                  }}
-                  style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, boxSizing: 'border-box' }}
+                  onChange={e => ctx.updateField(section.id, '__imageUrl', e.target.value)}
+                  style={{ width: '100%', padding: '6px 9px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, boxSizing: 'border-box' }}
                 />
-                <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
-                  Paste any image URL to use as the hero background
-                </p>
+                {section.image.url && (
+                  <div style={{ marginTop: 8, borderRadius: 4, overflow: 'hidden', height: 60 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={section.image.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                )}
               </div>
             )}
           </>

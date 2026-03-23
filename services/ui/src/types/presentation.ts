@@ -362,6 +362,8 @@ export interface LayoutSection {
     url: string | null;
     fallback: 'gradient-mesh';
   };
+  /** Optional per-section background color override (set via inline editor) */
+  bgColor?: string;
   editable: boolean;
   version: number;
 }
