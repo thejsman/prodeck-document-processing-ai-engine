@@ -91,6 +91,95 @@ ai-engine namespaces
 # research
 ```
 
+### `eval` — Evaluate retrieval and generation quality
+
+```
+ai-engine eval [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--dataset <file>` | JSON file with evaluation questions and expected answers |
+| `--namespace <name>` | Namespace to evaluate (default: `default`) |
+| `--workdir <path>` | Working directory (default: cwd) |
+
+### `generate-proposal` — Generate a structured proposal
+
+```
+ai-engine generate-proposal [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--client <name>` | Client name |
+| `--industry <name>` | Industry vertical |
+| `--team-size <n>` | Number of team members |
+| `--duration-weeks <n>` | Project duration in weeks |
+| `--rate-per-week <n>` | Weekly rate in dollars |
+| `--namespace <name>` | Namespace for context retrieval |
+
+### `agent run` — Run a named agent
+
+```
+ai-engine agent run <agent-name> [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--namespace <name>` | Namespace for context and storage |
+| `--prompt <text>` | Task prompt passed to the agent |
+| `--config <key=value>` | Config overrides (repeatable) |
+
+Agents are registered at startup. Use `agent list` to see available agents.
+
+```bash
+ai-engine agent run microsite-generator --namespace acme --prompt "Convert proposal to microsite"
+ai-engine agent run proposal-section-agent --namespace acme
+```
+
+Available agents:
+
+| Agent | Description |
+|-------|-------------|
+| `proposal-section-agent` | Regenerate a named section of a proposal |
+| `microsite-generator-agent` | Convert proposal markdown to a presentation microsite |
+
+### `tools list` — List available tools
+
+```
+ai-engine tools list
+```
+
+Lists all tools registered in `ToolRegistry` with their names and descriptions.
+
+```bash
+ai-engine tools list
+# extract-section   Extract named sections from markdown
+# search-documents  Search the FAISS knowledge base
+# generate-mermaid  Generate a Mermaid diagram via LLM
+# generate-content  Generate or enhance content via LLM
+# save-asset        Save a file to namespace storage
+```
+
+### `planner simulate` — Simulate a tool execution plan
+
+```
+ai-engine planner simulate [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--task <description>` | Natural-language description of the task to plan |
+| `--namespace <name>` | Namespace for context |
+
+Generates and prints a multi-step tool execution plan without running it.
+Useful for verifying that the planner produces sensible steps before committing
+to a full agent run.
+
+```bash
+ai-engine planner simulate --task "Extract the approach section and generate a diagram"
+```
+
 ### Interactive mode
 
 ```
@@ -106,6 +195,7 @@ Starts a REPL with command history. Supports all commands above plus:
 ## Output
 
 - `run` writes results to `<workdir>/output/<runId>/`
+- `agent run` outputs markdown and/or JSON to stdout; assets are saved to namespace storage
 - `ingest` and `query` write to stdout
 - Log messages go to stderr with `[info]` and `[error]` prefixes
 
@@ -122,3 +212,4 @@ The CLI delegates to Python plugins that read these variables:
 | `OPENAI_API_KEY` | — | Required when `LLM_PROVIDER=openai` |
 | `OPENAI_GENERATION_MODEL` | `gpt-4o-mini` | OpenAI generation model |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `PROVIDER_POLICY_PATH` | — | Path to provider routing policy JSON (API service) |

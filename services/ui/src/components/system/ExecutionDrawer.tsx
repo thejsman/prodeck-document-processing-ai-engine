@@ -12,9 +12,24 @@ const ARTIFACT_ROUTES: Partial<Record<ExecutionType, string>> = {
   microsite: "/microsites",
 }
 
-const STATUS_LABELS: Partial<Record<ExecutionStatus, string>> = {
-  queued: "Queued",
-  running: "Generating",
+const RUNNING_LABELS: Partial<Record<ExecutionType, string>> = {
+  proposal:  "Generating proposal",
+  microsite: "Generating microsite",
+  ingestion: "Ingesting documents",
+  rfp:       "Generating RFP",
+  diagram:   "Generating diagram",
+  analysis:  "Running analysis",
+}
+
+const QUEUED_LABELS: Partial<Record<ExecutionType, string>> = {
+  ingestion: "Queued for indexing",
+}
+
+function activeStatusLabel(item: ExecutionItem): string {
+  if (item.message) return item.message
+  if (item.status === "running") return RUNNING_LABELS[item.type] ?? "Running"
+  if (item.status === "queued") return QUEUED_LABELS[item.type] ?? "Queued"
+  return item.status
 }
 
 function artifactRoute(item: ExecutionItem): string | null {
@@ -52,7 +67,7 @@ function ActiveSection({
                 {item.title ?? item.type}
               </div>
               <div className="exec-drawer-item-sub">
-                {item.message ?? STATUS_LABELS[item.status] ?? item.status}
+                {activeStatusLabel(item)}
               </div>
             </div>
             <button className="btn btn-sm" onClick={() => onView(item.id)}>

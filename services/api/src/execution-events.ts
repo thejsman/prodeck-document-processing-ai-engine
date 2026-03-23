@@ -20,6 +20,8 @@ export interface ExecutionEvent {
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
   /** Optional execution type hint for the frontend tracker (e.g. "ingestion"). */
   type?: string;
+  /** Display title shown in the task drawer (e.g. file name, proposal name). */
+  title?: string;
   /** Human-readable status message or error description. */
   message?: string;
 }

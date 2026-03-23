@@ -295,7 +295,7 @@ export interface IngestionFile {
 
 export interface KnowledgeUploadResult {
   files: number;
-  queued: string[];
+  queued: Array<{ fileName: string; jobId: string }>;
   rejected?: string[];
 }
 

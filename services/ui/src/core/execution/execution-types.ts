@@ -4,6 +4,7 @@ export type ExecutionType =
   | "rfp"
   | "diagram"
   | "analysis"
+  | "ingestion"
 
 export type ExecutionStatus =
   | "queued"
