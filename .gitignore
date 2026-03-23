@@ -57,3 +57,5 @@ venv/
 # Runtime-generated namespace data (uploads, vector indexes, proposals)
 services/api/namespaces/
 
+.env.*
+
