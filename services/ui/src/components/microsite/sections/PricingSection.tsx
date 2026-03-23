@@ -6,6 +6,7 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { CTAButton } from '../shared/CTAButton';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: PricingContent;
@@ -13,6 +14,7 @@ interface Props {
   imageUrl: string | null;
   index: number;
   sections?: LayoutSection[];
+  sectionId?: string;
 }
 
 function sectionCta(sections: LayoutSection[], targetId: string | undefined, fallback: string): string {
@@ -21,7 +23,7 @@ function sectionCta(sections: LayoutSection[], targetId: string | undefined, fal
   return s ? s.heading : fallback;
 }
 
-export function PricingSection({ content, tokens, index, sections = [] }: Props) {
+export function PricingSection({ content, tokens, index, sections = [], sectionId }: Props) {
   const ctaSection =
     sections.find(s => s.sectionType === 'nextsteps') ??
     sections.find(s => s.sectionType === 'whyus');
@@ -44,21 +46,27 @@ export function PricingSection({ content, tokens, index, sections = [] }: Props)
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 12 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 12 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={160}>
-          <Body tokens={tokens} style={{ maxWidth: 600, marginBottom: 48 }}>
-            {content.subheadline}
-          </Body>
+          <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
+            <Body tokens={tokens} style={{ maxWidth: 600, marginBottom: 48 }}>
+              {content.subheadline}
+            </Body>
+          </InlineEditable>
         </Reveal>
 
         {/* Pricing table */}

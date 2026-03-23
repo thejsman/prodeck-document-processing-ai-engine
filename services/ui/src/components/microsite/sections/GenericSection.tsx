@@ -4,15 +4,17 @@ import type { PluginTokens, GenericContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: GenericContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function GenericSection({ content, tokens, imageUrl, index }: Props) {
+export function GenericSection({ content, tokens, imageUrl, index, sectionId }: Props) {
   const isEven = index % 2 === 0;
   return (
     <section
@@ -33,21 +35,27 @@ export function GenericSection({ content, tokens, imageUrl, index }: Props) {
         <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '1fr 1fr' : '1fr', gap: 'clamp(2rem, 4vw, 4rem)', alignItems: 'center' }}>
           <div style={{ order: isEven ? 0 : 1 }}>
             <Reveal>
-              <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-                {content.eyebrow}
-              </Label>
+              <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+                <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+                  {content.eyebrow}
+                </Label>
+              </InlineEditable>
             </Reveal>
 
             <Reveal delay={80}>
-              <Headline tokens={tokens} style={{ marginBottom: 20 }}>
-                {content.headline}
-              </Headline>
+              <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+                <Headline tokens={tokens} style={{ marginBottom: 20 }}>
+                  {content.headline}
+                </Headline>
+              </InlineEditable>
             </Reveal>
 
             <Reveal delay={160}>
-              <Body tokens={tokens}>
-                {content.body}
-              </Body>
+              <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+                <Body tokens={tokens}>
+                  {content.body}
+                </Body>
+              </InlineEditable>
             </Reveal>
           </div>
 

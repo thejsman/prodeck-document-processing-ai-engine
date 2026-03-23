@@ -7,15 +7,17 @@ import { Headline, Body, Label } from '../shared/Typography';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: WhyUsContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function WhyUsSection({ content, tokens, index }: Props) {
+export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
   return (
     <section
       id="whyus"
@@ -34,21 +36,27 @@ export function WhyUsSection({ content, tokens, index }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 12 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 12 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={160}>
-          <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
-            {content.body}
-          </Body>
+          <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+            <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
+              {content.body}
+            </Body>
+          </InlineEditable>
         </Reveal>
 
         {/* Stats grid with AnimatedCounter */}

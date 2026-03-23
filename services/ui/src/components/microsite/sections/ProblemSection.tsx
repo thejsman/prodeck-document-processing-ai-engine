@@ -4,15 +4,17 @@ import type { PluginTokens, ProblemContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Label, Body } from '../shared/Typography';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: ProblemContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function ProblemSection({ content, tokens }: Props) {
+export function ProblemSection({ content, tokens, sectionId }: Props) {
   const painPoints = content.painPoints ?? [];
 
   return (
@@ -51,33 +53,39 @@ export function ProblemSection({ content, tokens }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 880, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 20 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 20 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
           {/* Gradient headline */}
-          <h2 style={{
-            fontFamily: `'${tokens.heroFont}', serif`,
-            fontWeight: tokens.heroWeight,
-            fontSize: 'clamp(1.8rem, 4vw, 3rem)',
-            lineHeight: 1.1,
-            margin: '0 0 28px',
-            backgroundImage: tokens.gradientText,
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            color: 'transparent',
-          }}>
-            {content.headline}
-          </h2>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <h2 style={{
+              fontFamily: `'${tokens.heroFont}', serif`,
+              fontWeight: tokens.heroWeight,
+              fontSize: 'clamp(1.8rem, 4vw, 3rem)',
+              lineHeight: 1.1,
+              margin: '0 0 28px',
+              backgroundImage: tokens.gradientText,
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              color: 'transparent',
+            }}>
+              {content.headline}
+            </h2>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={160}>
-          <Body tokens={tokens} style={{ fontSize: '1.05rem', lineHeight: 1.8, marginBottom: 44 }}>
-            {content.body}
-          </Body>
+          <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+            <Body tokens={tokens} style={{ fontSize: '1.05rem', lineHeight: 1.8, marginBottom: 44 }}>
+              {content.body}
+            </Body>
+          </InlineEditable>
         </Reveal>
 
         {/* Pain points */}

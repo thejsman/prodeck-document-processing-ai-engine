@@ -5,15 +5,17 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
 import { Headline, Label, Body } from '../shared/Typography';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: TestimonialsContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function TestimonialsSection({ content, tokens }: Props) {
+export function TestimonialsSection({ content, tokens, sectionId }: Props) {
   const items = content.items ?? [];
 
   return (
@@ -47,15 +49,19 @@ export function TestimonialsSection({ content, tokens }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ textAlign: 'center', marginBottom: 56 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ textAlign: 'center', marginBottom: 56 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <div style={{

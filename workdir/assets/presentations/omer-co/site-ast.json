@@ -1,34 +1,35 @@
 {
   "proposalId": "omer-co",
-  "generatedAt": "2026-03-18T09:45:56.253Z",
+  "generatedAt": "2026-03-23T12:10:42.877Z",
   "meta": {
-    "title": "Proposal for omer",
-    "client": "omer",
-    "date": "2026-03-10",
+    "title": "Proposal for Omer-corp",
+    "client": "Omer-corp",
+    "date": "2026-03-23",
     "author": ""
   },
   "brief": {
-    "clientName": "Omer",
-    "clientIndustry": "General",
-    "clientChallenge": "Omer needs to enhance operational efficiency and innovation while navigating market evolution and competition.",
+    "clientName": "Acme Corporation",
+    "clientIndustry": "IT",
+    "clientChallenge": "Significant challenges stemming from an outdated data infrastructure that impedes operational efficiency and agile decision-making.",
     "proposingCompany": "omer-co",
-    "proposingStrength": "Proven expertise in implementing technology-driven solutions tailored for operational excellence.",
-    "engagementSummary": "This engagement focuses on enhancing Omer's operational efficiencies through tailored solutions. Collaboration with Omer's teams ensures alignment with industry best practices.",
+    "proposingStrength": "98% client satisfaction rate across engagements.",
+    "engagementSummary": "A comprehensive technical solution will modernize Acme's data architecture, integrating Apache Kafka and a centralized lakehouse. This approach enhances decision-making agility and operational efficiency.",
     "keyOutcomes": [
-      "Optimized workflow efficiency",
-      "Reduced operational costs",
-      "Enhanced scalability and security",
-      "Stronger competitive edge"
+      "Facilitate rapid access to meaningful insights through efficient data flow.",
+      "Achieve a 2x improvement in data reporting accuracy.",
+      "Reduce manual errors by up to 90%.",
+      "Ensure 100% adherence to compliance regulations."
     ],
-    "totalValue": "$Y",
-    "duration": "26 weeks",
-    "primaryTone": "consultative",
-    "heroNarrative": "Transforming operational landscapes for lasting innovation and success",
+    "totalValue": "$480,000",
+    "duration": "6 months",
+    "primaryTone": "authoritative",
+    "heroNarrative": "Unlocking data's true potential for enhanced competitiveness.",
     "industryKeywords": [
-      "Operational Efficiency",
-      "Technology Integration",
-      "Process Improvement",
-      "Market Competitiveness"
+      "IT",
+      "data architecture",
+      "cloud-native lakehouse",
+      "operational efficiency",
+      "real-time data access"
     ]
   },
   "brand": {
@@ -39,7 +40,7 @@
     "primaryColor": "#C8A96E",
     "secondaryColor": "#1A1612"
   },
-  "plugin": "obsidian",
+  "plugin": "cobalt",
   "behavior": {
     "motion": "deliberate",
     "parallax": false,
@@ -51,65 +52,33 @@
       "heading": "Executive Summary",
       "sectionType": "hero",
       "content": {
-        "eyebrow": "Proposal · March 2026",
-        "headline": "Most organizations overlook simple pathways to enhanced efficiency.",
-        "subheadline": "Omer will undergo a precise evaluation to optimize operations and foster growth through collaboration.",
-        "body": "The time for strategic refinement is now as market demands evolve. Omer-co’s expertise in technology-driven processes will guide you in achieving significant operational improvements.",
-        "ctaPrimary": "Get Started",
-        "ctaSecondary": "Learn More",
-        "ctaTarget": null,
-        "ctaSecondaryTarget": null,
-        "imageQuery": null,
-        "variant": "type-forward",
-        "ui": {
-          "showCTA": true,
-          "layout": "type-forward",
-          "mediaPosition": "none"
-        },
-        "behavior": {
-          "hasParallax": false,
-          "animation": "fade-up"
-        }
+        "eyebrow": "Executive Summary",
+        "headline": "Executive Summary",
+        "body": "Acme Corporation is poised for transformation as it confronts significant challenges stemming from an outdated data infrastructure that impedes operational efficiency and agile decision-making. Our pr",
+        "imageQuery": "business executive summary professional"
       },
       "image": {
-        "source": "gradient",
-        "query": "",
-        "url": null,
+        "source": "dalle",
+        "query": "business executive summary professional",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-feKdsFUi55zWghxGD77i91ID.png?st=2026-03-23T11%3A11%3A24Z&se=2026-03-23T13%3A11%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-23T02%3A15%3A14Z&ske=2026-03-24T02%3A15%3A14Z&sks=b&skv=2026-02-06&sig=WMrVysURgFPAylub0LIDldbvb6ZQMHUlwJ0r9XoZNPE%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "understanding-of-requirements",
-      "heading": "Understanding of Requirements",
-      "sectionType": "problem",
+      "id": "technical-requirements",
+      "heading": "Technical Requirements",
+      "sectionType": "challenge",
       "content": {
-        "eyebrow": "The High Cost of Stagnation",
-        "headline": "Operational inefficiencies could drain resources and stifle growth opportunities",
-        "body": "Delay in addressing inefficiencies leaves Omer vulnerable to market disruptions and competitor advances. Each day without action compounds resource waste and blunts responsiveness, risking customer satisfaction and industry relevance. Immediate change is not merely beneficial; it is essential for survival.",
-        "painPoints": [
-          "Increase in operational costs due to inefficiencies",
-          "Diminished ability to innovate and adapt quickly",
-          "Missed opportunities from slow market responsiveness",
-          "Fragmented systems leading to data silos",
-          "Compromised security measures amidst growth efforts"
-        ],
-        "imageQuery": "tense business meeting conflict tension",
-        "variant": "editorial",
-        "ui": {
-          "showCTA": true,
-          "layout": "editorial",
-          "mediaPosition": "background"
-        },
-        "behavior": {
-          "hasParallax": false,
-          "animation": "fade-up"
-        }
+        "eyebrow": "Technical Requirements",
+        "headline": "Technical Requirements",
+        "body": "### Technical Requirements  This section outlines the technical requirements for the proposed data architecture transformation at Acme Corporation. The requirements are categorized into functional and",
+        "imageQuery": "business technical requirements professional"
       },
       "image": {
         "source": "gradient",
-        "query": "tense business meeting conflict tension",
+        "query": "business technical requirements professional",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -117,46 +86,18 @@
       "version": 1
     },
     {
-      "id": "proposed-solution",
-      "heading": "Proposed Solution",
+      "id": "approach",
+      "heading": "approach",
       "sectionType": "approach",
       "content": {
-        "eyebrow": "Strategic Pathways to Success",
-        "headline": "Enhancing Operational Efficiency Together with Omer",
-        "subheadline": "Focused collaboration to align Omer’s evolving needs with tailored solutions. This partnership paves the way for sustainable success in a competitive landscape.",
-        "pillars": [
-          {
-            "iconHint": "strategy",
-            "name": "Agile Development",
-            "description": "An iterative model fostering rapid feedback and adaptability. Ensures alignment with Omer’s evolving requirements for timely deliverables."
-          },
-          {
-            "iconHint": "digital",
-            "name": "Design Thinking",
-            "description": "Deeply understanding Omer’s specific needs to create effective solutions. This methodology encourages stakeholder engagement and fosters innovation."
-          },
-          {
-            "iconHint": "identity",
-            "name": "Continuous Integration",
-            "description": "A streamlined CI/CD pipeline minimizes deployment times. This agility allows Omer to maintain high-quality outputs while quickly responding to market changes."
-          }
-        ],
-        "imageQuery": "dramatic office collaboration environment",
-        "diagram": "graph LR\n  A[Agile Development] --> B[Design Thinking] --> C[Continuous Integration]",
-        "variant": "asymmetric",
-        "ui": {
-          "showCTA": true,
-          "layout": "asymmetric",
-          "mediaPosition": "background"
-        },
-        "behavior": {
-          "hasParallax": false,
-          "animation": "scale"
-        }
+        "eyebrow": "approach",
+        "headline": "approach",
+        "body": "",
+        "imageQuery": "business approach professional"
       },
       "image": {
         "source": "gradient",
-        "query": "dramatic office collaboration environment",
+        "query": "business approach professional",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -164,54 +105,18 @@
       "version": 1
     },
     {
-      "id": "scope-of-work",
-      "heading": "Scope of Work",
+      "id": "deliverables",
+      "heading": "deliverables",
       "sectionType": "deliverables",
       "content": {
-        "eyebrow": "Defining Clear Deliverables",
-        "headline": "Essential Outputs for Operational Improvement",
-        "items": [
-          {
-            "iconHint": "document",
-            "name": "Needs Assessment Report",
-            "detail": "Documents current requirements to identify key areas for improvement."
-          },
-          {
-            "iconHint": "document",
-            "name": "Solution Design Document",
-            "detail": "Outlines the proposed architecture tailored to Omer's operational needs."
-          },
-          {
-            "iconHint": "document",
-            "name": "Implementation Plan",
-            "detail": "Details the timeline and phases for executing each aspect of the project."
-          },
-          {
-            "iconHint": "document",
-            "name": "Regular Status Updates",
-            "detail": "Ensures that all stakeholders are informed of progress at key milestones."
-          },
-          {
-            "iconHint": "document",
-            "name": "Final Project Delivery",
-            "detail": "Includes a comprehensive review post-implementation to assess outcomes."
-          }
-        ],
-        "imageQuery": "minimal office with technology setup",
-        "variant": "split",
-        "ui": {
-          "showCTA": true,
-          "layout": "split",
-          "mediaPosition": "right"
-        },
-        "behavior": {
-          "hasParallax": false,
-          "animation": "fade-up"
-        }
+        "eyebrow": "deliverables",
+        "headline": "deliverables",
+        "body": "",
+        "imageQuery": "business deliverables professional"
       },
       "image": {
         "source": "gradient",
-        "query": "minimal office with technology setup",
+        "query": "business deliverables professional",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -219,55 +124,94 @@
       "version": 1
     },
     {
-      "id": "implementation-plan",
-      "heading": "Implementation Plan",
+      "id": "timeline",
+      "heading": "timeline",
       "sectionType": "timeline",
       "content": {
-        "eyebrow": "Implementation Roadmap",
-        "headline": "Phased Approach to Operational Excellence",
-        "subheadline": "A structured path to enhance efficiency and drive results.",
-        "phases": [
-          {
-            "label": "Phase 1",
-            "duration": "2 weeks",
-            "name": "Assessment & Planning",
-            "description": "Gather data and align objectives to define clear project goals."
-          },
-          {
-            "label": "Phase 2",
-            "duration": "2 weeks",
-            "name": "Development & Testing",
-            "description": "Create and test tailored solutions to ensure they meet operational needs."
-          },
-          {
-            "label": "Phase 3",
-            "duration": "3 weeks",
-            "name": "Implementation",
-            "description": "Deploy solutions across identified workflows for immediate impact."
-          },
-          {
-            "label": "Phase 4",
-            "duration": "3 weeks",
-            "name": "Evaluation & Support",
-            "description": "Monitor performance and refine processes based on real-time feedback."
-          }
-        ],
-        "imageQuery": "operational efficiency",
-        "diagram": "gantt\n  title Project Schedule\n  dateFormat YYYY-MM-DD\n  section Phase 1\n  Assessment & Planning :a1, 2026-01-01, 14d\n  section Phase 2\n  Development & Testing :a2, after a1, 14d\n  section Phase 3\n  Implementation :a3, after a2, 21d\n  section Phase 4\n  Evaluation & Support :a4, after a3, 21d",
-        "variant": "centered",
-        "ui": {
-          "showCTA": true,
-          "layout": "centered",
-          "mediaPosition": "background"
-        },
-        "behavior": {
-          "hasParallax": false,
-          "animation": "fade-up"
-        }
+        "eyebrow": "timeline",
+        "headline": "timeline",
+        "body": "",
+        "imageQuery": "business timeline professional"
       },
       "image": {
         "source": "gradient",
-        "query": "operational efficiency",
+        "query": "business timeline professional",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "pricing",
+      "heading": "pricing",
+      "sectionType": "pricing",
+      "content": {
+        "eyebrow": "pricing",
+        "headline": "pricing",
+        "body": "",
+        "imageQuery": "business pricing professional"
+      },
+      "image": {
+        "source": "gradient",
+        "query": "business pricing professional",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "whyus",
+      "heading": "whyus",
+      "sectionType": "whyus",
+      "content": {
+        "eyebrow": "whyus",
+        "headline": "whyus",
+        "body": "",
+        "imageQuery": "business whyus professional"
+      },
+      "image": {
+        "source": "gradient",
+        "query": "business whyus professional",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "stats",
+      "heading": "stats",
+      "sectionType": "stats",
+      "content": {
+        "eyebrow": "stats",
+        "headline": "stats",
+        "body": "",
+        "imageQuery": "business stats professional"
+      },
+      "image": {
+        "source": "gradient",
+        "query": "business stats professional",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "nextsteps",
+      "heading": "nextsteps",
+      "sectionType": "nextsteps",
+      "content": {
+        "eyebrow": "nextsteps",
+        "headline": "nextsteps",
+        "body": "",
+        "imageQuery": "business nextsteps professional"
+      },
+      "image": {
+        "source": "gradient",
+        "query": "business nextsteps professional",
         "url": null,
         "fallback": "gradient-mesh"
       },

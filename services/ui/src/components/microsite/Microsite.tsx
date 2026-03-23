@@ -22,6 +22,7 @@ import { StatsSection } from './sections/StatsSection';
 
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
+import { SectionIdProvider } from './editor/SectionIdContext';
 
 import type {
   HeroContent,
@@ -109,6 +110,7 @@ function renderSection(
   brief?: LayoutAST['brief'],
 ) {
   const imageUrl = section.image.url;
+  const sid = section.id;
 
   let inner: React.ReactNode;
   switch (section.sectionType) {
@@ -126,49 +128,49 @@ function renderSection(
           variant={typeof heroRaw.variant === 'string' ? heroRaw.variant : undefined}
           ui={heroRaw.ui as { showCTA?: boolean; layout?: string; mediaPosition?: string } | undefined}
           behavior={heroRaw.behavior as { hasParallax?: boolean; animation?: string } | undefined}
-          sectionId={section.id}
+          sectionId={sid}
         />
       );
       break;
     }
     case 'challenge':
-      inner = <ChallengeSection content={section.content as ChallengeContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <ChallengeSection content={section.content as ChallengeContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'approach':
-      inner = <ApproachSection content={section.content as ApproachContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <ApproachSection content={section.content as ApproachContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'deliverables':
-      inner = <DeliverablesSection content={section.content as DeliverablesContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <DeliverablesSection content={section.content as DeliverablesContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'timeline':
-      inner = <TimelineSection content={section.content as TimelineContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <TimelineSection content={section.content as TimelineContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'pricing':
-      inner = <PricingSection content={section.content as PricingContent} tokens={tokens} imageUrl={imageUrl} index={index} sections={allSections} />;
+      inner = <PricingSection content={section.content as PricingContent} tokens={tokens} imageUrl={imageUrl} index={index} sections={allSections} sectionId={sid} />;
       break;
     case 'whyus':
-      inner = <WhyUsSection content={section.content as WhyUsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <WhyUsSection content={section.content as WhyUsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'nextsteps':
-      inner = <NextStepsSection content={section.content as NextStepsContent} tokens={tokens} imageUrl={imageUrl} index={index} sections={allSections} />;
+      inner = <NextStepsSection content={section.content as NextStepsContent} tokens={tokens} imageUrl={imageUrl} index={index} sections={allSections} sectionId={sid} />;
       break;
     case 'testimonials':
-      inner = <TestimonialsSection content={section.content as TestimonialsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <TestimonialsSection content={section.content as TestimonialsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'showcase':
-      inner = <ShowcaseSection content={section.content as ShowcaseContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <ShowcaseSection content={section.content as ShowcaseContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'benefits':
-      inner = <BenefitsSection content={section.content as BenefitsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <BenefitsSection content={section.content as BenefitsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'problem':
-      inner = <ProblemSection content={section.content as ProblemContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <ProblemSection content={section.content as ProblemContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'stats':
-      inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     default:
-      inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
   }
 
   return inner;
@@ -204,11 +206,13 @@ function SectionWithOverlay({
 
   return (
     <AnimatedSection key={section.id} id={section.id} behavior={behavior} index={index}>
-      {editCtx ? (
-        <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
-          {sectionInner}
-        </SectionEditOverlay>
-      ) : sectionInner}
+      <SectionIdProvider id={section.id}>
+        {editCtx ? (
+          <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
+            {sectionInner}
+          </SectionEditOverlay>
+        ) : sectionInner}
+      </SectionIdProvider>
     </AnimatedSection>
   );
 }
@@ -223,6 +227,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingPptx, setDownloadingPptx] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -278,6 +283,32 @@ ${el.innerHTML}
       URL.revokeObjectURL(url);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const downloadPptx = async () => {
+    setDownloadingPptx(true);
+    try {
+      const namespace = ast.proposalId?.split('/')[0] ?? 'default';
+      const proposalId = ast.proposalId?.split('/')[1] ?? ast.proposalId ?? 'proposal';
+      const res = await fetch(`/api/presentations/${namespace}/${proposalId}/export-pptx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ast }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
+      a.download = `${title.toLowerCase().replace(/\s+/g, '-')}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('[Microsite] PPTX export failed:', err);
+    } finally {
+      setDownloadingPptx(false);
     }
   };
 
@@ -426,8 +457,8 @@ ${el.innerHTML}
             </button>
           )}
           <button
-            onClick={downloadHTML}
-            disabled={downloading}
+            onClick={downloadPptx}
+            disabled={downloadingPptx}
             style={{
               padding: '9px 18px',
               borderRadius: 100,
@@ -437,11 +468,11 @@ ${el.innerHTML}
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontSize: '0.8rem',
               fontWeight: 700,
-              cursor: downloading ? 'wait' : 'pointer',
+              cursor: downloadingPptx ? 'wait' : 'pointer',
               boxShadow: `0 4px 16px ${tokens.glowColor}`,
             }}
           >
-            {downloading ? 'Preparing…' : '↓ Download HTML'}
+            {downloadingPptx ? 'Preparing…' : '↓ Download PPT'}
           </button>
         </div>,
         document.body

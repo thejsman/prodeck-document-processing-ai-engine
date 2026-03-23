@@ -4,15 +4,17 @@ import type { PluginTokens, StatsContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Label, Body } from '../shared/Typography';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: StatsContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function StatsSection({ content, tokens }: Props) {
+export function StatsSection({ content, tokens, sectionId }: Props) {
   const stats = content.stats ?? [];
 
   return (
@@ -40,22 +42,26 @@ export function StatsSection({ content, tokens }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 14 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 14 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
         <Reveal delay={60}>
-          <h2 style={{
-            fontFamily: `'${tokens.heroFont}', serif`,
-            fontWeight: tokens.heroWeight,
-            fontSize: 'clamp(1.5rem, 3vw, 2.2rem)',
-            lineHeight: 1.15,
-            color: tokens.text,
-            textAlign: 'center',
-            marginBottom: 56,
-          }}>
-            {content.headline}
-          </h2>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <h2 style={{
+              fontFamily: `'${tokens.heroFont}', serif`,
+              fontWeight: tokens.heroWeight,
+              fontSize: 'clamp(1.5rem, 3vw, 2.2rem)',
+              lineHeight: 1.15,
+              color: tokens.text,
+              textAlign: 'center',
+              marginBottom: 56,
+            }}>
+              {content.headline}
+            </h2>
+          </InlineEditable>
         </Reveal>
 
         {/* Stats row */}

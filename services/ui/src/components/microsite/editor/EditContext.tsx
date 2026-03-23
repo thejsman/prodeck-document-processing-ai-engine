@@ -128,6 +128,9 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
           if (fieldPath === '__bgColor') {
             return { ...sec, bgColor: value as string };
           }
+          if (fieldPath === '__heading') {
+            return { ...sec, heading: value as string };
+          }
           return {
             ...sec,
             content: setDeep(sec.content as unknown as Record<string, unknown>, fieldPath, value) as unknown as typeof sec.content,

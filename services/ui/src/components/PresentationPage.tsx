@@ -9,7 +9,8 @@ import {
   fetchProposalContent,
   fetchMicrositeContent,
   synthesizeDesignStyle,
-  runAgent,
+  generateMicrositeStream,
+  type StreamEvent,
   type ProposalFile,
   type SynthesizedDesignSystem,
 } from '@/lib/api';
@@ -37,7 +38,11 @@ const STEPS: Array<{ id: StepId; label: string; description: string }> = [
 interface ProgressItem { text: string; done: boolean; }
 
 function pluginThumbnail(plugin: PluginMeta): string {
-  return `linear-gradient(135deg, ${plugin.tokens.bg} 0%, ${plugin.tokens.surfaceAlt} 100%)`;
+  return `linear-gradient(160deg, ${plugin.tokens.bg} 0%, ${plugin.tokens.surface ?? plugin.tokens.bg} 60%, ${plugin.tokens.surfaceAlt} 100%)`;
+}
+
+function pluginAccentBar(plugin: PluginMeta): string {
+  return `linear-gradient(90deg, ${plugin.tokens.accent} 0%, ${plugin.tokens.accent}88 100%)`;
 }
 
 // ── Color extraction utilities ────────────────────────────────────────────────
@@ -233,6 +238,8 @@ export function PresentationPage() {
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [streamingSections, setStreamingSections] = useState<string[]>([]);
+  const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
@@ -352,73 +359,75 @@ export function PresentationPage() {
       title: selectedProposal?.client ?? selectedNamespace,
     });
 
+    const abortCtrl = new AbortController();
+
     try {
-      setProgress([{ text: 'Parsing document structure...', done: true }]);
-      setProgress(p => [...p, { text: 'Sending to microsite-generator agent...', done: false }]);
+      setStreamingSections([]);
+      setProgress([{ text: 'Connecting to AI pipeline...', done: true }]);
+      setProgress(p => [...p, { text: 'Running design synthesis + section planning...', done: false }]);
 
-      // When the user selected their custom synthesized style, pass it as pre-synthesized
-      // so the agent skips Pass -1 (design synthesis).
       const isCustomSynth = selectedPlugin === 'custom-synthesized' && synthesizedDesign;
-      const effectivePlugin = isCustomSynth ? 'cobalt' : selectedPlugin;
-
-      // Use last generated markdown on regeneration; original proposal on first run
       const sourceMarkdown = generatedMarkdown ?? mdContent;
 
-      const result = await runAgent(apiKey, {
-        agent: 'microsite-generator-agent',
-        namespace: selectedNamespace,
-        input: {
-          ...(customPrompt.trim() ? { prompt: customPrompt.trim() } : {}),
-          metadata: {
-            proposalMarkdown: sourceMarkdown,
-            plugin: selectedPlugin ?? 'none',
-            brand: {
-              companyName: brand.companyName,
-              tagline: brand.tagline,
-              logoText: brand.logoText,
-              primaryColor: brand.primaryColor,
-              secondaryColor: brand.secondaryColor,
-              logoUrl: brand.logoUrl,
-            },
-            ...(customPrompt.trim() ? { customInstructions: customPrompt.trim() } : {}),
-            ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
-            ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
-          },
-        },
-      });
+      // Ensure presentation record exists before streaming
+      const resolvedProposalId = selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
 
-      setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
-      setProgress(p => [...p, { text: 'Processing agent response...', done: false }]);
-
-      let ast: LayoutAST | null = null;
-      if (result.json && typeof result.json === 'object') {
-        ast = result.json as LayoutAST;
-      }
-
-      if (ast && ast.sections?.length > 0) {
-        ast.brand = {
+      await generateMicrositeStream(apiKey, selectedNamespace, resolvedProposalId, {
+        proposalMarkdown: sourceMarkdown,
+        plugin: isCustomSynth ? 'cobalt' : (selectedPlugin ?? 'cobalt'),
+        brand: {
           companyName: brand.companyName,
           tagline: brand.tagline,
-          logoUrl: brand.logoUrl,
           logoText: brand.logoText,
           primaryColor: brand.primaryColor,
           secondaryColor: brand.secondaryColor,
-        };
-        // null → fall back to 'ivory' (cleanest/lightest) for renderer
-        ast.plugin = selectedPlugin ?? 'ivory';
-        setLayoutAST(ast);
-        addEntry(ast);
-        // Store generated markdown so next regeneration refines this output, not original proposal
-        if (result.markdown) setGeneratedMarkdown(result.markdown);
-      }
+          logoUrl: brand.logoUrl,
+        },
+        designBrief: [designBrief, customPrompt].filter(Boolean).join('\n'),
+        ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign!.designSystem } } : {}),
+        signal: abortCtrl.signal,
+        onEvent: (event: StreamEvent) => {
+          if (event.type === 'start') {
+            setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
+            setProgress(p => [...p, { text: 'Building sections in parallel...', done: false }]);
+          } else if (event.type === 'section') {
+            // Real section completing — show it in streaming UI
+            setStreamingSections(prev => [...prev, event.heading]);
+          } else if (event.type === 'image') {
+            // Image resolved for a section — silent update
+          } else if (event.type === 'complete') {
+            setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
+            setProgress(p => [...p, { text: 'Resolving images...', done: false }]);
 
-      setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
-      setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
-      updateExecution(execId, { status: 'completed' });
-      setTimeout(() => setStep('preview'), 600);
+            const ast = event.ast as LayoutAST | null;
+            if (ast && ast.sections?.length > 0) {
+              ast.brand = {
+                companyName: brand.companyName,
+                tagline: brand.tagline,
+                logoUrl: brand.logoUrl,
+                logoText: brand.logoText,
+                primaryColor: brand.primaryColor,
+                secondaryColor: brand.secondaryColor,
+              };
+              ast.plugin = (isCustomSynth ? 'cobalt' : selectedPlugin) ?? 'ivory';
+              setLayoutAST(ast);
+              addEntry(ast);
+            }
+
+            setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
+            setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
+            updateExecution(execId, { status: 'completed' });
+            setTimeout(() => setStep('preview'), 600);
+          } else if (event.type === 'error') {
+            throw new Error(event.message);
+          }
+        },
+      });
     } catch (e) {
-      setError((e as Error).message);
-      updateExecution(execId, { status: 'failed', errorMessage: (e as Error).message });
+      if ((e as Error).name !== 'AbortError') {
+        setError((e as Error).message);
+        updateExecution(execId, { status: 'failed', errorMessage: (e as Error).message });
+      }
     } finally {
       setGenerating(false);
     }
@@ -835,7 +844,116 @@ export function PresentationPage() {
           {/* ═══ STEP 3: CHOOSE STYLE ═══ */}
           {step === 'plugin' && (
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 14 }}>
+
+                {/* ── Theme cards ── */}
+                {pluginList.map(plugin => {
+                  const active = selectedPlugin === plugin.id;
+                  const t = plugin.tokens;
+                  return (
+                    <div
+                      key={plugin.id}
+                      style={{
+                        position: 'relative',
+                        border: `2px solid ${active ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        borderRadius: 12, overflow: 'hidden',
+                        boxShadow: active ? '0 0 0 3px #bfdbfe' : 'var(--shadow)',
+                        transition: 'border-color 0.2s, box-shadow 0.2s',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => setSelectedPlugin(active ? null : plugin.id)}
+                    >
+                      {/* Rich thumbnail preview */}
+                      <div style={{ height: 130, background: pluginThumbnail(plugin), position: 'relative', overflow: 'hidden' }}>
+                        {/* Accent glow */}
+                        <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse at 20% 60%, ${t.accent}33 0%, transparent 55%)` }} />
+                        {/* Mock hero layout */}
+                        <div style={{ position: 'absolute', top: 14, left: 14, right: 14 }}>
+                          {/* Eyebrow label */}
+                          <div style={{
+                            display: 'inline-block', height: 5, width: 36,
+                            background: t.accent, borderRadius: 3, marginBottom: 7, opacity: 0.9,
+                          }} />
+                          {/* Mock headline */}
+                          <div style={{
+                            fontFamily: `'${t.heroFont}', Georgia, serif`,
+                            fontSize: 17, fontWeight: t.heroWeight,
+                            color: t.text, lineHeight: 1.15, letterSpacing: '-0.01em',
+                            marginBottom: 6, maxWidth: 150,
+                          }}>
+                            {plugin.name}
+                          </div>
+                          {/* Mock body lines */}
+                          <div style={{ height: 3, width: 100, background: t.text, opacity: 0.2, borderRadius: 2, marginBottom: 4 }} />
+                          <div style={{ height: 3, width: 75, background: t.text, opacity: 0.15, borderRadius: 2, marginBottom: 10 }} />
+                          {/* Mock CTA button */}
+                          <div style={{
+                            display: 'inline-block', padding: '4px 10px',
+                            background: t.accent, borderRadius: t.borderRadius ?? 4,
+                            fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: '0.04em',
+                          }}>
+                            View Proposal
+                          </div>
+                        </div>
+                        {/* Color swatch strip */}
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, display: 'flex' }}>
+                          <div style={{ flex: 1, background: t.bg }} />
+                          <div style={{ flex: 1, background: t.accent }} />
+                          <div style={{ flex: 1, background: t.text }} />
+                          <div style={{ flex: 1, background: t.surfaceAlt ?? t.bg }} />
+                        </div>
+                        {/* Preview hover */}
+                        <div
+                          className="theme-preview-hover"
+                          style={{
+                            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            opacity: 0, transition: 'opacity 0.2s, background 0.2s',
+                          }}
+                          onClick={e => { e.stopPropagation(); setPreviewPlugin(plugin.id); }}
+                        >
+                          <span style={{
+                            background: 'rgba(0,0,0,0.65)', color: '#fff',
+                            fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 100,
+                          }}>Full Preview</span>
+                        </div>
+                        {active && (
+                          <div style={{
+                            position: 'absolute', top: 7, right: 7,
+                            width: 20, height: 20, borderRadius: '50%',
+                            background: 'var(--color-primary)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, color: '#fff',
+                          }}>✓</div>
+                        )}
+                      </div>
+
+                      {/* Card footer */}
+                      <div style={{
+                        padding: '10px 12px',
+                        background: active ? '#eff6ff' : 'var(--color-surface)',
+                        borderTop: `1px solid ${active ? '#bfdbfe' : 'var(--color-border)'}`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                          <p style={{ fontSize: 13, fontWeight: 700, margin: 0, color: active ? 'var(--color-primary)' : 'var(--color-text)' }}>
+                            {plugin.name}
+                          </p>
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            {[t.bg, t.accent, t.text].map((c, ci) => (
+                              <div key={ci} style={{ width: 10, height: 10, borderRadius: '50%', background: c, border: '1px solid rgba(0,0,0,0.1)' }} />
+                            ))}
+                          </div>
+                        </div>
+                        <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
+                          {plugin.description}
+                        </p>
+                        <p style={{ fontSize: 10, margin: '4px 0 0', color: active ? 'var(--color-primary)' : 'var(--color-text-muted)', fontWeight: 500, fontFamily: 'monospace' }}>
+                          {t.heroFont ?? ''}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
 
                 {/* ── No Theme card ── */}
                 {(() => {
@@ -848,26 +966,21 @@ export function PresentationPage() {
                       style={{
                         background: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
                         border: `2px solid ${noThemeActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                        borderRadius: 10, overflow: 'hidden',
+                        borderRadius: 12, overflow: 'hidden',
                         boxShadow: noThemeActive ? '0 0 0 3px #bfdbfe' : 'var(--shadow)',
                         transition: 'border-color 0.2s',
                       }}
                     >
                       <div style={{
-                        height: 90, position: 'relative', overflow: 'hidden',
+                        height: 130, position: 'relative', overflow: 'hidden',
                         background: 'repeating-linear-gradient(45deg, var(--color-bg) 0px, var(--color-bg) 8px, var(--color-border) 8px, var(--color-border) 9px)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        <span style={{
-                          fontSize: 28, opacity: 0.25,
-                          color: 'var(--color-text)',
-                        }}>∅</span>
+                        <span style={{ fontSize: 32, opacity: 0.2, color: 'var(--color-text)' }}>∅</span>
                         {noThemeActive && (
                           <div style={{
-                            position: 'absolute', top: 6, right: 6,
-                            width: 20, height: 20, borderRadius: '50%',
-                            background: 'var(--color-primary)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            position: 'absolute', top: 7, right: 7, width: 20, height: 20, borderRadius: '50%',
+                            background: 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: 10, color: '#fff',
                           }}>✓</div>
                         )}
@@ -877,110 +990,16 @@ export function PresentationPage() {
                         background: 'var(--color-surface)',
                         borderTop: '1px solid var(--color-border)',
                       }}>
-                        <p style={{
-                          fontSize: 13, fontWeight: 600, margin: '0 0 2px',
-                          color: noThemeActive ? 'var(--color-primary)' : 'var(--color-text)',
-                        }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 2px', color: noThemeActive ? 'var(--color-primary)' : 'var(--color-text)' }}>
                           No Theme
                         </p>
                         <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
-                          Clean layout, no styling
+                          Clean default layout
                         </p>
                       </div>
                     </button>
                   );
                 })()}
-
-                {/* ── Theme cards ── */}
-                {pluginList.map(plugin => {
-                  const active = selectedPlugin === plugin.id;
-                  return (
-                    <div
-                      key={plugin.id}
-                      style={{
-                        position: 'relative',
-                        border: `2px solid ${active ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                        borderRadius: 10, overflow: 'hidden',
-                        boxShadow: active ? '0 0 0 3px #bfdbfe' : 'var(--shadow)',
-                        transition: 'border-color 0.2s',
-                      }}
-                    >
-                      {/* Thumbnail — click to preview */}
-                      <button
-                        onClick={() => setPreviewPlugin(plugin.id)}
-                        title={`Preview ${plugin.name}`}
-                        style={{
-                          display: 'block', width: '100%', background: 'none',
-                          padding: 0, cursor: 'pointer', border: 'none',
-                        }}
-                      >
-                        <div style={{
-                          height: 90, background: pluginThumbnail(plugin),
-                          position: 'relative', overflow: 'hidden',
-                        }}>
-                          <div style={{
-                            position: 'absolute', inset: 0,
-                            background: `radial-gradient(ellipse at 30% 50%, ${plugin.tokens.accent}22 0%, transparent 60%)`,
-                          }} />
-                          <div style={{
-                            position: 'absolute', bottom: '0.6rem', left: '0.75rem',
-                            fontFamily: `'${plugin.tokens.heroFont}', Georgia, serif`,
-                            fontSize: '1.1rem', fontWeight: plugin.tokens.heroWeight,
-                            color: plugin.tokens.text, lineHeight: 1,
-                          }}>
-                            Aa
-                          </div>
-                          {/* Preview hint overlay */}
-                          <div style={{
-                            position: 'absolute', inset: 0,
-                            background: 'rgba(0,0,0,0)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            opacity: 0,
-                            transition: 'opacity 0.2s, background 0.2s',
-                          }}
-                            className="theme-preview-hover"
-                          >
-                            <span style={{
-                              background: 'rgba(0,0,0,0.6)', color: '#fff',
-                              fontSize: 11, fontWeight: 600, padding: '4px 10px',
-                              borderRadius: 100,
-                            }}>Preview</span>
-                          </div>
-                          {active && (
-                            <div style={{
-                              position: 'absolute', top: 6, right: 6,
-                              width: 20, height: 20, borderRadius: '50%',
-                              background: 'var(--color-primary)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 10, color: '#fff',
-                            }}>✓</div>
-                          )}
-                        </div>
-                      </button>
-
-                      {/* Footer — click to select / toggle off */}
-                      <button
-                        onClick={() => setSelectedPlugin(active ? null : plugin.id)}
-                        style={{
-                          display: 'block', width: '100%', textAlign: 'left',
-                          padding: '10px 12px', cursor: 'pointer', border: 'none',
-                          background: 'var(--color-surface)',
-                          borderTop: '1px solid var(--color-border)',
-                        }}
-                      >
-                        <p style={{
-                          fontSize: 13, fontWeight: 600, margin: '0 0 2px',
-                          color: active ? 'var(--color-primary)' : 'var(--color-text)',
-                        }}>
-                          {plugin.name}
-                        </p>
-                        <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
-                          {plugin.description}
-                        </p>
-                      </button>
-                    </div>
-                  );
-                })}
               </div>
 
               {/* Selection hint */}
@@ -1032,35 +1051,96 @@ export function PresentationPage() {
 
           {/* ═══ STEP 4: GENERATING ═══ */}
           {step === 'generate' && (
-            <div style={{ maxWidth: 480, margin: '0 auto', padding: '8px 0' }}>
-              {progress.map((p, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  marginBottom: 12, opacity: p.done ? 1 : 0.55,
-                  transition: 'opacity 0.3s',
-                }}>
-                  <div style={{
-                    width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-                    background: p.done ? 'var(--color-primary)' : 'var(--color-surface)',
-                    border: p.done ? 'none' : '1px solid var(--color-border)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 10, color: '#fff', transition: 'background 0.3s',
+            <div style={{ padding: '4px 0' }}>
+
+              {/* Pipeline progress */}
+              <div style={{ marginBottom: 20 }}>
+                {progress.map((p, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    marginBottom: 8, opacity: p.done ? 1 : 0.6,
+                    transition: 'opacity 0.3s',
                   }}>
-                    {p.done ? '✓' : ''}
-                  </div>
-                  <span style={{ fontSize: 13, color: p.done ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
-                    {p.text}
-                  </span>
-                  {!p.done && generating && (
                     <div style={{
-                      width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
-                      border: '1.5px solid var(--color-border)',
-                      borderTopColor: 'var(--color-primary)',
-                      animation: 'spin 0.8s linear infinite',
-                    }} />
-                  )}
+                      width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                      background: p.done ? 'var(--color-primary)' : 'var(--color-surface)',
+                      border: p.done ? 'none' : '1px solid var(--color-border)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 9, color: '#fff', transition: 'background 0.3s',
+                    }}>
+                      {p.done ? '✓' : ''}
+                    </div>
+                    <span style={{ fontSize: 12, color: p.done ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
+                      {p.text}
+                    </span>
+                    {!p.done && generating && (
+                      <div style={{
+                        width: 11, height: 11, borderRadius: '50%', flexShrink: 0,
+                        border: '1.5px solid var(--color-border)',
+                        borderTopColor: 'var(--color-primary)',
+                        animation: 'spin 0.8s linear infinite',
+                      }} />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Streaming section cards */}
+              {generating && streamingSections.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Building sections
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {streamingSections.map((name, i) => {
+                      const isDone = i < streamingSections.length - 1;
+                      return (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '9px 12px',
+                          borderRadius: 'var(--radius)',
+                          background: isDone ? 'var(--color-surface)' : 'var(--color-bg)',
+                          border: `1px solid ${isDone ? 'var(--color-border)' : 'var(--color-primary)'}`,
+                          boxShadow: isDone ? 'none' : '0 0 0 2px #bfdbfe44',
+                          transition: 'all 0.3s',
+                          animation: i === streamingSections.length - 1 ? 'slideInSection 0.35s ease-out' : 'none',
+                        }}>
+                          {isDone ? (
+                            <div style={{
+                              width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                              background: 'var(--color-primary)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 8, color: '#fff',
+                            }}>✓</div>
+                          ) : (
+                            <div style={{
+                              width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                              border: '1.5px solid var(--color-border)',
+                              borderTopColor: 'var(--color-primary)',
+                              animation: 'spin 0.8s linear infinite',
+                            }} />
+                          )}
+                          <span style={{
+                            fontSize: 13, fontWeight: isDone ? 400 : 600,
+                            color: isDone ? 'var(--color-text-muted)' : 'var(--color-text)',
+                          }}>
+                            {name}
+                          </span>
+                          {isDone && (
+                            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-muted)' }}>done</span>
+                          )}
+                          {!isDone && (
+                            <span style={{
+                              marginLeft: 'auto', fontSize: 10, fontWeight: 600,
+                              color: 'var(--color-primary)', letterSpacing: '0.04em',
+                            }}>writing…</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              ))}
+              )}
 
               {error && (
                 <div style={{
@@ -1079,7 +1159,13 @@ export function PresentationPage() {
                 </div>
               )}
 
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              <style>{`
+                @keyframes spin { to { transform: rotate(360deg); } }
+                @keyframes slideInSection {
+                  from { opacity: 0; transform: translateY(-6px); }
+                  to { opacity: 1; transform: translateY(0); }
+                }
+              `}</style>
             </div>
           )}
 

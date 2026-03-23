@@ -7,15 +7,17 @@ import type {
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
 import { Headline, Label, Body } from "../shared/Typography";
+import { InlineEditable } from "../editor/InlineEditable";
 
 interface Props {
   content: ShowcaseContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function ShowcaseSection({ content, tokens, index }: Props) {
+export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
   const highlights = content.highlights ?? [];
   // Alternate visual side based on section index
   const visualLeft = index % 2 === 0;
@@ -87,33 +89,41 @@ export function ShowcaseSection({ content, tokens, index }: Props) {
   const text = (
     <div style={{ flex: 1, minWidth: 0 }}>
       <Reveal>
-        <Label tokens={tokens} style={{ display: "block", marginBottom: 14 }}>
-          {content.eyebrow}
-        </Label>
+        <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+          <Label tokens={tokens} style={{ display: "block", marginBottom: 14 }}>
+            {content.eyebrow}
+          </Label>
+        </InlineEditable>
       </Reveal>
       <Reveal delay={80}>
-        <Headline tokens={tokens} style={{ marginBottom: 14 }}>
-          {content.headline}
-        </Headline>
+        <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+          <Headline tokens={tokens} style={{ marginBottom: 14 }}>
+            {content.headline}
+          </Headline>
+        </InlineEditable>
       </Reveal>
       <Reveal delay={160}>
-        <p
-          style={{
-            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 500,
-            fontSize: "1.1rem",
-            color: tokens.text,
-            lineHeight: 1.5,
-            marginBottom: 18,
-          }}
-        >
-          {content.subheadline}
-        </p>
+        <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
+          <p
+            style={{
+              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+              fontWeight: 500,
+              fontSize: "1.1rem",
+              color: tokens.text,
+              lineHeight: 1.5,
+              marginBottom: 18,
+            }}
+          >
+            {content.subheadline}
+          </p>
+        </InlineEditable>
       </Reveal>
       <Reveal delay={220}>
-        <Body tokens={tokens} style={{ marginBottom: 36 }}>
-          {content.body}
-        </Body>
+        <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+          <Body tokens={tokens} style={{ marginBottom: 36 }}>
+            {content.body}
+          </Body>
+        </InlineEditable>
       </Reveal>
       {/* Highlights as vertical list with accent line */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

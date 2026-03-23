@@ -5,15 +5,17 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: TimelineContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function TimelineSection({ content, tokens, index }: Props) {
+export function TimelineSection({ content, tokens, index, sectionId }: Props) {
   return (
     <section
       id="timeline"
@@ -32,22 +34,28 @@ export function TimelineSection({ content, tokens, index }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 12 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 12 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         {content.subheadline && (
           <Reveal delay={160}>
-            <Body tokens={tokens} style={{ maxWidth: 600, marginBottom: 48 }}>
-              {content.subheadline}
-            </Body>
+            <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
+              <Body tokens={tokens} style={{ maxWidth: 600, marginBottom: 48 }}>
+                {content.subheadline}
+              </Body>
+            </InlineEditable>
           </Reveal>
         )}
 

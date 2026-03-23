@@ -502,6 +502,19 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
 
         {section && content && (
           <>
+            {/* Section nav title */}
+            <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Section Title (nav label)
+              </label>
+              <input
+                type="text"
+                value={section.heading}
+                onChange={e => ctx.updateField(section.id, '__heading', e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #6366f133', fontSize: 12, boxSizing: 'border-box', background: '#f5f3ff' }}
+              />
+            </div>
+
             {/* Hero hint */}
             {section.sectionType === 'hero' && (
               <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 14, lineHeight: 1.5 }}>

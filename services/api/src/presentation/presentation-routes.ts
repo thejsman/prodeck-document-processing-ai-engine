@@ -30,6 +30,7 @@ import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
+import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
   fetchUnsplashImageUrl,
   generateDalle3Image,
@@ -306,6 +307,112 @@ export function registerPresentationRoutes(
     }
   });
 
+  // POST /presentations/:namespace/:proposalId/generate-stream
+  // Like /generate but streams progress via SSE. Each section completes → SSE event.
+  // Events: plan | section | images | complete | error
+  app.post('/presentations/:namespace/:proposalId/generate-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    // SSE headers — must be set before any writes
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const send = (data: Record<string, unknown>) => {
+      try { reply.raw.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client disconnected */ }
+    };
+
+    const body = req.body as {
+      proposalMarkdown?: string;
+      plugin?: string;
+      brand?: Record<string, unknown>;
+      designBrief?: string;
+      preSynthesizedDesignSystem?: Record<string, unknown>;
+    } | undefined;
+
+    // Load markdown from body or saved file
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        let presentation: Awaited<ReturnType<typeof getPresentation>>;
+        try { presentation = await getPresentation(workdir, namespace, proposalId); } catch { return send({ type: 'error', message: 'Presentation not found' }); }
+        const mdPath = path.join(workdir, 'output', presentation.fileName);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        send({ type: 'error', message });
+        return reply.raw.end();
+      }
+    }
+
+    ensureRegistered(workdir);
+    let runner;
+    try { runner = await buildRunner(workdir); } catch (err) {
+      send({ type: 'error', message: `Runner init failed: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.raw.end();
+    }
+
+    try {
+      send({ type: 'start', message: 'Pipeline started' });
+
+      const result = await runner.run('microsite-generator-agent', {
+        namespace,
+        metadata: {
+          proposalMarkdown: markdown,
+          plugin: body?.plugin ?? 'cobalt',
+          brand: body?.brand ?? {},
+          designBrief: body?.designBrief ?? '',
+          ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
+          // Streaming callback — fires after each section's LLM call completes
+          onSectionComplete: (section: Record<string, unknown>) => {
+            send({ type: 'section', ...section });
+          },
+        },
+      });
+
+      // Resolve images for all sections
+      type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
+      const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
+      if (ast?.sections) {
+        const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
+        const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+        const accentColor = ast.brand?.primaryColor;
+
+        await Promise.all(
+          ast.sections.map(async (sec) => {
+            const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
+            if (!query?.trim()) return;
+            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+            if (chosenSource === 'gradient') { sec.image.source = 'gradient'; return; }
+            sec.image.source = chosenSource;
+            if (chosenSource === 'dalle') {
+              const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
+              const url = await generateDalle3Image(prompt);
+              if (url) { sec.image.url = url; send({ type: 'image', sectionId: (sec as unknown as { id?: string }).id ?? sec.sectionType, url }); }
+            } else {
+              const url = await fetchUnsplashImageUrl(query);
+              if (url) { sec.image.url = url; send({ type: 'image', sectionId: (sec as unknown as { id?: string }).id ?? sec.sectionType, url }); }
+            }
+          }),
+        );
+
+        const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+        await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+      }
+
+      send({ type: 'complete', ast });
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      reply.raw.end();
+    }
+  });
+
   // GET /presentations/:namespace/:proposalId/microsite
   // Returns the previously generated site AST (null if not yet generated).
   // The microsite-generator-agent saves to assets/presentations/<namespace>/site-ast.json
@@ -359,7 +466,7 @@ export function registerPresentationRoutes(
       }
     }
 
-    const generateFn = llmGenerateFn(namespace);
+    const generateFn = llmGenerateFn;
 
     const agent = new DesignEditorAgent();
     const result = await agent.run({
@@ -429,6 +536,42 @@ export function registerPresentationRoutes(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(500).send({ error: `HTML export failed: ${message}` });
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/export-pptx
+  // Export the microsite AST as a PowerPoint (.pptx) file download.
+  // Body: { ast?: Record<string, unknown> }
+  app.post('/presentations/:namespace/:proposalId/export-pptx', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { ast?: Record<string, unknown> } | undefined;
+
+    let ast = body?.ast;
+    if (!ast) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      try {
+        const raw = await readFile(astPath, 'utf-8');
+        ast = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return reply.code(404).send({ error: `No microsite AST found for ${namespace}/${proposalId}` });
+      }
+    }
+
+    try {
+      const buffer = await renderMicrositeToPptx(ast as unknown as Parameters<typeof renderMicrositeToPptx>[0]);
+      const title = (ast.meta as { title?: string } | undefined)?.title ?? proposalId;
+      const fileName = `${title.toLowerCase().replace(/\s+/g, '-')}.pptx`;
+
+      reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      reply.header('Content-Disposition', `attachment; filename="${fileName}"`);
+      reply.header('Content-Length', buffer.length);
+      return reply.send(buffer);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(500).send({ error: `PPTX export failed: ${message}` });
     }
   });
 }

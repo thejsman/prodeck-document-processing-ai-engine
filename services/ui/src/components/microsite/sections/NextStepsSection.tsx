@@ -5,6 +5,7 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { CTAButton } from '../shared/CTAButton';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: NextStepsContent;
@@ -12,6 +13,7 @@ interface Props {
   imageUrl: string | null;
   index: number;
   sections?: LayoutSection[];
+  sectionId?: string;
 }
 
 function sectionCta(sections: LayoutSection[], targetId: string | undefined, fallback: string): string {
@@ -20,7 +22,7 @@ function sectionCta(sections: LayoutSection[], targetId: string | undefined, fal
   return s ? s.heading : fallback;
 }
 
-export function NextStepsSection({ content, tokens, index, sections = [] }: Props) {
+export function NextStepsSection({ content, tokens, index, sections = [], sectionId }: Props) {
   const primarySection =
     sections.find(s => s.sectionType === 'pricing') ??
     sections.find(s => s.sectionType === 'deliverables');
@@ -48,21 +50,27 @@ export function NextStepsSection({ content, tokens, index, sections = [] }: Prop
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto', textAlign: 'center' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 20 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 20 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={160}>
-          <Body tokens={tokens} style={{ maxWidth: 580, margin: '0 auto 40px', fontSize: '1.05rem' }}>
-            {content.body}
-          </Body>
+          <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+            <Body tokens={tokens} style={{ maxWidth: 580, margin: '0 auto 40px', fontSize: '1.05rem' }}>
+              {content.body}
+            </Body>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={240} style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', marginBottom: content.urgencyNote ? 32 : 0 }}>

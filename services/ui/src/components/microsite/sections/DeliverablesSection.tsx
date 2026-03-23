@@ -6,15 +6,17 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { SectionIcon } from '../shared/SectionIcon';
 import { GlassCard } from '../shared/GlassCard';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: DeliverablesContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function DeliverablesSection({ content, tokens, index }: Props) {
+export function DeliverablesSection({ content, tokens, index, sectionId }: Props) {
   return (
     <section
       id="deliverables"
@@ -33,15 +35,19 @@ export function DeliverablesSection({ content, tokens, index }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 48 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 48 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <div

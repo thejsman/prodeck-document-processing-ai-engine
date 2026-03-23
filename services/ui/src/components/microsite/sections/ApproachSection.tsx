@@ -7,15 +7,17 @@ import { Headline, Body, Label } from '../shared/Typography';
 import { SectionIcon } from '../shared/SectionIcon';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: ApproachContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function ApproachSection({ content, tokens, index }: Props) {
+export function ApproachSection({ content, tokens, index, sectionId }: Props) {
   return (
     <section
       id="approach"
@@ -34,22 +36,28 @@ export function ApproachSection({ content, tokens, index }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 12 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 12 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         {content.subheadline && (
           <Reveal delay={160}>
-            <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
-              {content.subheadline}
-            </Body>
+            <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
+              <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
+                {content.subheadline}
+              </Body>
+            </InlineEditable>
           </Reveal>
         )}
 

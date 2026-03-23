@@ -6,15 +6,17 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
 import { Headline, Label, Body } from '../shared/Typography';
 import { SectionIcon } from '../shared/SectionIcon';
+import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
   content: BenefitsContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function BenefitsSection({ content, tokens }: Props) {
+export function BenefitsSection({ content, tokens, sectionId }: Props) {
   const items = content.items ?? [];
   const cols = items.length <= 3 ? items.length : Math.min(items.length, 3);
 
@@ -31,14 +33,18 @@ export function BenefitsSection({ content, tokens }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', textAlign: 'center', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ textAlign: 'center', marginBottom: 60 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ textAlign: 'center', marginBottom: 60 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <div style={{

@@ -614,6 +614,71 @@ export interface AgentRunResult {
   assets?: string[];
 }
 
+export type StreamEvent =
+  | { type: 'start'; message: string }
+  | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown> }
+  | { type: 'image'; sectionId: string; url: string }
+  | { type: 'complete'; ast: unknown }
+  | { type: 'error'; message: string };
+
+export interface GenerateStreamOptions {
+  proposalMarkdown: string;
+  plugin?: string | null;
+  brand?: Record<string, unknown>;
+  designBrief?: string;
+  preSynthesizedDesignSystem?: Record<string, unknown>;
+  onEvent: (event: StreamEvent) => void;
+  signal?: AbortSignal;
+}
+
+export async function generateMicrositeStream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: GenerateStreamOptions,
+): Promise<void> {
+  const res = await fetch(`/api/presentations/${namespace}/${proposalId}/generate-stream`, {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      proposalMarkdown: opts.proposalMarkdown,
+      plugin: opts.plugin ?? 'cobalt',
+      brand: opts.brand ?? {},
+      designBrief: opts.designBrief ?? '',
+      ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as StreamEvent;
+          opts.onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function runAgent(apiKey: string, request: AgentRunRequest): Promise<AgentRunResult> {
   const res = await fetch('/api/agent/run', {
     method: 'POST',
