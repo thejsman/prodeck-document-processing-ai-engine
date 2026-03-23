@@ -55,11 +55,11 @@ export function WhyUsSection({ content, tokens, index }: Props) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min((content.stats ?? []).length, 4)}, 1fr)`,
+            gridTemplateColumns: `repeat(${Math.min((Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : []).length, 4)}, 1fr)`,
             gap: 'clamp(1rem, 2vw, 2rem)',
           }}
         >
-          {(content.stats ?? []).map((stat, si) => (
+          {(Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : []).map((stat, si) => (
             <Reveal key={si} delay={240 + si * 80}>
               <div
                 style={{

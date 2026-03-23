@@ -13,7 +13,8 @@ interface Props {
 }
 
 export function StatsSection({ content, tokens }: Props) {
-  const stats = content.stats ?? [];
+  const raw = content.stats;
+  const stats = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
   return (
     <section

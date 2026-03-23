@@ -6,7 +6,7 @@ import { useMicrositeHistory, type MicrositeHistoryEntry } from '@/lib/useMicros
 import { getPlugin } from '@/lib/presentation/pluginRegistry';
 
 interface Props {
-  namespace: string;
+  namespace?: string;
 }
 
 function getPluginAccent(plugin: string): string {

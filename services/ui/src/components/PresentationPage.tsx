@@ -359,7 +359,7 @@ export function PresentationPage() {
         agent: 'microsite-generator-agent',
         namespace: selectedNamespace,
         input: {
-          ...(customPrompt.trim() ? { prompt: customPrompt.trim() } : {}),
+          ...((customPrompt || designBrief).trim() ? { prompt: (customPrompt || designBrief).trim() } : {}),
           metadata: {
             proposalMarkdown: sourceMarkdown,
             plugin: selectedPlugin ?? 'none',
@@ -371,7 +371,7 @@ export function PresentationPage() {
               secondaryColor: brand.secondaryColor,
               logoUrl: brand.logoUrl,
             },
-            ...(customPrompt.trim() ? { customInstructions: customPrompt.trim() } : {}),
+            ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
             ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
             ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
           },
@@ -480,7 +480,7 @@ export function PresentationPage() {
       </div>
 
       {activeTab === 'history' ? (
-        <MicrositeHistory namespace={selectedNamespace || 'default'} />
+        <MicrositeHistory namespace={selectedNamespace || undefined} />
       ) : (<>
 
       {/* Stepper */}
@@ -987,8 +987,7 @@ export function PresentationPage() {
               {/* Custom prompt */}
               <div className="form-group" style={{ marginTop: 24, marginBottom: 0 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  Design Brief
-                  <span className="badge" style={{ fontSize: 10, fontWeight: 500 }}>optional but powerful</span>
+                  Prompt & Design Instructions
                   {designBrief.trim() && (
                     <span style={{
                       fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
@@ -1002,11 +1001,14 @@ export function PresentationPage() {
                   className="input"
                   rows={8}
                   placeholder={
-                    'Describe your site in natural language — design intent, structure, motion, and copy direction all in one place.\n\n' +
+                    'Structure, design, and content — all in one place.\n\n' +
                     'Examples:\n' +
-                    '• "Dark premium theme, sharp corners, no rounded buttons, editorial hero with large type, 8 sections: hero, problem, approach, team, timeline, pricing, testimonials, next steps"\n' +
-                    '• "B2B SaaS, clean dark mode, electric purple, no CTA in hero, add motion and fade-in animations"\n' +
-                    '• "Heritage law firm, deep navy and gold, Economist tone, parallax hero, bold split layouts"'
+                    '• "only generate 1 section: hero"\n' +
+                    '• "make it 3 sections focused on the problem and solution"\n' +
+                    '• "remove pricing, add a benefits section after hero"\n' +
+                    '• "swap hero and challenge order"\n' +
+                    '• "make it beautiful by using images"\n' +
+                    '• "dark premium theme, no CTA in hero, add fade-in animations"'
                   }
                   value={designBrief}
                   onChange={e => setDesignBrief(e.target.value)}

@@ -34,6 +34,22 @@ type SectionType =
   | 'stats'
   | 'generic';
 
+const ALL_SECTION_TYPES = new Set<string>([
+  'hero','challenge','approach','deliverables','timeline','pricing',
+  'whyus','nextsteps','testimonials','showcase','benefits','problem','stats','generic',
+]);
+
+/**
+ * Extract exact section count from customInstructions.
+ * LLMs are unreliable at exact counting — this enforces it in code.
+ * Matches: "only 3 sections", "make it 3 sections", "generate 3 sections",
+ *          "3 sections only", "exactly 3 sections", "just 3 sections"
+ */
+function parseExplicitCount(ci: string): number | null {
+  const m = ci.match(/\b(?:only|make\s+it|create|generate|just|exactly|use)?\s*(\d+)\s+sections?\b/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function classifySection(heading: string): SectionType {
   const h = heading.toLowerCase();
   if (/executive\s*summary|overview/.test(h)) return 'hero';
@@ -230,61 +246,53 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 
 // ── Section plan prompt (Pass 0) ─────────────────────────────────────────────
 
-function buildSectionPlanPrompt(markdown: string, plugin?: string, characterOverride?: string, customInstructions?: string): string {
-  const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
+function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
+  const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
-  const userInstructions = customInstructions?.trim()
-    ? `\n── USER INSTRUCTIONS (HIGHEST PRIORITY — read before doing anything else) ──\n${customInstructions.trim()}\n─────────────────────────────────────────────────────────────────────────────\n`
+  const overrideBlock = customInstructions
+    ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST BEFORE ANYTHING ELSE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OF OVERRIDE — ALL RULES BELOW ARE SECONDARY TO THE ABOVE ⚡⚡⚡\n\n`
     : '';
+  return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
+${styleHint}
+## STEP 1 — APPLY USER INSTRUCTIONS FIRST (if USER OVERRIDE is present above)
 
-  return `You are a senior proposal strategist and UX director.
-${styleHint}${userInstructions}
-## YOUR JOB
+If an OVERRIDE DIRECTIVE was given, parse it for explicit directives BEFORE anything else:
+- Section list specified? ("only hero", "sections: hero, pricing", "create these sections: ...") → use EXACTLY those types in EXACTLY that order
+- Section count specified? ("only 1 section", "make it 3 sections") → honour that count precisely
+- Section removal? ("remove pricing", "skip testimonials", "no nextsteps") → remove those sections
+- Section addition? ("add a benefits section", "include stats") → add them
+- Reorder? ("swap hero and challenge", "put pricing first") → reorder exactly as asked
+- No CTA in hero? ("no cta", "no buttons in hero", "remove cta from hero") → set noCTAInHero: true
+- No CTA anywhere? ("no cta anywhere", "remove all buttons", "no calls to action") → set noCTAEverywhere: true
+- ⚠️ VISUAL-ONLY commands ("add image on hero", "remove image", "dark theme", "no animations", "change font") do NOT affect section structure — plan sections normally from the proposal.
 
-Read the proposal markdown and decide the optimal section sequence for a presentation microsite.
+OVERRIDE DIRECTIVE supersedes ALL default rules below. Do not normalise or improve the user's structure.
 
-## STEP 1 — DETECT USER INTENT
-
-If USER INSTRUCTIONS are present above, parse them for explicit directives FIRST:
-
-- Section list specified? ("sections: hero, about, pricing" or "create these sections: ...") → use EXACTLY those types in EXACTLY that order
-- Section count specified? ("create 10 sections", "I want 6 sections") → honour that count precisely
-- Section removal? ("no CTA", "remove next steps", "skip testimonials") → remove those sections
-- Section addition? ("add testimonials", "include a stats section") → add them regardless of content heuristics
-
-USER INSTRUCTIONS OVERRIDE ALL DEFAULT RULES BELOW. Do not normalise or "improve" the user's structure.
-
-## STEP 2 — DEFAULT CONTENT-DRIVEN PLANNING (only when user has NOT specified structure)
-
-If no explicit structure was given, derive sections from content:
+## STEP 2 — DEFAULT PLANNING (only when no OVERRIDE DIRECTIVE, or for fields not covered by it)
 
 - Map each source heading to the best matching type
-- Insert AI-generated sections ONLY when they meaningfully improve the narrative (do not add them mechanically):
+- Intelligently INSERT AI-generated sections when they significantly improve the narrative:
   * "testimonials" — client names, outcomes, or case study language present
-  * "stats" — numbers/metrics scattered across multiple sections worth consolidating
+  * "stats" — numbers/metrics scattered across sections worth consolidating
   * "benefits" — value propositions scattered that would land better as a focused icon list
   * "showcase" — feature lists or product descriptions worth visual spotlight treatment
   * "problem" — challenge section is generic and needs sharper reframing
-- Aim for 8–12 sections; quality over quantity — do NOT pad with weak sections to hit a number
-- hero always first; nextsteps last or second-to-last
+- Aim for 9-11 sections; quality over quantity
+- hero always first (unless user explicitly reordered); nextsteps last or second-to-last
 - No duplicate types unless content genuinely requires it
 
-## CONSTRAINTS TO EXTRACT
+## STEP 3 — EXTRACT CONSTRAINTS
 
-After deciding sections, fill in the constraints object:
-- noCTAInHero: true if user said "no CTA", "remove CTA", "no buttons in hero", "skip CTA in hero", etc.
-- noCTAEverywhere: true if user said "no CTA anywhere", "remove all CTAs", "no buttons at all", "no calls to action", etc.
-- requestedSectionCount: the number if user explicitly stated a count ("10 sections", "6 sections"), otherwise null
-- hasCustomStructure: true if user specified section names/order explicitly
-- motion: "expressive" if user said "add motion", "animate", "transitions", "dynamic"; "deliberate" if "subtle motion", "gentle animation"; "instant" if "no animation", "static", "no transitions"; null if unspecified
-- parallax: true if user said "parallax", "depth", "parallax hero", "scroll parallax"; false otherwise
-- scrollEffects: "slide-up" if user said "slide in", "slide up", "entrance animation"; "fade-in" if user said "fade", "fade in"; "none" if not specified or user said "no effects"
+Fill in the constraints object based on what the user said:
+- noCTAInHero: true if user said "no cta", "no buttons", "remove cta", "no call to action", "no cta in hero", "without cta"
+- noCTAEverywhere: true if user said "no cta anywhere", "remove all buttons", "no calls to action anywhere"
+- requestedSectionCount: exact number if user said "only X section(s)", "make it X sections", "X sections only" — else null
+- hasCustomStructure: true if user explicitly named sections or order
+- motion: "expressive" if "animate"/"transitions"/"dynamic"; "deliberate" if "subtle motion"; "instant" if "no animation"/"static"; null if unspecified
+- parallax: true if user said "parallax"/"depth effect"; false otherwise
+- scrollEffects: "slide-up" if "slide in/up"; "fade-in" if "fade in"; "none" otherwise
 
-## VALID TYPES
-
-hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
-
-## OUTPUT FORMAT
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences.
 
@@ -308,6 +316,31 @@ PROPOSAL:
 ${markdown.slice(0, 8000)}`;
 }
 
+// ── Plan refinement prompt (Pass 0.5 — only runs when customInstructions present) ───
+
+function buildPlanRefinementPrompt(plan: SectionPlan[], customInstructions: string): string {
+  return `⚡⚡⚡ USER COMMAND — APPLY EXACTLY AS WRITTEN ⚡⚡⚡
+${customInstructions}
+⚡⚡⚡ END OF USER COMMAND ⚡⚡⚡
+
+You are a section plan editor. Reshape the plan below to satisfy the USER COMMAND above.
+
+CURRENT PLAN:
+${JSON.stringify(plan, null, 2)}
+
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
+
+RULES:
+- Return ONLY a valid JSON array — same format as CURRENT PLAN
+- Apply the user's instructions precisely: reduce, reorder, rename, add, or remove sections as requested
+- If the user says "only X sections", return exactly X items
+- If the user says "only section: Y", return exactly [{ type: "Y", ... }]
+- If the user says "swap X and Y" or specifies a custom order, reorder exactly as asked — do NOT enforce any default ordering
+- ⚠️ CRITICAL: If the instruction is ONLY about images, colors, fonts, motion, animations, or other visual styling (e.g. "add image on hero", "remove image", "dark theme", "no animations") — return the CURRENT PLAN UNCHANGED. Do NOT add or remove sections for visual-only commands.
+- Preserve sourceHeading, rationale, aiGenerated fields where possible
+- Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+}
+
 // ── Brief extraction prompt ──────────────────────────────────────────────────
 
 function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string): string {
@@ -316,9 +349,11 @@ function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; 
     : '';
   const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
   const styleHint = character ? `\nDESIGN VOICE: This microsite uses a "${plugin}" theme (${character}). Let this shape the heroNarrative tone and primaryTone selection.\n` : '';
-  const customHint = customInstructions ? `\nCUSTOM INSTRUCTIONS (user-specified — follow these closely when extracting the brief):\n${customInstructions}\n` : '';
+  const overrideBlock = customInstructions
+    ? `\n⚡ OVERRIDE DIRECTIVE — HIGHEST PRIORITY (apply before extracting any field):\n${customInstructions}\n`
+    : '';
   return `You are a senior proposal strategist. Extract a structured brief from this proposal. Return ONLY valid JSON. No markdown, no explanation, no code fences.
-${hint}${styleHint}${customHint}
+${overrideBlock}${hint}${styleHint}
 Extract this proposal into a brief:
 
 ${markdown}
@@ -389,7 +424,7 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
 
 /** Random fallback — used only when no intent is detected. */
 function pickVariant(type: SectionType): string {
-  const pool = VARIANT_POOLS[type];
+  const pool = VARIANT_POOLS[type] ?? VARIANT_POOLS.generic;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -473,9 +508,9 @@ function resolveVariant(
   isMinimal: boolean,
   isBold: boolean,
 ): string {
-  if (isEditorial) return EDITORIAL_VARIANTS[type];
-  if (isMinimal)   return MINIMAL_VARIANTS[type];
-  if (isBold)      return BOLD_VARIANTS[type];
+  if (isEditorial) return EDITORIAL_VARIANTS[type] ?? EDITORIAL_VARIANTS.generic;
+  if (isMinimal)   return MINIMAL_VARIANTS[type] ?? MINIMAL_VARIANTS.generic;
+  if (isBold)      return BOLD_VARIANTS[type] ?? BOLD_VARIANTS.generic;
   return pickVariant(type);
 }
 
@@ -554,7 +589,7 @@ function preassignVariants(
       let v = resolveVariant(type, isEditorial, isMinimal, isBold);
       if (v === prev) {
         // Pick the next option from the pool that isn't prev
-        const pool = VARIANT_POOLS[type].filter(x => x !== prev);
+        const pool = (VARIANT_POOLS[type] ?? VARIANT_POOLS.generic).filter(x => x !== prev);
         v = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : v;
       }
       variants.push(v);
@@ -569,10 +604,10 @@ function preassignVariants(
     }
 
     // Random from pool, excluding previous variant
-    const pool = VARIANT_POOLS[type].filter(x => x !== prev);
+    const pool = (VARIANT_POOLS[type] ?? VARIANT_POOLS.generic).filter(x => x !== prev);
     const pick = pool.length > 0
       ? pool[Math.floor(Math.random() * pool.length)]
-      : VARIANT_POOLS[type][0];
+      : (VARIANT_POOLS[type] ?? VARIANT_POOLS.generic)[0];
     variants.push(pick);
   }
 
@@ -840,80 +875,16 @@ function buildSectionPrompt(
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
   const brandCtx = brandName ? ` The proposing company is "${brandName}" — use this name consistently in copy.` : '';
   const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
+  const meta = preassignedVariant ? `"variant": "${preassignedVariant}"` : '';
   const pluginCtx = character ? ` DESIGN VOICE: ${character} — let this shape word choice, sentence rhythm, and emotional register.` : '';
   const angle = pickAngle();
   const generationNote = aiGenerated
     ? ' NOTE: This section has NO source content — generate it entirely from the proposal brief and context. Make it feel native and coherent, not bolted-on.'
     : '';
-
-  // Detect constraints from customInstructions for strict enforcement
-  const ci = customInstructions.toLowerCase();
-  const noCTA       = /no\s*cta|remove\s*cta|no\s*(call[\s-]to[\s-]action|buttons?)|omit\s*cta/i.test(customInstructions);
-  const isMinimal   = /\bminimal\b/i.test(ci);
-  const isBold      = /\bbold\b/i.test(ci) && !/not\s*bold/i.test(ci);
-  const isEditorial = /\beditorial\b/i.test(ci);
-
-  const showCTA = !(noCTA && (type === 'hero' || type === 'nextsteps'));
-  const intentFamily = isEditorial ? 'editorial' : isMinimal ? 'minimal' : isBold ? 'bold' : 'default';
-
-  // Pre-assigned variant takes highest priority (computed before parallel generation to avoid adjacent-repeat)
-  // For hero: resolveHeroVariant. For others: preassigned or computed.
-  const hasUserIntent = isEditorial || isMinimal || isBold;
-  const suggestedVariant: string = preassignedVariant
-    ? preassignedVariant
-    : type === 'hero'
-      ? resolveHeroVariant(customInstructions, isEditorial, isMinimal, isBold, layoutPatterns)
-      : hasUserIntent
-        ? resolveVariant(type, isEditorial, isMinimal, isBold)
-        : (resolveVariantFromLayoutPatterns(type, layoutPatterns, sectionIndex) ?? pickVariant(type));
-
-  if (type === 'hero') {
-    console.log('[Hero Variant Fix] Final hero variant:', suggestedVariant);
-  }
-
-  const mediaPositionHint = deriveMediaPositionHint(layoutPatterns, suggestedVariant);
-  const spacingStyle = typeof layoutPatterns?.spacingStyle === 'string' ? layoutPatterns.spacingStyle : null;
-
-  const constraintRules = [
-    noCTA       ? 'CONSTRAINT — NO CTA: Set ctaPrimary and ctaSecondary to empty strings "". Do NOT include action buttons or links.' : '',
-    isMinimal   ? 'CONSTRAINT — MINIMAL: Reduce all UI elements. Short copy only. No diagrams. No decorative components.' : '',
-    isBold      ? 'CONSTRAINT — BOLD: Maximize visual hierarchy. Use short punchy headlines (4-8 words). Prioritize impact metrics.' : '',
-    isEditorial ? 'CONSTRAINT — EDITORIAL: Prioritize typography and prose over UI components. No bullet lists. No icon grids.' : '',
-  ].filter(Boolean).join(' ');
-
-  const constraintCtx = constraintRules ? `\n\nSTRICT CONSTRAINTS — YOU MUST FOLLOW THESE EXACTLY:\n${constraintRules}` : '';
-  const customCtx = customInstructions ? `\n\nCUSTOM INSTRUCTIONS (follow closely): ${customInstructions}` : '';
-
-  const mediaPositionLine = mediaPositionHint
-    ? `\nMEDIA POSITION (derived from design image): "${mediaPositionHint}" — use this value for the ui.mediaPosition field.`
+  const overridePrefix = customInstructions
+    ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST, APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
     : '';
-  const spacingLine = spacingStyle
-    ? `\nSPACING STYLE (from design image): "${spacingStyle}" — let this shape field verbosity and component density.`
-    : '';
-
-  const variantGuidance = `\n\nLAYOUT VARIANT FOR THIS SECTION: "${suggestedVariant}"
-ALIGNMENT RULES:
-- centered: content centered, max-width container, symmetric layout
-- split: 50/50 left-right, text one side, media/stats other side
-- asymmetric: text 60%, accent element 40%, off-center composition
-- editorial: full-width typography-first, generous whitespace, minimal components
-- card-grid: items in a grid, equal weight, no dominant element
-- minimal: stripped layout, single focus, no decorative elements
-- type-forward: headline dominates, body minimal, no media
-Choose mediaPosition to complement the variant: background image for hero/challenge, left/right for split, none for editorial/minimal.${mediaPositionLine}${spacingLine}`;
-
-  const layoutCommitment = buildLayoutCommitment(suggestedVariant, mediaPositionHint);
-  const structureEnforcement = buildStructureEnforcement(suggestedVariant, mediaPositionHint);
-  const negativeExamples = buildNegativeExamples(suggestedVariant);
-  const sectionRulesCtx = buildSectionRulesContext(type, sectionRules);
-
-  const system = `You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${constraintCtx}${customCtx}
-CREATIVE ANGLE FOR THIS GENERATION: ${angle}${variantGuidance}${layoutCommitment}${structureEnforcement}${negativeExamples}${sectionRulesCtx}
-MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null.
-Return ONLY valid JSON. No markdown, no explanation, no code fences.
-IMPORTANT: Every response MUST include "variant", "ui", and "behavior" fields exactly as shown in the schema below. The "variant" value is LOCKED to "${suggestedVariant}" — output it exactly.`;
-
-  const meta = sectionMetaSchema(suggestedVariant, showCTA, intentFamily);
+  const system = `${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null. Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
@@ -1254,7 +1225,7 @@ function buildMarkdownPrompt(
     detailed: '8-14 sentences per section. Rich content with examples.',
   };
 
-  return `You are a world-class copywriter creating a professional presentation website.
+  return `${customInstructions ? `⚡ OVERRIDE DIRECTIVE — HIGHEST PRIORITY (supersedes all rules below, including structure, sections, and tone):\n${customInstructions}\n\n` : ''}You are a world-class copywriter creating a professional presentation website.
 
 ## YOUR #1 JOB
 Take the raw source material below and COMPLETELY REWRITE it as polished, executive-grade website copy.
@@ -1315,14 +1286,53 @@ Keep simple: 5-10 nodes, short labels. No %%{init}%% directives.
 - **Bold** key terms and metrics inline
 - Output ONLY valid Markdown — no wrapping code fences
 
-${customInstructions ? `## CUSTOM INSTRUCTIONS (follow these closely)\n${customInstructions}\n\n` : ''}SOURCE MATERIAL (use for facts only — rewrite ALL language):
+SOURCE MATERIAL (use for facts only — rewrite ALL language):
 
 ${sectionBlock}
 
 Generate the presentation website copy now:`;
 }
 
-// ── Plan types ────────────────────────────────────────────────────────────────
+// ── Image resolution via loremflickr.com ─────────────────────────────────────
+
+/** Convert a free-text imageQuery into a loremflickr URL.
+ *  loremflickr.com is free, keyword-based, no API key required.
+ *  The ?lock param (hash of query) makes the same query always return the same image. */
+function queryToFlickrUrl(query: string): string {
+  const keywords = query
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+    .slice(0, 3)
+    .join(',');
+  const tags = keywords || 'business,professional';
+  // Simple djb2 hash for deterministic lock value
+  let hash = 5381;
+  for (let i = 0; i < query.length; i++) hash = ((hash << 5) + hash) ^ query.charCodeAt(i);
+  const lock = Math.abs(hash) % 9999;
+  return `https://loremflickr.com/1200/800/${tags}?lock=${lock}`;
+}
+
+async function resolveImageUrl(query: string): Promise<string | null> {
+  if (!query) return null;
+  try {
+    const url = queryToFlickrUrl(query);
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(7000),
+    });
+    if (res.ok && res.url && !res.url.includes('loremflickr.com/image/flash')) {
+      return res.url;
+    }
+    return url; // return the loremflickr URL directly as fallback — browser will resolve it
+  } catch {
+    return null;
+  }
+}
+
+// ── Plan type ─────────────────────────────────────────────────────────────────
 
 interface SectionPlan {
   type: SectionType;
@@ -1399,10 +1409,7 @@ export class MicrositeGeneratorAgent implements Agent {
     const meta = input.metadata ?? {};
     const proposalMarkdown = (meta.proposalMarkdown as string | undefined) ?? '';
     const namespace = input.namespace;
-    const designBrief = (meta.designBrief as string | undefined) ?? '';
-    // designBrief drives BOTH design synthesis (Pass -1) AND structural planning (Pass 0)
-    const brandLanguagePrompt = designBrief;
-    const customInstructions = designBrief;
+    const customInstructions = (meta.customInstructions as string | undefined) ?? input.prompt ?? '';
     const designConfig: Record<string, unknown> = {
       ...((meta.designConfig as Record<string, unknown> | undefined) ?? {}),
       ...(customInstructions ? { customInstructions } : {}),
@@ -1410,6 +1417,7 @@ export class MicrositeGeneratorAgent implements Agent {
     const metaBrand = (meta.brand as Record<string, unknown> | undefined) ?? {};
     const metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
     const brandImage = (meta.brandImage as string | undefined) ?? '';
+    const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -1461,8 +1469,8 @@ export class MicrositeGeneratorAgent implements Agent {
 
       // Pass 0: Section planning + Pass 1: Brief extraction (parallel)
       const [planResult, briefResult, markdownResult] = await Promise.all([
-        generateTool.run({ query: buildSectionPlanPrompt(proposalMarkdown, metaPlugin, effectiveCharacter, customInstructions), content: '' }).catch(() => null),
-        generateTool.run({ query: buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions, effectiveCharacter), content: '' }).catch(() => null),
+        generateTool.run({ query: buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions), content: '' }).catch(() => null),
+        generateTool.run({ query: buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions), content: '' }).catch(() => null),
         generateTool.run({ query: buildMarkdownPrompt(sourceSections, designConfig), content: '' }).catch(() => null),
       ]);
 
@@ -1496,12 +1504,48 @@ export class MicrositeGeneratorAgent implements Agent {
         } catch { /* fallback to source order */ }
       }
 
-      // Build constraint-derived additions to customInstructions for section prompts
-      const heroConstraintHint = planConstraints.noCTAInHero
-        ? ' USER CONSTRAINT: Do NOT include CTA buttons or action links in this hero section. Omit ctaPrimary and ctaSecondary (set them to empty strings).'
-        : '';
-      const effectiveHeroInstructions = customInstructions + heroConstraintHint;
-      console.log('[microsite-agent] planConstraints:', JSON.stringify(planConstraints));
+      // Pass 0.5: LLM refines the plan based on customInstructions (any free-form input)
+      if (customInstructions && sectionPlan) {
+        try {
+          const refineResult = await generateTool.run({
+            query: buildPlanRefinementPrompt(sectionPlan, customInstructions),
+            content: '',
+          });
+          if (refineResult?.text) {
+            const refined = JSON.parse(refineResult.text.trim());
+            if (Array.isArray(refined) && refined.length > 0) {
+              sectionPlan = refined as SectionPlan[];
+            }
+          }
+        } catch { /* keep original plan if refinement fails */ }
+      }
+
+
+      // Code-level constraint fallback: apply regex overrides on top of LLM-parsed planConstraints
+      // This guarantees constraint enforcement even when the LLM misses keywords
+      if (customInstructions) {
+        const ci = customInstructions;
+        if (!planConstraints.noCTAEverywhere && /no\s*cta\s*(anywhere|everywhere|at\s*all)|remove\s*all\s*(cta|buttons?|calls?\s*to\s*action)|no\s*(buttons?|calls?\s*to\s*action)\s*(anywhere|at\s*all)/i.test(ci)) {
+          planConstraints = { ...planConstraints, noCTAEverywhere: true, noCTAInHero: true };
+        } else if (!planConstraints.noCTAInHero && /no\s*cta|remove\s*cta|no\s*(buttons?|calls?\s*to\s*action)|without\s*cta|omit\s*cta|skip\s*cta/i.test(ci)) {
+          planConstraints = { ...planConstraints, noCTAInHero: true };
+        }
+        if (!planConstraints.motion) {
+          if (/\banimate\b|\btransitions?\b|\bdynamic\b|\bmotion\b/i.test(ci)) planConstraints = { ...planConstraints, motion: 'expressive' };
+          else if (/subtle\s*motion|gentle\s*animat/i.test(ci)) planConstraints = { ...planConstraints, motion: 'deliberate' };
+          else if (/no\s*animat|static\b|no\s*motion/i.test(ci)) planConstraints = { ...planConstraints, motion: 'instant' };
+        }
+        if (!planConstraints.parallax && /\bparallax\b/i.test(ci)) {
+          planConstraints = { ...planConstraints, parallax: true };
+        }
+        // Hard-trim section plan to exact count — LLMs are unreliable at counting
+        if (sectionPlan) {
+          const count = parseExplicitCount(ci);
+          if (count && count > 0 && sectionPlan.length > count) {
+            sectionPlan = sectionPlan.slice(0, count);
+          }
+        }
+      }
 
       // Parse brief
       let brief: Record<string, unknown> | null = null;
@@ -1513,6 +1557,20 @@ export class MicrositeGeneratorAgent implements Agent {
       const mdText = (markdownResult?.text ?? '').trim();
       markdown = mdText.length >= 50 ? mdText : this.fallbackMarkdown(sourceSections);
 
+      // Hard-trim markdown sections to explicit count — LLMs ignore section count instructions
+      if (customInstructions) {
+        const mdCount = parseExplicitCount(customInstructions);
+        if (mdCount && mdCount > 0) {
+          // Split on ## headings, preserve everything before the first ## as the title block
+          const parts = markdown.split(/\n(?=## )/);
+          const titleBlock = parts[0]; // everything before first ## section
+          const sectionBlocks = parts.slice(1);
+          if (sectionBlocks.length > mdCount) {
+            markdown = [titleBlock, ...sectionBlocks.slice(0, mdCount)].join('\n');
+          }
+        }
+      }
+
       // Build source section lookup map (heading → content)
       const sourceMap = new Map<string, string>();
       for (const s of sourceSections) {
@@ -1523,10 +1581,11 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
-          const type: SectionType = (rawType in VARIANT_POOLS) ? (rawType as SectionType) : classifySection(rawType);
+          const type = (KNOWN_SECTION_TYPES.has(rawType) ? rawType : 'generic') as SectionType;
           const sourceHeading = planned.sourceHeading;
           let rawBody = '';
           let heading = sourceHeading ?? type;
@@ -1560,6 +1619,15 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
+      // Code-level section count trim — applied after resolvedSections is built so it covers
+      // both the sectionPlan path and the sourceSections fallback path (when sectionPlan is null)
+      if (customInstructions) {
+        const explicitCount = parseExplicitCount(customInstructions);
+        if (explicitCount && explicitCount > 0 && resolvedSections.length > explicitCount) {
+          resolvedSections.splice(explicitCount);
+        }
+      }
+
       // Pass 2: Format sections in parallel
       if (brief) {
         const briefStr = JSON.stringify(brief);
@@ -1588,6 +1656,9 @@ export class MicrositeGeneratorAgent implements Agent {
         const briefIsEditorial = /\beditorial\b/i.test(ciBrief);
         const briefIsMinimal   = /\bminimal\b|\bclean\b|\bsimple\b/i.test(ciBrief);
         const briefIsBold      = /\bbold\b|\bpremium\b|\bhigh[- ]contrast\b|\bpowerful\b/i.test(ciBrief) && !/not\s*bold/i.test(ciBrief);
+
+        // Hero sections may receive the same instructions as other sections
+        const effectiveHeroInstructions = customInstructions;
 
         // Pre-assign variants for all sections (sequential, lightweight — enforces no-adjacent-repeat)
         const preassigned = preassignVariants(
@@ -1641,6 +1712,13 @@ export class MicrositeGeneratorAgent implements Agent {
           }),
         );
 
+        // Resolve image URLs in parallel (loremflickr.com — free, keyword-based)
+        const imageUrls = await Promise.all(
+          sectionResults.map((sr) =>
+            resolveImageUrl((sr.content as Record<string, unknown>).imageQuery as string || '')
+          )
+        );
+
         // Assemble Layout AST
         const resolvedCompany = (metaBrand.companyName as string | undefined) || (brief.proposingCompany as string) || '';
         layoutAST = {
@@ -1665,26 +1743,44 @@ export class MicrositeGeneratorAgent implements Agent {
           } : {}),
           behavior: {
             motion: planConstraints.motion
-              ?? (designSystemResult?.rawTokens?.behavior as Record<string,unknown> | undefined)?.motion as 'instant'|'deliberate'|'expressive' | undefined
+              ?? (designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.motion as 'instant' | 'deliberate' | 'expressive' | undefined
               ?? 'deliberate',
             parallax: planConstraints.parallax
-              || ((designSystemResult?.rawTokens?.behavior as Record<string,unknown> | undefined)?.parallax === true),
+              || ((designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.parallax === true),
             scrollEffects: planConstraints.scrollEffects
-              ?? (designSystemResult?.rawTokens?.behavior as Record<string,unknown> | undefined)?.scrollEffects as 'none'|'fade-in'|'slide-up' | undefined
+              ?? (designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.scrollEffects as 'none' | 'fade-in' | 'slide-up' | undefined
               ?? 'none',
           },
-          sections: sectionResults.map((sr) => {
-            const query = ((sr.content as Record<string, unknown>).imageQuery as string | undefined) ?? '';
+          sections: sectionResults.map((sr, i) => {
+            let imageQuery = ((sr.content as Record<string, unknown>).imageQuery as string | undefined) ?? '';
+            // Code-level: "remove image from section:<type>" or "no image on <type>" clears imageQuery
+            if (customInstructions) {
+              const ciLow = customInstructions.toLowerCase();
+              const noImagePatterns = [
+                /no\s+image\s+(?:on|in|for|from)?\s*(?:section\s*:?\s*)?(\w+)/i,
+                /remove\s+image\s+(?:from\s+)?(?:section\s*:?\s*)?(\w+)/i,
+              ];
+              for (const pat of noImagePatterns) {
+                const m = ciLow.match(pat);
+                if (m && sr.type.startsWith(m[1].replace(/s$/, ''))) {
+                  imageQuery = '';
+                }
+              }
+              // "no image" globally
+              if (/\bno\s+images?\b|\bwithout\s+images?\b|\bremove\s+(?:all\s+)?images?\b/i.test(ciLow)) {
+                imageQuery = '';
+              }
+            }
+            const hasImage = imageQuery.trim().length > 0;
             return {
               id: sr.id,
               heading: sr.heading,
               sectionType: sr.type,
               content: sr.content,
               image: {
-                // Hero sections are marked for Unsplash resolution by the API route
-                source: sr.type === 'hero' && query.trim() ? ('unsplash' as const) : ('gradient' as const),
-                query,
-                url: null,
+                source: (hasImage ? 'loremflickr' : 'gradient') as 'loremflickr' | 'gradient',
+                query: imageQuery,
+                url: hasImage ? (imageUrls[i] ?? null) : null,
                 fallback: 'gradient-mesh' as const,
               },
               editable: true,

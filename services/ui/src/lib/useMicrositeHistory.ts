@@ -29,7 +29,16 @@ function writeAll(entries: MicrositeHistoryEntry[]) {
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent(EVENT_NAME));
     }, 0);
-  } catch {}
+  } catch {
+    // Quota exceeded — clear and retry with just the latest entry
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 1)));
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent(EVENT_NAME));
+      }, 0);
+    } catch {}
+  }
 }
 
 export function useMicrositeHistory(namespace?: string) {
@@ -48,11 +57,16 @@ export function useMicrositeHistory(namespace?: string) {
     : all;
 
   const addEntry = useCallback((ast: LayoutAST, ns?: string): MicrositeHistoryEntry => {
+    // Strip base64 image data from brand.logoUrl before saving to localStorage
+    // (base64 images can be hundreds of KB and exceed quota silently)
+    const astForStorage: LayoutAST = ast.brand?.logoUrl?.startsWith('data:')
+      ? { ...ast, brand: { ...ast.brand, logoUrl: null } }
+      : ast;
     const entry: MicrositeHistoryEntry = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       savedAt: new Date().toISOString(),
       namespace: ns ?? namespace ?? '',
-      ast,
+      ast: astForStorage,
     };
     setAll(prev => {
       const next = [entry, ...prev].slice(0, 50);

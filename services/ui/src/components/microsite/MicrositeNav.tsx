@@ -96,7 +96,36 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
     setMobileOpen(false);
   };
 
-  const navLinks = sections.slice(0, 7);
+  const NAV_LABEL: Record<string, string> = {
+    hero:          'Home',
+    challenge:     'Challenge',
+    approach:      'Approach',
+    deliverables:  'Deliverables',
+    timeline:      'Timeline',
+    pricing:       'Pricing',
+    whyus:         'Value',
+    nextsteps:     'Contact',
+    testimonials:  'Reviews',
+    showcase:      'Showcase',
+    benefits:      'Benefits',
+    problem:       'Problem',
+    stats:         'Stats',
+    generic:       'Overview',
+  };
+
+  function navLabel(s: LayoutSection): string {
+    const mapped = NAV_LABEL[s.sectionType];
+    if (mapped) return mapped;
+    // fallback: first word of heading
+    return s.heading.split(/\s+/)[0] || 'Section';
+  }
+
+  const navLinks = sections; // show ALL sections
+
+  // Scale font size down as section count grows: 13px for ≤4, down to 9px for 14+
+  const navFontSize = Math.round(Math.max(9, Math.min(13, 14 - sections.length * 0.35)));
+  // Scale gap down proportionally
+  const navGap = Math.round(Math.max(8, Math.min(20, 22 - sections.length * 0.9)));
 
   return (
     <>
@@ -156,7 +185,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
         </div>
 
         {/* Desktop nav links */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }} className="ms-nav-links">
+        <div style={{ display: 'flex', alignItems: 'center', gap: navGap, flexWrap: 'nowrap', overflowX: 'auto' }} className="ms-nav-links">
           {navLinks.map((s) => {
             const isActive = activeId === s.id;
             return (
@@ -167,18 +196,19 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
                   background: 'none',
                   border: 'none',
                   borderBottom: isActive ? `1.5px solid ${tokens.accent}` : '1.5px solid transparent',
-                  paddingBottom: 2,
                   cursor: 'pointer',
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: 12,
+                  fontSize: navFontSize,
                   fontWeight: isActive ? 700 : 500,
                   color: isActive ? tokens.accent : tokens.textMuted,
-                  letterSpacing: '0.02em',
+                  letterSpacing: '0.04em',
                   padding: '4px 0 2px',
+                  whiteSpace: 'nowrap',
                   transition: 'color 0.2s',
+                  flexShrink: 0,
                 }}
               >
-                {s.heading}
+                {navLabel(s)}
               </button>
             );
           })}
@@ -253,7 +283,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
                   transition: 'color 0.2s',
                 }}
               >
-                {s.heading}
+                {navLabel(s)}
               </button>
             ))}
           </div>

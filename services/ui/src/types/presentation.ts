@@ -83,10 +83,10 @@ export interface PluginTokens {
   cardShadow: string;
   cardShadowHover: string;
   // Design control tokens (LLM-synthesized, optional)
+  iconBg?: string;
   borderRadius?: string;
   buttonStyle?: string;
   density?: string;
-  iconBg?: string;
 }
 
 export interface PluginMeta {

@@ -296,14 +296,15 @@ export function registerAgentRoutes(
   ensureRegistered(workdir);
 
   // POST /agent/run
-  app.post('/agent/run', async (req: FastifyRequest, reply: FastifyReply) => {
-    const body = req.body as
-      | {
-          agent?: unknown;
-          namespace?: unknown;
-          input?: unknown;
-        }
-      | undefined;
+  app.post(
+    '/agent/run',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as {
+        agent?: unknown;
+        namespace?: unknown;
+        prompt?: unknown;
+        input?: unknown;
+      } | undefined;
 
     if (!body?.agent || typeof body.agent !== 'string' || !body.agent.trim()) {
       return reply.code(400).send({ error: 'Missing required field: agent' });
@@ -317,23 +318,33 @@ export function registerAgentRoutes(
     const namespace = body.namespace.trim();
     const inputOverrides = (body.input ?? {}) as Partial<AgentInput>;
 
-    // Check the agent exists before building runner
-    const knownAgent = agentRegistry.get(agentName);
-    if (!knownAgent) {
-      const available =
-        agentRegistry
-          .list()
-          .map((a) => a.name)
-          .join(', ') || 'none';
-      return reply.code(404).send({
-        error: `Unknown agent: "${agentName}". Available: ${available}`,
-      });
-    }
+      // Top-level prompt: accepted as body.prompt and injected with highest priority.
+      // Merges into both input.prompt and input.metadata.customInstructions so the
+      // agent always sees it regardless of which field it reads first.
+      const topLevelPrompt = typeof body.prompt === 'string' && body.prompt.trim()
+        ? body.prompt.trim()
+        : undefined;
 
-    const agentInput: AgentInput = {
-      ...inputOverrides,
-      namespace, // namespace from body is authoritative
-    };
+      // Check the agent exists before building runner
+      const knownAgent = agentRegistry.get(agentName);
+      if (!knownAgent) {
+        const available = agentRegistry.list().map((a) => a.name).join(', ') || 'none';
+        return reply.code(404).send({
+          error: `Unknown agent: "${agentName}". Available: ${available}`,
+        });
+      }
+
+      const agentInput: AgentInput = {
+        ...inputOverrides,
+        namespace, // namespace from body is authoritative
+        // top-level prompt wins over anything inside input
+        ...(topLevelPrompt ? { prompt: topLevelPrompt } : {}),
+        metadata: {
+          ...(inputOverrides.metadata as Record<string, unknown> | undefined ?? {}),
+          // inject into metadata.customInstructions so agent always picks it up
+          ...(topLevelPrompt ? { customInstructions: topLevelPrompt } : {}),
+        },
+      };
 
     let runner: AgentRunner;
     try {
