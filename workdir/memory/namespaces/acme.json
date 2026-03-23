@@ -6,7 +6,11 @@
     "Include compliance and risk considerations",
     "Avoid overly technical language in executive sections"
   ],
-  "avoidPhrases": ["cutting-edge", "disruptive", "revolutionary"],
+  "avoidPhrases": [
+    "cutting-edge",
+    "disruptive",
+    "revolutionary"
+  ],
   "episodic": [
     {
       "timestamp": "2026-03-17T16:00:48.393Z",
@@ -67,6 +71,16 @@
       "timestamp": "2026-03-18T06:41:44.270Z",
       "source": "chat-query",
       "content": "Q: Summarize the knowledge base | A: The knowledge base summarizes the key components and strategies for improving data management and reporting at Kmdig Corp. Here are the main points:\n\n1. **Conflict Resolution**: An external third party will be involved to address and resolve definition conflicts within the organization.\n\n2. **Training Approach**: Training will be delivered through a paired deli…"
+    },
+    {
+      "timestamp": "2026-03-19T12:37:25.218Z",
+      "source": "chat-query",
+      "content": "Q: Summarize the knowledge base | A: The knowledge base summarizes several key initiatives and considerations for Kmdig Corp's data management and reporting capabilities. The main points are:\n\n1. **Conflict Resolution**: Engaging a third party to manage definition conflicts within the organization.\n2. **Knowledge Transfer**: Utilizing a paired delivery model to foster embedded training rather than…"
+    },
+    {
+      "timestamp": "2026-03-19T12:37:29.382Z",
+      "source": "proposal-generated",
+      "content": "Generated proposal for \"Something\" in the \"General\" industry using template \"default\""
     }
   ]
 }

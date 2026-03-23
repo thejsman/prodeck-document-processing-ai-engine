@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
+import { useExecutionStore } from '@/core/execution/execution-store';
 import {
   uploadKnowledgeFiles,
   fetchKnowledgeFiles,
@@ -54,6 +55,8 @@ type UploadState = 'idle' | 'uploading' | 'queued' | 'error';
 export function FileUploader() {
   const { apiKey } = useAuth();
   const { namespace, namespaces, setNamespace, isLoading: nsLoading } = useNamespace();
+  const addExecution = useExecutionStore((s) => s.addExecution);
+  const updateExecution = useExecutionStore((s) => s.updateExecution);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -230,6 +233,13 @@ export function FileUploader() {
 
     try {
       const res = await uploadKnowledgeFiles(apiKey, namespace, files, setProgress);
+
+      // Register each queued job in the execution store immediately so they
+      // appear in the task tray without waiting for an SSE event.
+      for (const { fileName, jobId } of res.queued) {
+        addExecution({ id: jobId, type: 'ingestion', status: 'queued', title: fileName });
+      }
+
       setResult(res);
       setState('queued');
       setFiles([]);
@@ -238,7 +248,7 @@ export function FileUploader() {
       setError(err instanceof Error ? err.message : String(err));
       setState('error');
     }
-  }, [apiKey, namespace, files, loadExistingFiles]);
+  }, [apiKey, namespace, files, loadExistingFiles, addExecution]);
 
   const handleReset = useCallback(() => {
     setFiles([]);

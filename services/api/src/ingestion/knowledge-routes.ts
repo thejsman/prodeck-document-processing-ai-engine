@@ -117,7 +117,7 @@ export function registerKnowledgeRoutes(
     await mkdir(uploadsDir, { recursive: true });
 
     const now = new Date().toISOString();
-    const queued: string[] = [];
+    const queued: Array<{ fileName: string; jobId: string }> = [];
 
     for (const file of accepted) {
       const dest = path.join(uploadsDir, file.fileName);
@@ -136,9 +136,9 @@ export function registerKnowledgeRoutes(
       };
       await upsertFile(workdir, namespace, entry);
 
-      // Enqueue background indexing job
-      ingestionQueue.enqueue({ namespace, fileName: file.fileName });
-      queued.push(file.fileName);
+      // Enqueue background indexing job — capture the job ID for the response
+      const jobId = ingestionQueue.enqueue({ namespace, fileName: file.fileName });
+      queued.push({ fileName: file.fileName, jobId });
     }
 
     return reply.code(202).send({

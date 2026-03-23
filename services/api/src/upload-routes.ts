@@ -97,12 +97,14 @@ export function registerUploadRoutes(
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const sanitized = sanitizeFileName(fileName);
-    if (!sanitized || sanitized !== fileName || sanitized === '_') {
+    if (!sanitized || sanitized === '_') {
       return reply.code(400).send({ error: 'Invalid file name' });
     }
 
     const uploadsDir = path.join(workdir, 'namespaces', namespace, 'uploads');
-    const filePath = path.join(uploadsDir, sanitized);
+    // Use the original fileName for lookup (files.json and disk may use unsanitized names
+    // if uploaded via the streaming path), but still verify the resolved path is safe.
+    const filePath = path.join(uploadsDir, fileName);
     const resolved = path.resolve(filePath);
 
     if (!resolved.startsWith(path.resolve(uploadsDir))) {
@@ -112,11 +114,11 @@ export function registerUploadRoutes(
     try {
       const fileStat = await stat(resolved);
       if (!fileStat.isFile()) {
-        return reply.code(404).send({ error: `File not found: ${sanitized}` });
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return reply.code(404).send({ error: `File not found: ${sanitized}` });
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
       }
       throw err;
     }
@@ -131,7 +133,7 @@ export function registerUploadRoutes(
       timestamp: new Date().toISOString(),
       action: 'file_deleted',
       namespace,
-      fileName: sanitized,
+      fileName,
       apiKey: auth.apiKey,
     };
     await appendFile(
@@ -141,7 +143,7 @@ export function registerUploadRoutes(
     );
 
     // Remove from files.json
-    await removeFileEntry(workdir, namespace, sanitized);
+    await removeFileEntry(workdir, namespace, fileName);
 
     // Re-queue all remaining files for a full index rebuild
     let remainingEntries: string[];
@@ -173,6 +175,6 @@ export function registerUploadRoutes(
       });
     }
 
-    return reply.send({ ok: true, fileName: sanitized });
+    return reply.send({ ok: true, fileName });
   });
 }
