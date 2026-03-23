@@ -122,7 +122,7 @@ export async function processJob(
     await updateFileStatus(workdir, namespace, f, 'processing');
   }
 
-  emitExecution({ executionId: job.id, status: 'RUNNING', type: 'ingestion' });
+  emitExecution({ executionId: job.id, status: 'RUNNING', type: 'ingestion', title: job.fileName });
 
   let lastError: Error | null = null;
 
@@ -141,7 +141,7 @@ export async function processJob(
         }
       }
 
-      emitExecution({ executionId: job.id, status: 'COMPLETED', type: 'ingestion' });
+      emitExecution({ executionId: job.id, status: 'COMPLETED', type: 'ingestion', title: job.fileName });
       console.log(`[TraceLive] execution completed — job ${job.id}`);
       return; // success
     } catch (err) {
@@ -161,6 +161,7 @@ export async function processJob(
     executionId: job.id,
     status: 'FAILED',
     type: 'ingestion',
+    title: job.fileName,
     message: errorMessage,
   });
 }
