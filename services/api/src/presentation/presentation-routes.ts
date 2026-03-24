@@ -12,7 +12,7 @@
  *   POST /presentations/:namespace/:proposalId/publish — export to self-contained HTML
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { env } from 'node:process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -116,6 +116,36 @@ export function registerPresentationRoutes(
 
     const presentations = await listPresentations(workdir, namespace);
     return reply.send({ presentations });
+  });
+
+  // GET /presentations/history — all saved microsite ASTs across every namespace
+  app.get('/presentations/history', async (req: FastifyRequest, reply: FastifyReply) => {
+    const assetsDir = path.join(workdir, 'assets', 'presentations');
+    let namespaceDirs: string[];
+    try {
+      namespaceDirs = await readdir(assetsDir);
+    } catch {
+      return reply.send({ entries: [] });
+    }
+
+    const entries: Array<{ namespace: string; savedAt: string; ast: unknown }> = [];
+    await Promise.all(
+      namespaceDirs.map(async (ns) => {
+        try {
+          const astPath = path.join(assetsDir, ns, 'site-ast.json');
+          const raw = await readFile(astPath, 'utf-8');
+          const ast = JSON.parse(raw);
+          const fileStat = await stat(astPath);
+          entries.push({ namespace: ns, savedAt: fileStat.mtime.toISOString(), ast });
+        } catch {
+          // namespace has no saved AST — skip
+        }
+      }),
+    );
+
+    // Sort newest first
+    entries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+    return reply.send({ entries });
   });
 
   // POST /presentations/create

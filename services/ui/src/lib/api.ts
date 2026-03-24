@@ -534,6 +534,18 @@ export async function fetchMicrositeContent(
   return data.ast;
 }
 
+export interface MicrositeHistoryServerEntry {
+  namespace: string;
+  savedAt: string;
+  ast: unknown;
+}
+
+export async function fetchAllMicrositeHistory(apiKey: string): Promise<MicrositeHistoryServerEntry[]> {
+  const res = await fetch('/api/presentations/history', { headers: authHeaders(apiKey) });
+  const data = await handleResponse<{ entries: MicrositeHistoryServerEntry[] }>(res);
+  return data.entries;
+}
+
 export async function designEditMicrosite(
   apiKey: string,
   namespace: string,

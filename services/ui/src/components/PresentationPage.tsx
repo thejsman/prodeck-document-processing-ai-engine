@@ -183,25 +183,64 @@ async function extractLogoColors(
   return extractColorsFromCanvas(dataUrl);
 }
 
+// ── Session-storage key for wizard state ──────────────────────────────────────
+const SS_KEY = 'ms_wizard_state';
+
+interface WizardSnapshot {
+  step: StepId;
+  wasGenerating: boolean;
+  progress: ProgressItem[];
+  streamingSections: string[];
+  error: string | null;
+  selectedNamespace: string;
+  selectedProposal: ProposalFile | null;
+}
+
+function readSnapshot(): WizardSnapshot | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(SS_KEY);
+    return raw ? (JSON.parse(raw) as WizardSnapshot) : null;
+  } catch { return null; }
+}
+
+function writeSnapshot(s: WizardSnapshot) {
+  if (typeof window === 'undefined') return;
+  try { sessionStorage.setItem(SS_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+}
+
+function clearSnapshot() {
+  if (typeof window === 'undefined') return;
+  try { sessionStorage.removeItem(SS_KEY); } catch { /* ignore */ }
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export function PresentationPage() {
   const { apiKey } = useAuth();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
 
+  // Restore wizard state from sessionStorage on mount
+  const _snap = readSnapshot();
+
   // Wizard state
-  const [step, setStep] = useState<StepId>('upload');
+  const [step, setStep] = useState<StepId>(() => {
+    // If there's a saved generate/preview step, restore it
+    if (_snap && (_snap.step === 'generate' || _snap.step === 'preview')) return _snap.step;
+    return 'upload';
+  });
 
   // Step 1
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [namespacesLoading, setNamespacesLoading] = useState(false);
-  const [selectedNamespace, setSelectedNamespace] = useState<string>(() =>
-    typeof window !== 'undefined' ? localStorage.getItem('ms_namespace') || '' : ''
-  );
+  const [selectedNamespace, setSelectedNamespace] = useState<string>(() => {
+    if (_snap?.selectedNamespace) return _snap.selectedNamespace;
+    return typeof window !== 'undefined' ? localStorage.getItem('ms_namespace') || '' : '';
+  });
   const [proposals, setProposals] = useState<ProposalFile[]>([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [proposalsError, setProposalsError] = useState<string | null>(null);
-  const [selectedProposal, setSelectedProposal] = useState<ProposalFile | null>(null);
+  const [selectedProposal, setSelectedProposal] = useState<ProposalFile | null>(() => _snap?.selectedProposal ?? null);
   const [mdContent, setMdContent] = useState('');
   const [loadingContent, setLoadingContent] = useState(false);
 
@@ -236,13 +275,16 @@ export function PresentationPage() {
 
   // Step 4
   const [generating, setGenerating] = useState(false);
-  const [progress, setProgress] = useState<ProgressItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [streamingSections, setStreamingSections] = useState<string[]>([]);
+  // If we restored a snapshot where generation was running, track that separately
+  const [wasGenerating, setWasGenerating] = useState(() => !!(_snap?.wasGenerating && _snap.step === 'generate'));
+  const [progress, setProgress] = useState<ProgressItem[]>(() => _snap?.step === 'generate' ? (_snap.progress ?? []) : []);
+  const [error, setError] = useState<string | null>(() => _snap?.step === 'generate' ? (_snap.error ?? null) : null);
+  const [streamingSections, setStreamingSections] = useState<string[]>(() => _snap?.step === 'generate' ? (_snap.streamingSections ?? []) : []);
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
+  const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal
   const [generatedMarkdown, setGeneratedMarkdown] = useState<string | null>(null);
@@ -252,12 +294,58 @@ export function PresentationPage() {
     if (typeof window === 'undefined') return 'generate';
     return (localStorage.getItem('ms_activeTab') as 'generate' | 'history') || 'generate';
   });
-  const { history, addEntry } = useMicrositeHistory(selectedNamespace);
+  // addEntry scoped to selectedNamespace; totalHistory unfiltered for accurate tab count
+  const { addEntry } = useMicrositeHistory(selectedNamespace);
+  const { history: totalHistory } = useMicrositeHistory();
 
   const handleTabChange = (tab: 'generate' | 'history') => {
     setActiveTab(tab);
     if (typeof window !== 'undefined') localStorage.setItem('ms_activeTab', tab);
   };
+
+  // ── Persist wizard step + generation state to sessionStorage ──────────────
+  useEffect(() => {
+    if (step === 'generate' || step === 'preview') {
+      writeSnapshot({
+        step,
+        wasGenerating: generating,
+        progress,
+        streamingSections,
+        error,
+        selectedNamespace,
+        selectedProposal,
+      });
+    } else {
+      // Back to earlier steps — clear the snapshot
+      clearSnapshot();
+    }
+  }, [step, generating, progress, streamingSections, error, selectedNamespace, selectedProposal]);
+
+  // ── When restored to generate step with wasGenerating, auto-check for result ──
+  useEffect(() => {
+    if (!wasGenerating || !apiKey || !selectedNamespace || !selectedProposal) return;
+    // Clear the flag immediately to avoid re-running
+    setWasGenerating(false);
+    setProgress(p => {
+      const last = p[p.length - 1];
+      if (!last || last.text.startsWith('Checking')) return [...p, { text: 'Checking for results…', done: false }];
+      return p;
+    });
+    fetchMicrositeContent(apiKey, selectedNamespace, selectedProposal.fileName.replace(/\.md$/, ''))
+      .then(ast => {
+        if (ast && typeof ast === 'object' && (ast as { sections?: unknown[] }).sections?.length) {
+          setLayoutAST(ast as LayoutAST);
+          setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, text: 'Microsite ready!', done: true } : x));
+          setTimeout(() => { clearSnapshot(); setStep('preview'); }, 600);
+        } else {
+          setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, text: 'Generation was interrupted — click Generate to restart.', done: false } : x));
+        }
+      })
+      .catch(() => {
+        setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, text: 'Generation was interrupted — click Generate to restart.', done: false } : x));
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wasGenerating]);
 
   useEffect(() => {
     if (selectedNamespace) {
@@ -335,13 +423,15 @@ export function PresentationPage() {
   // Restore layoutAST from disk when navigating to preview without an in-memory AST
   useEffect(() => {
     if (step !== 'preview' || layoutAST || !apiKey || !selectedNamespace || !selectedProposal) return;
+    setLoadingAST(true);
     fetchMicrositeContent(apiKey, selectedNamespace, selectedProposal.fileName.replace(/\.md$/, ''))
       .then(ast => {
         if (ast && typeof ast === 'object' && (ast as { sections?: unknown[] }).sections?.length) {
           setLayoutAST(ast as LayoutAST);
         }
       })
-      .catch(() => { /* no saved AST — fallback message already shown */ });
+      .catch(() => { /* no saved AST — fallback message already shown */ })
+      .finally(() => setLoadingAST(false));
   }, [step, layoutAST, apiKey, selectedNamespace, selectedProposal]);
 
   const runPipeline = useCallback(async () => {
@@ -417,7 +507,7 @@ export function PresentationPage() {
             setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
             setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
             updateExecution(execId, { status: 'completed' });
-            setTimeout(() => setStep('preview'), 600);
+            setTimeout(() => { clearSnapshot(); setStep('preview'); }, 600);
           } else if (event.type === 'error') {
             throw new Error(event.message);
           }
@@ -432,6 +522,35 @@ export function PresentationPage() {
       setGenerating(false);
     }
   }, [apiKey, selectedNamespace, mdContent, generatedMarkdown, selectedPlugin, brand, customPrompt, designBrief, synthesizedDesign, addExecution, updateExecution, selectedProposal]);
+
+  // ── Preview loading state ──────────────────────────────────────────────────
+  // If not actively loading and still no AST, fall back to upload step
+  if (step === 'preview' && !loadingAST && !layoutAST) {
+    clearSnapshot();
+    setStep('upload');
+    return null;
+  }
+  if (step === 'preview' && loadingAST) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--color-bg, #0a0a0a)',
+        gap: 16,
+      }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: '50%',
+          border: '3px solid var(--color-border, #333)',
+          borderTopColor: 'var(--color-accent, #7c6aff)',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <p style={{ color: 'var(--color-text-muted, #888)', fontFamily: 'sans-serif', fontSize: 14 }}>
+          {loadingAST ? 'Loading microsite…' : 'Building preview…'}
+        </p>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
 
   // ── Preview mode: delegate entirely to Microsite (it handles fullscreen + portal buttons) ──
   if (step === 'preview' && layoutAST) {
@@ -480,7 +599,7 @@ export function PresentationPage() {
           const isActive = activeTab === tab;
           const label = tab === 'generate'
             ? 'Generate'
-            : `History${history.length > 0 ? ` (${history.length})` : ''}`;
+            : `History${totalHistory.length > 0 ? ` (${totalHistory.length})` : ''}`;
           return (
             <button
               key={tab}
@@ -500,7 +619,7 @@ export function PresentationPage() {
       </div>
 
       {activeTab === 'history' ? (
-        <MicrositeHistory namespace={selectedNamespace || 'default'} />
+        <MicrositeHistory />
       ) : (<>
 
       {/* Stepper */}
@@ -1053,6 +1172,31 @@ export function PresentationPage() {
           {step === 'generate' && (
             <div style={{ padding: '4px 0' }}>
 
+              {/* Restored-from-navigation banner */}
+              {!generating && progress.length > 0 && !layoutAST && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', marginBottom: 16,
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius)',
+                  gap: 12,
+                }}>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                    {wasGenerating ? 'Checking for results…' : 'Generation interrupted while you were away.'}
+                  </span>
+                  {!wasGenerating && (
+                    <button
+                      className="btn btn-sm btn-primary"
+                      style={{ flexShrink: 0 }}
+                      onClick={() => { setStep('plugin'); setError(null); setProgress([]); setStreamingSections([]); }}
+                    >
+                      ↺ Restart
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Pipeline progress */}
               <div style={{ marginBottom: 20 }}>
                 {progress.map((p, i) => (
@@ -1073,7 +1217,7 @@ export function PresentationPage() {
                     <span style={{ fontSize: 12, color: p.done ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
                       {p.text}
                     </span>
-                    {!p.done && generating && (
+                    {!p.done && (generating || wasGenerating) && (
                       <div style={{
                         width: 11, height: 11, borderRadius: '50%', flexShrink: 0,
                         border: '1.5px solid var(--color-border)',
@@ -1085,8 +1229,8 @@ export function PresentationPage() {
                 ))}
               </div>
 
-              {/* Streaming section cards */}
-              {generating && streamingSections.length > 0 && (
+              {/* Streaming section cards — show during generation or when restored */}
+              {streamingSections.length > 0 && (
                 <div>
                   <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     Building sections

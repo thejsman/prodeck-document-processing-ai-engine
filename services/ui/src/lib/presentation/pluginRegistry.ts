@@ -1,4 +1,5 @@
 import type { PluginMeta, PluginTokens } from '../../types/presentation';
+import { enforceWCAGTokens } from './wcag';
 
 // ── Plugin definitions ───────────────────────────────────────────────────────
 
@@ -444,19 +445,30 @@ export function resolveTokens(
 ): PluginTokens {
   const base = getPlugin(pluginId).tokens;
   const withBrand = applyBrandOverride(base, brandPrimaryColor);
-  if (!customTokens) return withBrand;
 
-  // Validate hex colors, fall back to base theme values when invalid.
-  // This ensures deriveTokens() runs unconditionally and semantic fields
-  // (visualStyle, typography.style, colorStrategy, etc.) always take effect.
-  const enriched: Partial<PluginTokens> = {
-    ...customTokens,
-    bg:    (typeof customTokens.bg     === 'string' && hexToRgb(customTokens.bg))     ? customTokens.bg     : withBrand.bg,
-    text:  (typeof customTokens.text   === 'string' && hexToRgb(customTokens.text))   ? customTokens.text   : withBrand.text,
-    accent:(typeof customTokens.accent === 'string' && hexToRgb(customTokens.accent)) ? customTokens.accent : withBrand.accent,
-    dark:  typeof customTokens.dark === 'boolean' ? customTokens.dark : withBrand.dark,
-  };
-  return deriveTokens(withBrand, enriched);
+  let resolved: PluginTokens;
+  if (!customTokens) {
+    resolved = withBrand;
+  } else {
+    // Validate hex colors, fall back to base theme values when invalid.
+    // This ensures deriveTokens() runs unconditionally and semantic fields
+    // (visualStyle, typography.style, colorStrategy, etc.) always take effect.
+    const enriched: Partial<PluginTokens> = {
+      ...customTokens,
+      bg:    (typeof customTokens.bg     === 'string' && hexToRgb(customTokens.bg))     ? customTokens.bg     : withBrand.bg,
+      text:  (typeof customTokens.text   === 'string' && hexToRgb(customTokens.text))   ? customTokens.text   : withBrand.text,
+      accent:(typeof customTokens.accent === 'string' && hexToRgb(customTokens.accent)) ? customTokens.accent : withBrand.accent,
+      dark:  typeof customTokens.dark === 'boolean' ? customTokens.dark : withBrand.dark,
+    };
+    resolved = deriveTokens(withBrand, enriched);
+  }
+
+  // ── WCAG 2.1 AA enforcement ──────────────────────────────────────────────
+  // Adjust text/accent colors to meet minimum contrast ratios before any
+  // component uses the tokens. Hue and saturation are preserved; only
+  // lightness shifts. This runs for every token set: plugins, brand
+  // overrides, and LLM-synthesized designs.
+  return enforceWCAGTokens(resolved);
 }
 
 /** Get gradient for a section type (fallback imagery) */

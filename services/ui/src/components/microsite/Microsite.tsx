@@ -294,6 +294,30 @@ ${el.innerHTML}
       const el = contentRef.current;
       if (!el) return;
 
+      // Clone the DOM so we don't mutate the live page
+      const clone = el.cloneNode(true) as HTMLElement;
+
+      // Reset ALL inline animation states — Reveal + AnimatedSection components
+      // leave opacity:0 / translateY on elements not yet scrolled into view.
+      clone.querySelectorAll<HTMLElement>('*').forEach(elem => {
+        const s = elem.style;
+        // Handle both string "0" and numeric 0 opacity
+        if (s.opacity === '0' || s.opacity === '0.0' || (s.opacity !== '' && parseFloat(s.opacity) === 0)) {
+          s.opacity = '1';
+        }
+        if (s.transform && s.transform !== 'none' && s.transform !== '') s.transform = 'none';
+        if (s.transition) s.transition = 'none';
+        if (s.visibility === 'hidden') s.visibility = 'visible';
+        // Some animations use pointer-events:none + opacity together
+        if (s.pointerEvents === 'none' && elem.tagName !== 'DIV') s.pointerEvents = 'auto';
+      });
+      // Also reset the outer animated wrappers (AnimatedSection)
+      clone.querySelectorAll<HTMLElement>('[data-section-id]').forEach(elem => {
+        elem.style.opacity = '1';
+        elem.style.transform = 'none';
+        elem.style.transition = 'none';
+      });
+
       const fontLinks = (ast.customFonts?.length ? ast.customFonts : plugin.fonts)
         .map(f => `<link rel="stylesheet" href="${f.url}">`)
         .join('\n');
@@ -307,48 +331,49 @@ ${el.innerHTML}
 ${fontLinks}
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden}
-@page{size:A4 landscape;margin:0}
-/* Force all sections visible — animation may have left opacity:0 */
+html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden;width:1280px}
+@page{size:1280px 720px;margin:0}
 [data-section-id]{
-  opacity:1!important;
-  transform:none!important;
-  transition:none!important;
+  width:1280px;
+  min-height:720px;
   page-break-after:always;
   break-after:page;
   page-break-inside:avoid;
   break-inside:avoid;
+  overflow:hidden;
 }
 [data-section-id]:last-child{page-break-after:avoid;break-after:avoid}
 *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
+*{opacity:1!important;visibility:visible!important;transform:none!important;transition:none!important}
 .ms-parallax-bg{background-attachment:scroll!important}
-@media(max-width:768px){
-  .ms-grid-3{grid-template-columns:1fr!important}
-  .ms-stats-row{flex-direction:column!important}
-  .ms-hero-ctas{flex-direction:column!important;width:100%!important}
-  .ms-split{flex-direction:column!important}
-}
 </style>
 </head>
-<body>${el.innerHTML}</body>
+<body>${clone.innerHTML}</body>
 </html>`;
 
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        alert('Pop-up blocked — please allow pop-ups for this site and try again.');
-        return;
-      }
-      printWindow.document.write(html);
-      printWindow.document.close();
-      // Wait for fonts/images before printing
-      printWindow.addEventListener('load', () => {
-        setTimeout(() => {
-          printWindow.focus();
-          printWindow.print();
-          printWindow.close();
-        }, 600);
+      // Render iframe at 1280px wide so sections layout correctly before printing
+      const iframe = document.createElement('iframe');
+      Object.assign(iframe.style, {
+        position: 'fixed', top: '-9999px', left: '-9999px',
+        width: '1280px', height: '720px', border: 'none',
+        visibility: 'hidden',
       });
-    } finally {
+      document.body.appendChild(iframe);
+
+      iframe.srcdoc = html;
+
+      // Wait for fonts + layout inside the iframe before printing
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } finally {
+          // Remove iframe after a short delay (print dialog may still be open)
+          setTimeout(() => document.body.removeChild(iframe), 3000);
+          setDownloadingPdf(false);
+        }
+      }, 1500);
+    } catch {
       setDownloadingPdf(false);
     }
   };
@@ -363,8 +388,10 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       data-parallax={ast.behavior?.parallax ? 'true' : 'false'}
       style={isEmbedded ? {
         background: tokens.bg,
+        color: tokens.text,
         overflowX: 'hidden',
         minHeight: '100%',
+        width: '100%',
       } : {
         position: 'fixed',
         inset: 0,

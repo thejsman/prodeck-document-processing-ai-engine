@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Microsite } from './Microsite';
 import { useMicrositeHistory, type MicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
+import { fetchAllMicrositeHistory } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { getPlugin } from '@/lib/presentation/pluginRegistry';
+import type { LayoutAST } from '@/types/presentation';
 
-interface Props {
+interface CombinedEntry {
+  id: string;
+  savedAt: string;
   namespace: string;
+  ast: LayoutAST;
+  source: 'local' | 'server';
 }
 
 function getPluginAccent(plugin: string): string {
@@ -19,15 +26,60 @@ function getPluginAccent(plugin: string): string {
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   } catch {
     return iso;
   }
 }
 
-export function MicrositeHistory({ namespace }: Props) {
-  const { history, deleteEntry } = useMicrositeHistory(namespace);
-  const [previewEntry, setPreviewEntry] = useState<MicrositeHistoryEntry | null>(null);
+export function MicrositeHistory() {
+  const { apiKey } = useAuth();
+  // All local history (no namespace filter)
+  const { history: localHistory, deleteEntry } = useMicrositeHistory();
+  const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
+  const [loadingServer, setLoadingServer] = useState(false);
+  const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
+
+  // Fetch server-side history on mount
+  useEffect(() => {
+    if (!apiKey) return;
+    setLoadingServer(true);
+    fetchAllMicrositeHistory(apiKey)
+      .then(items => {
+        setServerEntries(
+          items
+            .filter(item => item.ast && (item.ast as { sections?: unknown[] }).sections?.length)
+            .map(item => ({
+              id: `server::${item.namespace}`,
+              savedAt: item.savedAt,
+              namespace: item.namespace,
+              ast: item.ast as LayoutAST,
+              source: 'server' as const,
+            })),
+        );
+      })
+      .catch(() => {})
+      .finally(() => setLoadingServer(false));
+  }, [apiKey]);
+
+  // Merge local + server, deduplicate by namespace (prefer local/newer)
+  const combined: CombinedEntry[] = (() => {
+    const localMapped: CombinedEntry[] = localHistory.map(e => ({
+      id: e.id,
+      savedAt: e.savedAt,
+      namespace: e.namespace,
+      ast: e.ast,
+      source: 'local' as const,
+    }));
+
+    // Add server entries that aren't already covered by a local entry for the same namespace
+    const localNamespaces = new Set(localMapped.map(e => e.namespace));
+    const serverOnly = serverEntries.filter(e => !localNamespaces.has(e.namespace));
+
+    return [...localMapped, ...serverOnly].sort(
+      (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
+    );
+  })();
 
   if (previewEntry) {
     return (
@@ -38,7 +90,7 @@ export function MicrositeHistory({ namespace }: Props) {
     );
   }
 
-  if (history.length === 0) {
+  if (!loadingServer && combined.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '56px 24px', color: 'var(--color-text-muted)' }}>
         <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.35 }}>🗂</div>
@@ -66,60 +118,88 @@ export function MicrositeHistory({ namespace }: Props) {
         @media (max-width: 640px) {
           .ms-history-grid { grid-template-columns: 1fr; }
         }
+        .ms-history-card {
+          border: 1px solid var(--color-border);
+          border-radius: 10px;
+          background: var(--color-surface);
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .ms-history-card:hover {
+          border-color: var(--color-primary);
+          box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        }
       `}</style>
 
       <div style={{ padding: '4px 0 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-          {history.length} microsite{history.length !== 1 ? 's' : ''}
-          {namespace ? ` — ${namespace}` : ''}
+          {loadingServer ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+                border: '1.5px solid var(--color-border)', borderTopColor: 'var(--color-primary)',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              Loading history…
+            </span>
+          ) : (
+            `${combined.length} microsite${combined.length !== 1 ? 's' : ''} — all namespaces`
+          )}
         </span>
       </div>
 
       <div className="ms-history-grid">
-        {history.map((entry) => {
+        {combined.map((entry) => {
           const accent = getPluginAccent(entry.ast.plugin);
           const pluginName = entry.ast.plugin || 'default';
-          const companyName = entry.ast.brand?.companyName || 'Untitled';
+          const companyName = entry.ast.brand?.companyName || entry.namespace || 'Untitled';
           const sectionCount = entry.ast.sections?.length ?? 0;
+          const isLocal = entry.source === 'local';
 
           return (
-            <div
-              key={entry.id}
-              style={{
-                border: '1px solid var(--color-border)',
-                borderRadius: 10,
-                background: 'var(--color-surface)',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
+            <div key={entry.id} className="ms-history-card">
               {/* Accent top strip */}
               <div style={{ height: 4, background: accent }} />
 
               {/* Card body */}
               <div style={{ padding: '14px 16px 12px', flex: 1 }}>
-                {/* Plugin badge */}
-                <span style={{
-                  display: 'inline-block',
-                  background: `${accent}18`,
-                  color: accent,
-                  borderRadius: 100,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  letterSpacing: '0.05em',
-                  textTransform: 'uppercase' as const,
-                }}>
-                  {pluginName}
-                </span>
+                {/* Badges row */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <span style={{
+                    display: 'inline-block',
+                    background: `${accent}18`,
+                    color: accent,
+                    borderRadius: 100,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase' as const,
+                  }}>
+                    {pluginName}
+                  </span>
+                  <span style={{
+                    display: 'inline-block',
+                    background: 'var(--color-bg)',
+                    color: 'var(--color-text-muted)',
+                    borderRadius: 100,
+                    fontSize: 10,
+                    fontWeight: 500,
+                    padding: '2px 8px',
+                    border: '1px solid var(--color-border)',
+                  }}>
+                    {entry.namespace}
+                  </span>
+                </div>
 
                 {/* Company name */}
                 <p style={{
                   fontSize: 14,
                   fontWeight: 700,
                   color: 'var(--color-text)',
-                  margin: '8px 0 4px',
+                  margin: '0 0 4px',
                   lineHeight: 1.3,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -158,26 +238,30 @@ export function MicrositeHistory({ namespace }: Props) {
                 >
                   Preview
                 </button>
-                <button
-                  onClick={() => deleteEntry(entry.id)}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 6,
-                    padding: '7px 10px',
-                    fontSize: 12,
-                    color: 'var(--color-text-muted)',
-                    cursor: 'pointer',
-                  }}
-                  title="Delete"
-                >
-                  ×
-                </button>
+                {isLocal && (
+                  <button
+                    onClick={() => deleteEntry(entry.id)}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 6,
+                      padding: '7px 10px',
+                      fontSize: 12,
+                      color: 'var(--color-text-muted)',
+                      cursor: 'pointer',
+                    }}
+                    title="Delete from history"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             </div>
           );
         })}
       </div>
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </>
   );
 }

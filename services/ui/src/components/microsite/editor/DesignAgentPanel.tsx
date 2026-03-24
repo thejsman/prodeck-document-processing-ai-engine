@@ -109,6 +109,7 @@ export function DesignAgentPanel({
   const [instruction, setInstruction] = useState('');
   const [step, setStep] = useState<Step>('idle');
   const [error, setError] = useState('');
+
   const [previewResult, setPreviewResult] = useState<{
     ast: LayoutAST;
     mode: string;

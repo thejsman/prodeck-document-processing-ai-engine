@@ -7,11 +7,21 @@ import { EditPanel } from './EditPanel';
 import { Microsite } from '../Microsite';
 import { DesignAgentPanel } from './DesignAgentPanel';
 import { PublishModal } from './PublishModal';
+import { resolveTokens } from '../../../lib/presentation/pluginRegistry';
 
 // ── Canvas — reads editedAst from context ─────────────────────────────────
 
 function EditorCanvas() {
   const ctx = useEditContext()!;
+  const mergedTokens = ctx.ast.customTokens
+    ? { ...(ctx.ast.customDesignSystem ?? {}), ...ctx.ast.customTokens }
+    : undefined;
+  const tokens = resolveTokens(
+    ctx.ast.plugin,
+    ctx.ast.brand.primaryColor,
+    mergedTokens as Parameters<typeof resolveTokens>[2],
+  );
+
   return (
     <div
       style={{
@@ -19,11 +29,11 @@ function EditorCanvas() {
         height: '100%',
         overflowY: 'auto',
         overflowX: 'hidden',
-        background: '#e5e7eb',
+        // Match canvas bg to the theme so no bleed-through on dark designs
+        background: tokens.bg,
         position: 'relative',
       }}
     >
-      {/* Scaled-down microsite frame */}
       <div style={{ position: 'relative', minHeight: '100%' }}>
         <Microsite ast={ctx.ast} mode="embedded" />
       </div>
