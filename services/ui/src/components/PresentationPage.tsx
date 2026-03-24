@@ -10,6 +10,7 @@ import {
   fetchMicrositeContent,
   synthesizeDesignStyle,
   generateMicrositeStream,
+  runAgent,
   type StreamEvent,
   type ProposalFile,
   type SynthesizedDesignSystem,
@@ -507,15 +508,10 @@ export function PresentationPage() {
         if (result.markdown) setGeneratedMarkdown(result.markdown);
       }
 
-            setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
-            setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
-            updateExecution(execId, { status: 'completed' });
-            setTimeout(() => { clearSnapshot(); setStep('preview'); }, 600);
-          } else if (event.type === 'error') {
-            throw new Error(event.message);
-          }
-        },
-      });
+      setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
+      setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
+      updateExecution(execId, { status: 'completed' });
+      setTimeout(() => { clearSnapshot(); setStep('preview'); }, 600);
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         setError((e as Error).message);
@@ -622,7 +618,7 @@ export function PresentationPage() {
       </div>
 
       {activeTab === 'history' ? (
-        <MicrositeHistory namespace={selectedNamespace || undefined} />
+        <MicrositeHistory />
       ) : (<>
 
       {/* Stepper */}

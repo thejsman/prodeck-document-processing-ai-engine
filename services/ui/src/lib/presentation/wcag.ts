@@ -207,8 +207,8 @@ export function auditWCAGTokens(t: PluginTokens): WCAGViolation[] {
   const violations: WCAGViolation[] = [];
 
   function check(fgKey: string, bgKey: string, required: number) {
-    const fg = (t as Record<string, unknown>)[fgKey];
-    const bg = (t as Record<string, unknown>)[bgKey];
+    const fg = (t as unknown as Record<string, unknown>)[fgKey];
+    const bg = (t as unknown as Record<string, unknown>)[bgKey];
     if (typeof fg !== 'string' || typeof bg !== 'string') return;
     const ratio = contrastRatio(fg, bg);
     if (ratio < required) {
