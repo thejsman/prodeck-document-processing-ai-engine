@@ -68,6 +68,28 @@ def ingest_documents(documents, storage_dir, provider):
     }
 
 
+def search_chunks(question, storage_dir, provider, namespace="default", top_k=5):
+    """Search the FAISS index and return raw chunks with similarity scores.
+
+    Unlike query_index, this function does NOT invoke an LLM to generate an
+    answer.  It returns the top-k most similar chunks so that the Node.js
+    VectorStoreProvider abstraction layer can return structured results.
+
+    Returns an empty list when the namespace has not been indexed yet.
+    """
+    index_path = os.path.join(storage_dir, "index.faiss")
+    chunks_path = os.path.join(storage_dir, "chunks.json")
+
+    if not os.path.isfile(index_path) or not os.path.isfile(chunks_path):
+        return []
+
+    store = FaissVectorStore(storage_dir)
+    store.load()
+
+    query_embedding = provider.embed(question)
+    return store.search_with_scores(query_embedding, top_k)
+
+
 STREAM_SENTINEL = "\n<<<RESULT_JSON>>>\n"
 
 
@@ -169,6 +191,15 @@ def main():
                     sys.stdout.flush()
                 json.dump({"result": {"answer": answer}}, sys.stdout)
                 sys.stdout.flush()
+
+        elif operation == "search":
+            question = input_data.get("question", "")
+            if not question:
+                raise ValueError("No question provided for search")
+            top_k = int(input_data.get("topK", 5))
+            chunks = search_chunks(question, storage_dir, provider, namespace, top_k)
+            json.dump({"result": {"chunks": chunks}}, sys.stdout)
+            sys.stdout.flush()
 
         else:
             raise ValueError(f"Unknown operation: {operation}")

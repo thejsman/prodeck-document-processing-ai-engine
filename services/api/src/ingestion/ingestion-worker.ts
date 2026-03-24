@@ -24,6 +24,7 @@ import {
   ingestDocuments,
   processDocumentStream,
   getStorageProvider,
+  getVectorStoreProvider,
   resolveStorageUri,
   createNodeConfigLoader,
 } from '@ai-engine/runtime';
@@ -85,7 +86,6 @@ async function processStreamJob(
   const { namespace, fileName, uri } = job;
   if (!uri) throw new Error('processStreamJob called without uri');
 
-  const storageDir = path.join(workdir, 'namespaces', namespace);
   const resolved = resolveStorageUri(uri);
 
   // Build the storage provider for this namespace
@@ -94,11 +94,13 @@ async function processStreamJob(
   const config = await configResolver.resolve({ namespace });
   const provider = getStorageProvider({ namespace, config, workdir });
 
+  const vectorStore = getVectorStoreProvider({ namespace, config, workdir });
+
   const { chunkCount } = await processDocumentStream({
     provider,
     relativePath: resolved.relativePath,
     namespace,
-    storageDir,
+    vectorStore,
     onProgress: (n) => {
       console.log(`[TraceLive] step received — ${fileName} chunk ${n}`);
     },

@@ -263,6 +263,44 @@ export async function queryKnowledgeBase(
   return parsed.result;
 }
 
+// ---------------------------------------------------------------------------
+// Vector-store search (raw chunks, no generation)
+// ---------------------------------------------------------------------------
+
+export interface SearchChunksParams {
+  readonly question: string;
+  readonly storageDir: string;
+  readonly namespace: string;
+  readonly topK?: number;
+}
+
+export interface SearchChunksResult {
+  readonly chunks: ReadonlyArray<{ text: string; score: number }>;
+}
+
+/**
+ * Embed the question in Python and return raw FAISS search results.
+ *
+ * Unlike queryKnowledgeBase, this operation does NOT invoke an LLM to
+ * generate an answer — it returns the top-k matching chunks with their
+ * cosine-similarity scores so the caller can decide how to use them.
+ */
+export async function searchKnowledgeChunks(
+  params: SearchChunksParams,
+): Promise<SearchChunksResult> {
+  const payload = {
+    operation: 'search',
+    storageDir: params.storageDir,
+    namespace: params.namespace,
+    question: params.question,
+    topK: params.topK ?? 5,
+  };
+
+  const { stdout } = await spawnKnowledgeStore(payload);
+  const parsed = JSON.parse(stdout) as { result: SearchChunksResult };
+  return parsed.result;
+}
+
 export async function listNamespaces(workdir: string): Promise<string[]> {
   const namespacesDir = path.join(workdir, 'namespaces');
 
