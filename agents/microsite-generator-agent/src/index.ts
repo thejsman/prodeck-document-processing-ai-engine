@@ -972,6 +972,11 @@ export function buildSectionPrompt(
     : '';
   const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null. Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
+  const effectiveBody = rawBody?.trim() || '';
+  const fallbackContext = proposalMarkdown
+    ? `\n\nFull proposal for additional context:\n${proposalMarkdown.slice(0, 3000)}`
+    : '';
+
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
 
