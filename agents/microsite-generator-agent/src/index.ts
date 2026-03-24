@@ -88,6 +88,16 @@ const PLUGIN_CHARACTER: Record<string, string> = {
   ivory:    'The Economist meets Kinfolk — light, authoritative, precise. Confident ink-black clarity.',
   cobalt:   'Bloomberg meets McKinsey — executive, data-driven, commanding. No softening language.',
   sage:     'Patagonia meets IDEO — warm, human, design-thinking. Mission-led and grounded.',
+  midnight: 'Wired meets Verge — electric, high-contrast, tech-forward. Deep navy backgrounds, neon cyan accents. Copy is terse and punchy.',
+  aurora:   'National Geographic meets Monocle — cinematic, warm, editorial. Rich amber and forest green. Prose is vivid and unhurried.',
+  slate:    'Harvard Business Review meets Stripe Docs — minimal, precise, corporate. Cool gray surfaces, crisp black type. Zero decoration.',
+  crimson:  'The Atlantic meets LVMH — bold, literary, premium-red. Deep burgundy with gold accents. Sentences are long and authoritative.',
+  carbon:   'Wired Hardware meets Industrial Design — dark graphite, orange highlights, mechanical feel. Copy is direct and technical.',
+  pearl:    'Apple meets Kinfolk — soft white, blush tones, breathing room. Generous whitespace. Prose is warm and refined.',
+  neon:     'Cyberpunk meets Pitch deck — dark background, vivid magenta and lime accents. High energy, startup-bold, irreverent.',
+  forest:   'Patagonia meets McKinsey Sustainability — deep greens, earthy tones, mission-driven. Prose grounds every claim in real impact.',
+  gold:     'Sothebys meets Rolex — champagne and deep black, ultra-premium. Sparse, deliberate copy. Every word earns its place.',
+  ocean:    'MIT Technology Review meets Salesforce — deep teal gradient, white type, data-confident. Authoritative and forward-looking.',
 };
 
 // ── Design system synthesis prompt (Pass -1) ─────────────────────────────────
