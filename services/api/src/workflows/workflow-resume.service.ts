@@ -27,6 +27,8 @@ import {
 } from './workflow-instance.service.js';
 import { emitChatSessionEvent } from '../chat/chat-session-bus.js';
 import type { ChatOrchestrator } from '../chat/chat-orchestrator.js';
+import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
+import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 
 // ---------------------------------------------------------------------------
 // Concurrency guard — prevents double-resume of the same instance
@@ -67,6 +69,26 @@ export async function resumeWorkflowsForIngestion(
       resumingInstances.delete(instance.id);
     }
   }
+
+  // STEP 6 — post-ingestion namespace scan: push suggestions to all active sessions.
+  // Non-fatal — scan errors must never block ingestion completion.
+  scanNamespace(workdir, event.namespace)
+    .then((insights) => {
+      const suggestions = deriveInsightSuggestions(insights);
+      if (suggestions.length === 0) return;
+
+      // Broadcast to every workflow instance in this namespace so all open
+      // SSE sessions receive the updated suggestion chips.
+      for (const instance of instances) {
+        emitChatSessionEvent(instance.chatSessionId, {
+          type: 'namespace_insight',
+          suggestions,
+        });
+      }
+    })
+    .catch((err) => {
+      process.stderr.write(`[NamespaceIntelligence] post-ingestion scan failed: ${String(err)}\n`);
+    });
 }
 
 async function resumeSingleInstance(

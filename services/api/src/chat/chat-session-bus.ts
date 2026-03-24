@@ -21,7 +21,14 @@
 
 import { EventEmitter } from 'node:events';
 
-export type ChatSessionEventType = 'phase' | 'chunk' | 'done' | 'error' | 'system' | 'tool_progress';
+export type ChatSessionEventType =
+  | 'phase'
+  | 'chunk'
+  | 'done'
+  | 'error'
+  | 'system'
+  | 'tool_progress'
+  | 'namespace_insight';
 
 export interface ToolProgressPayload {
   /** 'started' | 'completed' | 'failed' */
@@ -40,6 +47,8 @@ export interface ChatSessionEvent {
   actions?: Record<string, string>;
   error?: string;
   toolProgress?: ToolProgressPayload;
+  /** Populated for namespace_insight events. */
+  suggestions?: string[];
 }
 
 /** Singleton bus.  One listener per connected SSE client — uncapped. */

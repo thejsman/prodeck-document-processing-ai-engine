@@ -197,6 +197,11 @@ export function registerChatRoutes(
               `event: tool_progress\ndata: ${JSON.stringify(event.toolProgress ?? {})}\n\n`,
             );
             break;
+          case 'namespace_insight':
+            raw.write(
+              `event: namespace_insight\ndata: ${JSON.stringify({ suggestions: event.suggestions ?? [] })}\n\n`,
+            );
+            break;
         }
       };
 

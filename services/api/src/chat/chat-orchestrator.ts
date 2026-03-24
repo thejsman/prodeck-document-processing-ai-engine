@@ -17,6 +17,8 @@
 
 import type { ProviderPolicyConfig } from '../provider-policy.js';
 import { routeIntent } from './intent-router.js';
+import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
+import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
 import {
@@ -143,6 +145,22 @@ export class ChatOrchestrator {
     if (!workflow) {
       return { message: `Workflow "${instance.workflowId}" is no longer registered.` };
     }
+
+    // ── STEP 4 — Namespace intelligence scan ──────────────────────
+    // Run on every turn so the client always has fresh suggestions.
+    // Fire-and-forget pattern: scan failure must not block the workflow.
+    scanNamespace(this.workdir, namespace)
+      .then((insights) => {
+        const suggestions = deriveInsightSuggestions(insights);
+        if (suggestions.length > 0) {
+          emitChatSessionEvent(chatSessionId, { type: 'namespace_insight', suggestions });
+        }
+        // STEP 5 — merge insights into workflow context so handlers can reference them
+        instance.context.namespaceInsights = insights;
+      })
+      .catch((err) => {
+        process.stderr.write(`[NamespaceIntelligence] scan failed: ${String(err)}\n`);
+      });
 
     // ── Execution loop ────────────────────────────────────────────
     let lastResult: HandlerResult | null = null;
