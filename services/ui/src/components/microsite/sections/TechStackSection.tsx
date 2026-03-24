@@ -7,6 +7,7 @@ import { GlassCard } from '../shared/GlassCard';
 import { CircularIconBadge } from '../shared/CircularIconBadge';
 import { Headline, SubHeadline, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
+import { ThemedMermaid } from '../shared/ThemedMermaid';
 
 interface Props {
   content: TechStackContent;
@@ -118,6 +119,10 @@ export function TechStackSection({ content, tokens, index }: Props) {
             </Reveal>
           ))}
         </div>
+
+        {content.diagram && (
+          <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={240} caption="Technology stack" />
+        )}
       </div>
 
       <style>{`

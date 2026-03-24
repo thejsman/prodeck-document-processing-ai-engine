@@ -91,7 +91,7 @@ export function StatsSection({ content, tokens }: Props) {
                 <div style={{
                   fontFamily: `'${tokens.heroFont}', serif`,
                   fontWeight: tokens.heroWeight,
-                  fontSize: 'clamp(2.5rem, 5vw, 4rem)',
+                  fontSize: 'clamp(3.5rem, 8vw, 6.5rem)',
                   lineHeight: 1,
                   color: tokens.accent,
                   marginBottom: 10,

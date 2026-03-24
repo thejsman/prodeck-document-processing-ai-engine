@@ -32,11 +32,16 @@ type SectionType =
   | 'benefits'
   | 'problem'
   | 'stats'
+  | 'metrics'
+  | 'security'
+  | 'techstack'
+  | 'testing'
   | 'generic';
 
 const ALL_SECTION_TYPES = new Set<string>([
   'hero','challenge','approach','deliverables','timeline','pricing',
-  'whyus','nextsteps','testimonials','showcase','benefits','problem','stats','generic',
+  'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
+  'metrics','security','techstack','testing','generic',
 ]);
 
 /**
@@ -64,6 +69,10 @@ function classifySection(heading: string): SectionType {
   if (/testimonial|review|client\s*said|what.*say/.test(h)) return 'testimonials';
   if (/showcase|feature|highlight|case\s*study/.test(h)) return 'showcase';
   if (/benefit|value\s*prop|advantage|outcome/.test(h)) return 'benefits';
+  if (/tech\s*stack|technology\s*stack|programming\s*lang|framework|tool\s*stack/i.test(h)) return 'techstack';
+  if (/security|compliance|encrypt|iam|access\s*control|data\s*protect/i.test(h)) return 'security';
+  if (/testing|quality\s*assurance|\bqa\b|test\s*coverage|test\s*strateg/i.test(h)) return 'testing';
+  if (/\bmetric|kpi|\bperformance\b|benchmark|measure/i.test(h) && !/implementation/.test(h)) return 'metrics';
   if (/stat|metric|number|impact|result/.test(h)) return 'stats';
   return 'generic';
 }
@@ -292,7 +301,7 @@ Fill in the constraints object based on what the user said:
 - parallax: true if user said "parallax"/"depth effect"; false otherwise
 - scrollEffects: "slide-up" if "slide in/up"; "fade-in" if "fade in"; "none" otherwise
 
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences.
 
@@ -328,7 +337,7 @@ You are a section plan editor. Reshape the plan below to satisfy the USER COMMAN
 CURRENT PLAN:
 ${JSON.stringify(plan, null, 2)}
 
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
 
 RULES:
 - Return ONLY a valid JSON array — same format as CURRENT PLAN
@@ -339,6 +348,53 @@ RULES:
 - ⚠️ CRITICAL: If the instruction is ONLY about images, colors, fonts, motion, animations, or other visual styling (e.g. "add image on hero", "remove image", "dark theme", "no animations") — return the CURRENT PLAN UNCHANGED. Do NOT add or remove sections for visual-only commands.
 - Preserve sourceHeading, rationale, aiGenerated fields where possible
 - Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+}
+
+// ── Command parser prompt (parses customInstructions into ParsedCommand) ────────
+
+function buildCommandParserPrompt(customInstruction: string, currentPlugin: string): string {
+  return `You are a design command parser for a presentation microsite generator.
+
+Parse the following user instruction into a structured command JSON.
+
+CURRENT PLUGIN: "${currentPlugin}"
+VALID PLUGINS: obsidian, ivory, cobalt, sage
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
+
+USER INSTRUCTION:
+${customInstruction}
+
+Parse into:
+- designOverrides.plugin: plugin name if user says "switch to X theme" / "use X plugin" — else null
+- designOverrides.sectionLayout: map of section type → layout variant for explicit per-section layout requests (e.g. {"hero": "split", "approach": "card-grid"})
+- designOverrides.imageStyle: style descriptor if user specifies image style ("cinematic", "black and white", "abstract", "no images") — else null
+- designOverrides.typographyScale: "dramatic" | "moderate" | "tight" — if user specifies scale, else null
+- designOverrides.accentColor: hex color (#xxxxxx) if user specifies accent/primary color — else null
+- contentOverrides.tone: tone override string if user specifies ("aggressive", "warmer", "authoritative") — else null
+- contentOverrides.sectionsToHide: array of section types to remove/hide (e.g. ["pricing","testimonials"])
+- contentOverrides.sectionsToAdd: array of section types to insert
+- contentOverrides.sectionInstructions: map of section type → specific instruction for that section (e.g. {"hero": "make the headline shorter and punchier"})
+- contentOverrides.globalInstruction: any global content instruction not captured above — else null
+
+Return ONLY valid JSON. No markdown, no explanation, no code fences.
+
+{
+  "designOverrides": {
+    "plugin": null,
+    "sectionLayout": {},
+    "imageStyle": null,
+    "typographyScale": null,
+    "accentColor": null
+  },
+  "contentOverrides": {
+    "tone": null,
+    "sectionsToHide": [],
+    "sectionsToAdd": [],
+    "sectionInstructions": {},
+    "globalInstruction": null
+  }
+}`;
 }
 
 // ── Brief extraction prompt ──────────────────────────────────────────────────
@@ -419,6 +475,10 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
   benefits:     ['card-grid',   'split',      'minimal'],
   problem:      ['asymmetric',  'editorial',  'centered'],
   stats:        ['centered',    'minimal',    'editorial'],
+  metrics:      ['centered',    'minimal',    'editorial'],
+  security:     ['card-grid',   'split',      'asymmetric'],
+  techstack:    ['card-grid',   'split',      'minimal'],
+  testing:      ['card-grid',   'minimal',    'editorial'],
   generic:      ['centered',    'split',      'minimal'],
 };
 
@@ -448,6 +508,10 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   benefits:     'minimal',
   problem:      'editorial',
   stats:        'centered',
+  metrics:      'centered',
+  security:     'editorial',
+  techstack:    'editorial',
+  testing:      'editorial',
   generic:      'editorial',
 };
 
@@ -467,6 +531,10 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
   benefits:     'minimal',
   problem:      'centered',
   stats:        'minimal',
+  metrics:      'minimal',
+  security:     'minimal',
+  techstack:    'minimal',
+  testing:      'minimal',
   generic:      'minimal',
 };
 
@@ -488,6 +556,10 @@ const BOLD_VARIANTS: Record<SectionType, string> = {
   benefits:     'card-grid',
   problem:      'asymmetric',
   stats:        'centered',
+  metrics:      'centered',
+  security:     'asymmetric',
+  techstack:    'card-grid',
+  testing:      'card-grid',
   generic:      'split',
 };
 
@@ -871,6 +943,8 @@ function buildSectionPrompt(
   sectionIndex = 0,
   preassignedVariant?: string,
   sectionRules?: Record<string, unknown> | null,
+  globalInstruction?: string,
+  sectionInstruction?: string,
 ): string {
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
   const brandCtx = brandName ? ` The proposing company is "${brandName}" — use this name consistently in copy.` : '';
@@ -884,7 +958,12 @@ function buildSectionPrompt(
   const overridePrefix = customInstructions
     ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST, APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
     : '';
-  const system = `${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null. Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+  // sectionInstruction takes priority over globalInstruction; injected at very top of system prompt
+  const activeInstruction = sectionInstruction ?? globalInstruction ?? '';
+  const instructionPrefix = activeInstruction
+    ? `⚡⚡⚡ SECTION INSTRUCTION — HIGHEST PRIORITY — APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${activeInstruction}\n⚡⚡⚡ END SECTION INSTRUCTION ⚡⚡⚡\n\n`
+    : '';
+  const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null. Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
@@ -902,7 +981,7 @@ Transform into a Hero section. Return:
   "ctaSecondary": "3-4 words, softer option — empty string if constraints say no CTA",
   "ctaTarget": "section type to scroll to on primary CTA tap — from SECTION DESIGN RULES if specified, else null",
   "ctaSecondaryTarget": "section type to scroll to on secondary CTA tap — from SECTION DESIGN RULES if specified, else null",
-  "imageQuery": "Unsplash query: mood+subject+industry e.g. 'dramatic finance architecture dark minimal'",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene matching this industry and proposal tone. Describe subject, lighting, mood, color palette. e.g. 'Dark futuristic server room corridor with blue and purple holographic data streams, dramatic cinematic lighting, 4K professional photography'",
   ${meta}
 }`,
 
@@ -917,7 +996,7 @@ Transform into a Challenge section. Return:
   "headline": "8-12 words, the core tension",
   "body": "2-3 sentences, real stakes, what if nothing changes",
   "pullquote": "sharpest insight, 10-18 words, standalone quote",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "optional graph TD showing causal chain/impact cascade (max 4 nodes). Only include if content has a clear cause→effect chain. Otherwise null.",
   ${meta}
 }`,
@@ -933,7 +1012,7 @@ Transform into an Approach section with pillars. Return:
   "headline": "8-12 words",
   "subheadline": "1-2 sentences",
   "pillars": [{"iconHint": "identity|digital|content|strategy|research|launch", "name": "2-4 words", "description": "2 sentences, specific outcomes"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "graph LR showing the methodology as a process flow. Nodes = pillar names (2-3 words each). Max 5 nodes connected with -->. Example: graph LR\\n  A[Discover] --> B[Design] --> C[Build] --> D[Launch]. Always include this field.",
   ${meta}
 }`,
@@ -948,7 +1027,7 @@ Transform into a Deliverables section. Return:
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "2-5 words", "detail": "1 sentence, what it enables"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
 
@@ -963,7 +1042,7 @@ Transform into a Timeline section. Return:
   "headline": "8-12 words",
   "subheadline": "1-2 sentences",
   "phases": [{"label": "from raw data", "duration": "e.g. 2 weeks", "name": "2-4 words", "description": "1 sentence, activity + outcome"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "gantt chart. Format: gantt\\n  title Project Schedule\\n  dateFormat YYYY-MM-DD\\n  section Phase 1\\n  PhaseName :a1, 2026-01-01, 14d\\n  section Phase 2\\n  PhaseName :a2, after a1, 14d. Always include if 2+ phases exist.",
   ${meta}
 }`,
@@ -982,7 +1061,7 @@ Transform into a Pricing section. Return:
   "totalLabel": "total line",
   "footnote": "payment/start note",
   "cta": "3-5 words",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
 
@@ -997,7 +1076,7 @@ Transform into a Why Us section. Return:
   "headline": "8-12 words",
   "body": "2-3 sentences",
   "stats": [{"number": "from content", "label": "2-4 words", "context": "1 short sentence"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "optional pie chart if stats suggest a meaningful distribution. Format: pie title Label\\n  \\"Category A\\" : 60\\n  \\"Category B\\" : 30. Only include if a clear distribution is evident. Otherwise null.",
   ${meta}
 }`,
@@ -1015,7 +1094,7 @@ Transform into a Next Steps section. Return:
   "ctaPrimary": "3-5 words — empty string if constraints say no CTA",
   "ctaSecondary": "3-4 words — empty string if constraints say no CTA",
   "urgencyNote": "string or null",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
 
@@ -1051,7 +1130,7 @@ Transform into a Showcase section — a visual feature spotlight. Return:
   "subheadline": "1-2 sentences, what this makes possible",
   "body": "2-3 sentences, the 'so what' — impact and differentiation",
   "highlights": ["3-5 short feature pills, 3-6 words each, noun phrases"],
-  "imageQuery": "Unsplash query for a striking visual that represents this feature",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene that visually represents this feature or capability. Striking, dramatic, high-detail. e.g. 'Abstract digital architecture with neon blue geometric shapes, dark background, ultra-detailed'",
   ${meta}
 }`,
 
@@ -1085,7 +1164,7 @@ Transform into a Problem section — sharper and more urgent than a challenge se
   "headline": "8-14 words, urgent and specific — name the consequence not just the problem",
   "body": "2-3 sentences, make the cost of inaction visceral and concrete",
   "painPoints": ["3-5 pain points, each 6-12 words, start with a verb or cost noun — specific, not vague"],
-  "imageQuery": "Unsplash query for a tense, dramatic visual — avoid generic stock",
+  "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
   ${meta}
 }`,
 
@@ -1108,6 +1187,93 @@ Transform into a Stats section — a standalone impact metrics row. Return:
   ${meta}
 }`,
 
+    metrics: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive 3-4 strong KPIs from the brief outcomes, duration, and value)'}
+
+Transform into a Metrics section — a standalone performance KPIs row with scaling strategies. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Performance at Scale'",
+  "headline": "8-12 words",
+  "stats": [
+    {
+      "number": "specific metric e.g. '99.9%' or '3× faster' — from content or brief",
+      "label": "2-4 words",
+      "context": "1 short sentence what this means"
+    }
+  ],
+  "strategies": ["3-5 scaling strategies, each 5-10 words, start with a verb"],
+  ${meta}
+}`,
+
+    security: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive 3-4 security controls from the brief and industry context)'}
+
+Transform into a Security section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Built for Compliance'",
+  "headline": "8-12 words",
+  "items": [
+    {
+      "iconHint": "identity|digital|strategy|research",
+      "name": "2-5 words, the security control",
+      "description": "1-2 sentences, what it protects and how"
+    }
+  ],
+  "diagram": "graph TD showing security layers top-to-bottom. Example: graph TD\\n  A[Identity & Access] --> B[Encryption]\\n  B --> C[Network Security]\\n  C --> D[Compliance & Audit]. Use item names as node labels. Always include this field.",
+  ${meta}
+}`,
+
+    techstack: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive categories from the brief industry and engagement context)'}
+
+Transform into a Tech Stack section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Built on Modern Foundations'",
+  "headline": "8-12 words",
+  "categories": [
+    {
+      "iconHint": "identity|digital|content|strategy|research|launch|document|website",
+      "name": "1-3 words, the category e.g. 'Frontend', 'Backend', 'Database'",
+      "items": ["2-5 technology names in this category"]
+    }
+  ],
+  "diagram": "graph LR showing tech stack layers left-to-right. Example: graph LR\\n  A[Frontend] --> B[Backend]\\n  B --> C[Database]\\n  C --> D[Cloud / Infra]. Use category names as node labels. Max 5 nodes. Always include this field.",
+  ${meta}
+}`,
+
+    testing: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive testing layers from the brief engagement context)'}
+
+Transform into a Testing & Quality section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Quality Built In'",
+  "headline": "8-12 words",
+  "layers": [
+    {
+      "level": 1,
+      "name": "Layer name e.g. 'Unit Tests'",
+      "coverage": "percentage or metric e.g. '90%'",
+      "description": "1 sentence what this layer validates"
+    }
+  ],
+  "additionalInfo": [
+    {
+      "heading": "2-4 words",
+      "body": "1-2 sentences"
+    }
+  ],
+  "diagram": "graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.",
+  ${meta}
+}`,
+
     generic: `${system}
 
 Brief: ${brief}
@@ -1119,7 +1285,7 @@ Transform into a website section. Return:
   "eyebrow": "4-8 words",
   "headline": "8-12 words, compelling rewrite of '${heading}'",
   "body": "2-4 sentences, rewritten content",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
   };
@@ -1293,11 +1459,37 @@ ${sectionBlock}
 Generate the presentation website copy now:`;
 }
 
-// ── Image resolution via loremflickr.com ─────────────────────────────────────
+// ── Image resolution via DALL-E 3 (falls back to loremflickr) ────────────────
 
-/** Convert a free-text imageQuery into a loremflickr URL.
- *  loremflickr.com is free, keyword-based, no API key required.
- *  The ?lock param (hash of query) makes the same query always return the same image. */
+/** Generate an AI image via DALL-E 3.
+ *  Appends a cinematic style suffix so all images share the Gamma-style aesthetic. */
+async function generateDalleImage(query: string, apiKey: string): Promise<string | null> {
+  const prompt = `${query}. Cinematic photorealistic, dramatic professional lighting, ultra high quality, no text, no watermarks, no logos.`;
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'dall-e-3',
+        prompt,
+        n: 1,
+        size: '1792x1024',
+        quality: 'standard',
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { data?: Array<{ url?: string }> };
+    return data.data?.[0]?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Convert a free-text imageQuery into a loremflickr URL (fallback). */
 function queryToFlickrUrl(query: string): string {
   const keywords = query
     .toLowerCase()
@@ -1307,7 +1499,6 @@ function queryToFlickrUrl(query: string): string {
     .slice(0, 3)
     .join(',');
   const tags = keywords || 'business,professional';
-  // Simple djb2 hash for deterministic lock value
   let hash = 5381;
   for (let i = 0; i < query.length; i++) hash = ((hash << 5) + hash) ^ query.charCodeAt(i);
   const lock = Math.abs(hash) % 9999;
@@ -1316,6 +1507,15 @@ function queryToFlickrUrl(query: string): string {
 
 async function resolveImageUrl(query: string): Promise<string | null> {
   if (!query) return null;
+
+  // Try DALL-E 3 first when OpenAI key is available
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    const aiUrl = await generateDalleImage(query, openaiKey);
+    if (aiUrl) return aiUrl;
+  }
+
+  // Fall back to loremflickr
   try {
     const url = queryToFlickrUrl(query);
     const res = await fetch(url, {
@@ -1326,7 +1526,7 @@ async function resolveImageUrl(query: string): Promise<string | null> {
     if (res.ok && res.url && !res.url.includes('loremflickr.com/image/flash')) {
       return res.url;
     }
-    return url; // return the loremflickr URL directly as fallback — browser will resolve it
+    return url;
   } catch {
     return null;
   }
@@ -1349,6 +1549,92 @@ interface SectionPlanConstraints {
   motion: 'instant' | 'deliberate' | 'expressive' | null;
   parallax: boolean;
   scrollEffects: 'none' | 'fade-in' | 'slide-up' | null;
+}
+
+// ── Parsed command interface (output of command parser LLM pass) ──────────────
+
+export interface ParsedCommand {
+  designOverrides: {
+    plugin?: string;
+    sectionLayout?: Partial<Record<SectionType, string>>;
+    imageStyle?: string;
+    typographyScale?: string;
+    accentColor?: string;
+  };
+  contentOverrides: {
+    tone?: string;
+    sectionsToHide?: SectionType[];
+    sectionsToAdd?: SectionType[];
+    sectionInstructions?: Partial<Record<SectionType, string>>;
+    globalInstruction?: string;
+  };
+}
+
+const DEFAULT_PARSED_COMMAND: ParsedCommand = {
+  designOverrides: {},
+  contentOverrides: {},
+};
+
+// ── Design overrides applicator ───────────────────────────────────────────────
+
+function applyDesignOverrides(
+  ast: Record<string, unknown>,
+  overrides: ParsedCommand['designOverrides'],
+): void {
+  // Plugin swap
+  if (overrides.plugin && typeof overrides.plugin === 'string') {
+    ast.plugin = overrides.plugin;
+  }
+
+  // Per-section layout variants
+  if (overrides.sectionLayout && Object.keys(overrides.sectionLayout).length > 0) {
+    const sections = Array.isArray(ast.sections) ? (ast.sections as Array<Record<string, unknown>>) : [];
+    for (const section of sections) {
+      const sType = section.sectionType as SectionType;
+      const variant = overrides.sectionLayout[sType];
+      if (variant) {
+        const content = section.content as Record<string, unknown> | undefined;
+        if (content) {
+          content.variant = variant;
+          const ui = content.ui as Record<string, unknown> | undefined;
+          if (ui) ui.layout = variant;
+        }
+      }
+    }
+  }
+
+  // Image style — stored in customTokens for renderer consumption
+  if (overrides.imageStyle && typeof overrides.imageStyle === 'string') {
+    const customTokens = ast.customTokens as Record<string, unknown> | undefined;
+    if (customTokens) {
+      customTokens.imageStyle = overrides.imageStyle;
+    } else {
+      ast.customTokens = { imageStyle: overrides.imageStyle };
+    }
+  }
+
+  // Typography scale
+  if (overrides.typographyScale && typeof overrides.typographyScale === 'string') {
+    const ds = ast.customDesignSystem as Record<string, unknown> | undefined;
+    if (ds) {
+      const typo = ds.typography as Record<string, unknown> | undefined;
+      if (typo) {
+        typo.scale = overrides.typographyScale;
+      } else {
+        ds.typography = { scale: overrides.typographyScale };
+      }
+    }
+  }
+
+  // Accent color
+  if (overrides.accentColor && typeof overrides.accentColor === 'string' && overrides.accentColor.startsWith('#')) {
+    const customTokens = ast.customTokens as Record<string, unknown> | undefined;
+    if (customTokens) {
+      customTokens.accent = overrides.accentColor;
+    } else {
+      ast.customTokens = { accent: overrides.accentColor };
+    }
+  }
 }
 
 // ── Agent implementation ─────────────────────────────────────────────────────
@@ -1409,13 +1695,15 @@ export class MicrositeGeneratorAgent implements Agent {
     const meta = input.metadata ?? {};
     const proposalMarkdown = (meta.proposalMarkdown as string | undefined) ?? '';
     const namespace = input.namespace;
-    const customInstructions = (meta.customInstructions as string | undefined) ?? input.prompt ?? '';
+    const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
+    const customInstructions = rawInstructions
+      || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.';
     const designConfig: Record<string, unknown> = {
       ...((meta.designConfig as Record<string, unknown> | undefined) ?? {}),
       ...(customInstructions ? { customInstructions } : {}),
     };
     const metaBrand = (meta.brand as Record<string, unknown> | undefined) ?? {};
-    const metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
+    let metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
     const brandImage = (meta.brandImage as string | undefined) ?? '';
     const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
 
@@ -1466,6 +1754,32 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
       const effectiveCharacter = designSystemResult?.customCharacter;
+
+      // Command Parser: Parse customInstructions into structured ParsedCommand (runs before Pass 0)
+      let parsedCommand: ParsedCommand = DEFAULT_PARSED_COMMAND;
+      if (customInstructions) {
+        try {
+          const cmdResult = await generateTool.run({
+            query: buildCommandParserPrompt(customInstructions, metaPlugin),
+            content: '',
+          });
+          if (cmdResult?.text) {
+            const raw = cmdResult.text.trim();
+            const jsonStart = raw.indexOf('{');
+            const jsonEnd = raw.lastIndexOf('}');
+            const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
+            const parsed = safeParseJSON(jsonStr);
+            if (parsed && typeof parsed.designOverrides === 'object' && typeof parsed.contentOverrides === 'object') {
+              parsedCommand = parsed as unknown as ParsedCommand;
+              // Plugin override — affects Pass 0 and Pass 2 prompts
+              if (typeof parsedCommand.designOverrides.plugin === 'string' && parsedCommand.designOverrides.plugin) {
+                metaPlugin = parsedCommand.designOverrides.plugin;
+                console.log('[microsite-agent] Command parser: plugin overridden to', metaPlugin);
+              }
+            }
+          }
+        } catch { /* keep defaults if command parsing fails */ }
+      }
 
       // Pass 0: Section planning + Pass 1: Brief extraction (parallel)
       const [planResult, briefResult, markdownResult] = await Promise.all([
@@ -1671,15 +1985,23 @@ export class MicrositeGeneratorAgent implements Agent {
         );
 
         const seenSlugs = new Map<string, number>();
+        // Filter out sections hidden by the parsed command; preserve original index for preassigned variant lookup
+        const sectionsToHide = parsedCommand.contentOverrides.sectionsToHide ?? [];
+        const pass2GlobalInstruction = parsedCommand.contentOverrides.globalInstruction ?? undefined;
+        const pass2SectionInstructions = parsedCommand.contentOverrides.sectionInstructions ?? {};
+        const pass2Sections = resolvedSections
+          .map((s, originalIdx) => ({ ...s, originalIdx }))
+          .filter(s => sectionsToHide.length === 0 || !sectionsToHide.includes(s.type));
         const sectionResults = await Promise.all(
-          resolvedSections.map(async (s, idx) => {
+          pass2Sections.map(async (s, idx) => {
             const baseSlug = slugify(s.heading);
             const count = seenSlugs.get(baseSlug) ?? 0;
             seenSlugs.set(baseSlug, count + 1);
             const id = count === 0 ? baseSlug : `${baseSlug}-${idx}`;
             const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
             const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
-            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, idx, preassigned[idx], sectionRules);
+            const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
+            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction);
             try {
               const result = await generateTool!.run({ query: prompt, content: '' });
               const parsed = safeParseJSON(result.text ?? '') ?? {};
@@ -1788,6 +2110,10 @@ export class MicrositeGeneratorAgent implements Agent {
             };
           }),
         };
+        // Apply design overrides from parsed command (plugin swap, section layouts, image style, typography, accent color)
+        if (layoutAST) {
+          applyDesignOverrides(layoutAST as Record<string, unknown>, parsedCommand.designOverrides);
+        }
       }
     } else {
       markdown = this.fallbackMarkdown(sourceSections);

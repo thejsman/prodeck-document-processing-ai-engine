@@ -6,6 +6,7 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { CircularIconBadge } from '../shared/CircularIconBadge';
 import { Headline, Body, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
+import { ThemedMermaid } from '../shared/ThemedMermaid';
 
 interface Props {
   content: SecurityContent;
@@ -97,6 +98,10 @@ export function SecuritySection({ content, tokens, index }: Props) {
             </Reveal>
           ))}
         </div>
+
+        {content.diagram && (
+          <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={240} caption="Security architecture" />
+        )}
       </div>
     </section>
   );

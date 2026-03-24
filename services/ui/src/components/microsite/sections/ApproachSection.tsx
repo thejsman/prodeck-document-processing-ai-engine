@@ -7,6 +7,7 @@ import { Headline, Body, Label } from '../shared/Typography';
 import { SectionIcon } from '../shared/SectionIcon';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ProcessSteps } from '../shared/ProcessSteps';
 
 interface Props {
   content: ApproachContent;
@@ -93,6 +94,19 @@ export function ApproachSection({ content, tokens, index }: Props) {
             </Reveal>
           ))}
         </div>
+
+        {(content.pillars ?? []).length > 1 && (
+          <ProcessSteps
+            steps={(content.pillars ?? []).map((p, i) => ({
+              number: String(i + 1),
+              title: p.name,
+              description: p.description,
+            }))}
+            tokens={tokens}
+            heading="How We Work"
+            baseDelay={240 + (content.pillars?.length ?? 3) * 80}
+          />
+        )}
 
         {content.diagram && (
           <div style={{ marginTop: 'clamp(2.5rem, 5vw, 4rem)' }}>

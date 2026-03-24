@@ -14,6 +14,10 @@ export type SectionType =
   | 'benefits'
   | 'problem'
   | 'stats'
+  | 'metrics'
+  | 'security'
+  | 'techstack'
+  | 'testing'
   | 'generic';
 
 // ── Parsed markdown structures ───────────────────────────────────────────────
@@ -296,6 +300,7 @@ export interface SecurityContent {
   eyebrow: string;
   headline: string;
   items: SecurityItem[];
+  diagram?: string;
 }
 
 export interface TechStackCategory {
@@ -308,6 +313,7 @@ export interface TechStackContent {
   eyebrow: string;
   headline: string;
   categories: TechStackCategory[];
+  diagram?: string;
 }
 
 export interface TestingLayer {
@@ -327,6 +333,7 @@ export interface TestingContent {
   headline: string;
   layers: TestingLayer[];
   additionalInfo?: TestingAdditionalInfo[];
+  diagram?: string;
 }
 
 export type SectionContent =
