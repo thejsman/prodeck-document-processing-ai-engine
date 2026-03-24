@@ -1,6 +1,6 @@
 {
   "proposalId": "omer-co",
-  "generatedAt": "2026-03-23T12:10:42.877Z",
+  "generatedAt": "2026-03-24T04:43:17.193Z",
   "meta": {
     "title": "Proposal for Omer-corp",
     "client": "Omer-corp",
@@ -10,26 +10,25 @@
   "brief": {
     "clientName": "Acme Corporation",
     "clientIndustry": "IT",
-    "clientChallenge": "Significant challenges stemming from an outdated data infrastructure that impedes operational efficiency and agile decision-making.",
+    "clientChallenge": "An outdated data infrastructure impedes operational efficiency and agile decision-making.",
     "proposingCompany": "omer-co",
     "proposingStrength": "98% client satisfaction rate across engagements.",
-    "engagementSummary": "A comprehensive technical solution will modernize Acme's data architecture, integrating Apache Kafka and a centralized lakehouse. This approach enhances decision-making agility and operational efficiency.",
+    "engagementSummary": "A comprehensive technical solution will modernize Acme's data architecture using a centralized lakehouse and microservices framework. This transformation enhances operational agility and decision-making capabilities.",
     "keyOutcomes": [
-      "Facilitate rapid access to meaningful insights through efficient data flow.",
-      "Achieve a 2x improvement in data reporting accuracy.",
-      "Reduce manual errors by up to 90%.",
-      "Ensure 100% adherence to compliance regulations."
+      "Achieve a 2x improvement in data reporting accuracy",
+      "Reduce manual errors by up to 90%",
+      "100% adherence to compliance regulations"
     ],
     "totalValue": "$480,000",
-    "duration": "6 months",
+    "duration": "24 weeks",
     "primaryTone": "authoritative",
-    "heroNarrative": "Unlocking data's true potential for enhanced competitiveness.",
+    "heroNarrative": "Unlock data's true potential for competitive advantage.",
     "industryKeywords": [
-      "IT",
-      "data architecture",
-      "cloud-native lakehouse",
-      "operational efficiency",
-      "real-time data access"
+      "Data Architecture",
+      "IT Infrastructure",
+      "Analytics",
+      "Compliance",
+      "Microservices"
     ]
   },
   "brand": {
@@ -52,15 +51,30 @@
       "heading": "Executive Summary",
       "sectionType": "hero",
       "content": {
-        "eyebrow": "Executive Summary",
-        "headline": "Executive Summary",
-        "body": "Acme Corporation is poised for transformation as it confronts significant challenges stemming from an outdated data infrastructure that impedes operational efficiency and agile decision-making. Our pr",
-        "imageQuery": "business executive summary professional"
+        "eyebrow": "Proposal · March 2026",
+        "headline": "Transform Outdated Data Infrastructure into an Agile Asset",
+        "subheadline": "Modernize Acme Corporation's data architecture to enhance efficiency and decision-making capabilities across operations.",
+        "body": "Acme Corporation faces critical challenges due to an outdated data infrastructure that inhibits growth. Omer-co’s proven methodologies promise a robust, agile system that elevates data quality while ensuring compliance and security. This transformation will propel Acme toward a data-driven future.",
+        "ctaPrimary": "Get Started Now",
+        "ctaSecondary": "Learn More",
+        "ctaTarget": "Technical Requirements",
+        "ctaSecondaryTarget": "Engagement Summary",
+        "imageQuery": "dramatic technology architecture IT",
+        "variant": "type-forward",
+        "ui": {
+          "showCTA": true,
+          "layout": "type-forward",
+          "mediaPosition": "none"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "dalle",
-        "query": "business executive summary professional",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-feKdsFUi55zWghxGD77i91ID.png?st=2026-03-23T11%3A11%3A24Z&se=2026-03-23T13%3A11%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-23T02%3A15%3A14Z&ske=2026-03-24T02%3A15%3A14Z&sks=b&skv=2026-02-06&sig=WMrVysURgFPAylub0LIDldbvb6ZQMHUlwJ0r9XoZNPE%3D",
+        "query": "dramatic technology architecture IT",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-NBtRgE6ywdhDmdRid6WTvPXw.png?st=2026-03-24T03%3A43%3A45Z&se=2026-03-24T05%3A43%3A45Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-24T02%3A25%3A51Z&ske=2026-03-25T02%3A25%3A51Z&sks=b&skv=2026-02-06&sig=vL7KkjIc895Un8gGtx9T5UaWo1w9Bixj9BqxNbafz20%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -71,14 +85,26 @@
       "heading": "Technical Requirements",
       "sectionType": "challenge",
       "content": {
-        "eyebrow": "Technical Requirements",
-        "headline": "Technical Requirements",
-        "body": "### Technical Requirements  This section outlines the technical requirements for the proposed data architecture transformation at Acme Corporation. The requirements are categorized into functional and",
-        "imageQuery": "business technical requirements professional"
+        "eyebrow": "Data Infrastructure Risks",
+        "headline": "Outdated Systems Limit Operational Efficiency and Agility",
+        "body": "Acme Corporation faces a critical juncture. An antiquated data infrastructure constrains decision-making and jeopardizes compliance. Without intervention, inefficiencies will compound, stifling strategy and impeding growth.",
+        "pullquote": "Legacy systems risk operational integrity and strategic agility.",
+        "imageQuery": "data infrastructure",
+        "diagram": null,
+        "variant": "editorial",
+        "ui": {
+          "showCTA": true,
+          "layout": "editorial",
+          "mediaPosition": "background"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business technical requirements professional",
+        "query": "data infrastructure",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -86,18 +112,51 @@
       "version": 1
     },
     {
-      "id": "approach",
-      "heading": "approach",
+      "id": "functional-requirements",
+      "heading": "Functional Requirements",
       "sectionType": "approach",
       "content": {
-        "eyebrow": "approach",
-        "headline": "approach",
-        "body": "",
-        "imageQuery": "business approach professional"
+        "eyebrow": "Transforming Data for Competitive Advantage",
+        "headline": "Modernizing Acme's Data Architecture with Precision",
+        "subheadline": "This approach delivers a robust data framework critical for enhanced operational efficiency. We empower Acme Corporation to harness actionable insights and drive better decision-making.",
+        "pillars": [
+          {
+            "iconHint": "strategy",
+            "name": "Data Assessment",
+            "description": "A comprehensive analysis identifies the top 20 critical datasets. This foundational step ensures targeted optimization of operational processes."
+          },
+          {
+            "iconHint": "digital",
+            "name": "Technical Architecture",
+            "description": "Implementation of a centralized cloud-native lakehouse with Apache Kafka for real-time data streaming. This architecture significantly reduces manual errors and enhances reporting accuracy."
+          },
+          {
+            "iconHint": "research",
+            "name": "Data Governance",
+            "description": "Utilization of Collibra ensures 100% adherence to compliance and quality standards. Establishing a robust governance framework mitigates operational risks."
+          },
+          {
+            "iconHint": "launch",
+            "name": "Performance Optimization",
+            "description": "Achieve query response times under 200 milliseconds and ingestion rates of 10,000 records per second. This ensures seamless real-time analysis and scalability to meet future demands."
+          }
+        ],
+        "imageQuery": "data architecture",
+        "diagram": "graph LR\n  A[Data Assessment] --> B[Technical Architecture] --> C[Data Governance] --> D[Performance Optimization]",
+        "variant": "asymmetric",
+        "ui": {
+          "showCTA": true,
+          "layout": "asymmetric",
+          "mediaPosition": "background"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business approach professional",
+        "query": "data architecture",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -105,18 +164,69 @@
       "version": 1
     },
     {
-      "id": "deliverables",
-      "heading": "deliverables",
+      "id": "acceptance-criteria",
+      "heading": "Acceptance Criteria",
       "sectionType": "deliverables",
       "content": {
-        "eyebrow": "deliverables",
-        "headline": "deliverables",
-        "body": "",
-        "imageQuery": "business deliverables professional"
+        "eyebrow": "Key Deliverables for Transformation",
+        "headline": "Comprehensive Solutions for Modern Data Architecture",
+        "items": [
+          {
+            "iconHint": "document",
+            "name": "In-depth Data Analysis",
+            "detail": "Identifies the top 20 critical datasets for operational optimization."
+          },
+          {
+            "iconHint": "document",
+            "name": "Detailed Architecture Diagram",
+            "detail": "Provides a visual representation for a robust and agile data ecosystem."
+          },
+          {
+            "iconHint": "document",
+            "name": "Migration Roadmap",
+            "detail": "Lays out phased steps for seamless data transition to the new architecture."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Centralized Lakehouse Implementation",
+            "detail": "Enables flexible analytics through a cloud-native architecture using Databricks."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Real-Time Data Access",
+            "detail": "Utilizes Apache Kafka for efficient data streaming and real-time insights."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Microservices Framework",
+            "detail": "Enhances scalability and operational efficiency through a modern architecture."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Data Governance Tool",
+            "detail": "Implements Collibra for ensuring data quality and compliance management."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Comprehensive Testing Protocols",
+            "detail": "Ensures the integrity and performance of the entire system throughout deployment."
+          }
+        ],
+        "imageQuery": "data architecture analytics technology",
+        "variant": "card-grid",
+        "ui": {
+          "showCTA": true,
+          "layout": "card-grid",
+          "mediaPosition": "none"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business deliverables professional",
+        "query": "data architecture analytics technology",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -124,18 +234,110 @@
       "version": 1
     },
     {
-      "id": "timeline",
-      "heading": "timeline",
-      "sectionType": "timeline",
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
       "content": {
-        "eyebrow": "timeline",
-        "headline": "timeline",
-        "body": "",
-        "imageQuery": "business timeline professional"
+        "eyebrow": "Strategic Advantages Delivered",
+        "headline": "Transforming Acme Corporation Through Data Optimization",
+        "items": [
+          {
+            "iconHint": "digital",
+            "title": "Double Reporting Accuracy",
+            "description": "Achieve a 2x improvement in data reporting accuracy, ensuring faster and more reliable insights for decision-making."
+          },
+          {
+            "iconHint": "strategy",
+            "title": "Reduce Manual Errors",
+            "description": "Minimize manual errors by up to 90%, streamlining workflows and enhancing overall productivity."
+          },
+          {
+            "iconHint": "compliance",
+            "title": "100% Compliance Adherence",
+            "description": "Implement a robust governance framework guaranteeing 100% adherence to compliance regulations, safeguarding data integrity."
+          },
+          {
+            "iconHint": "performance",
+            "title": "Rapid Data Access",
+            "description": "Facilitate rapid access to critical insights, enhancing decision-making agility and operational efficiency."
+          }
+        ],
+        "variant": "minimal",
+        "ui": {
+          "showCTA": true,
+          "layout": "minimal",
+          "mediaPosition": "none"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business timeline professional",
+        "query": "",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "constraints",
+      "heading": "Constraints",
+      "sectionType": "timeline",
+      "content": {
+        "eyebrow": "Efficient Implementation Timeline",
+        "headline": "Transforming Acme’s Data Architecture in 24 Weeks",
+        "subheadline": "A structured approach ensures timely execution and measurable outcomes.",
+        "phases": [
+          {
+            "label": "Analysis and Planning",
+            "duration": "4 weeks",
+            "name": "Initial Analysis",
+            "description": "Conduct an in-depth analysis of existing data sources to identify 20 critical datasets."
+          },
+          {
+            "label": "Architecture Design",
+            "duration": "6 weeks",
+            "name": "Design Phase",
+            "description": "Deliver a detailed architecture diagram and migration roadmap for the new data ecosystem."
+          },
+          {
+            "label": "Development and Integration",
+            "duration": "10 weeks",
+            "name": "Implementation",
+            "description": "Build the centralized lakehouse and integrate microservices for enhanced data processing."
+          },
+          {
+            "label": "Testing and Validation",
+            "duration": "3 weeks",
+            "name": "Quality Assurance",
+            "description": "Perform thorough performance and security testing, ensuring compliance and user acceptance."
+          },
+          {
+            "label": "Deployment",
+            "duration": "1 week",
+            "name": "Go-Live",
+            "description": "Deploy the new architecture and facilitate stakeholder training for seamless transition."
+          }
+        ],
+        "imageQuery": "Data Center",
+        "diagram": "gantt\n  title Project Schedule\n  dateFormat YYYY-MM-DD\n  section Analysis and Planning\n  Initial Analysis :a1, 2026-03-23, 28d\n  section Architecture Design\n  Design Phase :a2, after a1, 42d\n  section Development and Integration\n  Implementation :a3, after a2, 70d\n  section Testing and Validation\n  Quality Assurance :a4, after a3, 21d\n  section Deployment\n  Go-Live :a5, after a4, 7d",
+        "variant": "split",
+        "ui": {
+          "showCTA": true,
+          "layout": "split",
+          "mediaPosition": "right"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
+      },
+      "image": {
+        "source": "gradient",
+        "query": "Data Center",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -147,14 +349,65 @@
       "heading": "pricing",
       "sectionType": "pricing",
       "content": {
-        "eyebrow": "pricing",
-        "headline": "pricing",
-        "body": "",
-        "imageQuery": "business pricing professional"
+        "eyebrow": "Investment Overview",
+        "headline": "Unlock Operational Excellence with Strategic Investment",
+        "subheadline": "This investment modernizes Acme Corporation's data architecture, enhancing efficiency and decision-making capabilities.",
+        "rows": [
+          [
+            "Centralized Cloud-Native Lakehouse Implementation",
+            "$120,000"
+          ],
+          [
+            "Apache Kafka Integration for Real-Time Data Streaming",
+            "$75,000"
+          ],
+          [
+            "Data Governance Tool Implementation (Collibra)",
+            "$45,000"
+          ],
+          [
+            "Microservices Architecture with Apache Spark and dbt",
+            "$90,000"
+          ],
+          [
+            "Workflow Orchestration with Apache Airflow",
+            "$30,000"
+          ],
+          [
+            "Monitoring Solutions Using Azure Monitor and Grafana",
+            "$40,000"
+          ],
+          [
+            "Testing and Quality Assurance Framework",
+            "$30,000"
+          ],
+          [
+            "User Acceptance Testing (UAT) and Training",
+            "$30,000"
+          ],
+          [
+            "Documentation and Migration Support",
+            "$30,000"
+          ]
+        ],
+        "totalLabel": "Total: $480,000",
+        "footnote": "Project duration: 24 weeks. Payment terms to be discussed upon engagement.",
+        "cta": "Get Started Today",
+        "imageQuery": "Data infrastructure",
+        "variant": "centered",
+        "ui": {
+          "showCTA": true,
+          "layout": "centered",
+          "mediaPosition": "background"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business pricing professional",
+        "query": "Data infrastructure",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -166,33 +419,42 @@
       "heading": "whyus",
       "sectionType": "whyus",
       "content": {
-        "eyebrow": "whyus",
-        "headline": "whyus",
-        "body": "",
-        "imageQuery": "business whyus professional"
+        "eyebrow": "Proven Transformative Expertise",
+        "headline": "Redefining Data Infrastructure for Enhanced Efficiency",
+        "body": "omer-co delivers unparalleled technical solutions, specializing in the modernization of data architectures. With a 98% client satisfaction rate, our strategic focus empowers clients to achieve decisive advantages, such as doubling data reporting accuracy and reducing manual errors by up to 90%. Your new architecture promises seamless integration and compliance adherence, ensuring operational excellence.",
+        "stats": [
+          {
+            "number": "2x",
+            "label": "Data Reporting Accuracy",
+            "context": "Significantly enhance decision-making capabilities."
+          },
+          {
+            "number": "90%",
+            "label": "Manual Errors Reduction",
+            "context": "Transform operational efficiency."
+          },
+          {
+            "number": "$480,000",
+            "label": "Total Project Value",
+            "context": "Investment for comprehensive data modernization."
+          }
+        ],
+        "imageQuery": "data analytics",
+        "diagram": null,
+        "variant": "asymmetric",
+        "ui": {
+          "showCTA": true,
+          "layout": "asymmetric",
+          "mediaPosition": "background"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "scale"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business whyus professional",
-        "url": null,
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "stats",
-      "heading": "stats",
-      "sectionType": "stats",
-      "content": {
-        "eyebrow": "stats",
-        "headline": "stats",
-        "body": "",
-        "imageQuery": "business stats professional"
-      },
-      "image": {
-        "source": "gradient",
-        "query": "business stats professional",
+        "query": "data analytics",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -204,14 +466,27 @@
       "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "nextsteps",
-        "headline": "nextsteps",
-        "body": "",
-        "imageQuery": "business nextsteps professional"
+        "eyebrow": "Next Steps Toward Transformation",
+        "headline": "Immediate Actions Required for Data Modernization",
+        "body": "Engage with omer-co to initiate the in-depth data analysis by April 15, 2026. Establish a governance framework to ensure compliance adherence and mitigate operational risks. Prioritize alignment on project milestones to maintain a swift 24-week implementation timeline.",
+        "ctaPrimary": "Contact omer-co now",
+        "ctaSecondary": "Schedule a consultation",
+        "urgencyNote": "Act swiftly to prevent inefficiencies.",
+        "imageQuery": "data architecture",
+        "variant": "minimal",
+        "ui": {
+          "showCTA": true,
+          "layout": "minimal",
+          "mediaPosition": "none"
+        },
+        "behavior": {
+          "hasParallax": false,
+          "animation": "fade-up"
+        }
       },
       "image": {
         "source": "gradient",
-        "query": "business nextsteps professional",
+        "query": "data architecture",
         "url": null,
         "fallback": "gradient-mesh"
       },

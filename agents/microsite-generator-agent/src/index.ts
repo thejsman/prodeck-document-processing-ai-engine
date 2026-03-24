@@ -881,11 +881,16 @@ export function buildSectionPrompt(
   const mediaPositionHint = deriveMediaPositionHint(layoutPatterns, suggestedVariant);
   const spacingStyle = typeof layoutPatterns?.spacingStyle === 'string' ? layoutPatterns.spacingStyle : null;
 
+  // Apply MINIMAL constraint only when this section's actual variant IS minimal.
+  // isMinimal from customInstructions is used to pick variants (e.g. approach → split,
+  // timeline → centered) precisely so diagrams are preserved for those sections.
+  // Injecting "No diagrams" for a split/centered variant would undo that protection.
+  const variantIsMinimal = suggestedVariant === 'minimal';
   const constraintRules = [
-    noCTA       ? 'CONSTRAINT — NO CTA: Set ctaPrimary and ctaSecondary to empty strings "". Do NOT include action buttons or links.' : '',
-    isMinimal   ? 'CONSTRAINT — MINIMAL: Reduce all UI elements. Short copy only. No diagrams. No decorative components.' : '',
-    isBold      ? 'CONSTRAINT — BOLD: Maximize visual hierarchy. Use short punchy headlines (4-8 words). Prioritize impact metrics.' : '',
-    isEditorial ? 'CONSTRAINT — EDITORIAL: Prioritize typography and prose over UI components. No bullet lists. No icon grids.' : '',
+    noCTA          ? 'CONSTRAINT — NO CTA: Set ctaPrimary and ctaSecondary to empty strings "". Do NOT include action buttons or links.' : '',
+    variantIsMinimal ? 'CONSTRAINT — MINIMAL: Reduce all UI elements. Short copy only. No diagrams. No decorative components.' : '',
+    isBold         ? 'CONSTRAINT — BOLD: Maximize visual hierarchy. Use short punchy headlines (4-8 words). Prioritize impact metrics.' : '',
+    isEditorial    ? 'CONSTRAINT — EDITORIAL: Prioritize typography and prose over UI components. No bullet lists. No icon grids.' : '',
   ].filter(Boolean).join(' ');
 
   const constraintCtx = constraintRules ? `\n\nSTRICT CONSTRAINTS — YOU MUST FOLLOW THESE EXACTLY:\n${constraintRules}` : '';
@@ -1196,6 +1201,29 @@ Transform into a website section. Return:
 
 // ── Safe JSON parser (strips LLM code fences before parsing) ─────────────────
 
+/**
+ * Repair common LLM JSON mistakes: literal newlines/carriage-returns inside
+ * string values (which break JSON.parse).  We walk the text character-by-character
+ * tracking whether we are inside a string so we only escape control characters
+ * that appear within strings, not JSON structural whitespace.
+ */
+function repairLiteralNewlines(json: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < json.length; i++) {
+    const c = json[i];
+    if (escaped) { out += c; escaped = false; continue; }
+    if (c === '\\' && inString) { out += c; escaped = true; continue; }
+    if (c === '"') { inString = !inString; out += c; continue; }
+    if (inString && c === '\n') { out += '\\n'; continue; }
+    if (inString && c === '\r') { out += '\\r'; continue; }
+    if (inString && c === '\t') { out += '\\t'; continue; }
+    out += c;
+  }
+  return out;
+}
+
 function safeParseJSON(text: string): Record<string, unknown> | null {
   const stripped = text.trim()
     .replace(/^```(?:json)?\s*/i, '')
@@ -1209,8 +1237,13 @@ function safeParseJSON(text: string): Record<string, unknown> | null {
   const start = stripped.indexOf('{');
   const end = stripped.lastIndexOf('}');
   if (start !== -1 && end > start) {
+    const block = stripped.slice(start, end + 1);
     try {
-      return JSON.parse(stripped.slice(start, end + 1)) as Record<string, unknown>;
+      return JSON.parse(block) as Record<string, unknown>;
+    } catch { /* fall through */ }
+    // LLM emitted literal newlines inside string values — repair and retry
+    try {
+      return JSON.parse(repairLiteralNewlines(block)) as Record<string, unknown>;
     } catch { /* fall through */ }
   }
   return null;
@@ -1667,6 +1700,9 @@ export class MicrositeGeneratorAgent implements Agent {
             try {
               const result = await generateTool!.run({ query: prompt, content: '' });
               const parsed = safeParseJSON(result.text ?? '') ?? {};
+              if (!parsed.headline && !parsed.eyebrow) {
+                console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
+              }
               if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
               // Notify streaming listener that this section is done
               onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed });
@@ -1682,7 +1718,8 @@ export class MicrositeGeneratorAgent implements Agent {
                 }
               }
               return { id, heading: s.heading, type: s.type, content: parsed };
-            } catch {
+            } catch (err) {
+              console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
               return {
                 id,
                 heading: s.heading,

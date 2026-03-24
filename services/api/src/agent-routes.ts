@@ -142,6 +142,11 @@ const LLM_BRIDGE_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.ur
  * Used as the planner's GenerateFn.
  */
 export const llmGenerateFn: GenerateFn = (prompt: string): Promise<string> => {
+  // Strip lone Unicode surrogates (U+D800–U+DFFF) before sending to the Python bridge.
+  // They appear when the source document contains invalid UTF-8 bytes decoded by Node as
+  // surrogate pairs.  Python's UTF-8 encoder rejects them, causing every LLM call to fail.
+  const safePrompt = prompt.replace(/[\uD800-\uDFFF]/g, '');
+
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, [LLM_BRIDGE_SCRIPT], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -187,7 +192,7 @@ export const llmGenerateFn: GenerateFn = (prompt: string): Promise<string> => {
       }
     });
 
-    child.stdin.write(JSON.stringify({ prompt }));
+    child.stdin.write(JSON.stringify({ prompt: safePrompt }));
     child.stdin.end();
   });
 };
