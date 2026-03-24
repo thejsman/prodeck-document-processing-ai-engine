@@ -1,0 +1,227 @@
+/**
+ * Chat Orchestrator — executes chat-driven workflow instances.
+ *
+ * Responsibilities:
+ *   1. Detect workflow intent from incoming messages (via intent router).
+ *   2. Load or create a WorkflowInstance for the chat session.
+ *   3. Run the execution loop: dispatch to state handlers, apply transitions,
+ *      auto-advance through agent/tool states, pause on input states.
+ *   4. Stream phase labels and content chunks to the caller via callbacks.
+ *   5. Checkpoint state + context after every transition (STEP 8).
+ *   6. Emit the final "done" message and action metadata when completed.
+ *
+ * The orchestrator is workflow-agnostic: it reads the WorkflowDefinition DSL
+ * to determine which states are auto-advancing (agent/tool) vs. pause points
+ * (input).  Adding a new workflow requires only a new definition + handlers.
+ */
+
+import type { ProviderPolicyConfig } from '../provider-policy.js';
+import { routeIntent } from './intent-router.js';
+import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
+import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
+import {
+  createInstance,
+  loadActiveInstance,
+  updateState,
+  updateContext,
+  markCompleted,
+  type WorkflowInstance,
+} from '../workflows/workflow-instance.service.js';
+import {
+  handleCollectingRfp,
+  handleGeneratingOutline,
+  handleGeneratingSections,
+  type HandlerResult,
+  type HandlerContext,
+} from '../workflows/proposal-generation.handlers.js';
+
+// ---------------------------------------------------------------------------
+// Workflow registry — extend here to support additional workflows
+// ---------------------------------------------------------------------------
+
+const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
+  [ProposalWorkflow.id]: ProposalWorkflow,
+};
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export interface ProcessMessageParams {
+  message: string;
+  namespace: string;
+  chatSessionId: string;
+  /** Called when a named execution phase begins (e.g. "Analyzing RFP"). */
+  onPhase?: (phase: string) => void;
+  /** Called with each streamed token chunk. */
+  onChunk?: (chunk: string) => void;
+}
+
+export interface OrchestratorResult {
+  /** Final chat message to display to the user. */
+  message: string;
+  /** Optional action links included in the completion payload (STEP 7). */
+  actions?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Handler dispatch table — add new workflow handlers here
+// ---------------------------------------------------------------------------
+
+type HandlerFn = (ctx: HandlerContext) => Promise<HandlerResult>;
+
+const STATE_HANDLERS: Record<string, HandlerFn> = {
+  collecting_rfp: handleCollectingRfp,
+  generating_outline: handleGeneratingOutline,
+  generating_sections: handleGeneratingSections,
+};
+
+// ---------------------------------------------------------------------------
+// ChatOrchestrator
+// ---------------------------------------------------------------------------
+
+export class ChatOrchestrator {
+  constructor(
+    private readonly workdir: string,
+    // Reserved for future policy-aware agent execution
+    private readonly _policyConfig: ProviderPolicyConfig | null,
+  ) {}
+
+  /**
+   * Process one chat message.
+   *
+   * Execution loop:
+   *   while state has a registered handler:
+   *     1. Execute handler → HandlerResult
+   *     2. Checkpoint context (STEP 8)
+   *     3. If stateSignal → resolve next state from transitions
+   *     4. Checkpoint state transition (STEP 8)
+   *     5. If next state kind is "input" → pause (return to caller)
+   *     6. If next state kind is "agent" | "tool" → continue loop
+   *     7. If "completed" → mark instance complete, emit final message (STEP 7)
+   */
+  async processMessage(params: ProcessMessageParams): Promise<OrchestratorResult> {
+    const {
+      message,
+      namespace,
+      chatSessionId,
+      onPhase = () => {},
+      onChunk = () => {},
+    } = params;
+
+    // ── Load or create workflow instance ─────────────────────────
+    let instance = await loadActiveInstance(this.workdir, namespace, chatSessionId);
+
+    if (!instance) {
+      const intent = routeIntent(message);
+
+      if (!intent) {
+        return {
+          message:
+            'I can help you create proposals. Try saying "Create a proposal for [topic]".',
+        };
+      }
+
+      const workflow = WORKFLOW_REGISTRY[intent.workflowId];
+      if (!workflow) {
+        return { message: `Unknown workflow: "${intent.workflowId}". Please try again.` };
+      }
+
+      instance = await createInstance(
+        this.workdir,
+        namespace,
+        chatSessionId,
+        workflow.id,
+        workflow.initialState,
+      );
+    }
+
+    const workflow = WORKFLOW_REGISTRY[instance.workflowId];
+    if (!workflow) {
+      return { message: `Workflow "${instance.workflowId}" is no longer registered.` };
+    }
+
+    // ── Execution loop ────────────────────────────────────────────
+    let lastResult: HandlerResult | null = null;
+
+    for (;;) {
+      const currentState = instance.state;
+
+      if (currentState === 'completed') {
+        // Already terminal from a prior turn — do not re-execute
+        return {
+          message:
+            'This proposal workflow is already complete. Start a new chat session to create another.',
+        };
+      }
+
+      const handler = STATE_HANDLERS[currentState];
+      if (!handler) {
+        return { message: `No handler registered for workflow state: "${currentState}".` };
+      }
+
+      const ctx: HandlerContext = {
+        workdir: this.workdir,
+        namespace,
+        instance,
+        incomingMessage: message,
+        onPhase,
+        onChunk,
+      };
+
+      const result = await handler(ctx);
+      lastResult = result;
+
+      // STEP 8 — checkpoint context after every handler execution
+      await updateContext(this.workdir, instance, instance.context);
+
+      if (!result.stateSignal) {
+        // Handler did not emit a signal (e.g. waiting for user upload)
+        break;
+      }
+
+      const currentStateDef = workflow.states[currentState];
+      const nextState = currentStateDef?.transitions[result.stateSignal];
+
+      if (!nextState) {
+        // Signal not mapped to a transition — stay in current state
+        break;
+      }
+
+      // STEP 8 — checkpoint state transition
+      await updateState(this.workdir, instance, nextState);
+
+      if (nextState === 'completed') {
+        await markCompleted(this.workdir, instance);
+        break;
+      }
+
+      const nextStateDef = workflow.states[nextState];
+
+      if (nextStateDef?.kind === 'input') {
+        // Pause: next state requires user input before we can continue
+        break;
+      }
+
+      // agent / tool states: continue executing in this same turn
+    }
+
+    // ── Build final response ──────────────────────────────────────
+    if (instance.state === 'completed') {
+      // STEP 7 — completion message + action metadata
+      const actions: Record<string, string> = {
+        viewTraceUrl: `/chat/trace/${chatSessionId}`,
+        ...(lastResult?.actions ?? {}),
+      };
+      return {
+        message: 'Your proposal draft is ready.',
+        actions,
+      };
+    }
+
+    return {
+      message: lastResult?.message ?? '',
+      actions: lastResult?.actions,
+    };
+  }
+}

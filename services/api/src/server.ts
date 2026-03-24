@@ -21,6 +21,7 @@ import { registerAssetRoutes } from './asset-routes.js';
 import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
+import { registerChatRoutes } from './chat-routes.js';
 import { ingestionQueue } from './ingestion/ingestion-queue.js';
 import { recoverInterruptedJobs } from './ingestion/ingestion-service.js';
 import { loadProviderPolicy, type ProviderPolicyConfig } from './provider-policy.js';
@@ -91,6 +92,7 @@ export async function createServer(opts: ServerOptions) {
   registerConfigRoutes(app, opts.workdir, opts.auditLogPath);
   registerTemplateAgentRoutes(app);
   registerAgentRoutes(app, opts.workdir, policyConfig);
+  registerChatRoutes(app, opts.workdir, policyConfig);
   registerAssetRoutes(app, opts.workdir);
   registerStreamUploadRoutes(app, opts.workdir);
   registerImageRoutes(app);
