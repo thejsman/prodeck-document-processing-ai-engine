@@ -390,7 +390,7 @@ export function HeroSection({
             <R delay={180}>
               <Body tokens={tokens} style={{
                 maxWidth: 520, lineHeight: 2,
-                marginBottom: showCTA ? 36 : 0,
+                marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
                 borderLeft: `2px solid ${tokens.border}`,
                 paddingLeft: 18,
               }}>
@@ -398,6 +398,7 @@ export function HeroSection({
               </Body>
             </R>
           )}
+          {outcomePills}
           {ctaRow}
         </div>
       </section>
@@ -499,11 +500,12 @@ export function HeroSection({
           </R>
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: 28 }}>
+              <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
                 {content.subheadline}
               </Body>
             </R>
           )}
+          {outcomePills}
           {ctaRow}
         </div>
       </section>

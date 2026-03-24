@@ -67,7 +67,7 @@ export function MetricsSection({ content, tokens, index }: Props) {
             marginBottom: 'clamp(2.5rem, 5vw, 4rem)',
           }}
         >
-          {(content.stats ?? []).map((stat, si) => (
+          {(Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : []).map((stat, si) => (
             <Reveal key={si} variant="fadeIn" delay={160 + si * 100}>
               <div style={{ textAlign: 'center' }}>
                 <div

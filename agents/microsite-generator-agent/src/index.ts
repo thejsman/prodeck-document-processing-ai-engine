@@ -32,7 +32,28 @@ type SectionType =
   | 'benefits'
   | 'problem'
   | 'stats'
+  | 'metrics'
+  | 'security'
+  | 'techstack'
+  | 'testing'
   | 'generic';
+
+const ALL_SECTION_TYPES = new Set<string>([
+  'hero','challenge','approach','deliverables','timeline','pricing',
+  'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
+  'metrics','security','techstack','testing','generic',
+]);
+
+/**
+ * Extract exact section count from customInstructions.
+ * LLMs are unreliable at exact counting — this enforces it in code.
+ * Matches: "only 3 sections", "make it 3 sections", "generate 3 sections",
+ *          "3 sections only", "exactly 3 sections", "just 3 sections"
+ */
+function parseExplicitCount(ci: string): number | null {
+  const m = ci.match(/\b(?:only|make\s+it|create|generate|just|exactly|use)?\s*(\d+)\s+sections?\b/i);
+  return m ? parseInt(m[1], 10) : null;
+}
 
 function classifySection(heading: string): SectionType {
   const h = heading.toLowerCase();
@@ -48,6 +69,10 @@ function classifySection(heading: string): SectionType {
   if (/testimonial|review|client\s*said|what.*say/.test(h)) return 'testimonials';
   if (/showcase|feature|highlight|case\s*study/.test(h)) return 'showcase';
   if (/benefit|value\s*prop|advantage|outcome/.test(h)) return 'benefits';
+  if (/tech\s*stack|technology\s*stack|programming\s*lang|framework|tool\s*stack/i.test(h)) return 'techstack';
+  if (/security|compliance|encrypt|iam|access\s*control|data\s*protect/i.test(h)) return 'security';
+  if (/testing|quality\s*assurance|\bqa\b|test\s*coverage|test\s*strateg/i.test(h)) return 'testing';
+  if (/\bmetric|kpi|\bperformance\b|benchmark|measure/i.test(h) && !/implementation/.test(h)) return 'metrics';
   if (/stat|metric|number|impact|result/.test(h)) return 'stats';
   return 'generic';
 }
@@ -230,33 +255,29 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 
 // ── Section plan prompt (Pass 0) ─────────────────────────────────────────────
 
-function buildSectionPlanPrompt(markdown: string, plugin?: string, characterOverride?: string, customInstructions?: string): string {
-  const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
+function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
+  const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
-  const userInstructions = customInstructions?.trim()
-    ? `\n── USER INSTRUCTIONS (HIGHEST PRIORITY — read before doing anything else) ──\n${customInstructions.trim()}\n─────────────────────────────────────────────────────────────────────────────\n`
+  const overrideBlock = customInstructions
+    ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST BEFORE ANYTHING ELSE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OF OVERRIDE — ALL RULES BELOW ARE SECONDARY TO THE ABOVE ⚡⚡⚡\n\n`
     : '';
+  return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
+${styleHint}
+## STEP 1 — APPLY USER INSTRUCTIONS FIRST (if USER OVERRIDE is present above)
 
-  return `You are a senior proposal strategist and UX director.
-${styleHint}${userInstructions}
-## YOUR JOB
+If an OVERRIDE DIRECTIVE was given, parse it for explicit directives BEFORE anything else:
+- Section list specified? ("only hero", "sections: hero, pricing", "create these sections: ...") → use EXACTLY those types in EXACTLY that order
+- Section count specified? ("only 1 section", "make it 3 sections") → honour that count precisely
+- Section removal? ("remove pricing", "skip testimonials", "no nextsteps") → remove those sections
+- Section addition? ("add a benefits section", "include stats") → add them
+- Reorder? ("swap hero and challenge", "put pricing first") → reorder exactly as asked
+- No CTA in hero? ("no cta", "no buttons in hero", "remove cta from hero") → set noCTAInHero: true
+- No CTA anywhere? ("no cta anywhere", "remove all buttons", "no calls to action") → set noCTAEverywhere: true
+- ⚠️ VISUAL-ONLY commands ("add image on hero", "remove image", "dark theme", "no animations", "change font") do NOT affect section structure — plan sections normally from the proposal.
 
-Read the proposal markdown and decide the optimal section sequence for a presentation microsite.
+OVERRIDE DIRECTIVE supersedes ALL default rules below. Do not normalise or improve the user's structure.
 
-## STEP 1 — DETECT USER INTENT
-
-If USER INSTRUCTIONS are present above, parse them for explicit directives FIRST:
-
-- Section list specified? ("sections: hero, about, pricing" or "create these sections: ...") → use EXACTLY those types in EXACTLY that order
-- Section count specified? ("create 10 sections", "I want 6 sections") → honour that count precisely
-- Section removal? ("no CTA", "remove next steps", "skip testimonials") → remove those sections
-- Section addition? ("add testimonials", "include a stats section") → add them regardless of content heuristics
-
-USER INSTRUCTIONS OVERRIDE ALL DEFAULT RULES BELOW. Do not normalise or "improve" the user's structure.
-
-## STEP 2 — DEFAULT CONTENT-DRIVEN PLANNING (only when user has NOT specified structure)
-
-If no explicit structure was given, derive sections from content:
+## STEP 2 — DEFAULT PLANNING (only when no OVERRIDE DIRECTIVE, or for fields not covered by it)
 
 - Map EACH source heading to a DIFFERENT section type — never assign the same sourceHeading to more than one section
 - "hero" MUST map to the main overview/summary heading (usually the first substantive section)
@@ -274,22 +295,18 @@ If no explicit structure was given, derive sections from content:
 - Aim for 8–10 sections covering the full proposal breadth — hero always first, nextsteps always last
 - No duplicate sourceHeadings — each source section feeds at most one output section
 
-## CONSTRAINTS TO EXTRACT
+## STEP 3 — EXTRACT CONSTRAINTS
 
-After deciding sections, fill in the constraints object:
-- noCTAInHero: true if user said "no CTA", "remove CTA", "no buttons in hero", "skip CTA in hero", etc.
-- noCTAEverywhere: true if user said "no CTA anywhere", "remove all CTAs", "no buttons at all", "no calls to action", etc.
-- requestedSectionCount: the number if user explicitly stated a count ("10 sections", "6 sections"), otherwise null
-- hasCustomStructure: true if user specified section names/order explicitly
-- motion: "expressive" if user said "add motion", "animate", "transitions", "dynamic"; "deliberate" if "subtle motion", "gentle animation"; "instant" if "no animation", "static", "no transitions"; null if unspecified
-- parallax: true if user said "parallax", "depth", "parallax hero", "scroll parallax"; false otherwise
-- scrollEffects: "slide-up" if user said "slide in", "slide up", "entrance animation"; "fade-in" if user said "fade", "fade in"; "none" if not specified or user said "no effects"
+Fill in the constraints object based on what the user said:
+- noCTAInHero: true if user said "no cta", "no buttons", "remove cta", "no call to action", "no cta in hero", "without cta"
+- noCTAEverywhere: true if user said "no cta anywhere", "remove all buttons", "no calls to action anywhere"
+- requestedSectionCount: exact number if user said "only X section(s)", "make it X sections", "X sections only" — else null
+- hasCustomStructure: true if user explicitly named sections or order
+- motion: "expressive" if "animate"/"transitions"/"dynamic"; "deliberate" if "subtle motion"; "instant" if "no animation"/"static"; null if unspecified
+- parallax: true if user said "parallax"/"depth effect"; false otherwise
+- scrollEffects: "slide-up" if "slide in/up"; "fade-in" if "fade in"; "none" otherwise
 
-## VALID TYPES
-
-hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
-
-## OUTPUT FORMAT
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences.
 
@@ -313,6 +330,78 @@ PROPOSAL:
 ${markdown.slice(0, 8000)}`;
 }
 
+// ── Plan refinement prompt (Pass 0.5 — only runs when customInstructions present) ───
+
+function buildPlanRefinementPrompt(plan: SectionPlan[], customInstructions: string): string {
+  return `⚡⚡⚡ USER COMMAND — APPLY EXACTLY AS WRITTEN ⚡⚡⚡
+${customInstructions}
+⚡⚡⚡ END OF USER COMMAND ⚡⚡⚡
+
+You are a section plan editor. Reshape the plan below to satisfy the USER COMMAND above.
+
+CURRENT PLAN:
+${JSON.stringify(plan, null, 2)}
+
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+
+RULES:
+- Return ONLY a valid JSON array — same format as CURRENT PLAN
+- Apply the user's instructions precisely: reduce, reorder, rename, add, or remove sections as requested
+- If the user says "only X sections", return exactly X items
+- If the user says "only section: Y", return exactly [{ type: "Y", ... }]
+- If the user says "swap X and Y" or specifies a custom order, reorder exactly as asked — do NOT enforce any default ordering
+- ⚠️ CRITICAL: If the instruction is ONLY about images, colors, fonts, motion, animations, or other visual styling (e.g. "add image on hero", "remove image", "dark theme", "no animations") — return the CURRENT PLAN UNCHANGED. Do NOT add or remove sections for visual-only commands.
+- Preserve sourceHeading, rationale, aiGenerated fields where possible
+- Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+}
+
+// ── Command parser prompt (parses customInstructions into ParsedCommand) ────────
+
+function buildCommandParserPrompt(customInstruction: string, currentPlugin: string): string {
+  return `You are a design command parser for a presentation microsite generator.
+
+Parse the following user instruction into a structured command JSON.
+
+CURRENT PLUGIN: "${currentPlugin}"
+VALID PLUGINS: obsidian, ivory, cobalt, sage
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
+
+USER INSTRUCTION:
+${customInstruction}
+
+Parse into:
+- designOverrides.plugin: plugin name if user says "switch to X theme" / "use X plugin" — else null
+- designOverrides.sectionLayout: map of section type → layout variant for explicit per-section layout requests (e.g. {"hero": "split", "approach": "card-grid"})
+- designOverrides.imageStyle: style descriptor if user specifies image style ("cinematic", "black and white", "abstract", "no images") — else null
+- designOverrides.typographyScale: "dramatic" | "moderate" | "tight" — if user specifies scale, else null
+- designOverrides.accentColor: hex color (#xxxxxx) if user specifies accent/primary color — else null
+- contentOverrides.tone: tone override string if user specifies ("aggressive", "warmer", "authoritative") — else null
+- contentOverrides.sectionsToHide: array of section types to remove/hide (e.g. ["pricing","testimonials"])
+- contentOverrides.sectionsToAdd: array of section types to insert
+- contentOverrides.sectionInstructions: map of section type → specific instruction for that section (e.g. {"hero": "make the headline shorter and punchier"})
+- contentOverrides.globalInstruction: any global content instruction not captured above — else null
+
+Return ONLY valid JSON. No markdown, no explanation, no code fences.
+
+{
+  "designOverrides": {
+    "plugin": null,
+    "sectionLayout": {},
+    "imageStyle": null,
+    "typographyScale": null,
+    "accentColor": null
+  },
+  "contentOverrides": {
+    "tone": null,
+    "sectionsToHide": [],
+    "sectionsToAdd": [],
+    "sectionInstructions": {},
+    "globalInstruction": null
+  }
+}`;
+}
+
 // ── Brief extraction prompt ──────────────────────────────────────────────────
 
 function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string): string {
@@ -321,9 +410,11 @@ function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; 
     : '';
   const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
   const styleHint = character ? `\nDESIGN VOICE: This microsite uses a "${plugin}" theme (${character}). Let this shape the heroNarrative tone and primaryTone selection.\n` : '';
-  const customHint = customInstructions ? `\nCUSTOM INSTRUCTIONS (user-specified — follow these closely when extracting the brief):\n${customInstructions}\n` : '';
+  const overrideBlock = customInstructions
+    ? `\n⚡ OVERRIDE DIRECTIVE — HIGHEST PRIORITY (apply before extracting any field):\n${customInstructions}\n`
+    : '';
   return `You are a senior proposal strategist. Extract a structured brief from this proposal. Return ONLY valid JSON. No markdown, no explanation, no code fences.
-${hint}${styleHint}${customHint}
+${overrideBlock}${hint}${styleHint}
 Extract this proposal into a brief:
 
 ${markdown}
@@ -390,12 +481,16 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
   benefits:     ['card-grid',   'split',      'minimal'],
   problem:      ['asymmetric',  'editorial',  'centered'],
   stats:        ['centered',    'minimal',    'editorial'],
+  metrics:      ['centered',    'minimal',    'editorial'],
+  security:     ['card-grid',   'split',      'asymmetric'],
+  techstack:    ['card-grid',   'split',      'minimal'],
+  testing:      ['card-grid',   'minimal',    'editorial'],
   generic:      ['centered',    'split',      'minimal'],
 };
 
 /** Random fallback — used only when no intent is detected. */
 function pickVariant(type: SectionType): string {
-  const pool = VARIANT_POOLS[type];
+  const pool = VARIANT_POOLS[type] ?? VARIANT_POOLS.generic;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -419,6 +514,10 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   benefits:     'minimal',
   problem:      'editorial',
   stats:        'centered',
+  metrics:      'centered',
+  security:     'editorial',
+  techstack:    'editorial',
+  testing:      'editorial',
   generic:      'editorial',
 };
 
@@ -438,6 +537,10 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
   benefits:     'minimal',
   problem:      'centered',
   stats:        'minimal',
+  metrics:      'minimal',
+  security:     'minimal',
+  techstack:    'minimal',
+  testing:      'minimal',
   generic:      'minimal',
 };
 
@@ -459,6 +562,10 @@ const BOLD_VARIANTS: Record<SectionType, string> = {
   benefits:     'card-grid',
   problem:      'asymmetric',
   stats:        'centered',
+  metrics:      'centered',
+  security:     'asymmetric',
+  techstack:    'card-grid',
+  testing:      'card-grid',
   generic:      'split',
 };
 
@@ -479,9 +586,9 @@ function resolveVariant(
   isMinimal: boolean,
   isBold: boolean,
 ): string {
-  if (isEditorial) return EDITORIAL_VARIANTS[type];
-  if (isMinimal)   return MINIMAL_VARIANTS[type];
-  if (isBold)      return BOLD_VARIANTS[type];
+  if (isEditorial) return EDITORIAL_VARIANTS[type] ?? EDITORIAL_VARIANTS.generic;
+  if (isMinimal)   return MINIMAL_VARIANTS[type] ?? MINIMAL_VARIANTS.generic;
+  if (isBold)      return BOLD_VARIANTS[type] ?? BOLD_VARIANTS.generic;
   return pickVariant(type);
 }
 
@@ -560,7 +667,7 @@ function preassignVariants(
       let v = resolveVariant(type, isEditorial, isMinimal, isBold);
       if (v === prev) {
         // Pick the next option from the pool that isn't prev
-        const pool = VARIANT_POOLS[type].filter(x => x !== prev);
+        const pool = (VARIANT_POOLS[type] ?? VARIANT_POOLS.generic).filter(x => x !== prev);
         v = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : v;
       }
       variants.push(v);
@@ -575,10 +682,10 @@ function preassignVariants(
     }
 
     // Random from pool, excluding previous variant
-    const pool = VARIANT_POOLS[type].filter(x => x !== prev);
+    const pool = (VARIANT_POOLS[type] ?? VARIANT_POOLS.generic).filter(x => x !== prev);
     const pick = pool.length > 0
       ? pool[Math.floor(Math.random() * pool.length)]
-      : VARIANT_POOLS[type][0];
+      : (VARIANT_POOLS[type] ?? VARIANT_POOLS.generic)[0];
     variants.push(pick);
   }
 
@@ -842,116 +949,28 @@ export function buildSectionPrompt(
   sectionIndex = 0,
   preassignedVariant?: string,
   sectionRules?: Record<string, unknown> | null,
+  globalInstruction?: string,
+  sectionInstruction?: string,
   proposalMarkdown?: string,
 ): string {
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
   const brandCtx = brandName ? ` The proposing company is "${brandName}" — use this name consistently in copy.` : '';
   const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
+  const meta = preassignedVariant ? `"variant": "${preassignedVariant}"` : '';
   const pluginCtx = character ? ` DESIGN VOICE: ${character} — let this shape word choice, sentence rhythm, and emotional register.` : '';
   const angle = pickAngle();
   const generationNote = aiGenerated
     ? ' NOTE: This section has NO source content — generate it entirely from the proposal brief and context. Make it feel native and coherent, not bolted-on.'
     : '';
-
-  // Detect constraints from customInstructions for strict enforcement
-  const ci = customInstructions.toLowerCase();
-  const noCTA       = /no\s*cta|remove\s*cta|no\s*(call[\s-]to[\s-]action|buttons?)|omit\s*cta/i.test(customInstructions);
-  const isMinimal   = /\bminimal\b/i.test(ci);
-  const isBold      = /\bbold\b/i.test(ci) && !/not\s*bold/i.test(ci);
-  const isEditorial = /\beditorial\b/i.test(ci);
-
-  const showCTA = !(noCTA && (type === 'hero' || type === 'nextsteps'));
-  const intentFamily = isEditorial ? 'editorial' : isMinimal ? 'minimal' : isBold ? 'bold' : 'default';
-
-  // Pre-assigned variant takes highest priority (computed before parallel generation to avoid adjacent-repeat)
-  // For hero: resolveHeroVariant. For others: preassigned or computed.
-  const hasUserIntent = isEditorial || isMinimal || isBold;
-  const suggestedVariant: string = preassignedVariant
-    ? preassignedVariant
-    : type === 'hero'
-      ? resolveHeroVariant(customInstructions, isEditorial, isMinimal, isBold, layoutPatterns)
-      : hasUserIntent
-        ? resolveVariant(type, isEditorial, isMinimal, isBold)
-        : (resolveVariantFromLayoutPatterns(type, layoutPatterns, sectionIndex) ?? pickVariant(type));
-
-  if (type === 'hero') {
-    console.log('[Hero Variant Fix] Final hero variant:', suggestedVariant);
-  }
-
-  const mediaPositionHint = deriveMediaPositionHint(layoutPatterns, suggestedVariant);
-  const spacingStyle = typeof layoutPatterns?.spacingStyle === 'string' ? layoutPatterns.spacingStyle : null;
-
-  // Apply MINIMAL constraint only when this section's actual variant IS minimal.
-  // isMinimal from customInstructions is used to pick variants (e.g. approach → split,
-  // timeline → centered) precisely so diagrams are preserved for those sections.
-  // Injecting "No diagrams" for a split/centered variant would undo that protection.
-  const variantIsMinimal = suggestedVariant === 'minimal';
-  const constraintRules = [
-    noCTA          ? 'CONSTRAINT — NO CTA: Set ctaPrimary and ctaSecondary to empty strings "". Do NOT include action buttons or links.' : '',
-    variantIsMinimal ? 'CONSTRAINT — MINIMAL: Reduce all UI elements. Short copy only. No diagrams. No decorative components.' : '',
-    isBold         ? 'CONSTRAINT — BOLD: Maximize visual hierarchy. Use short punchy headlines (4-8 words). Prioritize impact metrics.' : '',
-    isEditorial    ? 'CONSTRAINT — EDITORIAL: Prioritize typography and prose over UI components. No bullet lists. No icon grids.' : '',
-  ].filter(Boolean).join(' ');
-
-  const constraintCtx = constraintRules ? `\n\nSTRICT CONSTRAINTS — YOU MUST FOLLOW THESE EXACTLY:\n${constraintRules}` : '';
-  const customCtx = customInstructions ? `\n\nCUSTOM INSTRUCTIONS (follow closely): ${customInstructions}` : '';
-
-  // Content extraction mandate — ensures LLM uses REAL data from proposal
-  const effectiveBody = rawBody.trim().length > 30 ? rawBody : '';
-  // Always include the full proposal so every section can mine it for specific facts,
-  // even when a rawBody was matched — the matched section may be too generic (e.g. "Executive Summary"
-  // mapped to hero/challenge/approach all at once). The full proposal is the authoritative source.
-  const fallbackContext = proposalMarkdown
-    ? `\n\nPROPOSAL SOURCE — extract facts, numbers, names, amounts relevant to this ${type} section:\n---\n${proposalMarkdown.slice(0, 8000)}\n---`
+  const overridePrefix = customInstructions
+    ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST, APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
     : '';
-  // Per-section extraction hints — tells the LLM exactly what to mine for each type
-  const SECTION_EXTRACTION_HINTS: Partial<Record<SectionType, string>> = {
-    hero:         'Extract: client name, proposing company name, engagement title, primary outcome/goal.',
-    challenge:    'Extract: specific pain points, root causes, business risks named in the proposal. Quote key phrases.',
-    approach:     'Extract: named methodology, specific tools/technologies, framework names, numbered steps.',
-    deliverables: 'Extract: EVERY deliverable item listed with its exact name and description. No omissions.',
-    timeline:     'Extract: EVERY phase with its exact name, start date or duration (e.g. "Week 1-2", "Month 3").',
-    pricing:      'Extract: EVERY line item with its exact cost. Include totals, hourly rates, fixed fees, taxes. No invented numbers.',
-    whyus:        'Extract: specific credentials, years of experience, client success metrics, named team strengths.',
-    nextsteps:    'Extract: specific next actions, deadlines, contact details, decision milestones.',
-    stats:        'Extract: EVERY metric, percentage, multiplier, dollar figure in the proposal. Prefer real numbers over estimates.',
-    testimonials: 'Extract: any client quotes or success stories. If none, derive themes from stated outcomes.',
-    benefits:     'Extract: explicit value propositions, ROI claims, efficiency gains, risk reductions stated in the proposal.',
-    problem:      'Extract: quantified pain points, cost of inaction figures, failure scenarios described.',
-    showcase:     'Extract: specific product features, technical capabilities, differentiators named in the proposal.',
-  };
-  const sectionExtractionHint = SECTION_EXTRACTION_HINTS[type] ? `\nFOR THIS ${type.toUpperCase()} SECTION SPECIFICALLY: ${SECTION_EXTRACTION_HINTS[type]}` : '';
-
-  const extractionMandate = `\n\n━━ CONTENT EXTRACTION MANDATE — CRITICAL — READ FIRST ━━
-You MUST extract REAL data from the proposal source material. NEVER invent placeholder content.
-- Use EXACT company names, product names, methodology names, tool names from the proposal
-- Use EXACT prices, amounts, currencies (e.g. "$45,000", "€120/hr", "£2.4M") — never invent figures
-- Use EXACT timeline dates, durations, phase names — never write "Phase 1" if a real name exists
-- Use EXACT deliverable names and descriptions — list ALL of them, no omissions
-- Use EXACT metrics, statistics, percentages — prefer specific over vague
-- DO NOT write generic filler like "Your Company", "Client Name", "our solution", "key benefits"
-- DO NOT copy-paste raw markdown — rewrite into polished presentation prose
-- Every field must contain substantive, proposal-specific content — empty or generic = INVALID${sectionExtractionHint}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-
-
-  const mediaPositionHint2 = mediaPositionHint ?? (suggestedVariant === 'split' ? 'right' : suggestedVariant === 'asymmetric' ? 'background' : suggestedVariant === 'card-grid' || suggestedVariant === 'minimal' || suggestedVariant === 'type-forward' ? 'none' : 'background');
-  const sectionRulesCtx = buildSectionRulesContext(type, sectionRules);
-
-  const system = `You are a world-class B2B copywriter producing a Gamma-quality presentation microsite — polished, persuasive, executive-level copy created by a top-tier agency.${brandCtx}${pluginCtx} TONE: ${toneGuide}.${generationNote}
-
-WRITING RULES:
-- Every headline: 8-14 compelling words — NEVER repeat the source heading verbatim, always rewrite as a powerful statement
-- Body text: 2-4 punchy sentences packed with real specifics from the proposal
-- Every field must contain substantive content — returning the heading as a field value is INVALID
-- Write from the client's perspective: their transformation, their outcomes, their wins
-- CREATIVE ANGLE: ${angle}${customCtx}
-${extractionMandate}
-Layout: "${suggestedVariant}" — set ui.layout="${suggestedVariant}" and ui.mediaPosition="${mediaPositionHint2}" in your JSON.${sectionRulesCtx}
-Diagrams: If diagram field exists in the schema, generate a Mermaid flow (graph LR or gantt) using REAL phase/step names from the proposal — raw string, escape newlines as \\n, max 5 nodes. Only set null if truly no process flow exists.
-Return ONLY valid JSON. No markdown fences. Include "variant", "ui", and "behavior" fields exactly as shown in the schema.`;
-
-  const meta = sectionMetaSchema(suggestedVariant, showCTA, intentFamily);
+  // sectionInstruction takes priority over globalInstruction; injected at very top of system prompt
+  const activeInstruction = sectionInstruction ?? globalInstruction ?? '';
+  const instructionPrefix = activeInstruction
+    ? `⚡⚡⚡ SECTION INSTRUCTION — HIGHEST PRIORITY — APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${activeInstruction}\n⚡⚡⚡ END SECTION INSTRUCTION ⚡⚡⚡\n\n`
+    : '';
+  const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null. Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
@@ -969,7 +988,7 @@ Transform into a Hero section. Return:
   "ctaSecondary": "3-4 words, softer option — empty string if constraints say no CTA",
   "ctaTarget": "section type to scroll to on primary CTA tap — from SECTION DESIGN RULES if specified, else null",
   "ctaSecondaryTarget": "section type to scroll to on secondary CTA tap — from SECTION DESIGN RULES if specified, else null",
-  "imageQuery": "Unsplash query: mood+subject+industry e.g. 'dramatic finance architecture dark minimal'",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene matching this industry and proposal tone. Describe subject, lighting, mood, color palette. e.g. 'Dark futuristic server room corridor with blue and purple holographic data streams, dramatic cinematic lighting, 4K professional photography'",
   ${meta}
 }`,
 
@@ -984,7 +1003,7 @@ Transform into a Challenge section. Return:
   "headline": "8-12 words, the core tension",
   "body": "2-3 sentences, real stakes, what if nothing changes",
   "pullquote": "sharpest insight, 10-18 words, standalone quote",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "optional graph TD showing causal chain/impact cascade (max 4 nodes). Only include if content has a clear cause→effect chain. Otherwise null.",
   ${meta}
 }`,
@@ -1000,7 +1019,7 @@ Transform into an Approach section with pillars. Return:
   "headline": "8-12 words",
   "subheadline": "1-2 sentences",
   "pillars": [{"iconHint": "identity|digital|content|strategy|research|launch", "name": "2-4 words", "description": "2 sentences, specific outcomes"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "graph LR showing the methodology as a process flow. Nodes = pillar names (2-3 words each). Max 5 nodes connected with -->. Example: graph LR\\n  A[Discover] --> B[Design] --> C[Build] --> D[Launch]. Always include this field.",
   ${meta}
 }`,
@@ -1015,7 +1034,7 @@ Transform into a Deliverables section. Return:
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "2-5 words", "detail": "1 sentence, what it enables"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
 
@@ -1030,7 +1049,7 @@ Transform into a Timeline section. Use EXACT phase names and durations from the 
   "headline": "8-12 words",
   "subheadline": "1-2 sentences",
   "phases": [{"label": "from raw data", "duration": "e.g. 2 weeks", "name": "2-4 words", "description": "1 sentence, activity + outcome"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "gantt chart. Format: gantt\\n  title Project Schedule\\n  dateFormat YYYY-MM-DD\\n  section Phase 1\\n  PhaseName :a1, 2026-01-01, 14d\\n  section Phase 2\\n  PhaseName :a2, after a1, 14d. Always include if 2+ phases exist.",
   ${meta}
 }`,
@@ -1054,7 +1073,7 @@ Transform into a Pricing section. CRITICAL: Extract EVERY line item, price, cost
   "totalLabel": "Total: [exact total from proposal, e.g. '$95,000']",
   "footnote": "payment terms, start date, or notes from the proposal",
   "cta": "3-5 words",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
 
@@ -1069,7 +1088,7 @@ Transform into a Why Us section. Return:
   "headline": "8-12 words",
   "body": "2-3 sentences",
   "stats": [{"number": "from content", "label": "2-4 words", "context": "1 short sentence"}],
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "optional pie chart if stats suggest a meaningful distribution. Format: pie title Label\\n  \\"Category A\\" : 60\\n  \\"Category B\\" : 30. Only include if a clear distribution is evident. Otherwise null.",
   ${meta}
 }`,
@@ -1087,7 +1106,7 @@ Transform into a Next Steps section. Return:
   "ctaPrimary": "3-5 words — empty string if constraints say no CTA",
   "ctaSecondary": "3-4 words — empty string if constraints say no CTA",
   "urgencyNote": "string or null",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
 
@@ -1123,7 +1142,7 @@ Transform into a Showcase section — a visual feature spotlight. Return:
   "subheadline": "1-2 sentences, what this makes possible",
   "body": "2-3 sentences, the 'so what' — impact and differentiation",
   "highlights": ["3-5 short feature pills, 3-6 words each, noun phrases"],
-  "imageQuery": "Unsplash query for a striking visual that represents this feature",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene that visually represents this feature or capability. Striking, dramatic, high-detail. e.g. 'Abstract digital architecture with neon blue geometric shapes, dark background, ultra-detailed'",
   ${meta}
 }`,
 
@@ -1157,7 +1176,7 @@ Transform into a Problem section — sharper and more urgent than a challenge se
   "headline": "8-14 words, urgent and specific — name the consequence not just the problem",
   "body": "2-3 sentences, make the cost of inaction visceral and concrete",
   "painPoints": ["3-5 pain points, each 6-12 words, start with a verb or cost noun — specific, not vague"],
-  "imageQuery": "Unsplash query for a tense, dramatic visual — avoid generic stock",
+  "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
   ${meta}
 }`,
 
@@ -1180,6 +1199,93 @@ Transform into a Stats section — a standalone impact metrics row. Return:
   ${meta}
 }`,
 
+    metrics: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive 3-4 strong KPIs from the brief outcomes, duration, and value)'}
+
+Transform into a Metrics section — a standalone performance KPIs row with scaling strategies. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Performance at Scale'",
+  "headline": "8-12 words",
+  "stats": [
+    {
+      "number": "specific metric e.g. '99.9%' or '3× faster' — from content or brief",
+      "label": "2-4 words",
+      "context": "1 short sentence what this means"
+    }
+  ],
+  "strategies": ["3-5 scaling strategies, each 5-10 words, start with a verb"],
+  ${meta}
+}`,
+
+    security: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive 3-4 security controls from the brief and industry context)'}
+
+Transform into a Security section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Built for Compliance'",
+  "headline": "8-12 words",
+  "items": [
+    {
+      "iconHint": "identity|digital|strategy|research",
+      "name": "2-5 words, the security control",
+      "description": "1-2 sentences, what it protects and how"
+    }
+  ],
+  "diagram": "graph TD showing security layers top-to-bottom. Example: graph TD\\n  A[Identity & Access] --> B[Encryption]\\n  B --> C[Network Security]\\n  C --> D[Compliance & Audit]. Use item names as node labels. Always include this field.",
+  ${meta}
+}`,
+
+    techstack: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive categories from the brief industry and engagement context)'}
+
+Transform into a Tech Stack section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Built on Modern Foundations'",
+  "headline": "8-12 words",
+  "categories": [
+    {
+      "iconHint": "identity|digital|content|strategy|research|launch|document|website",
+      "name": "1-3 words, the category e.g. 'Frontend', 'Backend', 'Database'",
+      "items": ["2-5 technology names in this category"]
+    }
+  ],
+  "diagram": "graph LR showing tech stack layers left-to-right. Example: graph LR\\n  A[Frontend] --> B[Backend]\\n  B --> C[Database]\\n  C --> D[Cloud / Infra]. Use category names as node labels. Max 5 nodes. Always include this field.",
+  ${meta}
+}`,
+
+    testing: `${system}
+
+Brief: ${brief}
+Raw content: ${rawBody || '(No source content — derive testing layers from the brief engagement context)'}
+
+Transform into a Testing & Quality section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Quality Built In'",
+  "headline": "8-12 words",
+  "layers": [
+    {
+      "level": 1,
+      "name": "Layer name e.g. 'Unit Tests'",
+      "coverage": "percentage or metric e.g. '90%'",
+      "description": "1 sentence what this layer validates"
+    }
+  ],
+  "additionalInfo": [
+    {
+      "heading": "2-4 words",
+      "body": "1-2 sentences"
+    }
+  ],
+  "diagram": "graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.",
+  ${meta}
+}`,
+
     generic: `${system}
 
 Brief: ${brief}
@@ -1191,7 +1297,7 @@ Transform into a website section. Return:
   "eyebrow": "4-8 words",
   "headline": "8-12 words, compelling rewrite of '${heading}'",
   "body": "2-4 sentences, rewritten content",
-  "imageQuery": "Unsplash query",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
   };
@@ -1334,7 +1440,7 @@ function buildMarkdownPrompt(
     detailed: '8-14 sentences per section. Rich content with examples.',
   };
 
-  return `You are a world-class copywriter creating a professional presentation website.
+  return `${customInstructions ? `⚡ OVERRIDE DIRECTIVE — HIGHEST PRIORITY (supersedes all rules below, including structure, sections, and tone):\n${customInstructions}\n\n` : ''}You are a world-class copywriter creating a professional presentation website.
 
 ## YOUR #1 JOB
 Take the raw source material below and COMPLETELY REWRITE it as polished, executive-grade website copy.
@@ -1395,14 +1501,87 @@ Keep simple: 5-10 nodes, short labels. No %%{init}%% directives.
 - **Bold** key terms and metrics inline
 - Output ONLY valid Markdown — no wrapping code fences
 
-${customInstructions ? `## CUSTOM INSTRUCTIONS (follow these closely)\n${customInstructions}\n\n` : ''}SOURCE MATERIAL (use for facts only — rewrite ALL language):
+SOURCE MATERIAL (use for facts only — rewrite ALL language):
 
 ${sectionBlock}
 
 Generate the presentation website copy now:`;
 }
 
-// ── Plan types ────────────────────────────────────────────────────────────────
+// ── Image resolution via DALL-E 3 (falls back to loremflickr) ────────────────
+
+/** Generate an AI image via DALL-E 3.
+ *  Appends a cinematic style suffix so all images share the Gamma-style aesthetic. */
+async function generateDalleImage(query: string, apiKey: string): Promise<string | null> {
+  const prompt = `${query}. Cinematic photorealistic, dramatic professional lighting, ultra high quality, no text, no watermarks, no logos.`;
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'dall-e-3',
+        prompt,
+        n: 1,
+        size: '1792x1024',
+        quality: 'standard',
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { data?: Array<{ url?: string }> };
+    return data.data?.[0]?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Convert a free-text imageQuery into a loremflickr URL (fallback). */
+function queryToFlickrUrl(query: string): string {
+  const keywords = query
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+    .slice(0, 3)
+    .join(',');
+  const tags = keywords || 'business,professional';
+  let hash = 5381;
+  for (let i = 0; i < query.length; i++) hash = ((hash << 5) + hash) ^ query.charCodeAt(i);
+  const lock = Math.abs(hash) % 9999;
+  return `https://loremflickr.com/1200/800/${tags}?lock=${lock}`;
+}
+
+async function resolveImageUrl(query: string): Promise<string | null> {
+  if (!query) return null;
+
+  // Try DALL-E 3 first when OpenAI key is available
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    const aiUrl = await generateDalleImage(query, openaiKey);
+    if (aiUrl) return aiUrl;
+  }
+
+  // Fall back to loremflickr
+  try {
+    const url = queryToFlickrUrl(query);
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(7000),
+    });
+    if (res.ok && res.url && !res.url.includes('loremflickr.com/image/flash')) {
+      return res.url;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+// ── Plan type ─────────────────────────────────────────────────────────────────
 
 interface SectionPlan {
   type: SectionType;
@@ -1419,6 +1598,92 @@ interface SectionPlanConstraints {
   motion: 'instant' | 'deliberate' | 'expressive' | null;
   parallax: boolean;
   scrollEffects: 'none' | 'fade-in' | 'slide-up' | null;
+}
+
+// ── Parsed command interface (output of command parser LLM pass) ──────────────
+
+export interface ParsedCommand {
+  designOverrides: {
+    plugin?: string;
+    sectionLayout?: Partial<Record<SectionType, string>>;
+    imageStyle?: string;
+    typographyScale?: string;
+    accentColor?: string;
+  };
+  contentOverrides: {
+    tone?: string;
+    sectionsToHide?: SectionType[];
+    sectionsToAdd?: SectionType[];
+    sectionInstructions?: Partial<Record<SectionType, string>>;
+    globalInstruction?: string;
+  };
+}
+
+const DEFAULT_PARSED_COMMAND: ParsedCommand = {
+  designOverrides: {},
+  contentOverrides: {},
+};
+
+// ── Design overrides applicator ───────────────────────────────────────────────
+
+function applyDesignOverrides(
+  ast: Record<string, unknown>,
+  overrides: ParsedCommand['designOverrides'],
+): void {
+  // Plugin swap
+  if (overrides.plugin && typeof overrides.plugin === 'string') {
+    ast.plugin = overrides.plugin;
+  }
+
+  // Per-section layout variants
+  if (overrides.sectionLayout && Object.keys(overrides.sectionLayout).length > 0) {
+    const sections = Array.isArray(ast.sections) ? (ast.sections as Array<Record<string, unknown>>) : [];
+    for (const section of sections) {
+      const sType = section.sectionType as SectionType;
+      const variant = overrides.sectionLayout[sType];
+      if (variant) {
+        const content = section.content as Record<string, unknown> | undefined;
+        if (content) {
+          content.variant = variant;
+          const ui = content.ui as Record<string, unknown> | undefined;
+          if (ui) ui.layout = variant;
+        }
+      }
+    }
+  }
+
+  // Image style — stored in customTokens for renderer consumption
+  if (overrides.imageStyle && typeof overrides.imageStyle === 'string') {
+    const customTokens = ast.customTokens as Record<string, unknown> | undefined;
+    if (customTokens) {
+      customTokens.imageStyle = overrides.imageStyle;
+    } else {
+      ast.customTokens = { imageStyle: overrides.imageStyle };
+    }
+  }
+
+  // Typography scale
+  if (overrides.typographyScale && typeof overrides.typographyScale === 'string') {
+    const ds = ast.customDesignSystem as Record<string, unknown> | undefined;
+    if (ds) {
+      const typo = ds.typography as Record<string, unknown> | undefined;
+      if (typo) {
+        typo.scale = overrides.typographyScale;
+      } else {
+        ds.typography = { scale: overrides.typographyScale };
+      }
+    }
+  }
+
+  // Accent color
+  if (overrides.accentColor && typeof overrides.accentColor === 'string' && overrides.accentColor.startsWith('#')) {
+    const customTokens = ast.customTokens as Record<string, unknown> | undefined;
+    if (customTokens) {
+      customTokens.accent = overrides.accentColor;
+    } else {
+      ast.customTokens = { accent: overrides.accentColor };
+    }
+  }
 }
 
 // ── Agent implementation ─────────────────────────────────────────────────────
@@ -1479,17 +1744,17 @@ export class MicrositeGeneratorAgent implements Agent {
     const meta = input.metadata ?? {};
     const proposalMarkdown = (meta.proposalMarkdown as string | undefined) ?? '';
     const namespace = input.namespace;
-    const designBrief = (meta.designBrief as string | undefined) ?? '';
-    // designBrief drives BOTH design synthesis (Pass -1) AND structural planning (Pass 0)
-    const brandLanguagePrompt = designBrief;
-    const customInstructions = designBrief;
+    const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
+    const customInstructions = rawInstructions
+      || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.';
     const designConfig: Record<string, unknown> = {
       ...((meta.designConfig as Record<string, unknown> | undefined) ?? {}),
       ...(customInstructions ? { customInstructions } : {}),
     };
     const metaBrand = (meta.brand as Record<string, unknown> | undefined) ?? {};
-    const metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
+    let metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
     const brandImage = (meta.brandImage as string | undefined) ?? '';
+    const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -1541,10 +1806,36 @@ export class MicrositeGeneratorAgent implements Agent {
       }
       const effectiveCharacter = designSystemResult?.customCharacter;
 
+      // Command Parser: Parse customInstructions into structured ParsedCommand (runs before Pass 0)
+      let parsedCommand: ParsedCommand = DEFAULT_PARSED_COMMAND;
+      if (customInstructions) {
+        try {
+          const cmdResult = await generateTool.run({
+            query: buildCommandParserPrompt(customInstructions, metaPlugin),
+            content: '',
+          });
+          if (cmdResult?.text) {
+            const raw = cmdResult.text.trim();
+            const jsonStart = raw.indexOf('{');
+            const jsonEnd = raw.lastIndexOf('}');
+            const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
+            const parsed = safeParseJSON(jsonStr);
+            if (parsed && typeof parsed.designOverrides === 'object' && typeof parsed.contentOverrides === 'object') {
+              parsedCommand = parsed as unknown as ParsedCommand;
+              // Plugin override — affects Pass 0 and Pass 2 prompts
+              if (typeof parsedCommand.designOverrides.plugin === 'string' && parsedCommand.designOverrides.plugin) {
+                metaPlugin = parsedCommand.designOverrides.plugin;
+                console.log('[microsite-agent] Command parser: plugin overridden to', metaPlugin);
+              }
+            }
+          }
+        } catch { /* keep defaults if command parsing fails */ }
+      }
+
       // Pass 0: Section planning + Pass 1: Brief extraction (parallel — markdown skipped, AST is authoritative)
       const [planResult, briefResult] = await Promise.all([
-        generateTool.run({ query: buildSectionPlanPrompt(proposalMarkdown, metaPlugin, effectiveCharacter, customInstructions), content: '' }).catch(() => null),
-        generateTool.run({ query: buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions, effectiveCharacter), content: '' }).catch(() => null),
+        generateTool.run({ query: buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions), content: '' }).catch(() => null),
+        generateTool.run({ query: buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions), content: '' }).catch(() => null),
       ]);
 
       // Parse section plan — handles both new { sections, constraints } format and legacy [] format
@@ -1577,12 +1868,48 @@ export class MicrositeGeneratorAgent implements Agent {
         } catch { /* fallback to source order */ }
       }
 
-      // Build constraint-derived additions to customInstructions for section prompts
-      const heroConstraintHint = planConstraints.noCTAInHero
-        ? ' USER CONSTRAINT: Do NOT include CTA buttons or action links in this hero section. Omit ctaPrimary and ctaSecondary (set them to empty strings).'
-        : '';
-      const effectiveHeroInstructions = customInstructions + heroConstraintHint;
-      console.log('[microsite-agent] planConstraints:', JSON.stringify(planConstraints));
+      // Pass 0.5: LLM refines the plan based on customInstructions (any free-form input)
+      if (customInstructions && sectionPlan) {
+        try {
+          const refineResult = await generateTool.run({
+            query: buildPlanRefinementPrompt(sectionPlan, customInstructions),
+            content: '',
+          });
+          if (refineResult?.text) {
+            const refined = JSON.parse(refineResult.text.trim());
+            if (Array.isArray(refined) && refined.length > 0) {
+              sectionPlan = refined as SectionPlan[];
+            }
+          }
+        } catch { /* keep original plan if refinement fails */ }
+      }
+
+
+      // Code-level constraint fallback: apply regex overrides on top of LLM-parsed planConstraints
+      // This guarantees constraint enforcement even when the LLM misses keywords
+      if (customInstructions) {
+        const ci = customInstructions;
+        if (!planConstraints.noCTAEverywhere && /no\s*cta\s*(anywhere|everywhere|at\s*all)|remove\s*all\s*(cta|buttons?|calls?\s*to\s*action)|no\s*(buttons?|calls?\s*to\s*action)\s*(anywhere|at\s*all)/i.test(ci)) {
+          planConstraints = { ...planConstraints, noCTAEverywhere: true, noCTAInHero: true };
+        } else if (!planConstraints.noCTAInHero && /no\s*cta|remove\s*cta|no\s*(buttons?|calls?\s*to\s*action)|without\s*cta|omit\s*cta|skip\s*cta/i.test(ci)) {
+          planConstraints = { ...planConstraints, noCTAInHero: true };
+        }
+        if (!planConstraints.motion) {
+          if (/\banimate\b|\btransitions?\b|\bdynamic\b|\bmotion\b/i.test(ci)) planConstraints = { ...planConstraints, motion: 'expressive' };
+          else if (/subtle\s*motion|gentle\s*animat/i.test(ci)) planConstraints = { ...planConstraints, motion: 'deliberate' };
+          else if (/no\s*animat|static\b|no\s*motion/i.test(ci)) planConstraints = { ...planConstraints, motion: 'instant' };
+        }
+        if (!planConstraints.parallax && /\bparallax\b/i.test(ci)) {
+          planConstraints = { ...planConstraints, parallax: true };
+        }
+        // Hard-trim section plan to exact count — LLMs are unreliable at counting
+        if (sectionPlan) {
+          const count = parseExplicitCount(ci);
+          if (count && count > 0 && sectionPlan.length > count) {
+            sectionPlan = sectionPlan.slice(0, count);
+          }
+        }
+      }
 
       // Parse brief
       let brief: Record<string, unknown> | null = null;
@@ -1596,6 +1923,20 @@ export class MicrositeGeneratorAgent implements Agent {
       // Markdown is backward-compat only — derive from source sections (no extra LLM call)
       markdown = this.fallbackMarkdown(sourceSections);
 
+      // Hard-trim markdown sections to explicit count — LLMs ignore section count instructions
+      if (customInstructions) {
+        const mdCount = parseExplicitCount(customInstructions);
+        if (mdCount && mdCount > 0) {
+          // Split on ## headings, preserve everything before the first ## as the title block
+          const parts = markdown.split(/\n(?=## )/);
+          const titleBlock = parts[0]; // everything before first ## section
+          const sectionBlocks = parts.slice(1);
+          if (sectionBlocks.length > mdCount) {
+            markdown = [titleBlock, ...sectionBlocks.slice(0, mdCount)].join('\n');
+          }
+        }
+      }
+
       // Build source section lookup map (heading → content)
       const sourceMap = new Map<string, string>();
       for (const s of sourceSections) {
@@ -1608,10 +1949,11 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
-          const type: SectionType = (rawType in VARIANT_POOLS) ? (rawType as SectionType) : classifySection(rawType);
+          const type = (KNOWN_SECTION_TYPES.has(rawType) ? rawType : 'generic') as SectionType;
           const sourceHeading = planned.sourceHeading;
           let rawBody = '';
           let heading = sourceHeading ?? type;
@@ -1645,6 +1987,15 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
+      // Code-level section count trim — applied after resolvedSections is built so it covers
+      // both the sectionPlan path and the sourceSections fallback path (when sectionPlan is null)
+      if (customInstructions) {
+        const explicitCount = parseExplicitCount(customInstructions);
+        if (explicitCount && explicitCount > 0 && resolvedSections.length > explicitCount) {
+          resolvedSections.splice(explicitCount);
+        }
+      }
+
       // Pass 2: Format sections in parallel
       if (brief) {
         const briefStr = JSON.stringify(brief);
@@ -1674,6 +2025,9 @@ export class MicrositeGeneratorAgent implements Agent {
         const briefIsMinimal   = /\bminimal\b|\bclean\b|\bsimple\b/i.test(ciBrief);
         const briefIsBold      = /\bbold\b|\bpremium\b|\bhigh[- ]contrast\b|\bpowerful\b/i.test(ciBrief) && !/not\s*bold/i.test(ciBrief);
 
+        // Hero sections may receive the same instructions as other sections
+        const effectiveHeroInstructions = customInstructions;
+
         // Pre-assign variants for all sections (sequential, lightweight — enforces no-adjacent-repeat)
         const preassigned = preassignVariants(
           resolvedSections,
@@ -1688,15 +2042,23 @@ export class MicrositeGeneratorAgent implements Agent {
         const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
 
         const seenSlugs = new Map<string, number>();
+        // Filter out sections hidden by the parsed command; preserve original index for preassigned variant lookup
+        const sectionsToHide = parsedCommand.contentOverrides.sectionsToHide ?? [];
+        const pass2GlobalInstruction = parsedCommand.contentOverrides.globalInstruction ?? undefined;
+        const pass2SectionInstructions = parsedCommand.contentOverrides.sectionInstructions ?? {};
+        const pass2Sections = resolvedSections
+          .map((s, originalIdx) => ({ ...s, originalIdx }))
+          .filter(s => sectionsToHide.length === 0 || !sectionsToHide.includes(s.type));
         const sectionResults = await Promise.all(
-          resolvedSections.map(async (s, idx) => {
+          pass2Sections.map(async (s, idx) => {
             const baseSlug = slugify(s.heading);
             const count = seenSlugs.get(baseSlug) ?? 0;
             seenSlugs.set(baseSlug, count + 1);
             const id = count === 0 ? baseSlug : `${baseSlug}-${idx}`;
             const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
             const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
-            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, idx, preassigned[idx], sectionRules, proposalMarkdown);
+            const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
+            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown);
             try {
               const result = await generateTool!.run({ query: prompt, content: '' });
               const parsed = safeParseJSON(result.text ?? '') ?? {};
@@ -1735,6 +2097,13 @@ export class MicrositeGeneratorAgent implements Agent {
           }),
         );
 
+        // Resolve image URLs in parallel (loremflickr.com — free, keyword-based)
+        const imageUrls = await Promise.all(
+          sectionResults.map((sr) =>
+            resolveImageUrl((sr.content as Record<string, unknown>).imageQuery as string || '')
+          )
+        );
+
         // Assemble Layout AST
         const resolvedCompany = (metaBrand.companyName as string | undefined) || (brief.proposingCompany as string) || '';
         layoutAST = {
@@ -1759,26 +2128,44 @@ export class MicrositeGeneratorAgent implements Agent {
           } : {}),
           behavior: {
             motion: planConstraints.motion
-              ?? (designSystemResult?.rawTokens?.behavior as Record<string,unknown> | undefined)?.motion as 'instant'|'deliberate'|'expressive' | undefined
+              ?? (designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.motion as 'instant' | 'deliberate' | 'expressive' | undefined
               ?? 'deliberate',
             parallax: planConstraints.parallax
-              || ((designSystemResult?.rawTokens?.behavior as Record<string,unknown> | undefined)?.parallax === true),
+              || ((designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.parallax === true),
             scrollEffects: planConstraints.scrollEffects
-              ?? (designSystemResult?.rawTokens?.behavior as Record<string,unknown> | undefined)?.scrollEffects as 'none'|'fade-in'|'slide-up' | undefined
+              ?? (designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.scrollEffects as 'none' | 'fade-in' | 'slide-up' | undefined
               ?? 'none',
           },
-          sections: sectionResults.map((sr) => {
-            const query = ((sr.content as Record<string, unknown>).imageQuery as string | undefined) ?? '';
+          sections: sectionResults.map((sr, i) => {
+            let imageQuery = ((sr.content as Record<string, unknown>).imageQuery as string | undefined) ?? '';
+            // Code-level: "remove image from section:<type>" or "no image on <type>" clears imageQuery
+            if (customInstructions) {
+              const ciLow = customInstructions.toLowerCase();
+              const noImagePatterns = [
+                /no\s+image\s+(?:on|in|for|from)?\s*(?:section\s*:?\s*)?(\w+)/i,
+                /remove\s+image\s+(?:from\s+)?(?:section\s*:?\s*)?(\w+)/i,
+              ];
+              for (const pat of noImagePatterns) {
+                const m = ciLow.match(pat);
+                if (m && sr.type.startsWith(m[1].replace(/s$/, ''))) {
+                  imageQuery = '';
+                }
+              }
+              // "no image" globally
+              if (/\bno\s+images?\b|\bwithout\s+images?\b|\bremove\s+(?:all\s+)?images?\b/i.test(ciLow)) {
+                imageQuery = '';
+              }
+            }
+            const hasImage = imageQuery.trim().length > 0;
             return {
               id: sr.id,
               heading: sr.heading,
               sectionType: sr.type,
               content: sr.content,
               image: {
-                // Hero sections are marked for Unsplash resolution by the API route
-                source: sr.type === 'hero' && query.trim() ? ('unsplash' as const) : ('gradient' as const),
-                query,
-                url: null,
+                source: (hasImage ? 'loremflickr' : 'gradient') as 'loremflickr' | 'gradient',
+                query: imageQuery,
+                url: hasImage ? (imageUrls[i] ?? null) : null,
                 fallback: 'gradient-mesh' as const,
               },
               editable: true,
@@ -1786,6 +2173,10 @@ export class MicrositeGeneratorAgent implements Agent {
             };
           }),
         };
+        // Apply design overrides from parsed command (plugin swap, section layouts, image style, typography, accent color)
+        if (layoutAST) {
+          applyDesignOverrides(layoutAST as Record<string, unknown>, parsedCommand.designOverrides);
+        }
       }
     } else {
       markdown = this.fallbackMarkdown(sourceSections);

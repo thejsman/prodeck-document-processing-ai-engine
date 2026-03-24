@@ -5,6 +5,8 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, SubHeadline, Body, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
+import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { CircularProgress } from '../shared/CircularProgress';
 
 interface Props {
   content: TestingContent;
@@ -71,95 +73,37 @@ export function TestingSection({ content, tokens, index }: Props) {
           </Headline>
         </Reveal>
 
-        {/* Pyramid visualization */}
+        {/* Circular progress rings — Gamma-style coverage indicators */}
         <div
           style={{
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 8,
+            flexWrap: 'wrap' as const,
+            justifyContent: 'center',
+            gap: 'clamp(2rem, 5vw, 4rem)',
             marginBottom: 'clamp(2.5rem, 5vw, 4rem)',
           }}
         >
           {sortedLayers.map((layer, li) => {
-            const widthPercent = PYRAMID_WIDTHS[Math.min(li, PYRAMID_WIDTHS.length - 1)];
-            const bgOpacity = PYRAMID_OPACITIES[Math.min(li, PYRAMID_OPACITIES.length - 1)];
-
+            const numericMatch = layer.coverage.match(/(\d+)/);
+            const numericValue = numericMatch ? parseInt(numericMatch[1], 10) : 0;
             return (
-              <Reveal key={li} variant="scale" delay={160 + li * 100}>
-                <div
-                  style={{
-                    width: widthPercent,
-                    minWidth: 280,
-                    maxWidth: 800,
-                    margin: '0 auto',
-                    padding: '16px 24px',
-                    borderRadius: 8,
-                    background: hexToRgba(tokens.accent, bgOpacity),
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontFamily: `'${tokens.heroFont}', serif`,
-                        fontWeight: tokens.heroWeight,
-                        fontSize: '1.1rem',
-                        color: tokens.accent,
-                        flexShrink: 0,
-                      }}
-                    >
-                      L{layer.level}
-                    </span>
-
-                    <span
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 600,
-                        fontSize: '0.95rem',
-                        color: tokens.text,
-                      }}
-                    >
-                      {layer.name}
-                    </span>
-
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '2px 10px',
-                        borderRadius: 12,
-                        background: hexToRgba(tokens.accent, 0.2),
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        color: tokens.accent,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {layer.coverage}
-                    </span>
-                  </div>
-
-                  <span
-                    style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.85rem',
-                      fontWeight: 300,
-                      color: tokens.textMuted,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {layer.description}
-                  </span>
-                </div>
-              </Reveal>
+              <CircularProgress
+                key={li}
+                value={numericValue}
+                label={layer.name}
+                description={layer.description}
+                size={140}
+                strokeWidth={10}
+                tokens={tokens}
+                delay={li * 120}
+              />
             );
           })}
         </div>
+
+        {content.diagram && (
+          <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={240} caption="Testing pyramid" />
+        )}
 
         {/* Additional info grid */}
         {(content.additionalInfo ?? []).length > 0 && (
