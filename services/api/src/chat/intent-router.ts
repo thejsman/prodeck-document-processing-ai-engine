@@ -14,6 +14,30 @@ export interface IntentRouteResult {
 }
 
 /**
+ * Patterns that signal the user wants to analyse an RFP.
+ * Checked before proposal triggers — more specific intent.
+ */
+const RFP_ANALYSIS_TRIGGERS = [
+  'analyze rfp',
+  'analyse rfp',
+  'analyze this rfp',
+  'analyse this rfp',
+  'rfp analysis',
+  'analyse the rfp',
+  'analyze the rfp',
+  'should we bid',
+  'should we respond',
+  'bid or no bid',
+  'go no go',
+  'go/no-go',
+  'evaluate rfp',
+  'evaluate the rfp',
+  'review rfp',
+  'review the rfp',
+  'rfp review',
+];
+
+/**
  * Patterns that signal the user wants to create a proposal.
  * Checked in order; first match wins.
  */
@@ -33,13 +57,21 @@ const PROPOSAL_TRIGGERS = [
  * Route the user's message to a workflow ID, or return null.
  *
  * @example
- * routeIntent('Create proposal for cloud migration') // → { workflowId: 'proposal_generation' }
- * routeIntent('What is RAG?')                        // → null
+ * routeIntent('Analyze this RFP')           // → { workflowId: 'rfp_analysis' }
+ * routeIntent('Create proposal for cloud')  // → { workflowId: 'proposal_generation' }
+ * routeIntent('What is RAG?')               // → null
  */
 export function routeIntent(message: string): IntentRouteResult | null {
   const lower = message.toLowerCase().trim();
 
-  // Multi-word patterns checked first (more specific)
+  // RFP analysis checked first — more specific than proposal triggers
+  for (const trigger of RFP_ANALYSIS_TRIGGERS) {
+    if (lower.includes(trigger)) {
+      return { workflowId: 'rfp_analysis' };
+    }
+  }
+
+  // Multi-word proposal patterns
   for (const trigger of PROPOSAL_TRIGGERS) {
     if (lower.includes(trigger)) {
       return { workflowId: 'proposal_generation' };

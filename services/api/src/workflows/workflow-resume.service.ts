@@ -52,7 +52,13 @@ export async function resumeWorkflowsForIngestion(
   workdir: string,
   orchestrator: ChatOrchestrator,
 ): Promise<void> {
-  const instances = await loadWorkflowsInState(workdir, event.namespace, 'collecting_rfp');
+  // Resume both proposal_generation (collecting_rfp) and rfp_analysis (await_rfp_upload)
+  // workflows that are paused waiting for a document to be ingested.
+  const [collectingInstances, awaitingInstances] = await Promise.all([
+    loadWorkflowsInState(workdir, event.namespace, 'collecting_rfp'),
+    loadWorkflowsInState(workdir, event.namespace, 'await_rfp_upload'),
+  ]);
+  const instances = [...collectingInstances, ...awaitingInstances];
 
   for (const instance of instances) {
     // STEP 7 — concurrency safety: skip if already being resumed
@@ -99,7 +105,8 @@ async function resumeSingleInstance(
 ): Promise<void> {
   // STEP 7 — re-validate state after acquiring the "lock" slot
   if (instance.completedAt) return;
-  if (instance.state !== 'collecting_rfp') return;
+  const resumableStates = ['collecting_rfp', 'await_rfp_upload'];
+  if (!resumableStates.includes(instance.state)) return;
   if (!instance.awaitingInput) return;
 
   // Set rfpUri from the ingestion event — prefer storage URI, fall back to filename

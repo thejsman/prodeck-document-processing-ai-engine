@@ -21,6 +21,7 @@ import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
+import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
 import {
   createInstance,
   loadActiveInstance,
@@ -39,6 +40,13 @@ import {
   type HandlerContext,
   type ToolTraceEvent,
 } from '../workflows/proposal-generation.handlers.js';
+import {
+  handleCheckingRfp,
+  handleAwaitRfpUpload,
+  handleExtractRequirements,
+  handleGapAnalysis,
+  handleGoNoGo,
+} from '../workflows/rfp-analysis.handlers.js';
 
 // ---------------------------------------------------------------------------
 // Workflow registry — extend here to support additional workflows
@@ -46,6 +54,7 @@ import {
 
 const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   [ProposalWorkflow.id]: ProposalWorkflow,
+  [RfpAnalysisWorkflow.id]: RfpAnalysisWorkflow,
 };
 
 // ---------------------------------------------------------------------------
@@ -76,9 +85,16 @@ export interface OrchestratorResult {
 type HandlerFn = (ctx: HandlerContext) => Promise<HandlerResult>;
 
 const STATE_HANDLERS: Record<string, HandlerFn> = {
+  // proposal_generation
   collecting_rfp: handleCollectingRfp,
   generating_outline: handleGeneratingOutline,
   generating_sections: handleGeneratingSections,
+  // rfp_analysis
+  checking_rfp: handleCheckingRfp,
+  await_rfp_upload: handleAwaitRfpUpload,
+  extract_requirements: handleExtractRequirements,
+  gap_analysis: handleGapAnalysis,
+  go_no_go: handleGoNoGo,
 };
 
 // ---------------------------------------------------------------------------
@@ -251,14 +267,22 @@ export class ChatOrchestrator {
     // ── Build final response ──────────────────────────────────────
     if (instance.state === 'completed') {
       // STEP 7 — completion message + action metadata
+      // Use the last handler's message when available (workflow-agnostic).
+      // Fall back to a workflow-specific default if no message was emitted.
+      const defaultMessages: Record<string, string> = {
+        proposal_generation: 'Your proposal draft is ready.',
+        rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
+      };
+      const completionMessage =
+        lastResult?.message?.trim() ||
+        defaultMessages[instance.workflowId] ||
+        'Workflow completed.';
+
       const actions: Record<string, string> = {
         viewTraceUrl: `/chat/trace/${chatSessionId}`,
         ...(lastResult?.actions ?? {}),
       };
-      return {
-        message: 'Your proposal draft is ready.',
-        actions,
-      };
+      return { message: completionMessage, actions };
     }
 
     return {
@@ -364,10 +388,18 @@ export class ChatOrchestrator {
       }
 
       // Emit final done event
+      const resumeDefaultMessages: Record<string, string> = {
+        proposal_generation: 'Your proposal draft is ready.',
+        rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
+      };
       if (instance.state === 'completed') {
+        const completionMessage =
+          lastResult?.message?.trim() ||
+          resumeDefaultMessages[instance.workflowId] ||
+          'Workflow completed.';
         emitChatSessionEvent(chatSessionId, {
           type: 'done',
-          message: 'Your proposal draft is ready.',
+          message: completionMessage,
           actions: {
             viewTraceUrl: `/chat/trace/${chatSessionId}`,
             ...(lastResult?.actions ?? {}),

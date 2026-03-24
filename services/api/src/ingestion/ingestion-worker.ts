@@ -99,7 +99,7 @@ async function processStreamJob(
   const config = await configResolver.resolve({ namespace });
   const provider = getStorageProvider({ namespace, config, workdir });
 
-  const vectorStore = getVectorStoreProvider({ namespace, config, workdir });
+  const vectorStore = getVectorStoreProvider({ namespace, config: config as Record<string, unknown>, workdir });
 
   const { chunkCount } = await processDocumentStream({
     provider,
