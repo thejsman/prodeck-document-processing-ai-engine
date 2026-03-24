@@ -25,8 +25,10 @@ import {
   updateState,
   updateContext,
   markCompleted,
+  setAwaitingInput,
   type WorkflowInstance,
 } from '../workflows/workflow-instance.service.js';
+import { emitChatSessionEvent } from './chat-session-bus.js';
 import {
   handleCollectingRfp,
   handleGeneratingOutline,
@@ -176,7 +178,9 @@ export class ChatOrchestrator {
       await updateContext(this.workdir, instance, instance.context);
 
       if (!result.stateSignal) {
-        // Handler did not emit a signal (e.g. waiting for user upload)
+        // Handler did not emit a signal — workflow is paused waiting for input.
+        // Mark so the resume service can find this instance.
+        await setAwaitingInput(this.workdir, instance, true);
         break;
       }
 
@@ -223,5 +227,107 @@ export class ChatOrchestrator {
       message: lastResult?.message ?? '',
       actions: lastResult?.actions,
     };
+  }
+
+  /**
+   * Resume a workflow instance that was paused waiting for external input.
+   *
+   * Called by the workflow resume service when an ingestion_completed event
+   * fires.  There is no incoming HTTP request, so events are emitted to the
+   * chat session bus for the client's SSE subscription to receive.
+   *
+   * STEP 5 — resume entry point.
+   */
+  async resumeWorkflow(instance: WorkflowInstance): Promise<void> {
+    const { chatSessionId, namespace } = instance;
+
+    const workflow = WORKFLOW_REGISTRY[instance.workflowId];
+    if (!workflow) {
+      emitChatSessionEvent(chatSessionId, {
+        type: 'error',
+        error: `Workflow "${instance.workflowId}" is no longer registered.`,
+      });
+      return;
+    }
+
+    // STEP 5 — emit initial phase to the client's SSE channel
+    emitChatSessionEvent(chatSessionId, {
+      type: 'phase',
+      phase: 'RFP ingestion complete. Starting proposal generation.',
+    });
+
+    const onPhase = (phase: string) =>
+      emitChatSessionEvent(chatSessionId, { type: 'phase', phase });
+
+    const onChunk = (chunk: string) =>
+      emitChatSessionEvent(chatSessionId, { type: 'chunk', chunk });
+
+    let lastResult: HandlerResult | null = null;
+
+    try {
+      for (;;) {
+        const currentState = instance.state;
+
+        if (currentState === 'completed') break;
+
+        const handler = STATE_HANDLERS[currentState];
+        if (!handler) break;
+
+        const ctx: HandlerContext = {
+          workdir: this.workdir,
+          namespace,
+          instance,
+          incomingMessage: '',
+          onPhase,
+          onChunk,
+        };
+
+        const result = await handler(ctx);
+        lastResult = result;
+
+        await updateContext(this.workdir, instance, instance.context);
+
+        if (!result.stateSignal) {
+          await setAwaitingInput(this.workdir, instance, true);
+          break;
+        }
+
+        const currentStateDef = workflow.states[currentState];
+        const nextState = currentStateDef?.transitions[result.stateSignal];
+
+        if (!nextState) break;
+
+        await updateState(this.workdir, instance, nextState);
+
+        if (nextState === 'completed') {
+          await markCompleted(this.workdir, instance);
+          break;
+        }
+
+        const nextStateDef = workflow.states[nextState];
+        if (nextStateDef?.kind === 'input') break;
+      }
+
+      // Emit final done event
+      if (instance.state === 'completed') {
+        emitChatSessionEvent(chatSessionId, {
+          type: 'done',
+          message: 'Your proposal draft is ready.',
+          actions: {
+            viewTraceUrl: `/chat/trace/${chatSessionId}`,
+            ...(lastResult?.actions ?? {}),
+          },
+        });
+      } else if (lastResult?.message) {
+        emitChatSessionEvent(chatSessionId, {
+          type: 'done',
+          message: lastResult.message,
+          actions: lastResult.actions,
+        });
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      emitChatSessionEvent(chatSessionId, { type: 'error', error: errorMessage });
+    }
   }
 }

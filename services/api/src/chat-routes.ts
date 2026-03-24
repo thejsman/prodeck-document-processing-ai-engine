@@ -25,6 +25,10 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ChatOrchestrator } from './chat/chat-orchestrator.js';
+import {
+  chatSessionBus,
+  type ChatSessionEvent,
+} from './chat/chat-session-bus.js';
 import type { ProviderPolicyConfig } from './provider-policy.js';
 
 // ---------------------------------------------------------------------------
@@ -127,4 +131,80 @@ export function registerChatRoutes(
       return reply.code(502).send({ error: `Chat orchestration failed: ${errorMessage}` });
     }
   });
+
+  // ── GET /chat/session/:chatSessionId/stream ────────────────────
+  //
+  // Long-lived SSE channel for a single chat session.  The client connects
+  // once and receives events pushed by resumeWorkflow() or any other
+  // server-initiated action for that session.
+  //
+  // SSE event format mirrors POST /chat/message stream:
+  //   event: phase   → { phase: string }
+  //   data: (default) → chunk string
+  //   event: done    → { message, actions }
+  //   event: error   → { error }
+  //   event: system  → { message }   (e.g. "Ingestion failed")
+  //
+  app.get(
+    '/chat/session/:chatSessionId/stream',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { chatSessionId } = req.params as { chatSessionId: string };
+
+      if (!chatSessionId?.trim()) {
+        return reply.code(400).send({ error: 'Missing chatSessionId param' });
+      }
+
+      const raw = reply.raw;
+      raw.setHeader('Content-Type', 'text/event-stream');
+      raw.setHeader('Cache-Control', 'no-cache');
+      raw.setHeader('Connection', 'keep-alive');
+      raw.setHeader('X-Accel-Buffering', 'no');
+      raw.flushHeaders();
+
+      // Heartbeat every 25 s to keep proxies from dropping the connection
+      const heartbeat = setInterval(() => {
+        raw.write(': heartbeat\n\n');
+      }, 25_000);
+
+      const handler = (event: ChatSessionEvent) => {
+        switch (event.type) {
+          case 'phase':
+            raw.write(`event: phase\ndata: ${JSON.stringify({ phase: event.phase })}\n\n`);
+            break;
+          case 'chunk':
+            raw.write(`data: ${JSON.stringify(event.chunk)}\n\n`);
+            break;
+          case 'done':
+            raw.write(
+              `event: done\ndata: ${JSON.stringify({
+                message: event.message ?? '',
+                actions: event.actions ?? {},
+              })}\n\n`,
+            );
+            break;
+          case 'system':
+            raw.write(
+              `event: system\ndata: ${JSON.stringify({ message: event.message ?? '' })}\n\n`,
+            );
+            break;
+          case 'error':
+            raw.write(
+              `event: error\ndata: ${JSON.stringify({ error: event.error ?? 'Unknown error' })}\n\n`,
+            );
+            break;
+        }
+      };
+
+      chatSessionBus.on(chatSessionId, handler);
+
+      req.raw.on('close', () => {
+        clearInterval(heartbeat);
+        chatSessionBus.off(chatSessionId, handler);
+      });
+
+      await new Promise<void>((resolve) => {
+        req.raw.on('close', resolve);
+      });
+    },
+  );
 }

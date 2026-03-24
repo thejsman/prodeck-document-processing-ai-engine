@@ -40,6 +40,11 @@ import {
   type ProviderPolicyConfig,
 } from '../provider-policy.js';
 import { emitExecution } from '../execution-events.js';
+import {
+  workflowEventBus,
+  type IngestionCompletedEvent,
+  type IngestionFailedEvent,
+} from '../workflows/workflow-event-bus.js';
 import type { IngestionJob } from './ingestion-queue.js';
 
 const MAX_RETRIES = 2;
@@ -130,9 +135,11 @@ export async function processJob(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
+      let chunkCount = 0;
+
       if (uri) {
         // Stream path — large file progressive ingestion
-        const chunkCount = await processStreamJob(job, workdir);
+        chunkCount = await processStreamJob(job, workdir);
         await updateFileStatus(workdir, namespace, fileName, 'indexed');
         await updateFileChunkCount(workdir, namespace, fileName, chunkCount);
       } else {
@@ -145,6 +152,17 @@ export async function processJob(
 
       emitExecution({ executionId: job.id, status: 'COMPLETED', type: 'ingestion', title: job.fileName });
       console.log(`[TraceLive] execution completed — job ${job.id}`);
+
+      // Notify workflow resume service (STEP 2) — fire-and-forget
+      const completedEvent: IngestionCompletedEvent = {
+        namespace,
+        fileName,
+        uri: job.uri,
+        jobId: job.id,
+        chunkCount,
+      };
+      workflowEventBus.emit('ingestion_completed', completedEvent);
+
       return; // success
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -166,4 +184,14 @@ export async function processJob(
     title: job.fileName,
     message: errorMessage,
   });
+
+  // Notify workflow resume service of failure (STEP 2) — fire-and-forget
+  const failedEvent: IngestionFailedEvent = {
+    namespace,
+    fileName,
+    uri: job.uri,
+    jobId: job.id,
+    error: errorMessage,
+  };
+  workflowEventBus.emit('ingestion_failed', failedEvent);
 }
