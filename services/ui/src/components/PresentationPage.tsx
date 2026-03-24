@@ -16,12 +16,14 @@ import {
   type SynthesizedDesignSystem,
 } from '@/lib/api';
 import type { LayoutAST, BrandConfig } from '@/types/presentation';
-import { PLUGINS, fetchPluginsFromApi } from '@/lib/presentation/pluginRegistry';
+import { PLUGINS, fetchPluginsFromApi, DEFAULT_PLUGIN_IDS, THEME_REGISTRY, type ThemeDefinition } from '@/lib/presentation/pluginRegistry';
 import type { PluginMeta } from '@/types/presentation';
 import { Microsite } from './microsite/Microsite';
 import { MicrositeEditor } from './microsite/editor/MicrositeEditor';
 import { MicrositeHistory } from './microsite/MicrositeHistory';
-import { ThemePreviewModal } from './microsite/ThemePreviewModal';
+import { ThemeModal } from './microsite/ThemeModal';
+import { ThemeFullPreview } from './microsite/ThemeFullPreview';
+import { ThemePreviewCard } from './microsite/ThemePreviewCard';
 import { getPlugin } from '@/lib/presentation/pluginRegistry';
 import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
 
@@ -38,13 +40,6 @@ const STEPS: Array<{ id: StepId; label: string; description: string }> = [
 
 interface ProgressItem { text: string; done: boolean; }
 
-function pluginThumbnail(plugin: PluginMeta): string {
-  return `linear-gradient(160deg, ${plugin.tokens.bg} 0%, ${plugin.tokens.surface ?? plugin.tokens.bg} 60%, ${plugin.tokens.surfaceAlt} 100%)`;
-}
-
-function pluginAccentBar(plugin: PluginMeta): string {
-  return `linear-gradient(90deg, ${plugin.tokens.accent} 0%, ${plugin.tokens.accent}88 100%)`;
-}
 
 // ── Color extraction utilities ────────────────────────────────────────────────
 
@@ -270,9 +265,13 @@ export function PresentationPage() {
   const [synthesizedDesign, setSynthesizedDesign] = useState<SynthesizedDesignSystem | null>(null);
   const [synthError, setSynthError] = useState<string | null>(null);
   // Step 3 — null means "no theme / default styling"
-  const [selectedPlugin, setSelectedPlugin] = useState<string | null>('obsidian');
+  const [selectedPlugin, setSelectedPlugin] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return 'obsidian';
+    return localStorage.getItem('presentation-builder-theme') ?? 'obsidian';
+  });
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [previewTheme, setPreviewTheme] = useState<ThemeDefinition | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
-  const [previewPlugin, setPreviewPlugin] = useState<string | null>(null);
 
   // Step 4
   const [generating, setGenerating] = useState(false);
@@ -303,6 +302,34 @@ export function PresentationPage() {
     setActiveTab(tab);
     if (typeof window !== 'undefined') localStorage.setItem('ms_activeTab', tab);
   };
+
+  // Unified preview handler — opens ThemeFullPreview for any theme
+  const handlePreview = (id: string) => {
+    const theme = THEME_REGISTRY.find(t => t.id === id);
+    if (theme) setPreviewTheme(theme);
+  };
+
+  // Persist selected theme to localStorage
+  const handleSelectPlugin = (id: string | null) => {
+    setSelectedPlugin(id);
+    if (typeof window !== 'undefined') {
+      if (id) localStorage.setItem('presentation-builder-theme', id);
+      else localStorage.removeItem('presentation-builder-theme');
+    }
+  };
+
+  // ── Escape key: close ThemeModal (ThemeFullPreview handles its own Escape) ──
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // ThemeFullPreview has its own Escape handler — let it fire first.
+      // We only close the modal when no preview is open.
+      if (previewTheme) return;
+      if (isThemeModalOpen) setIsThemeModalOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [previewTheme, isThemeModalOpen]);
 
   // ── Persist wizard step + generation state to sessionStorage ──────────────
   useEffect(() => {
@@ -674,23 +701,46 @@ export function PresentationPage() {
         <div style={{
           padding: '14px 24px', borderBottom: '1px solid var(--color-border)',
           background: 'var(--color-bg)', display: 'flex', alignItems: 'center', gap: 10,
+          justifyContent: 'space-between',
         }}>
-          <div style={{
-            width: 26, height: 26, borderRadius: '50%',
-            background: 'var(--color-primary)', color: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 11, fontWeight: 700, flexShrink: 0,
-          }}>
-            {stepIdx + 1}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%',
+              background: 'var(--color-primary)', color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 700, flexShrink: 0,
+            }}>
+              {stepIdx + 1}
+            </div>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2 }}>
+                {STEPS[stepIdx].label}
+              </p>
+              <p style={{ fontSize: 11, color: 'var(--color-text-muted)', margin: 0 }}>
+                {STEPS[stepIdx].description}
+              </p>
+            </div>
           </div>
-          <div>
-            <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2 }}>
-              {STEPS[stepIdx].label}
-            </p>
-            <p style={{ fontSize: 11, color: 'var(--color-text-muted)', margin: 0 }}>
-              {STEPS[stepIdx].description}
-            </p>
-          </div>
+          {step === 'plugin' && (
+            <button
+              onClick={() => setIsThemeModalOpen(true)}
+              style={{
+                background: 'none',
+                border: '1px solid var(--color-border)',
+                borderRadius: 8, padding: '6px 12px',
+                fontSize: 12, fontWeight: 600,
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                flexShrink: 0,
+              }}
+            >
+              More themes →
+              <span style={{
+                fontSize: 10, padding: '1px 6px', borderRadius: 100,
+                background: 'var(--color-border)', color: 'var(--color-text-muted)',
+              }}>+10</span>
+            </button>
+          )}
         </div>
 
         {/* Card body */}
@@ -964,114 +1014,16 @@ export function PresentationPage() {
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 14 }}>
 
-                {/* ── Theme cards ── */}
-                {pluginList.map(plugin => {
-                  const active = selectedPlugin === plugin.id;
-                  const t = plugin.tokens;
-                  return (
-                    <div
-                      key={plugin.id}
-                      style={{
-                        position: 'relative',
-                        border: `2px solid ${active ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                        borderRadius: 12, overflow: 'hidden',
-                        boxShadow: active ? '0 0 0 3px #bfdbfe' : 'var(--shadow)',
-                        transition: 'border-color 0.2s, box-shadow 0.2s',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => setSelectedPlugin(active ? null : plugin.id)}
-                    >
-                      {/* Rich thumbnail preview */}
-                      <div style={{ height: 130, background: pluginThumbnail(plugin), position: 'relative', overflow: 'hidden' }}>
-                        {/* Accent glow */}
-                        <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse at 20% 60%, ${t.accent}33 0%, transparent 55%)` }} />
-                        {/* Mock hero layout */}
-                        <div style={{ position: 'absolute', top: 14, left: 14, right: 14 }}>
-                          {/* Eyebrow label */}
-                          <div style={{
-                            display: 'inline-block', height: 5, width: 36,
-                            background: t.accent, borderRadius: 3, marginBottom: 7, opacity: 0.9,
-                          }} />
-                          {/* Mock headline */}
-                          <div style={{
-                            fontFamily: `'${t.heroFont}', Georgia, serif`,
-                            fontSize: 17, fontWeight: t.heroWeight,
-                            color: t.text, lineHeight: 1.15, letterSpacing: '-0.01em',
-                            marginBottom: 6, maxWidth: 150,
-                          }}>
-                            {plugin.name}
-                          </div>
-                          {/* Mock body lines */}
-                          <div style={{ height: 3, width: 100, background: t.text, opacity: 0.2, borderRadius: 2, marginBottom: 4 }} />
-                          <div style={{ height: 3, width: 75, background: t.text, opacity: 0.15, borderRadius: 2, marginBottom: 10 }} />
-                          {/* Mock CTA button */}
-                          <div style={{
-                            display: 'inline-block', padding: '4px 10px',
-                            background: t.accent, borderRadius: t.borderRadius ?? 4,
-                            fontSize: 9, color: '#fff', fontWeight: 700, letterSpacing: '0.04em',
-                          }}>
-                            View Proposal
-                          </div>
-                        </div>
-                        {/* Color swatch strip */}
-                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, display: 'flex' }}>
-                          <div style={{ flex: 1, background: t.bg }} />
-                          <div style={{ flex: 1, background: t.accent }} />
-                          <div style={{ flex: 1, background: t.text }} />
-                          <div style={{ flex: 1, background: t.surfaceAlt ?? t.bg }} />
-                        </div>
-                        {/* Preview hover */}
-                        <div
-                          className="theme-preview-hover"
-                          style={{
-                            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            opacity: 0, transition: 'opacity 0.2s, background 0.2s',
-                          }}
-                          onClick={e => { e.stopPropagation(); setPreviewPlugin(plugin.id); }}
-                        >
-                          <span style={{
-                            background: 'rgba(0,0,0,0.65)', color: '#fff',
-                            fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 100,
-                          }}>Full Preview</span>
-                        </div>
-                        {active && (
-                          <div style={{
-                            position: 'absolute', top: 7, right: 7,
-                            width: 20, height: 20, borderRadius: '50%',
-                            background: 'var(--color-primary)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, color: '#fff',
-                          }}>✓</div>
-                        )}
-                      </div>
-
-                      {/* Card footer */}
-                      <div style={{
-                        padding: '10px 12px',
-                        background: active ? '#eff6ff' : 'var(--color-surface)',
-                        borderTop: `1px solid ${active ? '#bfdbfe' : 'var(--color-border)'}`,
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                          <p style={{ fontSize: 13, fontWeight: 700, margin: 0, color: active ? 'var(--color-primary)' : 'var(--color-text)' }}>
-                            {plugin.name}
-                          </p>
-                          <div style={{ display: 'flex', gap: 3 }}>
-                            {[t.bg, t.accent, t.text].map((c, ci) => (
-                              <div key={ci} style={{ width: 10, height: 10, borderRadius: '50%', background: c, border: '1px solid rgba(0,0,0,0.1)' }} />
-                            ))}
-                          </div>
-                        </div>
-                        <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
-                          {plugin.description}
-                        </p>
-                        <p style={{ fontSize: 10, margin: '4px 0 0', color: active ? 'var(--color-primary)' : 'var(--color-text-muted)', fontWeight: 500, fontFamily: 'monospace' }}>
-                          {t.heroFont ?? ''}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
+                {/* ── Default 4 theme cards — same ThemePreviewCard as expanded panel ── */}
+                {THEME_REGISTRY.filter(t => DEFAULT_PLUGIN_IDS.includes(t.id)).map(theme => (
+                  <ThemePreviewCard
+                    key={theme.id}
+                    theme={theme}
+                    selected={selectedPlugin === theme.id}
+                    onSelect={handleSelectPlugin}
+                    onPreview={handlePreview}
+                  />
+                ))}
 
                 {/* ── No Theme card ── */}
                 {(() => {
@@ -1079,7 +1031,7 @@ export function PresentationPage() {
                   return (
                     <button
                       key="no-theme"
-                      onClick={() => setSelectedPlugin(noThemeActive ? 'obsidian' : null)}
+                      onClick={() => handleSelectPlugin(noThemeActive ? 'obsidian' : null)}
                       title="Generate without a design theme"
                       style={{
                         background: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
@@ -1121,16 +1073,11 @@ export function PresentationPage() {
               </div>
 
               {/* Selection hint */}
-              <p className="muted" style={{ fontSize: 11, marginTop: 10, marginBottom: 0 }}>
+              <p className="muted" style={{ fontSize: 11, margin: '10px 0 0' }}>
                 {selectedPlugin
-                  ? `Theme selected: ${pluginList.find(p => p.id === selectedPlugin)?.name}. Click the name again to deselect.`
-                  : 'No theme selected — microsite will use clean default styling.'}
+                  ? `Theme: ${PLUGINS.find(p => p.id === selectedPlugin)?.name ?? selectedPlugin}`
+                  : 'No theme selected'}
               </p>
-
-              <style>{`
-                div:hover > button > .theme-preview-hover,
-                div:hover .theme-preview-hover { opacity: 1 !important; background: rgba(0,0,0,0.35) !important; }
-              `}</style>
 
               {/* Custom prompt */}
               <div className="form-group" style={{ marginTop: 24, marginBottom: 0 }}>
@@ -1368,16 +1315,27 @@ export function PresentationPage() {
       </>)}
     </div>
 
-    {/* Theme preview modal — rendered outside wizard flow, no API call */}
-    {previewPlugin && (
-      <ThemePreviewModal
-        plugin={getPlugin(previewPlugin)}
-        brand={brand}
-        onClose={() => setPreviewPlugin(null)}
-        onApply={() => {
-          setSelectedPlugin(previewPlugin);
-          setPreviewPlugin(null);
+    {/* Theme selector modal — opens via 'More themes' button */}
+    {isThemeModalOpen && (
+      <ThemeModal
+        selectedPlugin={selectedPlugin}
+        onSelect={handleSelectPlugin}
+        onPreview={handlePreview}
+        onClose={() => setIsThemeModalOpen(false)}
+      />
+    )}
+
+    {/* Unified fullscreen theme preview — z-index 10000, above ThemeModal */}
+    {previewTheme && (
+      <ThemeFullPreview
+        theme={previewTheme}
+        allThemes={THEME_REGISTRY}
+        onSelect={id => {
+          handleSelectPlugin(id);
+          setPreviewTheme(null);
+          setIsThemeModalOpen(false);
         }}
+        onClose={() => setPreviewTheme(null)}
       />
     )}
     </>
