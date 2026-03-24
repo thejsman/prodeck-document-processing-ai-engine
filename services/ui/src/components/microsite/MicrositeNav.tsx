@@ -96,7 +96,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
     setMobileOpen(false);
   };
 
-  const navLinks = sections.slice(0, 7);
+  const navLinks = sections;
 
   return (
     <>
@@ -156,7 +156,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
         </div>
 
         {/* Desktop nav links */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }} className="ms-nav-links">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, overflowX: 'auto', flexShrink: 1, scrollbarWidth: 'none' }} className="ms-nav-links">
           {navLinks.map((s) => {
             const isActive = activeId === s.id;
             return (

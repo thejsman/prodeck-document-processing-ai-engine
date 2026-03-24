@@ -23,6 +23,7 @@ import { StatsSection } from './sections/StatsSection';
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
 import { SectionIdProvider } from './editor/SectionIdContext';
+import { useAuth } from '../../lib/auth-context';
 
 import type {
   HeroContent,
@@ -95,7 +96,7 @@ function AnimatedSection({
       };
 
   return (
-    <div ref={ref} id={id} style={animStyle}>
+    <div ref={ref} id={id} data-section-id={id} style={animStyle}>
       {children}
     </div>
   );
@@ -218,6 +219,7 @@ function SectionWithOverlay({
 }
 
 export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
+  const { apiKey } = useAuth();
   const plugin = getPlugin(ast.plugin);
   const mergedTokens = ast.customTokens
     ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
@@ -227,7 +229,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
-  const [downloadingPptx, setDownloadingPptx] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -286,29 +288,68 @@ ${el.innerHTML}
     }
   };
 
-  const downloadPptx = async () => {
-    setDownloadingPptx(true);
+  const downloadPdf = () => {
+    setDownloadingPdf(true);
     try {
-      const namespace = ast.proposalId?.split('/')[0] ?? 'default';
-      const proposalId = ast.proposalId?.split('/')[1] ?? ast.proposalId ?? 'proposal';
-      const res = await fetch(`/api/presentations/${namespace}/${proposalId}/export-pptx`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ast }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
+      const el = contentRef.current;
+      if (!el) return;
+
+      const fontLinks = (ast.customFonts?.length ? ast.customFonts : plugin.fonts)
+        .map(f => `<link rel="stylesheet" href="${f.url}">`)
+        .join('\n');
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
-      a.download = `${title.toLowerCase().replace(/\s+/g, '-')}.pptx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('[Microsite] PPTX export failed:', err);
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${title}</title>
+${fontLinks}
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden}
+@page{size:A4 landscape;margin:0}
+/* Force all sections visible — animation may have left opacity:0 */
+[data-section-id]{
+  opacity:1!important;
+  transform:none!important;
+  transition:none!important;
+  page-break-after:always;
+  break-after:page;
+  page-break-inside:avoid;
+  break-inside:avoid;
+}
+[data-section-id]:last-child{page-break-after:avoid;break-after:avoid}
+*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
+.ms-parallax-bg{background-attachment:scroll!important}
+@media(max-width:768px){
+  .ms-grid-3{grid-template-columns:1fr!important}
+  .ms-stats-row{flex-direction:column!important}
+  .ms-hero-ctas{flex-direction:column!important;width:100%!important}
+  .ms-split{flex-direction:column!important}
+}
+</style>
+</head>
+<body>${el.innerHTML}</body>
+</html>`;
+
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('Pop-up blocked — please allow pop-ups for this site and try again.');
+        return;
+      }
+      printWindow.document.write(html);
+      printWindow.document.close();
+      // Wait for fonts/images before printing
+      printWindow.addEventListener('load', () => {
+        setTimeout(() => {
+          printWindow.focus();
+          printWindow.print();
+          printWindow.close();
+        }, 600);
+      });
     } finally {
-      setDownloadingPptx(false);
+      setDownloadingPdf(false);
     }
   };
 
@@ -345,6 +386,8 @@ ${el.innerHTML}
         }
         .ms-parallax-bg { background-attachment: fixed; background-size: cover; }
         @media (max-width: 768px) { .ms-parallax-bg { background-attachment: scroll; } }
+
+
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -457,8 +500,8 @@ ${el.innerHTML}
             </button>
           )}
           <button
-            onClick={downloadPptx}
-            disabled={downloadingPptx}
+            onClick={downloadPdf}
+            disabled={downloadingPdf}
             style={{
               padding: '9px 18px',
               borderRadius: 100,
@@ -468,11 +511,11 @@ ${el.innerHTML}
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontSize: '0.8rem',
               fontWeight: 700,
-              cursor: downloadingPptx ? 'wait' : 'pointer',
+              cursor: downloadingPdf ? 'wait' : 'pointer',
               boxShadow: `0 4px 16px ${tokens.glowColor}`,
             }}
           >
-            {downloadingPptx ? 'Preparing…' : '↓ Download PPT'}
+            {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
           </button>
         </div>,
         document.body
