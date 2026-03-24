@@ -35,6 +35,7 @@ import {
   handleGeneratingSections,
   type HandlerResult,
   type HandlerContext,
+  type ToolTraceEvent,
 } from '../workflows/proposal-generation.handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,24 @@ export class ChatOrchestrator {
         return { message: `No handler registered for workflow state: "${currentState}".` };
       }
 
+      // Emit tool trace events via chatSessionBus so SSE clients receive them (STEP 5).
+      const onToolEvent = (event: ToolTraceEvent) => {
+        emitChatSessionEvent(chatSessionId, {
+          type: 'tool_progress',
+          toolProgress: {
+            status: event.type === 'tool_started'
+              ? 'started'
+              : event.type === 'tool_completed'
+                ? 'completed'
+                : 'failed',
+            tool: event.tool,
+            input: event.input,
+            output: event.output,
+            error: event.error,
+          },
+        });
+      };
+
       const ctx: HandlerContext = {
         workdir: this.workdir,
         namespace,
@@ -169,6 +188,7 @@ export class ChatOrchestrator {
         incomingMessage: message,
         onPhase,
         onChunk,
+        onToolEvent,
       };
 
       const result = await handler(ctx);
@@ -262,6 +282,22 @@ export class ChatOrchestrator {
     const onChunk = (chunk: string) =>
       emitChatSessionEvent(chatSessionId, { type: 'chunk', chunk });
 
+    const onToolEvent = (event: ToolTraceEvent) =>
+      emitChatSessionEvent(chatSessionId, {
+        type: 'tool_progress',
+        toolProgress: {
+          status: event.type === 'tool_started'
+            ? 'started'
+            : event.type === 'tool_completed'
+              ? 'completed'
+              : 'failed',
+          tool: event.tool,
+          input: event.input,
+          output: event.output,
+          error: event.error,
+        },
+      });
+
     let lastResult: HandlerResult | null = null;
 
     try {
@@ -280,6 +316,7 @@ export class ChatOrchestrator {
           incomingMessage: '',
           onPhase,
           onChunk,
+          onToolEvent,
         };
 
         const result = await handler(ctx);

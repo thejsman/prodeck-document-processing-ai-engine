@@ -192,6 +192,11 @@ export function registerChatRoutes(
               `event: error\ndata: ${JSON.stringify({ error: event.error ?? 'Unknown error' })}\n\n`,
             );
             break;
+          case 'tool_progress':
+            raw.write(
+              `event: tool_progress\ndata: ${JSON.stringify(event.toolProgress ?? {})}\n\n`,
+            );
+            break;
         }
       };
 

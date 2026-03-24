@@ -10,13 +10,23 @@
  * Handlers are pure async functions that receive all dependencies via
  * HandlerContext — no global state, no direct filesystem access outside
  * the injected workdir path.
+ *
+ * Tool-Request Loop v2:
+ *   The generating_outline and generating_sections handlers now use
+ *   AgentExecutor to enable the LLM to autonomously call tools (e.g.
+ *   search-documents) during generation.  Tool execution traces are emitted
+ *   via onToolEvent for SSE streaming to the client.
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import type { ToolOutput } from '@ai-engine/core';
+import { toolRegistry } from '@ai-engine/core';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
+import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
+import type { ToolDescriptor } from '../chat/agent-executor.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +41,14 @@ export interface HandlerResult {
   actions?: Record<string, string>;
 }
 
+export interface ToolTraceEvent {
+  type: 'tool_started' | 'tool_completed' | 'tool_failed';
+  tool: string;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+}
+
 export interface HandlerContext {
   workdir: string;
   namespace: string;
@@ -42,6 +60,65 @@ export interface HandlerContext {
   onPhase: (phase: string) => void;
   /** Emit a token chunk to the client for streaming display. */
   onChunk: (chunk: string) => void;
+  /**
+   * Emit a tool execution trace event to the client (STEP 5).
+   * Optional — no-op if not provided (e.g. non-streaming paths).
+   */
+  onToolEvent?: (event: ToolTraceEvent) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Tool descriptors available to proposal generation handlers
+// ---------------------------------------------------------------------------
+
+const PROPOSAL_TOOLS: ToolDescriptor[] = [
+  {
+    name: 'search-documents',
+    description: 'Search indexed documents in the namespace for relevant information.',
+    inputSchema: '{ "query": "string" }',
+  },
+  {
+    name: 'extract-section',
+    description: 'Extract a named section from markdown content.',
+    inputSchema: '{ "content": "string", "query": "string" }',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Tool runner helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute a named tool from the registry within the per-tool timeout.
+ * Emits tool trace events via onToolEvent when provided.
+ */
+async function runTool(
+  toolName: string,
+  input: unknown,
+  namespace: string,
+  onToolEvent?: HandlerContext['onToolEvent'],
+): Promise<ToolOutput> {
+  const toolInput = {
+    namespace,
+    ...(typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}),
+  };
+
+  onToolEvent?.({ type: 'tool_started', tool: toolName, input: toolInput });
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`Tool "${toolName}" timed out after ${TOOL_TIMEOUT_MS}ms`)), TOOL_TIMEOUT_MS),
+  );
+
+  try {
+    const tool = toolRegistry.get(toolName);
+    const output = await Promise.race([tool.run(toolInput), timeoutPromise]);
+    onToolEvent?.({ type: 'tool_completed', tool: toolName, input: toolInput, output });
+    return output;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    onToolEvent?.({ type: 'tool_failed', tool: toolName, input: toolInput, error });
+    return { text: `Tool failed: ${error}` };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,24 +173,29 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 /**
  * Generate a structured proposal outline from the RFP document.
  *
+ * Uses AgentExecutor so the LLM can call search-documents / extract-section
+ * to gather additional context before producing the outline.
+ *
  * Flow:
  *   1. Emit phase "Analyzing RFP".
  *   2. Read RFP content from the namespace uploads directory.
  *   3. Emit phase "Generating proposal structure".
- *   4. Call LLM to produce a markdown outline.
- *   5. Emit the outline as content chunks.
- *   6. Store outline in instance.context.outline.
- *   7. Signal DONE.
+ *   4. Run AgentExecutor tool-request loop:
+ *        - LLM may call tools to enrich context
+ *        - Token chunks forwarded to onChunk
+ *        - Tool events forwarded to onToolEvent
+ *   5. Store outline in instance.context.outline.
+ *   6. Signal DONE.
  */
 export async function handleGeneratingOutline(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, onPhase, onChunk } = ctx;
+  const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
 
   onPhase('Analyzing RFP');
 
   // Read RFP document content
   let rfpContent = '';
   if (instance.context.rfpUri) {
-    const rfpPath = path.join(workdir, 'namespaces', namespace, instance.context.rfpUri);
+    const rfpPath = path.join(workdir, 'namespaces', namespace, instance.context.rfpUri as string);
     rfpContent = await readFile(rfpPath, 'utf-8').catch(() => '');
   }
 
@@ -136,18 +218,38 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
       ? `RFP Document:\n${rfpContent}`
       : '(No RFP content available — produce a generic cloud migration proposal outline)',
     '',
+    'You may use the search-documents tool to find additional context from the namespace knowledge base.',
     'Respond with a clean markdown outline only. Be concise and professional.',
   ].join('\n');
 
-  const outline = await llmGenerateFn(prompt);
+  const executor = new AgentExecutor(llmGenerateFn);
 
-  // Emit outline as streaming chunks (STEP 6 — stream phase events)
-  const CHUNK_SIZE = 80;
-  for (let i = 0; i < outline.length; i += CHUNK_SIZE) {
-    onChunk(outline.slice(i, i + CHUNK_SIZE));
+  let outline = '';
+
+  for await (const event of executor.runStreaming({
+    prompt,
+    namespace,
+    tools: PROPOSAL_TOOLS,
+  })) {
+    if (event.type === 'token') {
+      onChunk(event.text);
+      outline += event.text;
+    } else if (event.type === 'phase') {
+      onPhase(event.name);
+    } else if (event.type === 'tool_request') {
+      onPhase(`Using tool: ${event.tool}`);
+      const toolOutput = await runTool(event.tool, event.input, namespace, onToolEvent);
+      executor.resumeWithToolResult(toolOutput);
+    } else if (event.type === 'final') {
+      if (!outline) outline = event.result.text;
+      if (event.result.maxIterationsReached) {
+        onPhase('Tool iteration limit reached — proceeding with available information.');
+      }
+    }
   }
 
   instance.context.outline = outline;
+  instance.context.toolResults = (instance.context.toolResults as unknown[] | undefined) ?? [];
 
   return {
     message: outline,
@@ -162,16 +264,22 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
 /**
  * Expand the outline into a full proposal draft and persist the artifact.
  *
+ * Uses AgentExecutor so the LLM can call search-documents to pull in
+ * supporting evidence, benchmarks, or existing proposal language while
+ * writing each section.
+ *
  * Flow:
  *   1. Emit phase "Writing proposal draft".
- *   2. Call LLM to expand the stored outline into a complete proposal.
- *   3. Emit draft as content chunks.
- *   4. Save draft as {namespace}/proposals/chat-draft-{timestamp}.md.
- *   5. Set context.proposalArtifactId to the saved file name.
- *   6. Signal DONE.
+ *   2. Run AgentExecutor tool-request loop:
+ *        - LLM may call tools to enrich individual sections
+ *        - Token chunks forwarded to onChunk
+ *        - Tool events forwarded to onToolEvent
+ *   3. Save draft as {namespace}/proposals/chat-draft-{timestamp}.md.
+ *   4. Set context.proposalArtifactId to the saved file name.
+ *   5. Signal DONE.
  */
 export async function handleGeneratingSections(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, onPhase, onChunk } = ctx;
+  const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
 
   onPhase('Writing proposal draft');
 
@@ -184,18 +292,37 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     '- Format as clean markdown with headings',
     '- Be specific, actionable, and persuasive',
     '',
-    `Outline:\n${instance.context.outline ?? '(no outline provided)'}`,
+    `Outline:\n${(instance.context.outline as string | undefined) ?? '(no outline provided)'}`,
+    '',
+    'You may use the search-documents tool to find supporting evidence, metrics, or prior work in the knowledge base.',
   ].join('\n');
 
-  const proposalMarkdown = await llmGenerateFn(prompt);
+  const executor = new AgentExecutor(llmGenerateFn);
+  let proposalMarkdown = '';
 
-  // Emit draft as streaming chunks (STEP 6)
-  const CHUNK_SIZE = 80;
-  for (let i = 0; i < proposalMarkdown.length; i += CHUNK_SIZE) {
-    onChunk(proposalMarkdown.slice(i, i + CHUNK_SIZE));
+  for await (const event of executor.runStreaming({
+    prompt,
+    namespace,
+    tools: PROPOSAL_TOOLS,
+  })) {
+    if (event.type === 'token') {
+      onChunk(event.text);
+      proposalMarkdown += event.text;
+    } else if (event.type === 'phase') {
+      onPhase(event.name);
+    } else if (event.type === 'tool_request') {
+      onPhase(`Using tool: ${event.tool}`);
+      const toolOutput = await runTool(event.tool, event.input, namespace, onToolEvent);
+      executor.resumeWithToolResult(toolOutput);
+    } else if (event.type === 'final') {
+      if (!proposalMarkdown) proposalMarkdown = event.result.text;
+      if (event.result.maxIterationsReached) {
+        onPhase('Tool iteration limit reached — proceeding with available information.');
+      }
+    }
   }
 
-  // Persist the artifact — STEP 8 (tool completion checkpoint)
+  // Persist the artifact
   const timestamp = Date.now();
   const fileName = `chat-draft-${timestamp}.md`;
   const proposalsDir = path.join(workdir, 'namespaces', namespace, 'proposals');
