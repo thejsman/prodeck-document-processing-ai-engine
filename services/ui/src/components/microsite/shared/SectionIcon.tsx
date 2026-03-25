@@ -21,6 +21,20 @@ const ICON_PATHS: Record<string, string> = {
 };
 
 export function SectionIcon({ hint, color = 'currentColor', size = 24 }: SectionIconProps) {
+  // Render uploaded/linked images directly
+  if (hint && (hint.startsWith('data:') || hint.startsWith('http://') || hint.startsWith('https://'))) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={hint}
+        alt=""
+        width={size}
+        height={size}
+        style={{ width: size, height: size, objectFit: 'contain', display: 'block' }}
+      />
+    );
+  }
+
   const d = ICON_PATHS[hint] ?? ICON_PATHS.default;
   return (
     <svg

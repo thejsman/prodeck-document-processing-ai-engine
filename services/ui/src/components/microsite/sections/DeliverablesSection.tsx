@@ -4,9 +4,10 @@ import type { PluginTokens, DeliverablesContent } from '../../../types/presentat
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
-import { SectionIcon } from '../shared/SectionIcon';
 import { GlassCard } from '../shared/GlassCard';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
+import { InlineIconEdit } from '../editor/InlineIconEdit';
 
 interface Props {
   content: DeliverablesContent;
@@ -16,7 +17,9 @@ interface Props {
   sectionId?: string;
 }
 
-export function DeliverablesSection({ content, tokens, index, sectionId }: Props) {
+export function DeliverablesSection({ content, tokens, index }: Props) {
+  const items = content.items ?? [];
+
   return (
     <section
       id="deliverables"
@@ -57,39 +60,44 @@ export function DeliverablesSection({ content, tokens, index, sectionId }: Props
             gap: 'clamp(1rem, 2vw, 1.5rem)',
           }}
         >
-          {(content.items ?? []).map((item, ii) => (
+          {items.map((item, ii) => (
             <Reveal key={ii} delay={160 + ii * 80}>
-              <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {/* Icon badge */}
-                <div style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 12,
-                  background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
-                  border: `1px solid ${tokens.accent}30`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <SectionIcon hint={item.iconHint} color={tokens.accent} size={22} />
-                </div>
-                <h4
-                  style={{
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontWeight: 700,
-                    fontSize: '1rem',
-                    color: tokens.text,
-                    margin: 0,
-                  }}
-                >
-                  {item.name}
-                </h4>
-                <Body tokens={tokens} style={{ fontSize: '0.875rem', lineHeight: 1.65 }}>
-                  {item.detail}
-                </Body>
-              </GlassCard>
+              <InlineArrayItem arrayPath="items" index={ii} total={items.length}>
+                <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <InlineIconEdit
+                    fieldPath={`items.${ii}.iconHint`}
+                    hint={item.iconHint}
+                    color={tokens.accent}
+                    size={22}
+                    containerStyle={{
+                      width: 48, height: 48, borderRadius: 12,
+                      background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
+                      border: `1px solid ${tokens.accent}30`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  />
+                  <InlineEditable field={`items.${ii}.name`} label="Name" value={item.name ?? ''}>
+                    <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, margin: 0 }}>
+                      {item.name}
+                    </h4>
+                  </InlineEditable>
+                  <InlineEditable field={`items.${ii}.detail`} label="Detail" value={item.detail ?? ''} multiline>
+                    <Body tokens={tokens} style={{ fontSize: '0.875rem', lineHeight: 1.65 }}>
+                      {item.detail}
+                    </Body>
+                  </InlineEditable>
+                </GlassCard>
+              </InlineArrayItem>
             </Reveal>
           ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="items"
+            template={{ iconHint: 'document', name: 'New deliverable', detail: 'Describe this deliverable…' }}
+            label="Add deliverable"
+          />
         </div>
       </div>
     </section>

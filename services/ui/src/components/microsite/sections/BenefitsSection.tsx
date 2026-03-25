@@ -5,8 +5,9 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
 import { Headline, Label, Body } from '../shared/Typography';
-import { SectionIcon } from '../shared/SectionIcon';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
+import { InlineIconEdit } from '../editor/InlineIconEdit';
 
 interface Props {
   content: BenefitsContent;
@@ -16,7 +17,7 @@ interface Props {
   sectionId?: string;
 }
 
-export function BenefitsSection({ content, tokens, sectionId }: Props) {
+export function BenefitsSection({ content, tokens }: Props) {
   const items = content.items ?? [];
   const cols = items.length <= 3 ? items.length : Math.min(items.length, 3);
 
@@ -49,43 +50,61 @@ export function BenefitsSection({ content, tokens, sectionId }: Props) {
 
         <div style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
           gap: 'clamp(1rem, 2.5vw, 2rem)',
         }}>
           {items.map((item, i) => (
             <Reveal key={i} delay={160 + i * 80}>
-              <GlassCard tokens={tokens}>
-                {/* Icon badge */}
-                <div style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: 14,
-                  background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
-                  border: `1px solid ${tokens.accent}30`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 22,
-                }}>
-                  <SectionIcon hint={item.iconHint} color={tokens.accent} size={22} />
-                </div>
+              <InlineArrayItem arrayPath="items" index={i} total={items.length}>
+                <GlassCard tokens={tokens}>
+                  {/* Icon — click to change */}
+                  <InlineIconEdit
+                    fieldPath={`items.${i}.iconHint`}
+                    hint={item.iconHint}
+                    color={tokens.accent}
+                    size={22}
+                    containerStyle={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 14,
+                      background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
+                      border: `1px solid ${tokens.accent}30`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 22,
+                    }}
+                  />
 
-                <div style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontWeight: 700,
-                  fontSize: '1rem',
-                  color: tokens.text,
-                  marginBottom: 10,
-                }}>
-                  {item.title}
-                </div>
+                  <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
+                    <div style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontWeight: 700,
+                      fontSize: '1rem',
+                      color: tokens.text,
+                      marginBottom: 10,
+                    }}>
+                      {item.title}
+                    </div>
+                  </InlineEditable>
 
-                <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>
-                  {item.description}
-                </Body>
-              </GlassCard>
+                  <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
+                    <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>
+                      {item.description}
+                    </Body>
+                  </InlineEditable>
+                </GlassCard>
+              </InlineArrayItem>
             </Reveal>
           ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="items"
+            template={{ iconHint: 'check', title: 'New benefit', description: 'Describe this benefit…' }}
+            label="Add benefit"
+          />
         </div>
       </div>
     </section>

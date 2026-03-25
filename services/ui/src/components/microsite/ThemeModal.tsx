@@ -65,7 +65,7 @@ export function ThemeModal({ selectedPlugin, onSelect, onPreview, onClose }: Pro
         aria-hidden="true"
         onClick={onClose}
         style={{
-          position: 'fixed', inset: 0, zIndex: 9996,
+          position: 'fixed', inset: 0, zIndex: 50000,
           background: 'rgba(0,0,0,0.6)',
           backdropFilter: 'blur(4px)',
           WebkitBackdropFilter: 'blur(4px)',
@@ -83,7 +83,7 @@ export function ThemeModal({ selectedPlugin, onSelect, onPreview, onClose }: Pro
         style={{
           position: 'fixed',
           top: '50%', left: '50%',
-          zIndex: 9997,
+          zIndex: 50001,
           width: 'min(900px, 92vw)',
           height: 'min(680px, 90vh)',
           background: 'var(--color-surface)',
