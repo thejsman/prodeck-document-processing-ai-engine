@@ -214,6 +214,7 @@ export function MicrositeNav({
 
         {/* Desktop nav links */}
         <div
+          className="ms-nav-links"
           style={{
             display: "flex",
             alignItems: "center",
@@ -221,7 +222,6 @@ export function MicrositeNav({
             flexWrap: "nowrap",
             overflowX: "auto",
           }}
-          className="ms-nav-links"
         >
           {navLinks.map((s) => {
             const isActive = activeId === s.id;

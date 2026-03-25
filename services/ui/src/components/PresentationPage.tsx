@@ -589,6 +589,7 @@ export function PresentationPage() {
           onClose={() => setShowEditor(false)}
           onExport={editedAst => {
             setLayoutAST(editedAst);
+            addEntry(editedAst);
             setShowEditor(false);
           }}
         />

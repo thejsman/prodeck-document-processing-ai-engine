@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Microsite } from "./Microsite";
+import { MicrositeEditor } from "./editor/MicrositeEditor";
 import {
   useMicrositeHistory,
   type MicrositeHistoryEntry,
@@ -44,10 +45,11 @@ function formatDate(iso: string): string {
 export function MicrositeHistory() {
   const { apiKey } = useAuth();
   // All local history (no namespace filter)
-  const { history: localHistory, deleteEntry } = useMicrositeHistory();
+  const { history: localHistory, deleteEntry, addEntry } = useMicrositeHistory();
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
+  const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
 
   // Fetch server-side history on mount
   useEffect(() => {
@@ -96,9 +98,29 @@ export function MicrositeHistory() {
     );
   })();
 
+  // Editor mode — opened from preview or history card
+  if (editingEntry) {
+    return (
+      <MicrositeEditor
+        ast={editingEntry.ast}
+        namespace={editingEntry.namespace}
+        proposalId={editingEntry.id}
+        onClose={() => setEditingEntry(null)}
+        onExport={(editedAst) => {
+          addEntry(editedAst, editingEntry.namespace);
+          setEditingEntry(null);
+        }}
+      />
+    );
+  }
+
   if (previewEntry) {
     return (
-      <Microsite ast={previewEntry.ast} onBack={() => setPreviewEntry(null)} />
+      <Microsite
+        ast={previewEntry.ast}
+        onBack={() => setPreviewEntry(null)}
+        onEdit={() => setEditingEntry(previewEntry)}
+      />
     );
   }
 

@@ -1,7 +1,250 @@
 'use client';
 
+import { useState, useRef, useEffect } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutAST, SectionType } from '../../../types/presentation';
+
+// ── Icon picker inline ──────────────────────────────────────────────────────
+
+const ICON_OPTIONS = [
+  { hint: 'identity',  emoji: '👤' }, { hint: 'digital',  emoji: '💻' },
+  { hint: 'content',   emoji: '📄' }, { hint: 'strategy', emoji: '⭐' },
+  { hint: 'research',  emoji: '🔍' }, { hint: 'launch',   emoji: '🚀' },
+  { hint: 'document',  emoji: '📁' }, { hint: 'website',  emoji: '🌐' },
+  { hint: 'photo',     emoji: '🖼'  }, { hint: 'campaign', emoji: '📢' },
+  { hint: 'check',     emoji: '✓'  }, { hint: 'star',     emoji: '✦'  },
+  { hint: 'lock',      emoji: '🔒' }, { hint: 'bolt',     emoji: '⚡' },
+  { hint: 'target',    emoji: '🎯' }, { hint: 'chart',    emoji: '📊' },
+  { hint: 'tool',      emoji: '🔧' }, { hint: 'gem',      emoji: '💎' },
+  { hint: 'trophy',    emoji: '🏆' }, { hint: 'shield',   emoji: '🛡'  },
+  { hint: 'fire',      emoji: '🔥' }, { hint: 'leaf',     emoji: '🌿' },
+  { hint: 'default',   emoji: '⊞'  }, { hint: 'flag',     emoji: '🚩' },
+];
+
+type IconTab = 'emoji' | 'upload' | 'url';
+
+function IconPickerField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<IconTab>('emoji');
+  const [urlInput, setUrlInput] = useState('');
+  const [uploadPreview, setUploadPreview] = useState<string | null>(
+    value.startsWith('data:') ? value : null,
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const isImage = value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://');
+  const found = !isImage ? ICON_OPTIONS.find(o => o.hint === value) : null;
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target?.result as string;
+      setUploadPreview(dataUrl);
+      onChange(dataUrl);
+      setOpen(false);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function applyUrl() {
+    const url = urlInput.trim();
+    if (!url) return;
+    onChange(url);
+    setOpen(false);
+  }
+
+  // Trigger value display
+  let displayEmoji = found?.emoji ?? '⊞';
+  let displayLabel = value || 'default';
+  if (isImage) {
+    displayEmoji = '';
+    displayLabel = 'Custom image';
+  }
+
+  return (
+    <div ref={panelRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: '100%',
+          padding: '6px 10px',
+          borderRadius: 6,
+          border: '1px solid var(--color-border, #e2e8f0)',
+          background: 'var(--color-surface, #fff)',
+          fontSize: 12,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          textAlign: 'left',
+          color: 'var(--color-text, #111)',
+        }}
+      >
+        {isImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="" style={{ width: 18, height: 18, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }} />
+        ) : (
+          <span style={{ fontSize: 16, flexShrink: 0 }}>{displayEmoji}</span>
+        )}
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayLabel}</span>
+        <span style={{ color: '#94a3b8', fontSize: 10, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          zIndex: 9999,
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: 8,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.14)',
+          marginTop: 4,
+          overflow: 'hidden',
+        }}>
+          {/* Tabs */}
+          <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
+            {([['emoji', '⊞ Icons'], ['upload', '⬆ Upload'], ['url', '🔗 URL']] as [IconTab, string][]).map(([t, label]) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                style={{
+                  flex: 1, padding: '7px 0', border: 'none', fontSize: 11, fontWeight: tab === t ? 700 : 500,
+                  background: tab === t ? '#f5f3ff' : '#fff',
+                  color: tab === t ? '#6366f1' : '#64748b',
+                  cursor: 'pointer',
+                  borderBottom: tab === t ? '2px solid #6366f1' : '2px solid transparent',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ padding: 8 }}>
+            {tab === 'emoji' && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4, marginBottom: 8 }}>
+                  {ICON_OPTIONS.map(({ hint, emoji }) => (
+                    <button
+                      key={hint}
+                      title={hint}
+                      onClick={() => { onChange(hint); setOpen(false); }}
+                      style={{
+                        width: '100%', aspectRatio: '1', borderRadius: 5,
+                        border: value === hint ? '2px solid #6366f1' : '1px solid #e2e8f0',
+                        background: value === hint ? '#f5f3ff' : '#f8fafc',
+                        fontSize: 16, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  placeholder="Custom hint (e.g. check, star)…"
+                  defaultValue={!isImage ? value : ''}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { onChange((e.target as HTMLInputElement).value); setOpen(false); }
+                  }}
+                  style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box' }}
+                />
+              </>
+            )}
+
+            {tab === 'upload' && (
+              <div>
+                <label
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    gap: 6, padding: '16px 8px',
+                    border: '2px dashed #c7d2fe', borderRadius: 7,
+                    background: '#f5f3ff', cursor: 'pointer', marginBottom: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 22 }}>⬆</span>
+                  <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>Click to upload icon</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8' }}>PNG · JPG · SVG · WebP · ICO</span>
+                  <input ref={fileInputRef} type="file" accept="image/*,.svg,.ico" onChange={handleFile} style={{ display: 'none' }} />
+                </label>
+                {uploadPreview && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={uploadPreview} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
+                    <span style={{ fontSize: 11, color: '#475569', flex: 1 }}>Uploaded image</span>
+                    <button
+                      onClick={() => { onChange(uploadPreview); setOpen(false); }}
+                      style={{ padding: '3px 10px', borderRadius: 5, border: 'none', background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      Use
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'url' && (
+              <div>
+                <p style={{ margin: '0 0 6px', fontSize: 11, color: '#64748b' }}>
+                  Paste an icon URL (PNG, SVG, ICO…)
+                </p>
+                <input
+                  type="text"
+                  value={urlInput}
+                  onChange={e => setUrlInput(e.target.value)}
+                  placeholder="https://example.com/icon.svg"
+                  style={{ width: '100%', padding: '6px 9px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, marginBottom: 8, boxSizing: 'border-box' }}
+                />
+                {urlInput && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: 6, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={urlInput} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    <span style={{ fontSize: 11, color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urlInput}</span>
+                  </div>
+                )}
+                <button
+                  onClick={applyUrl}
+                  disabled={!urlInput.trim()}
+                  style={{
+                    width: '100%', padding: '6px', borderRadius: 5, border: 'none',
+                    background: urlInput.trim() ? '#6366f1' : '#e2e8f0',
+                    color: urlInput.trim() ? '#fff' : '#94a3b8',
+                    fontSize: 12, fontWeight: 600, cursor: urlInput.trim() ? 'pointer' : 'default',
+                  }}
+                >
+                  Apply URL
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Type label map ─────────────────────────────────────────────────────────
 
@@ -312,12 +555,15 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
           {fields.map(f => {
             const val = typeof item[f.key] === 'string' ? (item[f.key] as string) : '';
             const handleChange = (v: string) => ctx.updateField(sectionId, `${arrayPath}.${i}.${f.key}`, v);
+            const isIconField = f.key === 'iconHint';
             return (
               <div key={f.key} style={{ marginBottom: 6 }}>
                 <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   {f.label}
                 </label>
-                {f.multiline ? (
+                {isIconField ? (
+                  <IconPickerField value={val} onChange={handleChange} />
+                ) : f.multiline ? (
                   <textarea
                     value={val}
                     onChange={e => handleChange(e.target.value)}
