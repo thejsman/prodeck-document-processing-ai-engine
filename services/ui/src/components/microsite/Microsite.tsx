@@ -394,6 +394,27 @@ function getEmbedSrc(url: string): string | null {
   }
 }
 
+// ── Token override helpers (module-level, no deps) ───────────────────────────
+
+/** Extract just the font family name from a CSS font-family string like "'Nunito', sans-serif" */
+function extractFontName(fontFamily?: string): string | undefined {
+  if (!fontFamily) return undefined;
+  const match = fontFamily.match(/['"]?([^'",]+)['"]?/);
+  return match?.[1]?.trim();
+}
+
+/** Return true when a hex color has perceived luminance below 128 (i.e. dark background) */
+function isColorDark(hex: string): boolean {
+  try {
+    const h = hex.replace('#', '');
+    if (h.length < 6) return false;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+  } catch { return false; }
+}
+
 export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = false, mode = 'fullscreen' }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
@@ -401,8 +422,51 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = fals
   const mergedTokens = ast.customTokens
     ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
     : undefined;
-  const tokens = resolveTokens(ast.plugin, ast.brand.primaryColor, mergedTokens);
-  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| heroFont:', tokens.heroFont);
+  const brand = ast.brand;
+  // When extractedCssVariables is present, skip brandPrimaryColor so applyBrandOverride
+  // does NOT taint tokens with the brand's primaryColor (#C8A96E etc.) before the override.
+  const hasCssOverride = !!(brand?.extractedCssVariables && Object.keys(brand.extractedCssVariables).length > 0);
+  let tokens = resolveTokens(ast.plugin, hasCssOverride ? '' : ast.brand.primaryColor, mergedTokens);
+
+  // ── Override tokens from extractedCssVariables when overrideTheme is set ──
+  // Sections use tokens.* directly (JS object fields), not CSS var() references,
+  // so we must override the tokens object itself — injecting CSS variables on
+  // the root div alone has no effect on section rendering.
+  if (hasCssOverride) {
+    const vars = brand.extractedCssVariables!;
+    const bgOverride = vars['--ms-bg'] ?? tokens.bg;
+    const accentOverride = vars['--ms-accent'] ?? vars['--ms-hero-accent'] ?? tokens.accent;
+    const textOverride = vars['--ms-text'] ?? tokens.text;
+    const isDark = isColorDark(bgOverride);
+    tokens = {
+      ...tokens,
+      accent:       accentOverride,
+      accentDim:    vars['--ms-accent2'] ?? tokens.accentDim,
+      bg:           bgOverride,
+      surface:      vars['--ms-bg2']     ?? tokens.surface,
+      surfaceAlt:   vars['--ms-bg3']     ?? tokens.surfaceAlt,
+      surfaceCard:  vars['--ms-surface'] ?? tokens.surfaceCard,
+      text:         textOverride,
+      textMuted:    vars['--ms-text2']   ?? tokens.textMuted,
+      textSubtle:   vars['--ms-text3']   ?? tokens.textSubtle,
+      border:       vars['--ms-border']  ?? tokens.border,
+      heroFont:     extractFontName(vars['--ms-font-heading']) ?? tokens.heroFont,
+      bodyFont:     extractFontName(vars['--ms-font-body'])    ?? tokens.bodyFont,
+      borderRadius: vars['--ms-r-card']        ?? tokens.borderRadius,
+      cardShadow:      vars['--ms-shadow']       ?? tokens.cardShadow,
+      cardShadowHover: vars['--ms-shadow-hover'] ?? tokens.cardShadowHover,
+      dark: isDark,
+    };
+  }
+
+  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| overrideTheme:', !!brand?.overrideTheme, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| accent:', tokens.accent, '| heroFont:', tokens.heroFont);
+
+  // Resolve CSS variables: also inject as CSS custom properties for any
+  // CSS-based consumers (nav, overlays, etc.), now in addition to the token override above
+  const cssVars = (brand?.overrideTheme && brand?.extractedCssVariables)
+    ? brand.extractedCssVariables
+    : {};
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevSectionCount = useRef(0);
@@ -437,6 +501,36 @@ useEffect(() => setMounted(true), []);
       }
     });
   }, [plugin, ast.customFonts]);
+
+  // Load Google Fonts from extractedDesignTokens when overrideTheme is active
+  useEffect(() => {
+    const fontsUrl = ast.brand?.googleFontsUrl;
+    if (!fontsUrl) return;
+    const existing = document.querySelector('link[data-ms-fonts]');
+    if (existing) existing.remove();
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = fontsUrl;
+    link.setAttribute('data-ms-fonts', 'true');
+    document.head.appendChild(link);
+    return () => { document.querySelector('link[data-ms-fonts]')?.remove(); };
+  }, [ast.brand?.googleFontsUrl]);
+
+  // Inject font CSS variable declarations extracted from design prompt
+  useEffect(() => {
+    const declarations = ast.brand?.fontFaceDeclarations;
+    if (!declarations) return;
+    const existing = document.querySelector('style[data-ms-font-vars]');
+    if (existing) existing.remove();
+    const style = document.createElement('style');
+    style.setAttribute('data-ms-font-vars', 'true');
+    style.textContent = declarations;
+    document.head.appendChild(style);
+    return () => { document.querySelector('style[data-ms-font-vars]')?.remove(); };
+  }, [ast.brand?.fontFaceDeclarations]);
+
+  const animClass = ast.brand?.animationStyle ? `anim-${ast.brand.animationStyle}` : 'anim-smooth';
+  const themeClass = ast.brand?.themeClass ?? '';
 
   const downloadHTML = () => {
     setDownloading(true);
@@ -579,20 +673,23 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       id={isEmbedded ? undefined : SCROLL_CONTAINER_ID}
       ref={scrollRef}
       data-parallax={ast.behavior?.parallax ? 'true' : 'false'}
+      className={`microsite-root ${animClass} ${themeClass}`.trim()}
       style={isEmbedded ? {
         background: tokens.bg,
         color: tokens.text,
         overflowX: 'hidden',
         minHeight: '100%',
         width: '100%',
-      } : {
+        ...cssVars,
+      } as React.CSSProperties : {
         position: 'fixed',
         inset: 0,
         zIndex: 9999,
         background: tokens.bg,
         overflowY: 'auto',
         overflowX: 'hidden',
-      }}
+        ...cssVars,
+      } as React.CSSProperties}
     >
       <style>{`
         /* ── Regular media queries (real mobile browsers) ── */

@@ -493,12 +493,14 @@ export function PresentationPage() {
         brand: {
           companyName: brand.companyName,
           tagline: brand.tagline,
+          logoUrl: brand.logoUrl,
           logoText: brand.logoText,
           primaryColor: brand.primaryColor,
           secondaryColor: brand.secondaryColor,
-          logoUrl: brand.logoUrl,
         },
         ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
+        ...((customPrompt || designBrief).trim() ? { fullDesignPrompt: (customPrompt || designBrief).trim() } : {}),
+        ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
         ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
         signal: abortCtrl.signal,
         onEvent: (() => {
@@ -573,7 +575,8 @@ export function PresentationPage() {
               const raw = (event as { type: 'complete'; ast: unknown }).ast;
               if (raw && typeof raw === 'object') {
                 const ast = raw as LayoutAST;
-                ast.brand = brandConfig;
+                // Merge UI brand on top of agent brand — preserves overrideTheme, extractedCssVariables etc.
+                ast.brand = { ...(ast.brand ?? {}), ...brandConfig };
                 ast.plugin = selectedPlugin ?? 'ivory';
                 setLayoutAST(ast);
                 addEntry(ast);

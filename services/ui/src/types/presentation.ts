@@ -56,6 +56,16 @@ export interface BrandConfig {
   logoText: string;
   primaryColor: string;
   secondaryColor: string;
+  // Design token override fields (populated by extractDesignTokens when fullDesignPrompt is present)
+  overrideTheme?: boolean;
+  extractedCssVariables?: Record<string, string>;
+  googleFontsUrl?: string | null;
+  fontFaceDeclarations?: string;
+  animationStyle?: string;
+  gradientsEnabled?: boolean;
+  decorativeEnabled?: boolean;
+  borderRadiusStyle?: string;
+  themeClass?: string;
 }
 
 // ── Plugin token schema ──────────────────────────────────────────────────────

@@ -651,6 +651,7 @@ export interface GenerateStreamOptions {
   plugin?: string | null;
   brand?: Record<string, unknown>;
   customInstructions?: string;
+  fullDesignPrompt?: string;
   designBrief?: string;
   preSynthesizedDesignSystem?: Record<string, unknown>;
   onEvent: (event: StreamEvent) => void;
@@ -671,6 +672,7 @@ export async function generateMicrositeStream(
       plugin: opts.plugin ?? 'cobalt',
       brand: opts.brand ?? {},
       ...(opts.customInstructions ? { customInstructions: opts.customInstructions } : {}),
+      ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
       ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
       ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
     }),

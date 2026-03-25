@@ -16,6 +16,7 @@
 
 import type { Agent, AgentInput, AgentOutput, ToolRegistry } from '@ai-engine/core';
 import { selectBestDiagram, type DiagramSelection } from './diagramDetector.js';
+import { extractDesignTokens, type ExtractedDesignTokens } from './designTokenExtractor.js';
 
 // ── Section type classification (mirrors UI types) ───────────────────────────
 
@@ -1777,6 +1778,198 @@ function applyDesignOverrides(
   }
 }
 
+// ── Full design prompt override builders ──────────────────────────────────────
+// These are called instead of the default builders when metadata.fullDesignPrompt
+// is provided and isFullOverride is true. They prepend the fullDesignPrompt at the
+// top of every prompt so the LLM follows the custom design spec exactly.
+// NOTE: These functions must NOT reference PLUGIN_CHARACTER, FORBIDDEN, or FORBIDDEN_OPENERS.
+
+function buildOverrideSectionPlanPrompt(
+  markdown: string,
+  fullDesignPrompt: string
+): string {
+  // Programmatically extract numbered sections from the design prompt's LAYOUT STRUCTURE
+  const layoutMatches = fullDesignPrompt.match(/^(\d+)\.\s+(.+?)(?:\r?\n|$)/gm) ?? [];
+  const layoutSections = layoutMatches.map(m => m.replace(/^\d+\.\s+/, '').trim());
+  const requiredCount = layoutSections.length;
+
+  const explicitList = layoutSections.length > 0
+    ? `\nTHE DESIGN SPECIFICATION DEFINES EXACTLY ${requiredCount} SECTIONS. YOU MUST OUTPUT EXACTLY ${requiredCount} SECTIONS:\n` +
+      layoutSections.map((s, i) => `  ${i + 1}. ${s}`).join('\n') + '\n'
+    : '\nYou MUST output 7-10 sections matching the layout structure above.\n';
+
+  return `${fullDesignPrompt}
+
+---
+
+You are a section planning expert. Produce a microsite plan that follows the LAYOUT STRUCTURE above with EXACTLY the right number of sections.
+${explicitList}
+ABSOLUTE RULES:
+- Output EXACTLY ${requiredCount > 0 ? requiredCount : '7'} sections — one per layout section listed above
+- Hero is always first; CTA/footer is always last
+- If the proposal has matching content for a section → set aiGenerated=false, fill sourceHeading
+- If no matching content exists → set aiGenerated=true, sourceHeading=null (still required!)
+- Do NOT skip or merge any section — every numbered section above must appear
+
+TYPE MAPPING (choose closest match for each layout section):
+- Hero / Welcome / Introduction → hero
+- Story / Overview / About / Background → showcase or generic
+- Features / Activities / Services / Approach / What We Offer → approach or deliverables or benefits
+- Timeline / Journey / Process / Steps / Schedule / Roadmap → timeline
+- Highlights / Fun Facts / Proof / Results / Stats → showcase or stats
+- Pricing / Packages / Investment / Cost → pricing
+- Call To Action / Footer / Next Steps / Get Started / Contact → nextsteps
+- Why Us / Credentials / Trust / Team → whyus
+- Challenge / Problem / Pain Points → challenge
+
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
+
+Return ONLY valid JSON array. No markdown, no code fences, no explanation.
+[
+  { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps to hero section 1", "aiGenerated": false },
+  { "type": "showcase", "sourceHeading": null, "rationale": "AI-generated for layout section 2: Introduction/Story", "aiGenerated": true },
+  ...exactly ${requiredCount > 0 ? requiredCount : 7} items total...
+]
+
+PROPOSAL:
+${markdown.slice(0, 8000)}`;
+}
+
+function buildOverrideBriefPrompt(
+  markdown: string,
+  fullDesignPrompt: string,
+  brandHint?: { companyName?: string; tagline?: string }
+): string {
+  const hint = brandHint?.companyName
+    ? `\nThe proposing company is "${brandHint.companyName}". Use this name for proposingCompany.\n`
+    : '';
+
+  // IMPORTANT: facts (client, industry, challenge, value) come from the PROPOSAL only.
+  // The design prompt ONLY influences writing style/tone — never what the facts are.
+  const styleHint = `\nWRITING STYLE GUIDANCE (from the user's design specification): ${fullDesignPrompt.slice(0, 600).replace(/\n/g, ' ')}\n`;
+
+  return `You are a senior proposal strategist. Extract a structured brief from the proposal below. Return ONLY valid JSON. No markdown, no explanation, no code fences.
+${hint}${styleHint}
+RULES:
+- clientName, clientIndustry, clientChallenge, proposingCompany, totalValue, duration — extract EXACTLY from the proposal text. Do NOT invent or guess these.
+- primaryTone — derive from the proposal's subject matter and industry (e.g. "Professional and technical" for IT, "Clinical and precise" for healthcare). Ignore the design spec for this field.
+- heroNarrative — 8-12 words capturing the proposal's core value. Must NOT start with We/Our.
+- industryKeywords — 3-5 keywords for professional stock image searches that match the client's actual industry.
+
+{
+  "clientName": "string — extract from proposal",
+  "clientIndustry": "string — extract from proposal",
+  "clientChallenge": "1 concise sentence extracted from proposal",
+  "proposingCompany": "string — extract from proposal",
+  "proposingStrength": "most impressive credential mentioned in the proposal, 1 sentence",
+  "engagementSummary": "2 sentences summarising the engagement scope from the proposal",
+  "keyOutcomes": ["max 4 concrete outcomes stated in the proposal"],
+  "totalValue": "string — extract from proposal pricing section",
+  "duration": "string — extract from proposal",
+  "primaryTone": "derive from the proposal industry and subject matter",
+  "heroNarrative": "8-12 words capturing the proposal's core value proposition",
+  "industryKeywords": ["3-5 keywords matching the client's actual industry for image searches"]
+}
+
+PROPOSAL:
+${markdown}`;
+}
+
+function buildOverrideSectionPrompt(
+  type: SectionType,
+  heading: string,
+  rawBody: string,
+  brief: string,
+  fullDesignPrompt: string,
+  brandName?: string,
+  aiGenerated = false,
+  diagramSelection?: DiagramSelection | null
+): string {
+  const brandCtx = brandName
+    ? `The proposing company is "${brandName}" — use this name consistently.`
+    : '';
+
+  const generationNote = aiGenerated
+    ? 'NOTE: This section has NO source content — generate it entirely from the proposal brief and the design specification above.'
+    : '';
+
+  let diagramBlock = 'Set "diagram": null for this section.';
+  if (diagramSelection) {
+    diagramBlock = `DIAGRAM REQUIREMENT: Generate a diagram field using type: ${diagramSelection.diagramType.id}
+${diagramSelection.diagramType.isCustomSvg
+  ? 'Output: __CUSTOM_SVG__ followed immediately by valid JSON for this diagram type'
+  : 'Output: raw Mermaid syntax only, no backticks, escape newlines as \\\\n'
+}
+If content is insufficient for this diagram, set diagram to null.`;
+  }
+
+  const sectionSchemas: Record<string, string> = {
+    hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')", "diagram": null }`,
+    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    pricing: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "string", "rows": [["Item", "Value"]], "totalLabel": "string", "footnote": "string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+    testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}] }`,
+    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": null }`,
+    benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}] }`,
+    problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query", "diagram": null }`,
+    stats: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}] }`,
+    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query", "diagram": null }`,
+  };
+
+  const schema = sectionSchemas[type] ?? sectionSchemas.generic;
+
+  return `${fullDesignPrompt}
+
+---
+
+CRITICAL INSTRUCTION: Follow the design specification above EXACTLY and STRICTLY.
+Every word, phrase, tone, style, and personality in the specification above must be reflected in your output.
+DO NOT use default professional/corporate tone. OVERRIDE all defaults.
+
+${brandCtx}
+${generationNote}
+${diagramBlock}
+
+Generate content for the "${heading}" section (type: ${type}).
+
+Brief context: ${brief}
+Source content: ${rawBody || '(No source — generate from brief and design specification above)'}
+
+Return ONLY valid JSON matching this shape. No markdown, no explanation, no code fences:
+${schema}`;
+}
+
+function buildOverrideMarkdownPrompt(
+  sections: Array<{ name: string; content: string }>,
+  fullDesignPrompt: string,
+  designConfig?: Record<string, unknown>
+): string {
+  const sectionBlock = sections
+    .map(s => `### ${s.name}\n${s.content}`)
+    .join('\n\n---\n\n');
+
+  const outputLanguage = (designConfig?.outputLanguage as string) || 'English';
+
+  return `${fullDesignPrompt}
+
+---
+
+CRITICAL: Follow the design specification above EXACTLY for ALL copy.
+Every sentence must reflect the personality, tone, voice, and style described above.
+Override all default corporate/professional tone.
+Output language: ${outputLanguage}
+
+Rewrite this proposal content as polished microsite copy matching the design specification:
+
+${sectionBlock}
+
+Generate microsite copy following the design specification strictly:`;
+}
+
 // ── Agent implementation ─────────────────────────────────────────────────────
 
 export class MicrositeGeneratorAgent implements Agent {
@@ -1838,6 +2031,19 @@ export class MicrositeGeneratorAgent implements Agent {
     const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
     const customInstructions = rawInstructions
       || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.';
+    const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
+    const isFullOverride = fullDesignPrompt.trim().length > 100;
+    if (isFullOverride) {
+      console.log('[MicrositeAgent] FULL OVERRIDE MODE ACTIVE — fullDesignPrompt length:', fullDesignPrompt.length);
+    }
+    let extractedTokens: ExtractedDesignTokens | null = null;
+    if (isFullOverride) {
+      extractedTokens = extractDesignTokens(fullDesignPrompt);
+      console.log('[DesignTokenExtractor] fonts:', extractedTokens.typography.fonts);
+      console.log('[DesignTokenExtractor] backgrounds:', extractedTokens.colors.backgrounds);
+      console.log('[DesignTokenExtractor] accents:', extractedTokens.colors.accents);
+      console.log('[DesignTokenExtractor] googleFontsUrl:', extractedTokens.googleFontsUrl);
+    }
     const designConfig: Record<string, unknown> = {
       ...((meta.designConfig as Record<string, unknown> | undefined) ?? {}),
       ...(customInstructions ? { customInstructions } : {}),
@@ -1925,8 +2131,18 @@ export class MicrositeGeneratorAgent implements Agent {
 
       // Pass 0: Section planning + Pass 1: Brief extraction (parallel — markdown skipped, AST is authoritative)
       const [planResult, briefResult] = await Promise.all([
-        generateTool.run({ query: buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions), content: '' }).catch(() => null),
-        generateTool.run({ query: buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions), content: '' }).catch(() => null),
+        generateTool.run({
+          query: isFullOverride
+            ? buildOverrideSectionPlanPrompt(proposalMarkdown, fullDesignPrompt)
+            : buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions),
+          content: '',
+        }).catch(() => null),
+        generateTool.run({
+          query: isFullOverride
+            ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
+            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
+          content: '',
+        }).catch(() => null),
       ]);
 
       // Parse section plan — handles both new { sections, constraints } format and legacy [] format
@@ -2012,7 +2228,20 @@ export class MicrositeGeneratorAgent implements Agent {
       }
 
       // Markdown is backward-compat only — derive from source sections (no extra LLM call)
-      markdown = this.fallbackMarkdown(sourceSections);
+      // In full override mode, use the design-prompt-aware markdown builder instead.
+      if (isFullOverride) {
+        try {
+          const mdResult = await generateTool.run({
+            query: buildOverrideMarkdownPrompt(sourceSections, fullDesignPrompt, designConfig),
+            content: '',
+          });
+          markdown = mdResult.text?.trim() || this.fallbackMarkdown(sourceSections);
+        } catch {
+          markdown = this.fallbackMarkdown(sourceSections);
+        }
+      } else {
+        markdown = this.fallbackMarkdown(sourceSections);
+      }
 
       // Hard-trim markdown sections to explicit count — LLMs ignore section count instructions
       if (customInstructions) {
@@ -2151,7 +2380,19 @@ export class MicrositeGeneratorAgent implements Agent {
             const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
             const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
             console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
-            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
+            const diagramSelection = diagramSel;
+            const prompt = isFullOverride
+              ? buildOverrideSectionPrompt(
+                  s.type,
+                  s.heading,
+                  s.rawBody ?? '',
+                  briefStr,
+                  fullDesignPrompt,
+                  brandName,
+                  s.aiGenerated ?? false,
+                  diagramSelection
+                )
+              : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
             try {
               const result = await generateTool!.run({ query: prompt, content: '' });
               const parsed = safeParseJSON(result.text ?? '') ?? {};
@@ -2212,6 +2453,8 @@ export class MicrositeGeneratorAgent implements Agent {
         layoutAST = {
           proposalId: namespace,
           generatedAt: new Date().toISOString(),
+          generationMode: isFullOverride ? 'full-design-prompt-override' : 'default',
+          fullDesignPromptUsed: isFullOverride,
           meta: this.extractMeta(proposalMarkdown),
           brief,
           brand: {
@@ -2280,6 +2523,23 @@ export class MicrositeGeneratorAgent implements Agent {
         // Apply design overrides from parsed command (plugin swap, section layouts, image style, typography, accent color)
         if (layoutAST) {
           applyDesignOverrides(layoutAST as Record<string, unknown>, parsedCommand.designOverrides);
+        }
+        // Merge extracted design tokens into brand when fullDesignPrompt was provided
+        if (extractedTokens && layoutAST) {
+          const ast = layoutAST as Record<string, unknown>;
+          const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
+          ast.brand = {
+            ...existingBrand,
+            overrideTheme: true,
+            extractedCssVariables: extractedTokens.cssVariables,
+            googleFontsUrl: extractedTokens.googleFontsUrl,
+            fontFaceDeclarations: extractedTokens.fontFaceDeclarations,
+            animationStyle: extractedTokens.components.animationStyle,
+            gradientsEnabled: extractedTokens.components.gradients,
+            decorativeEnabled: extractedTokens.components.decorativeElements,
+            borderRadiusStyle: extractedTokens.components.borderRadius,
+            themeClass: extractedTokens.themeClass,
+          };
         }
       }
     } else {

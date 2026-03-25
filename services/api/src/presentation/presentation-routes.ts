@@ -377,6 +377,7 @@ export function registerPresentationRoutes(
       plugin?: string;
       brand?: Record<string, unknown>;
       customInstructions?: string;
+      fullDesignPrompt?: string;
       designBrief?: string;
       preSynthesizedDesignSystem?: Record<string, unknown>;
     } | undefined;
@@ -414,6 +415,7 @@ export function registerPresentationRoutes(
           plugin: body?.plugin ?? 'cobalt',
           brand: body?.brand ?? {},
           ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
           // Streaming callback — fires after each section's LLM call completes
