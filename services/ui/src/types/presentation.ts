@@ -371,6 +371,8 @@ export interface LayoutSection {
   };
   /** Optional per-section background color override (set via inline editor) */
   bgColor?: string;
+  /** Optional embedded media (YouTube, Loom, or custom iframe) */
+  embed?: { url: string; title?: string };
   editable: boolean;
   version: number;
 }

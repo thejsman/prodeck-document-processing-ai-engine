@@ -678,6 +678,109 @@ function LayoutVariantPanel({
   );
 }
 
+// ── Embed media panel ─────────────────────────────────────────────────────────
+
+function EmbedPanel({ section, onClose }: { section: LayoutSection; onClose: () => void }) {
+  const ctx = useEditContext()!;
+  const [url, setUrl] = useState((section.embed?.url) ?? '');
+  const [title, setTitle] = useState((section.embed?.title) ?? '');
+
+  function detectType(u: string): string {
+    if (u.match(/youtube\.com|youtu\.be/)) return 'YouTube';
+    if (u.match(/loom\.com/)) return 'Loom';
+    if (u.startsWith('http')) return 'Iframe';
+    return '';
+  }
+
+  function handleSave() {
+    if (!url.trim()) {
+      // Remove embed
+      const sections = ctx.ast.sections.map(sec =>
+        sec.id === section.id ? { ...sec, embed: undefined } : sec
+      ) as typeof ctx.ast.sections;
+      ctx.replaceAst({ ...ctx.ast, sections });
+    } else {
+      const sections = ctx.ast.sections.map(sec =>
+        sec.id === section.id ? { ...sec, embed: { url: url.trim(), title: title.trim() || undefined } } : sec
+      ) as typeof ctx.ast.sections;
+      ctx.replaceAst({ ...ctx.ast, sections });
+    }
+    onClose();
+  }
+
+  const detected = detectType(url);
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: '100%',
+      left: 0,
+      zIndex: 25000,
+      marginTop: 6,
+      background: '#fff',
+      borderRadius: 10,
+      boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+      border: '1px solid #e2e8f0',
+      padding: 14,
+      width: 320,
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+    }}>
+      <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#1e293b' }}>📎 Embed Media</p>
+      <p style={{ margin: '0 0 10px', fontSize: 11, color: '#94a3b8' }}>Paste a YouTube, Loom, or any iframe URL</p>
+
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>URL</label>
+        <input
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="https://www.youtube.com/watch?v=..."
+          style={{
+            width: '100%', padding: '7px 10px', borderRadius: 6,
+            border: '1px solid #e2e8f0', fontSize: 12, outline: 'none',
+            boxSizing: 'border-box',
+          }}
+        />
+        {detected && (
+          <p style={{ margin: '4px 0 0', fontSize: 10, color: '#6366f1', fontWeight: 600 }}>✓ Detected: {detected}</p>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Caption (optional)</label>
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Video title or description"
+          style={{
+            width: '100%', padding: '7px 10px', borderRadius: 6,
+            border: '1px solid #e2e8f0', fontSize: 12, outline: 'none',
+            boxSizing: 'border-box',
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          onClick={handleSave}
+          style={{
+            flex: 1, padding: '7px', borderRadius: 6, border: 'none',
+            background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >{url.trim() ? 'Embed' : 'Remove'}</button>
+        <button
+          onClick={onClose}
+          style={{
+            padding: '7px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
+            background: '#fff', color: '#64748b', fontSize: 11, fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main overlay ──────────────────────────────────────────────────────────────
 
 interface Props {
@@ -689,7 +792,7 @@ interface Props {
 
 const ACCENT = '#6366f1';
 
-type ActivePanel = 'bg' | 'diagram' | 'layout' | 'icon' | null;
+type ActivePanel = 'bg' | 'diagram' | 'layout' | 'icon' | 'embed' | null;
 
 export function SectionEditOverlay({ section, sectionIndex, totalSections, children }: Props) {
   const ctx = useEditContext();
@@ -816,6 +919,14 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             )}
           </div>
 
+          {/* Embed media */}
+          <div style={{ position: 'relative' }}>
+            {toolbarBtn(section.embed?.url ? '📎 Embedded' : '📎 Embed', 'embed')}
+            {activePanel === 'embed' && (
+              <EmbedPanel section={section} onClose={() => setActivePanel(null)} />
+            )}
+          </div>
+
           {/* Layout variant (hero only) */}
           {section.sectionType === 'hero' && (
             <div style={{ position: 'relative' }}>
@@ -860,6 +971,30 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
               }}
               title="Move section down"
             >↓</button>
+          )}
+
+          {/* Delete section */}
+          {totalSections > 1 && (
+            <button
+              onClick={() => {
+                if (confirm(`Delete "${section.sectionType}" section? This can be undone with Ctrl+Z.`)) {
+                  ctx.removeSection(section.id);
+                }
+              }}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 100,
+                border: 'none',
+                background: 'rgba(254,226,226,0.95)',
+                color: '#dc2626',
+                fontSize: 12,
+                cursor: 'pointer',
+                backdropFilter: 'blur(8px)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                fontWeight: 700,
+              }}
+              title="Delete section"
+            >✕</button>
           )}
         </div>
       )}

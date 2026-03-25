@@ -284,7 +284,7 @@ export function HeroSection({
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={container}>
-          <div style={{
+          <div className="ms-split" style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
             gap: 'clamp(2.5rem, 5vw, 4rem)',
@@ -302,7 +302,6 @@ export function HeroSection({
             </div>
           </div>
         </div>
-        <style>{`@media(max-width:768px){#hero-split-grid{grid-template-columns:1fr!important}}`}</style>
       </section>
     );
   }
@@ -323,7 +322,7 @@ export function HeroSection({
           zIndex: 4,
         }} />
         <div style={container}>
-          <div style={{
+          <div className="ms-split" style={{
             display: 'grid',
             gridTemplateColumns: '3fr 2fr',
             gap: 'clamp(2.5rem, 5vw, 4rem)',
@@ -343,7 +342,6 @@ export function HeroSection({
             <div>{glassCard}</div>
           </div>
         </div>
-        <style>{`@media(max-width:768px){.ms-asym-grid{grid-template-columns:1fr!important}}`}</style>
       </section>
     );
   }
@@ -436,7 +434,7 @@ export function HeroSection({
           )}
           {cards.length > 0 && (
             <R delay={180}>
-              <div style={{
+              <div className="ms-grid-3" style={{
                 display: 'grid',
                 gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, 1fr)`,
                 gap: 'clamp(1rem, 2.5vw, 1.5rem)',

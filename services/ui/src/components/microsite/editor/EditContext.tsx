@@ -37,6 +37,8 @@ export interface EditContextValue {
   removeArrayItem: (sectionId: string, arrayPath: string, index: number) => void;
   moveArrayItem: (sectionId: string, arrayPath: string, from: number, to: number) => void;
   updateSection: (sectionId: string, newContent: unknown) => void;
+  addSection: (afterIndex: number, newSection: LayoutAST['sections'][number]) => void;
+  removeSection: (sectionId: string) => void;
   undo: () => void;
   redo: () => void;
 }
@@ -267,6 +269,33 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     [notify],
   );
 
+  const addSection = useCallback(
+    (afterIndex: number, newSection: LayoutAST['sections'][number]) => {
+      setAst(prev => {
+        snapshot(prev);
+        const sections = [...prev.sections];
+        sections.splice(afterIndex + 1, 0, newSection);
+        const next: LayoutAST = { ...prev, sections: sections as typeof prev.sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
+  const removeSection = useCallback(
+    (sectionId: string) => {
+      setAst(prev => {
+        snapshot(prev);
+        const sections = prev.sections.filter(sec => sec.id !== sectionId) as typeof prev.sections;
+        const next: LayoutAST = { ...prev, sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
   // Suppress unused warning — historyVersion only drives canUndo/canRedo re-render
   void historyVersion;
 
@@ -288,6 +317,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         removeArrayItem,
         moveArrayItem,
         updateSection,
+        addSection,
+        removeSection,
         undo,
         redo,
       }}

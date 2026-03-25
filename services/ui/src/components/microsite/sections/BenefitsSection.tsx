@@ -48,7 +48,7 @@ export function BenefitsSection({ content, tokens }: Props) {
           </InlineEditable>
         </Reveal>
 
-        <div style={{
+        <div className="ms-grid-3" style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
           gap: 'clamp(1rem, 2.5vw, 2rem)',

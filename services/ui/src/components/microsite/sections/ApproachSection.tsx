@@ -76,6 +76,7 @@ export function ApproachSection({ content, tokens, index }: Props) {
 
         {/* Pillar cards */}
         <div
+          className="ms-grid-auto"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",

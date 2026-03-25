@@ -54,6 +54,7 @@ export function DeliverablesSection({ content, tokens, index }: Props) {
         </Reveal>
 
         <div
+          className="ms-grid-auto"
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',

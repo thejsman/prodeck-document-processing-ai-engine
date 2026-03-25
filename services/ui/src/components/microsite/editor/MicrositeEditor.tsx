@@ -197,6 +197,14 @@ function QuickThemePanel({
 
 // ── Inner editor (inside provider) ────────────────────────────────────────
 
+type Viewport = 'desktop' | 'tablet' | 'mobile';
+
+const VIEWPORT_OPTIONS: { id: Viewport; label: string; icon: string; width: string }[] = [
+  { id: 'desktop', label: 'Desktop', icon: '🖥', width: '100%' },
+  { id: 'tablet',  label: 'Tablet',  icon: '💻', width: '768px' },
+  { id: 'mobile',  label: 'Mobile',  icon: '📱', width: '375px' },
+];
+
 interface InnerProps {
   onClose: () => void;
   onExport: (editedAst: LayoutAST) => void;
@@ -210,6 +218,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [viewport, setViewport] = useState<Viewport>('desktop');
   const themeBtnRef = useRef<HTMLDivElement>(null);
 
   const currentTheme = THEME_REGISTRY.find(t => t.id === ctx.ast.plugin);
@@ -275,6 +284,29 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
         {/* Right: action buttons */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+
+          {/* Viewport toggle */}
+          <div style={{ display: 'flex', gap: 1, background: '#f1f5f9', borderRadius: 7, padding: 2, marginRight: 4 }}>
+            {VIEWPORT_OPTIONS.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setViewport(opt.id)}
+                title={opt.label}
+                style={{
+                  width: 28, height: 26,
+                  borderRadius: 5,
+                  border: 'none',
+                  background: viewport === opt.id ? '#fff' : 'transparent',
+                  color: viewport === opt.id ? '#6366f1' : '#94a3b8',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: viewport === opt.id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >{opt.icon}</button>
+            ))}
+          </div>
 
           {/* Undo / Redo */}
           <div style={{ display: 'flex', gap: 2, marginRight: 4 }}>
@@ -379,9 +411,29 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         </div>
       </div>
 
-      {/* Full-width canvas */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <EditorCanvas />
+      {/* Canvas with viewport simulation */}
+      <div style={{
+        flex: 1,
+        overflow: 'hidden',
+        display: 'flex',
+        justifyContent: 'center',
+        background: viewport !== 'desktop' ? '#e2e8f0' : '#f1f5f9',
+        transition: 'background 0.2s',
+        padding: viewport !== 'desktop' ? '16px 0' : 0,
+      }}>
+        <div style={{
+          width: VIEWPORT_OPTIONS.find(v => v.id === viewport)?.width ?? '100%',
+          maxWidth: viewport === 'desktop' ? '100%' : undefined,
+          height: viewport !== 'desktop' ? 'calc(100% - 0px)' : '100%',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          boxShadow: viewport !== 'desktop' ? '0 4px 32px rgba(0,0,0,0.22)' : 'none',
+          borderRadius: viewport !== 'desktop' ? 12 : 0,
+          transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
+          flexShrink: 0,
+        }}>
+          <EditorCanvas />
+        </div>
       </div>
 
       {/* Publish modal */}
