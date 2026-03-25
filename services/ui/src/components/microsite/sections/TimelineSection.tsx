@@ -28,10 +28,6 @@ export function TimelineSection({ content, tokens, index, sectionId }: Props) {
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div style={{ position: 'absolute', right: '-3%', top: '10%', fontFamily: `'${tokens.heroFont}', serif`, fontSize: 'clamp(8rem, 18vw, 16rem)', fontWeight: tokens.heroWeight, color: tokens.text, opacity: 0.02, lineHeight: 1, pointerEvents: 'none', zIndex: 1 }}>
-        {String(index + 1).padStart(2, '0')}
-      </div>
-
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
           <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
@@ -60,14 +56,12 @@ export function TimelineSection({ content, tokens, index, sectionId }: Props) {
         )}
 
         {content.diagram && (
-          <div style={{ marginBottom: 'clamp(2.5rem, 4vw, 3rem)' }}>
-            <ThemedMermaid
-              diagram={content.diagram}
-              tokens={tokens}
-              delay={240}
-              caption="Project schedule"
-            />
-          </div>
+          <ThemedMermaid
+            diagram={content.diagram}
+            tokens={tokens}
+            delay={240}
+            caption="Project schedule"
+          />
         )}
 
         {/* Timeline track */}

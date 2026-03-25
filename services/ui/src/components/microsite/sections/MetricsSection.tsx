@@ -14,7 +14,7 @@ interface Props {
   index: number;
 }
 
-export function MetricsSection({ content, tokens, index }: Props) {
+export function MetricsSection({ content, tokens }: Props) {
   return (
     <section
       id="metrics"
@@ -27,23 +27,6 @@ export function MetricsSection({ content, tokens, index }: Props) {
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div
-        style={{
-          position: 'absolute',
-          right: '-3%',
-          top: '5%',
-          fontFamily: `'${tokens.heroFont}', serif`,
-          fontSize: 'clamp(8rem, 18vw, 16rem)',
-          fontWeight: tokens.heroWeight,
-          color: tokens.text,
-          opacity: 0.02,
-          lineHeight: 1,
-          pointerEvents: 'none',
-          zIndex: 1,
-        }}
-      >
-        {String(index + 1).padStart(2, '0')}
-      </div>
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
@@ -62,8 +45,8 @@ export function MetricsSection({ content, tokens, index }: Props) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: 'clamp(1.5rem, 3vw, 2rem)',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 'clamp(2rem, 4vw, 3rem)',
             marginBottom: 'clamp(2.5rem, 5vw, 4rem)',
           }}
         >
@@ -74,9 +57,11 @@ export function MetricsSection({ content, tokens, index }: Props) {
                   style={{
                     fontFamily: `'${tokens.heroFont}', serif`,
                     fontWeight: tokens.heroWeight,
-                    fontSize: 'clamp(2rem, 5vw, 3rem)',
+                    fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)',
                     color: tokens.accent,
-                    lineHeight: 1,
+                    lineHeight: 1.15,
+                    wordBreak: 'break-word',
+                    overflowWrap: 'break-word',
                     marginBottom: 8,
                   }}
                 >

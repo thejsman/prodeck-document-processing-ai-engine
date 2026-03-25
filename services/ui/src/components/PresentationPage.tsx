@@ -1012,7 +1012,7 @@ export function PresentationPage() {
           {/* ═══ STEP 3: CHOOSE STYLE ═══ */}
           {step === 'plugin' && (
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
 
                 {/* ── Default 4 theme cards — same ThemePreviewCard as expanded panel ── */}
                 {THEME_REGISTRY.filter(t => DEFAULT_PLUGIN_IDS.includes(t.id)).map(theme => (
@@ -1022,6 +1022,7 @@ export function PresentationPage() {
                     selected={selectedPlugin === theme.id}
                     onSelect={handleSelectPlugin}
                     onPreview={handlePreview}
+                    size="default"
                   />
                 ))}
 

@@ -34,23 +34,6 @@ export function ApproachSection({ content, tokens, index, sectionId }: Props) {
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div
-        style={{
-          position: "absolute",
-          right: "-3%",
-          top: "5%",
-          fontFamily: `'${tokens.heroFont}', serif`,
-          fontSize: "clamp(8rem, 18vw, 16rem)",
-          fontWeight: tokens.heroWeight,
-          color: tokens.text,
-          opacity: 0.02,
-          lineHeight: 1,
-          pointerEvents: "none",
-          zIndex: 1,
-        }}
-      >
-        {String(index + 1).padStart(2, "0")}
-      </div>
 
       <div
         style={{
@@ -166,14 +149,12 @@ export function ApproachSection({ content, tokens, index, sectionId }: Props) {
         )}
 
         {content.diagram && (
-          <div style={{ marginTop: "clamp(2.5rem, 5vw, 4rem)" }}>
-            <ThemedMermaid
-              diagram={content.diagram}
-              tokens={tokens}
-              delay={240 + (content.pillars?.length ?? 3) * 80 + 80}
-              caption="Methodology overview"
-            />
-          </div>
+          <ThemedMermaid
+            diagram={content.diagram}
+            tokens={tokens}
+            delay={240 + (content.pillars?.length ?? 3) * 80 + 80}
+            caption="Methodology overview"
+          />
         )}
       </div>
     </section>

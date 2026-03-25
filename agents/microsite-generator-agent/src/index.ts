@@ -15,6 +15,7 @@
  */
 
 import type { Agent, AgentInput, AgentOutput, ToolRegistry } from '@ai-engine/core';
+import { selectBestDiagram, type DiagramSelection } from './diagramDetector.js';
 
 // ── Section type classification (mirrors UI types) ───────────────────────────
 
@@ -944,6 +945,24 @@ function buildSectionRulesContext(type: SectionType, rules: Record<string, unkno
   return `\n\n━━ SECTION DESIGN RULES — ${type.toUpperCase()} (user-specified, NON-NEGOTIABLE) ━━\n${parts.map(p => `• ${p}`).join('\n')}`;
 }
 
+// ── Custom SVG diagram prompt builder ─────────────────────────────────────────
+
+function buildCustomSvgPrompt(typeId: string, _rawBody: string, _brief: string): string {
+  if (typeId === 'orbital') {
+    return `Extract the central system and 3-4 connected satellite systems from the content.
+Return ONLY this JSON string prefixed with __CUSTOM_SVG__ (no markdown, no backticks):
+__CUSTOM_SVG__{"type":"orbital","center":{"title":"Core System Name","subtitle":"What it does"},"satellites":[{"title":"System 1","description":"What it does","position":"top-left"},{"title":"System 2","description":"What it does","position":"top-right"},{"title":"System 3","description":"What it does","position":"bottom-left"}]}
+Use REAL system names from the content. Max 4 satellites. Descriptions max 8 words.`;
+  }
+  if (typeId === 'puzzle') {
+    return `Extract exactly 4 key architectural components from the content.
+Return ONLY this JSON string prefixed with __CUSTOM_SVG__ (no markdown, no backticks):
+__CUSTOM_SVG__{"type":"puzzle","pieces":[{"title":"Component 1","iconType":"gateway","position":"top-left","labelSide":"left"},{"title":"Component 2","iconType":"monitor","position":"top-right","labelSide":"right"},{"title":"Component 3","iconType":"stream","position":"bottom-left","labelSide":"left"},{"title":"Component 4","iconType":"storage","position":"bottom-right","labelSide":"right"}],"backgroundStyle":"gradient"}
+Always 4 pieces. Choose iconType matching the component purpose. Use REAL component names from content.`;
+  }
+  return '';
+}
+
 export function buildSectionPrompt(
   type: SectionType,
   heading: string,
@@ -962,6 +981,7 @@ export function buildSectionPrompt(
   globalInstruction?: string,
   sectionInstruction?: string,
   proposalMarkdown?: string,
+  diagramSelection?: DiagramSelection | null,
 ): string {
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
   const brandCtx = brandName ? ` The proposing company is "${brandName}" — use this name consistently in copy.` : '';
@@ -980,7 +1000,27 @@ export function buildSectionPrompt(
   const instructionPrefix = activeInstruction
     ? `⚡⚡⚡ SECTION INSTRUCTION — HIGHEST PRIORITY — APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${activeInstruction}\n⚡⚡⚡ END SECTION INSTRUCTION ⚡⚡⚡\n\n`
     : '';
-  const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. If you cannot make a meaningful diagram from the content, set "diagram": null. Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+
+  // Build concise diagram field instruction (replaces verbose Gamma prompt to avoid LLM confusion)
+  const isCustomSvgDiagram = diagramSelection?.diagramType.isCustomSvg === true;
+
+  let diagramBlock: string | null = null;
+  if (diagramSelection) {
+    if (isCustomSvgDiagram) {
+      const customPrompt = buildCustomSvgPrompt(diagramSelection.diagramType.id, rawBody ?? '', brief ?? '');
+      diagramBlock = `[DIAGRAM FIELD — CUSTOM SVG] For the "diagram" field only: ${customPrompt}`;
+    } else {
+      diagramBlock = `[DIAGRAM FIELD] For the "diagram" field only: Use ${diagramSelection.diagramType.mermaidDirective} syntax (${diagramSelection.diagramType.label}). First line MUST be exactly: ${diagramSelection.diagramType.mermaidDirective}. Node/item labels: plain text only, NO double quotes inside brackets — write A[Frontend] not A["Frontend"]. Max ${diagramSelection.diagramType.maxNodes} nodes. Return as a single JSON string with newlines escaped as \\\\n.`;
+    }
+  }
+
+  const mermaidRules = diagramBlock
+    ? (isCustomSvgDiagram
+        ? `CUSTOM DIAGRAM: Include the "diagram" field. ${diagramBlock}`
+        : `MERMAID: Include the "diagram" field. ${diagramBlock}`)
+    : `MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. Node labels: plain text only, NO double quotes inside brackets. If you cannot make a meaningful diagram from the content, set "diagram": null.`;
+
+  const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
   const fallbackContext = proposalMarkdown
@@ -1004,6 +1044,7 @@ Transform into a Hero section. Return:
   "ctaTarget": "section type to scroll to on primary CTA tap — from SECTION DESIGN RULES if specified, else null",
   "ctaSecondaryTarget": "section type to scroll to on secondary CTA tap — from SECTION DESIGN RULES if specified, else null",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene matching this industry and proposal tone. Describe subject, lighting, mood, color palette. e.g. 'Dark futuristic server room corridor with blue and purple holographic data streams, dramatic cinematic lighting, 4K professional photography'",
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1019,7 +1060,7 @@ Transform into a Challenge section. Return:
   "body": "2-3 sentences, real stakes, what if nothing changes",
   "pullquote": "sharpest insight, 10-18 words, standalone quote",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "optional graph TD showing causal chain/impact cascade (max 4 nodes). Only include if content has a clear cause→effect chain. Otherwise null.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'optional graph TD showing causal chain/impact cascade (max 4 nodes). Only include if content has a clear cause→effect chain. Otherwise null.'}",
   ${meta}
 }`,
 
@@ -1035,7 +1076,7 @@ Transform into an Approach section with pillars. Return:
   "subheadline": "1-2 sentences",
   "pillars": [{"iconHint": "identity|digital|content|strategy|research|launch", "name": "2-4 words", "description": "2 sentences, specific outcomes"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "graph LR showing the methodology as a process flow. Nodes = pillar names (2-3 words each). Max 5 nodes connected with -->. Example: graph LR\\n  A[Discover] --> B[Design] --> C[Build] --> D[Launch]. Always include this field.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing the methodology as a process flow. Nodes = pillar names (2-3 words each). Max 5 nodes connected with -->. Example: graph LR\\n  A[Discover] --> B[Design] --> C[Build] --> D[Launch]. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1050,6 +1091,7 @@ Transform into a Deliverables section. Return:
   "headline": "8-12 words",
   "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "2-5 words", "detail": "1 sentence, what it enables"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1065,7 +1107,7 @@ Transform into a Timeline section. Use EXACT phase names and durations from the 
   "subheadline": "1-2 sentences",
   "phases": [{"label": "from raw data", "duration": "e.g. 2 weeks", "name": "2-4 words", "description": "1 sentence, activity + outcome"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "gantt chart. Format: gantt\\n  title Project Schedule\\n  dateFormat YYYY-MM-DD\\n  section Phase 1\\n  PhaseName :a1, 2026-01-01, 14d\\n  section Phase 2\\n  PhaseName :a2, after a1, 14d. Always include if 2+ phases exist.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'gantt chart. Format: gantt\\n  title Project Schedule\\n  dateFormat YYYY-MM-DD\\n  section Phase 1\\n  PhaseName :a1, 2026-01-01, 14d\\n  section Phase 2\\n  PhaseName :a2, after a1, 14d. Always include if 2+ phases exist.'}",
   ${meta}
 }`,
 
@@ -1104,7 +1146,7 @@ Transform into a Why Us section. Return:
   "body": "2-3 sentences",
   "stats": [{"number": "from content", "label": "2-4 words", "context": "1 short sentence"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "optional pie chart if stats suggest a meaningful distribution. Format: pie title Label\\n  \\"Category A\\" : 60\\n  \\"Category B\\" : 30. Only include if a clear distribution is evident. Otherwise null.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'optional pie chart if stats suggest a meaningful distribution. Format: pie title Label\\n  \\"Category A\\" : 60\\n  \\"Category B\\" : 30. Only include if a clear distribution is evident. Otherwise null.'}",
   ${meta}
 }`,
 
@@ -1122,6 +1164,7 @@ Transform into a Next Steps section. Return:
   "ctaSecondary": "3-4 words — empty string if constraints say no CTA",
   "urgencyNote": "string or null",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1158,6 +1201,7 @@ Transform into a Showcase section — a visual feature spotlight. Return:
   "body": "2-3 sentences, the 'so what' — impact and differentiation",
   "highlights": ["3-5 short feature pills, 3-6 words each, noun phrases"],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene that visually represents this feature or capability. Striking, dramatic, high-detail. e.g. 'Abstract digital architecture with neon blue geometric shapes, dark background, ultra-detailed'",
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1177,6 +1221,7 @@ Transform into a Benefits section — a focused icon list of value propositions.
       "description": "1-2 sentences, concrete and specific — what does the client actually get?"
     }
   ],
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1192,6 +1237,7 @@ Transform into a Problem section — sharper and more urgent than a challenge se
   "body": "2-3 sentences, make the cost of inaction visceral and concrete",
   "painPoints": ["3-5 pain points, each 6-12 words, start with a verb or cost noun — specific, not vague"],
   "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1211,6 +1257,7 @@ Transform into a Stats section — a standalone impact metrics row. Return:
       "context": "1 short sentence explaining what this means"
     }
   ],
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1231,6 +1278,7 @@ Transform into a Metrics section — a standalone performance KPIs row with scal
     }
   ],
   "strategies": ["3-5 scaling strategies, each 5-10 words, start with a verb"],
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1250,7 +1298,7 @@ Transform into a Security section. Return:
       "description": "1-2 sentences, what it protects and how"
     }
   ],
-  "diagram": "graph TD showing security layers top-to-bottom. Example: graph TD\\n  A[Identity & Access] --> B[Encryption]\\n  B --> C[Network Security]\\n  C --> D[Compliance & Audit]. Use item names as node labels. Always include this field.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph TD showing security layers top-to-bottom. Example: graph TD\\n  A[Identity & Access] --> B[Encryption]\\n  B --> C[Network Security]\\n  C --> D[Compliance & Audit]. Use item names as node labels. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1270,7 +1318,7 @@ Transform into a Tech Stack section. Return:
       "items": ["2-5 technology names in this category"]
     }
   ],
-  "diagram": "graph LR showing tech stack layers left-to-right. Example: graph LR\\n  A[Frontend] --> B[Backend]\\n  B --> C[Database]\\n  C --> D[Cloud / Infra]. Use category names as node labels. Max 5 nodes. Always include this field.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing tech stack layers left-to-right. Example: graph LR\\n  A[Frontend] --> B[Backend]\\n  B --> C[Database]\\n  C --> D[Cloud / Infra]. Use category names as node labels. Max 5 nodes. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1297,7 +1345,7 @@ Transform into a Testing & Quality section. Return:
       "body": "1-2 sentences"
     }
   ],
-  "diagram": "graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.",
+  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1313,6 +1361,7 @@ Transform into a website section. Return:
   "headline": "8-12 words, compelling rewrite of '${heading}'",
   "body": "2-4 sentences, rewritten content",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
+  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
   };
@@ -1345,6 +1394,22 @@ function repairLiteralNewlines(json: string): string {
   return out;
 }
 
+/**
+ * Nullifies the "diagram" field value in a JSON string so the rest can be parsed.
+ * Handles cases where the LLM emits unescaped double quotes inside the diagram string
+ * (e.g. A["Label"]) which makes the JSON structurally invalid.
+ */
+function stripDiagramField(json: string): string {
+  // Preserve custom SVG diagram fields — only nullify standard mermaid fields with broken quotes
+  if (json.includes('__CUSTOM_SVG__')) {
+    return json.replace(/"diagram"\s*:\s*"(?:[^"\\]|\\.)*"/, (match) => {
+      if (match.includes('__CUSTOM_SVG__')) return match;
+      return '"diagram": null';
+    });
+  }
+  return json.replace(/"diagram"\s*:\s*"(?:[^"\\]|\\.)*"/, '"diagram": null');
+}
+
 function safeParseJSON(text: string): Record<string, unknown> | null {
   const stripped = text.trim()
     .replace(/^```(?:json)?\s*/i, '')
@@ -1366,6 +1431,13 @@ function safeParseJSON(text: string): Record<string, unknown> | null {
     try {
       return JSON.parse(repairLiteralNewlines(block)) as Record<string, unknown>;
     } catch { /* fall through */ }
+    // Last resort: diagram field has unescaped quotes — nullify it and retry
+    try {
+      const withoutDiagram = stripDiagramField(block);
+      if (withoutDiagram !== block) {
+        return JSON.parse(repairLiteralNewlines(withoutDiagram)) as Record<string, unknown>;
+      }
+    } catch { /* fall through */ }
   }
   return null;
 }
@@ -1375,8 +1447,12 @@ function safeParseJSON(text: string): Record<string, unknown> | null {
 function normalizeDiagram(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) return undefined;
 
+  // 0. Pass through custom SVG diagram data unchanged
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('__CUSTOM_SVG__')) return trimmed;
+
   // 1. Strip markdown code fences
-  let s = raw.trim()
+  let s = trimmed
     .replace(/^```(?:mermaid)?\s*/i, '')
     .replace(/\s*```$/, '')
     .trim();
@@ -1964,7 +2040,7 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
-      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','generic']);
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
@@ -2073,7 +2149,9 @@ export class MicrositeGeneratorAgent implements Agent {
             const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
             const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
             const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
-            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown);
+            const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
+            console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
+            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
             try {
               const result = await generateTool!.run({ query: prompt, content: '' });
               const parsed = safeParseJSON(result.text ?? '') ?? {};
@@ -2094,7 +2172,16 @@ export class MicrositeGeneratorAgent implements Agent {
                   (parsed.ui as Record<string, unknown>).showCTA = false;
                 }
               }
-              return { id, heading: s.heading, type: s.type, content: parsed };
+              const diagramMeta = diagramSel ? {
+                typeId: diagramSel.diagramType.id,
+                typeLabel: diagramSel.diagramType.label,
+                category: diagramSel.diagramType.category,
+                confidence: diagramSel.confidence,
+                matchedKeywords: diagramSel.matchedKeywords,
+                score: diagramSel.score,
+                isCustomSvg: diagramSel.diagramType.isCustomSvg ?? false,
+              } : null;
+              return { id, heading: s.heading, type: s.type, content: parsed, diagramMeta };
             } catch (err) {
               console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
               return {
@@ -2107,6 +2194,7 @@ export class MicrositeGeneratorAgent implements Agent {
                   body: s.rawBody.split('\n').slice(0, 3).join(' ').slice(0, 200),
                   imageQuery: `business ${s.heading.toLowerCase()} professional`,
                 },
+                diagramMeta: null,
               };
             }
           }),
@@ -2177,6 +2265,7 @@ export class MicrositeGeneratorAgent implements Agent {
               heading: sr.heading,
               sectionType: sr.type,
               content: sr.content,
+              diagramMeta: (sr as { diagramMeta?: unknown }).diagramMeta ?? null,
               image: {
                 source: (hasImage ? 'loremflickr' : 'gradient') as 'loremflickr' | 'gradient',
                 query: imageQuery,

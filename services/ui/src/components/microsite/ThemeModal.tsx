@@ -160,15 +160,22 @@ export function ThemeModal({ selectedPlugin, onSelect, onPreview, onClose }: Pro
 
         {/* ── Body — scrollable ──────────────────────────────── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+          <style>{`
+            @media (max-width: 700px) { ._tm_grid { grid-template-columns: repeat(3, 1fr) !important; } }
+            @media (max-width: 480px) { ._tm_grid { grid-template-columns: repeat(2, 1fr) !important; } }
+          `}</style>
           <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--color-text-muted)' }}>
             {filteredThemes.length}{' '}
             {activeCategory === 'all' ? 'themes' : `${activeCategory} themes`}
           </p>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 16,
-          }}>
+          <div
+            className="_tm_grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 12,
+            }}
+          >
             {filteredThemes.map(theme => (
               <ThemePreviewCard
                 key={theme.id}
@@ -176,6 +183,7 @@ export function ThemeModal({ selectedPlugin, onSelect, onPreview, onClose }: Pro
                 selected={highlightedId === theme.id}
                 onSelect={setHighlightedId}
                 onPreview={onPreview}
+                size="modal"
               />
             ))}
           </div>

@@ -19,11 +19,16 @@ import { ShowcaseSection } from './sections/ShowcaseSection';
 import { BenefitsSection } from './sections/BenefitsSection';
 import { ProblemSection } from './sections/ProblemSection';
 import { StatsSection } from './sections/StatsSection';
+import { MetricsSection } from './sections/MetricsSection';
+import { SecuritySection } from './sections/SecuritySection';
+import { TechStackSection } from './sections/TechStackSection';
+import { TestingSection } from './sections/TestingSection';
 
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
 import { SectionIdProvider } from './editor/SectionIdContext';
 import { useAuth } from '../../lib/auth-context';
+import { isSectionEmpty } from '../../lib/sectionUtils';
 
 import type {
   HeroContent,
@@ -40,6 +45,10 @@ import type {
   BenefitsContent,
   ProblemContent,
   StatsContent,
+  MetricsContent,
+  SecurityContent,
+  TechStackContent,
+  TestingContent,
 } from '../../types/presentation';
 
 /** Unique stable DOM id for the fullscreen scroll container */
@@ -169,6 +178,18 @@ function renderSection(
       break;
     case 'stats':
       inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'metrics':
+      inner = <MetricsSection content={section.content as MetricsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'security':
+      inner = <SecuritySection content={section.content as SecurityContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'techstack':
+      inner = <TechStackSection content={section.content as TechStackContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'testing':
+      inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
       break;
     default:
       inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
@@ -427,7 +448,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
 
       {/* Sections */}
       <div ref={contentRef}>
-        {(ast.sections ?? []).map((section, i) => (
+        {(ast.sections ?? []).filter(s => !isSectionEmpty(s)).map((section, i) => (
           <SectionWithOverlay
             key={section.id}
             section={section}

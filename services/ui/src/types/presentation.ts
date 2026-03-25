@@ -131,6 +131,7 @@ export interface HeroContent {
   imageQuery: string;
   ctaTarget?: string;           // section type or slug to scroll to on primary CTA tap
   ctaSecondaryTarget?: string;  // section type or slug for secondary CTA
+  diagram?: string;
 }
 
 export interface ChallengeContent {
@@ -168,6 +169,7 @@ export interface DeliverablesContent {
   headline: string;
   items: DeliverableItem[];
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface TimelinePhase {
@@ -220,6 +222,7 @@ export interface NextStepsContent {
   ctaSecondary: string;
   urgencyNote: string | null;
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface GenericContent {
@@ -227,6 +230,7 @@ export interface GenericContent {
   headline: string;
   body: string;
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface TestimonialItem {
@@ -249,6 +253,7 @@ export interface ShowcaseContent {
   body: string;
   highlights: string[];
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface BenefitItem {
@@ -261,6 +266,7 @@ export interface BenefitsContent {
   eyebrow: string;
   headline: string;
   items: BenefitItem[];
+  diagram?: string;
 }
 
 export interface ProblemContent {
@@ -269,6 +275,7 @@ export interface ProblemContent {
   body: string;
   painPoints: string[];
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface StatItem {
@@ -281,6 +288,7 @@ export interface StatsContent {
   eyebrow: string;
   headline: string;
   stats: StatItem[];
+  diagram?: string;
 }
 
 export interface MetricsContent {
@@ -288,6 +296,7 @@ export interface MetricsContent {
   headline: string;
   stats: StatItem[];
   strategies?: string[];
+  diagram?: string;
 }
 
 export interface SecurityItem {
@@ -356,6 +365,18 @@ export type SectionContent =
   | TestingContent
   | GenericContent;
 
+// ── Diagram metadata (detector output, stored alongside each section) ────────
+
+export interface DiagramMeta {
+  typeId: string | null;
+  typeLabel: string | null;
+  category: string | null;
+  confidence: 'high' | 'medium' | 'low' | null;
+  matchedKeywords: string[];
+  score: number;
+  isCustomSvg: boolean;
+}
+
 // ── Layout AST ───────────────────────────────────────────────────────────────
 
 export interface LayoutSection {
@@ -363,6 +384,8 @@ export interface LayoutSection {
   heading: string;
   sectionType: SectionType;
   content: SectionContent;
+  /** Diagram type metadata from the keyword detector — null when no diagram */
+  diagramMeta?: DiagramMeta | null;
   image: {
     source: 'unsplash' | 'gradient';
     query: string;

@@ -370,7 +370,7 @@ export function registerAgentRoutes(
         result = await runner.run(agentName, agentInput);
       }
 
-      // For microsite-generator-agent: resolve hero background image via Unsplash API
+      // For microsite-generator-agent: persist the AST and optionally resolve hero image
       if (agentName === 'microsite-generator-agent' && result.json) {
         const ast = result.json as {
           sections?: Array<{
@@ -379,19 +379,22 @@ export function registerAgentRoutes(
             content: Record<string, unknown>;
           }>;
         };
-        const hero = ast.sections?.find((s) => s.sectionType === 'hero' && s.image.source === 'unsplash');
-        if (hero) {
-          const query = (hero.content.imageQuery as string | undefined) || hero.image.query;
-          if (query) {
-            const imageUrl = await fetchUnsplashImageUrl(query);
-            if (imageUrl) {
-              hero.image.url = imageUrl;
-              const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-              await fsWriteFile(astPath, JSON.stringify(ast, null, 2), 'utf-8').catch(() => {
-                /* non-fatal */
-              });
+        if (ast.sections?.length) {
+          // Optionally resolve hero Unsplash image
+          const hero = ast.sections.find((s) => s.sectionType === 'hero' && s.image.source === 'unsplash');
+          if (hero) {
+            const query = (hero.content.imageQuery as string | undefined) || hero.image.query;
+            if (query) {
+              const imageUrl = await fetchUnsplashImageUrl(query);
+              if (imageUrl) hero.image.url = imageUrl;
             }
           }
+          // Always persist the AST so page-reloads can restore the latest generation
+          const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+          await mkdir(path.dirname(astPath), { recursive: true });
+          await fsWriteFile(astPath, JSON.stringify(ast, null, 2), 'utf-8').catch(() => {
+            /* non-fatal */
+          });
         }
       }
 

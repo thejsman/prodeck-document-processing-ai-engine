@@ -12,17 +12,27 @@ const CATEGORY_COLORS: Record<ThemeCategory, string> = {
   premium: '#f59e0b',
 };
 
+const SIZE_CONFIG = {
+  default: { thumbnailWidth: 200, thumbnailHeight: 128, padding: '8px', labelSize: '12px', labelWeight: 500, badgeSize: '10px', badgePadding: '2px 8px' },
+  modal:   { thumbnailWidth: 180, thumbnailHeight: 116, padding: '8px', labelSize: '12px', labelWeight: 500, badgeSize: '10px', badgePadding: '2px 8px' },
+};
+
 interface Props {
   theme: ThemeDefinition;
   selected: boolean;
   onSelect: (id: string) => void;
   onPreview: (id: string) => void;
+  size?: 'default' | 'modal';
 }
 
-export function ThemePreviewCard({ theme, selected, onSelect, onPreview }: Props) {
+export function ThemePreviewCard({ theme, selected, onSelect, onPreview, size = 'default' }: Props) {
   const [hovered, setHovered] = useState(false);
   const c = theme.previewColors;
   const categoryColor = CATEGORY_COLORS[theme.category];
+  const cfg = SIZE_CONFIG[size];
+
+  // Scale factor relative to 320px reference width
+  const scale = cfg.thumbnailWidth / 320;
 
   return (
     <div
@@ -43,59 +53,63 @@ export function ThemePreviewCard({ theme, selected, onSelect, onPreview }: Props
         style={{
           position: 'relative',
           width: '100%',
-          paddingTop: '64.28%', // 180/280 aspect ratio
+          height: cfg.thumbnailHeight,
           background: c.background,
           overflow: 'hidden',
         }}
         onClick={() => onSelect(theme.id)}
       >
-        <div style={{ position: 'absolute', inset: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{
+          position: 'absolute', inset: 0,
+          padding: Math.round(14 * scale),
+          display: 'flex', flexDirection: 'column', gap: Math.round(8 * scale),
+        }}>
 
           {/* Fake hero section */}
           <div style={{ flex: '0 0 auto' }}>
             {/* Eyebrow pill */}
-            <div style={{ width: 36, height: 4, background: c.accent, borderRadius: 3, marginBottom: 7, opacity: 0.9 }} />
+            <div style={{ width: Math.round(36 * scale), height: 4, background: c.accent, borderRadius: 3, marginBottom: Math.round(7 * scale), opacity: 0.9 }} />
             {/* Headline */}
             <div style={{
               fontFamily: `'${theme.fontPairing.heading}', Georgia, serif`,
-              fontSize: 13, fontWeight: 700, color: c.text,
-              lineHeight: 1.2, marginBottom: 5, maxWidth: 130,
+              fontSize: Math.round(13 * scale), fontWeight: 700, color: c.text,
+              lineHeight: 1.2, marginBottom: Math.round(5 * scale), maxWidth: Math.round(130 * scale),
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
               {theme.label}
             </div>
             {/* Body lines */}
-            <div style={{ height: 3, width: 100, background: c.text, opacity: 0.18, borderRadius: 2, marginBottom: 3 }} />
-            <div style={{ height: 3, width: 76, background: c.text, opacity: 0.13, borderRadius: 2, marginBottom: 9 }} />
+            <div style={{ height: 3, width: Math.round(100 * scale), background: c.text, opacity: 0.18, borderRadius: 2, marginBottom: 3 }} />
+            <div style={{ height: 3, width: Math.round(76 * scale), background: c.text, opacity: 0.13, borderRadius: 2, marginBottom: Math.round(9 * scale) }} />
             {/* CTA button */}
             <div style={{
-              display: 'inline-block', padding: '3px 8px',
+              display: 'inline-block', padding: `3px ${Math.round(8 * scale)}px`,
               background: c.accent, borderRadius: 4,
-              fontSize: 8, color: '#fff', fontWeight: 700, letterSpacing: '0.04em',
+              fontSize: Math.round(8 * scale), color: '#fff', fontWeight: 700, letterSpacing: '0.04em',
             }}>
               View Proposal
             </div>
           </div>
 
           {/* Fake stats row */}
-          <div style={{ display: 'flex', gap: 5, flex: '0 0 auto' }}>
+          <div style={{ display: 'flex', gap: Math.round(5 * scale), flex: '0 0 auto' }}>
             {['42%', '3×', '$2M'].map((stat, i) => (
               <div key={i} style={{
                 flex: 1, background: c.surface, border: `1px solid ${c.border}`,
-                borderRadius: 5, padding: '4px 5px', textAlign: 'center',
+                borderRadius: 5, padding: `${Math.round(4 * scale)}px ${Math.round(5 * scale)}px`, textAlign: 'center',
               }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: c.accent, lineHeight: 1 }}>{stat}</div>
+                <div style={{ fontSize: Math.round(9 * scale), fontWeight: 700, color: c.accent, lineHeight: 1 }}>{stat}</div>
                 <div style={{ height: 2, width: '60%', margin: '3px auto 0', background: c.text, opacity: 0.15, borderRadius: 1 }} />
               </div>
             ))}
           </div>
 
           {/* Fake card row */}
-          <div style={{ display: 'flex', gap: 5, flex: '0 0 auto' }}>
+          <div style={{ display: 'flex', gap: Math.round(5 * scale), flex: '0 0 auto' }}>
             {[0, 1].map(i => (
               <div key={i} style={{
                 flex: 1, background: c.surface, border: `1px solid ${c.border}`,
-                borderRadius: 5, padding: '5px 6px',
+                borderRadius: 5, padding: `${Math.round(5 * scale)}px ${Math.round(6 * scale)}px`,
               }}>
                 <div style={{ height: 3, width: '70%', background: c.text, opacity: 0.25, borderRadius: 1, marginBottom: 3 }} />
                 <div style={{ height: 2, width: '90%', background: c.text, opacity: 0.12, borderRadius: 1, marginBottom: 2 }} />
@@ -150,18 +164,24 @@ export function ThemePreviewCard({ theme, selected, onSelect, onPreview }: Props
 
       {/* Footer */}
       <div style={{
-        padding: '10px 12px',
+        padding: cfg.padding,
         background: selected ? '#eff6ff' : 'var(--color-surface)',
         borderTop: `1px solid ${selected ? '#bfdbfe' : 'var(--color-border)'}`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, margin: 0, color: selected ? 'var(--color-primary)' : 'var(--color-text)' }}>
+          <p style={{
+            fontSize: cfg.labelSize, fontWeight: cfg.labelWeight, margin: 0,
+            color: selected ? 'var(--color-primary)' : 'var(--color-text)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            minWidth: 0, flex: 1,
+          }}>
             {theme.label}
           </p>
           <span style={{
-            fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 100,
+            fontSize: cfg.badgeSize, fontWeight: 600, padding: cfg.badgePadding, borderRadius: 100,
             background: `${categoryColor}22`, color: categoryColor,
             letterSpacing: '0.05em', textTransform: 'uppercase',
+            whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 4,
           }}>
             {theme.category}
           </span>

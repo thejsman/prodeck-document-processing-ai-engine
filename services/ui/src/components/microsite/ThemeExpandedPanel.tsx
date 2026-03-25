@@ -91,7 +91,7 @@ export function ThemeExpandedPanel({ selectedPlugin, onSelect, onPreview, onClos
         padding: 16,
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-        gap: 14,
+        gap: 10,
       }}>
         {filteredThemes.map(theme => (
           <ThemePreviewCard
@@ -100,6 +100,7 @@ export function ThemeExpandedPanel({ selectedPlugin, onSelect, onPreview, onClos
             selected={selectedPlugin === theme.id}
             onSelect={onSelect}
             onPreview={onPreview}
+            size="default"
           />
         ))}
       </div>
