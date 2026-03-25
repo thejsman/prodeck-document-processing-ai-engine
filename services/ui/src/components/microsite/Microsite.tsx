@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
@@ -19,11 +19,17 @@ import { ShowcaseSection } from './sections/ShowcaseSection';
 import { BenefitsSection } from './sections/BenefitsSection';
 import { ProblemSection } from './sections/ProblemSection';
 import { StatsSection } from './sections/StatsSection';
+import { MetricsSection } from './sections/MetricsSection';
+import { SecuritySection } from './sections/SecuritySection';
+import { TechStackSection } from './sections/TechStackSection';
+import { TestingSection } from './sections/TestingSection';
 
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
 import { SectionIdProvider } from './editor/SectionIdContext';
+import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
+import { isSectionEmpty } from '../../lib/sectionUtils';
 
 import type {
   HeroContent,
@@ -40,6 +46,10 @@ import type {
   BenefitsContent,
   ProblemContent,
   StatsContent,
+  MetricsContent,
+  SecurityContent,
+  TechStackContent,
+  TestingContent,
 } from '../../types/presentation';
 
 /** Unique stable DOM id for the fullscreen scroll container */
@@ -170,6 +180,18 @@ function renderSection(
     case 'stats':
       inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
+    case 'metrics':
+      inner = <MetricsSection content={section.content as MetricsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'security':
+      inner = <SecuritySection content={section.content as SecurityContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'techstack':
+      inner = <TechStackSection content={section.content as TechStackContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
+    case 'testing':
+      inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      break;
     default:
       inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
   }
@@ -188,6 +210,12 @@ function SectionWithOverlay({
   allSections,
   brief,
   behavior,
+  dragFrom,
+  dragOver,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -197,29 +225,103 @@ function SectionWithOverlay({
   allSections: LayoutAST['sections'];
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
+  dragFrom: number | null;
+  dragOver: number | null;
+  onDragStart: (index: number) => void;
+  onDragOver: (index: number, e: React.DragEvent) => void;
+  onDrop: (index: number) => void;
+  onDragEnd: () => void;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
-  // Apply per-section background override if set (from inline editor)
-  const sectionInner = section.bgColor
+  // Apply per-section background override
+  let sectionInner: React.ReactNode = section.bgColor
     ? <div style={{ background: section.bgColor }}>{inner}</div>
     : inner;
 
+  // Render embed overlay if section has an embed URL
+  if (section.embed?.url) {
+    const embedSrc = getEmbedSrc(section.embed.url);
+    if (embedSrc) {
+      sectionInner = (
+        <div style={{ position: 'relative' }}>
+          {sectionInner}
+          <div style={{ padding: '0 0 32px', background: 'transparent' }}>
+            <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px' }}>
+              <div style={{ position: 'relative', paddingBottom: '56.25%', borderRadius: 12, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+                <iframe
+                  src={embedSrc}
+                  title={section.embed.title ?? 'Embedded media'}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
+                />
+              </div>
+              {section.embed.title && (
+                <p style={{ textAlign: 'center', fontSize: 12, color: tokens.textSubtle ?? '#94a3b8', marginTop: 8 }}>
+                  {section.embed.title}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  const isDragging = dragFrom === index;
+  const isDropTarget = dragOver === index && dragFrom !== null && dragFrom !== index;
+
   return (
-    <AnimatedSection key={section.id} id={section.id} behavior={behavior} index={index}>
-      <SectionIdProvider id={section.id}>
-        {editCtx ? (
-          <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
-            {sectionInner}
-          </SectionEditOverlay>
-        ) : sectionInner}
-      </SectionIdProvider>
-    </AnimatedSection>
+    <div
+      draggable={!!editCtx}
+      onDragStart={editCtx ? () => onDragStart(index) : undefined}
+      onDragOver={editCtx ? e => onDragOver(index, e) : undefined}
+      onDrop={editCtx ? () => onDrop(index) : undefined}
+      onDragEnd={editCtx ? onDragEnd : undefined}
+      style={{
+        opacity: isDragging ? 0.4 : 1,
+        transition: 'opacity 0.15s',
+        outline: isDropTarget ? '3px dashed #6366f1' : 'none',
+        outlineOffset: -3,
+      }}
+    >
+      <AnimatedSection id={section.id} behavior={behavior} index={index}>
+        <SectionIdProvider id={section.id}>
+          {editCtx ? (
+            <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
+              {sectionInner}
+            </SectionEditOverlay>
+          ) : sectionInner}
+        </SectionIdProvider>
+      </AnimatedSection>
+    </div>
   );
+}
+
+/** Convert a YouTube/Loom/iframe URL into an embeddable src */
+function getEmbedSrc(url: string): string | null {
+  try {
+    // YouTube: https://www.youtube.com/watch?v=ID or https://youtu.be/ID
+    const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0`;
+    // YouTube short embed
+    if (url.includes('youtube.com/embed/')) return url;
+    // Loom: https://www.loom.com/share/ID
+    const loomMatch = url.match(/loom\.com\/share\/([a-zA-Z0-9]+)/);
+    if (loomMatch) return `https://www.loom.com/embed/${loomMatch[1]}`;
+    if (url.includes('loom.com/embed/')) return url;
+    // Generic iframe URL
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
   const { apiKey } = useAuth();
+  const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
   const mergedTokens = ast.customTokens
     ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
@@ -231,6 +333,8 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const [downloading, setDownloading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
@@ -402,11 +506,15 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       }}
     >
       <style>{`
+        /* ── Regular media queries (real mobile browsers) ── */
         @media (max-width: 768px) {
           .ms-grid-3 { grid-template-columns: 1fr !important; }
-          .ms-stats-row { flex-direction: column !important; }
+          .ms-grid-auto { grid-template-columns: 1fr !important; }
+          .ms-split { grid-template-columns: 1fr !important; flex-direction: column !important; }
+          .ms-stats-row { flex-direction: column !important; border-radius: 12px !important; }
           .ms-hero-ctas { flex-direction: column !important; width: 100% !important; }
-          .ms-split { flex-direction: column !important; }
+          .ms-nav-links { display: none !important; }
+          section { padding-left: 1.25rem !important; padding-right: 1.25rem !important; padding-top: 3rem !important; padding-bottom: 3rem !important; }
         }
         @media (max-width: 960px) {
           .ms-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
@@ -414,7 +522,30 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         .ms-parallax-bg { background-attachment: fixed; background-size: cover; }
         @media (max-width: 768px) { .ms-parallax-bg { background-attachment: scroll; } }
 
+        /* ── Container queries (editor mobile/tablet preview) ── */
+        .ms-content-root { container-type: inline-size; }
 
+        @container (max-width: 580px) {
+          .ms-grid-3 { grid-template-columns: 1fr !important; }
+          .ms-grid-auto { grid-template-columns: 1fr !important; }
+          .ms-split { grid-template-columns: 1fr !important; }
+          .ms-stats-row { flex-direction: column !important; border-radius: 12px !important; }
+          .ms-hero-ctas { flex-direction: column !important; width: 100% !important; }
+          .ms-nav-links { display: none !important; }
+          section {
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+            padding-top: 3rem !important;
+            padding-bottom: 3rem !important;
+          }
+          h1, h2 { word-break: break-word; }
+        }
+        @container (min-width: 581px) and (max-width: 900px) {
+          .ms-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
+          .ms-split { grid-template-columns: 1fr !important; }
+          .ms-stats-row { flex-direction: column !important; border-radius: 12px !important; }
+          section { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
+        }
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -426,19 +557,37 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       />
 
       {/* Sections */}
-      <div ref={contentRef}>
-        {(ast.sections ?? []).map((section, i) => (
-          <SectionWithOverlay
-            key={section.id}
-            section={section}
-            index={i}
-            total={ast.sections.length}
-            tokens={tokens}
-            brand={ast.brand}
-            allSections={ast.sections}
-            brief={ast.brief}
-            behavior={ast.behavior}
-          />
+      <div ref={contentRef} className="ms-content-root" style={{ containerType: 'inline-size' }}>
+        {/* Insert-before-first button */}
+        {editCtx && <AddSectionButton afterIndex={-1} />}
+
+        {(ast.sections ?? []).filter(s => !isSectionEmpty(s)).map((section, i) => (
+          <React.Fragment key={section.id}>
+            <SectionWithOverlay
+              section={section}
+              index={i}
+              total={ast.sections.length}
+              tokens={tokens}
+              brand={ast.brand}
+              allSections={ast.sections}
+              brief={ast.brief}
+              behavior={ast.behavior}
+              dragFrom={dragFrom}
+              dragOver={dragOver}
+              onDragStart={idx => setDragFrom(idx)}
+              onDragOver={(idx, e) => { e.preventDefault(); setDragOver(idx); }}
+              onDrop={idx => {
+                if (dragFrom !== null && dragFrom !== idx) {
+                  editCtx?.moveArrayItem('__sections__', '__sections__', dragFrom, idx);
+                }
+                setDragFrom(null);
+                setDragOver(null);
+              }}
+              onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+            />
+            {/* Insert-after button between sections */}
+            {editCtx && <AddSectionButton afterIndex={i} />}
+          </React.Fragment>
         ))}
 
         <footer

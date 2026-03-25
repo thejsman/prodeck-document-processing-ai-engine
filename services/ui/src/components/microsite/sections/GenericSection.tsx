@@ -27,10 +27,6 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div style={{ position: 'absolute', [isEven ? 'right' : 'left']: '-3%', top: '10%', fontFamily: `'${tokens.heroFont}', serif`, fontSize: 'clamp(8rem, 18vw, 16rem)', fontWeight: tokens.heroWeight, color: tokens.text, opacity: 0.02, lineHeight: 1, pointerEvents: 'none', zIndex: 1 }}>
-        {String(index + 1).padStart(2, '0')}
-      </div>
-
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '1fr 1fr' : '1fr', gap: 'clamp(2rem, 4vw, 4rem)', alignItems: 'center' }}>
           <div style={{ order: isEven ? 0 : 1 }}>

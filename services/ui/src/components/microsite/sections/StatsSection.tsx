@@ -14,7 +14,7 @@ interface Props {
   sectionId?: string;
 }
 
-export function StatsSection({ content, tokens, sectionId }: Props) {
+export function StatsSection({ content, tokens }: Props) {
   const raw = content.stats;
   const stats = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
@@ -95,7 +95,8 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
         <div
           className="ms-stats-row"
           style={{
-            display: "flex",
+            display: "grid",
+            gridTemplateColumns: `repeat(${Math.max(stats.length, 1)}, minmax(0, 1fr))`,
             gap: 0,
             borderRadius: 20,
             border: `1px solid ${tokens.border}`,
@@ -107,8 +108,7 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
             <Reveal key={i} delay={120 + i * 80}>
               <div
                 style={{
-                  flex: 1,
-                  padding: "clamp(2rem, 4vw, 3rem) clamp(1.5rem, 3vw, 2.5rem)",
+                  padding: "clamp(2rem, 4vw, 3rem) clamp(1rem, 2vw, 2rem)",
                   textAlign: "center",
                   borderRight:
                     i < stats.length - 1
@@ -134,11 +134,13 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
                   style={{
                     fontFamily: `'${tokens.heroFont}', serif`,
                     fontWeight: tokens.heroWeight,
-                    fontSize: "clamp(3.5rem, 8vw, 6.5rem)",
+                    fontSize: "clamp(2.2rem, 5vw, 4rem)",
                     lineHeight: 1,
                     color: tokens.accent,
                     marginBottom: 10,
                     letterSpacing: "-0.02em",
+                    wordBreak: "break-word",
+                    overflowWrap: "break-word",
                   }}
                 >
                   {stat.number}

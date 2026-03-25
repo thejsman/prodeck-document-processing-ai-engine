@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proposal for KM Digital</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&amp;display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&amp;display=swap">
+  <style>
+:root {
+  --bg: #01112A;
+  --surface: #071D3F;
+  --surface-alt: #0C2650;
+  --surface-card: #091E42;
+  --text: #E4ECF7;
+  --text-muted: #8AA4C8;
+  --text-subtle: #4A6A8F;
+  --accent: #C8A96E;
+  --accent-dim: #2D6CA8;
+  --accent-rgb: 79,163,232;
+  --glow: rgba(79,163,232,0.3);
+  --border: #1A3558;
+  --border-subtle: #122A48;
+  --hero-font: 'Syne', Georgia, serif;
+  --body-font: 'DM Sans', system-ui, sans-serif;
+  --hero-weight: 800;
+  --hero-style: normal;
+  --label-tracking: 0.2em;
+  --gradient-hero: radial-gradient(ellipse 80% 60% at 50% 30%, #0C2650 0%, #01112A 100%);
+  --gradient-text: linear-gradient(135deg, #7EC8F8 0%, #4FA3E8 50%, #A0D8FF 100%);
+  --mesh-gradient: radial-gradient(ellipse 80% 60% at 20% 25%, rgba(79,163,232,0.15) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 75%, rgba(79,163,232,0.1) 0%, transparent 55%);
+  --card-shadow: 0 4px 24px rgba(0,0,0,0.6);
+  --border-radius: 8px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--body-font); line-height: 1.6; overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; }
+img { max-width: 100%; display: block; }
+section { position: relative; }
+.eyebrow { font-size: 0.7rem; font-weight: 700; letter-spacing: var(--label-tracking); text-transform: uppercase; color: var(--accent); margin-bottom: 0.75rem; }
+.section-headline { font-family: var(--hero-font); font-weight: var(--hero-weight); font-style: var(--hero-style); font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.1; color: var(--text); }
+.section-sub { font-size: 1.1rem; color: var(--text-muted); line-height: 1.6; margin-top: 1rem; }
+.section-body { font-size: 1rem; color: var(--text-muted); line-height: 1.7; margin-top: 1rem; }
+.container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+.section-pad { padding: 6rem 0; }
+.card { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--border-radius); padding: 1.5rem; box-shadow: var(--card-shadow); }
+.btn-primary { display: inline-block; padding: 0.75rem 1.75rem; background: var(--accent); color: var(--bg); border-radius: var(--border-radius); font-weight: 700; font-size: 0.9rem; cursor: pointer; border: none; }
+.btn-secondary { display: inline-block; padding: 0.75rem 1.75rem; background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: var(--border-radius); font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; }
+@media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } .section-pad { padding: 4rem 0; } }
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.reveal.visible { opacity: 1; transform: none; }
+.img-overlay { position: absolute; inset: 0; background: linear-gradient(to right, var(--bg) 40%, transparent 100%); }
+  </style>
+</head>
+<body>
+
+<section id="technical-executive-summary" style="background: url('https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-nHS31UKsiat9GZj2wtxB5rMX.png?st=2026-03-25T03%3A09%3A54Z&amp;se=2026-03-25T05%3A09%3A54Z&amp;sp=r&amp;sv=2026-02-06&amp;sr=b&amp;rscd=inline&amp;rsct=image/png&amp;skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&amp;sktid=a48cca56-e6da-484e-a814-9c849652bcb3&amp;skt=2026-03-25T02%3A50%3A21Z&amp;ske=2026-03-26T02%3A50%3A21Z&amp;sks=b&amp;skv=2026-02-06&amp;sig=rlh3XlK4Ao4Mg8CYMPujPyYSaqf9Ywj5D32C/kMa8DU%3D') center/cover no-repeat; min-height: 90vh; display:flex; align-items:center; position:relative;">
+  <div class="img-overlay"></div>
+  <div class="container" style="position:relative; z-index:1; padding: 6rem 2rem;">
+    <div class="reveal">
+      <p class="eyebrow">Proposal · March 2026</p>
+      <h1 class="section-headline" style="max-width:720px;">Revitalizing Acme Corporation's Data Infrastructure</h1>
+      <p class="section-sub" style="max-width:560px;">A comprehensive overhaul for improved efficiency and decision agility.</p>
+      <p class="section-body" style="max-width:560px; margin-top:1rem;">Operational effectiveness is at stake. An outdated data infrastructure hinders Acme’s growth potential and decision-making capabilities. omer-co brings 15 years of expertise in modernizing data architectures.</p>
+      
+    </div>
+  </div>
+</section>
+
+<section id="current-state-technical-gaps" class="section-pad" style="background:var(--surface);">
+  <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:4rem; align-items:center;">
+    <div class="reveal">
+      <p class="eyebrow">Data Infrastructure Challenges</p>
+      <h2 class="section-headline">Outdated data systems hinder operational efficiency and decision-making.</h2>
+      
+      <p class="section-body">Acme Corporation's reliance on fragmented data architecture compromises its ability to respond swiftly to market demands. Without action, operational inefficiencies will deepen, impacting revenue and strategic initiatives. The current state fosters risks of failure and missed opportunities.</p>
+      <blockquote style="border-left:3px solid var(--accent); padding-left:1rem; margin-top:1.5rem; font-style:italic; color:var(--text-muted);">Fragmented systems create dangerous dependencies and potential operational failure.</blockquote>
+      
+    </div>
+    <div class="reveal" style="transition-delay:0.1s;"><img src="https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-lS06dLxnHRdhDY4EvAX2td7q.png?st=2026-03-25T03%3A09%3A50Z&amp;se=2026-03-25T05%3A09%3A50Z&amp;sp=r&amp;sv=2026-02-06&amp;sr=b&amp;rscd=inline&amp;rsct=image/png&amp;skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&amp;sktid=a48cca56-e6da-484e-a814-9c849652bcb3&amp;skt=2026-03-25T02%3A14%3A45Z&amp;ske=2026-03-26T02%3A14%3A45Z&amp;sks=b&amp;skv=2026-02-06&amp;sig=uoOxXNu4AjpIdVzkn5ziuW8UHZmU19kCn2UxjjyIEME%3D" alt="" style="width:100%; height:400px; object-fit:cover; border-radius:var(--border-radius);" /></div>
+  </div>
+</section>
+
+<section id="proposed-architecture" class="section-pad" style="background:var(--bg);">
+  <div class="container">
+    <div class="reveal" style="text-align:center; max-width:640px; margin:0 auto 0;">
+      <p class="eyebrow">Strategic Data Transformation</p>
+      <h2 class="section-headline">Revamping Data Architecture for Operational Agility</h2>
+      <p class="section-sub">A structured approach enables Acme Corporation to achieve data-driven efficiency. Key pillars guide the transformation process.</p>
+    </div>
+    
+  <div class="grid-3" style="margin-top:3rem;">
+    
+    <div class="card reveal" style="transition-delay:0s;">
+      <div style="font-size:1.5rem; margin-bottom:0.75rem; color:var(--accent);">◈</div>
+      <h3 style="font-family:var(--hero-font); font-size:1.2rem; font-weight:600; margin-bottom:0.5rem;">Assessment</h3>
+      <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.6;">Evaluate the current data landscape to identify gaps and inefficiencies. This establishes a baseline for targeted improvements.</p>
+    </div>
+    <div class="card reveal" style="transition-delay:0.07s;">
+      <div style="font-size:1.5rem; margin-bottom:0.75rem; color:var(--accent);">◈</div>
+      <h3 style="font-family:var(--hero-font); font-size:1.2rem; font-weight:600; margin-bottom:0.5rem;">Design</h3>
+      <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.6;">Develop a scalable architecture using advanced technologies. This ensures adaptability and future-proof solutions to meet growing demands.</p>
+    </div>
+    <div class="card reveal" style="transition-delay:0.14s;">
+      <div style="font-size:1.5rem; margin-bottom:0.75rem; color:var(--accent);">◈</div>
+      <h3 style="font-family:var(--hero-font); font-size:1.2rem; font-weight:600; margin-bottom:0.5rem;">Implementation</h3>
+      <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.6;">Execute the migration to a cloud-native framework for enhanced data accessibility. This significantly improves operational performance and decision-making.</p>
+    </div>
+    <div class="card reveal" style="transition-delay:0.21000000000000002s;">
+      <div style="font-size:1.5rem; margin-bottom:0.75rem; color:var(--accent);">◈</div>
+      <h3 style="font-family:var(--hero-font); font-size:1.2rem; font-weight:600; margin-bottom:0.5rem;">Governance</h3>
+      <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.6;">Establish robust governance mechanisms to maintain data integrity and compliance. This reduces operational risks and fosters trust in analytics.</p>
+    </div>
+  </div>
+  </div>
+</section>
+
+<section id="testing-framework" class="section-pad" style="background:var(--surface);">
+  <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:4rem; align-items:center;">
+    <div class="reveal">
+      <p class="eyebrow">Quality Assurance Insights</p>
+      <h2 class="section-headline">Strategic Testing Framework for Data Architecture Transformation</h2>
+      
+      <p class="section-body">A structured approach to testing ensures that Acme Corporation's new data architecture operates at optimal efficiency. The framework prioritizes performance metrics, data integrity, and system resilience to safeguard against operational risks. Comprehensive testing will validate data ingestion rates, query response times, and governance mechanisms.</p>
+      
+      
+    </div>
+    <div class="reveal" style="transition-delay:0.1s;"><img src="https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-LMzJ7iPIyLFtMQ1xOYWIQs1A.png?st=2026-03-25T03%3A09%3A52Z&amp;se=2026-03-25T05%3A09%3A52Z&amp;sp=r&amp;sv=2026-02-06&amp;sr=b&amp;rscd=inline&amp;rsct=image/png&amp;skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&amp;sktid=a48cca56-e6da-484e-a814-9c849652bcb3&amp;skt=2026-03-24T04%3A32%3A33Z&amp;ske=2026-03-25T04%3A32%3A33Z&amp;sks=b&amp;skv=2026-02-06&amp;sig=EdlabMkOruVeLeP8YWMwisKsYl1hGH1lhHeT7D8uVQY%3D" alt="" style="width:100%; height:400px; object-fit:cover; border-radius:var(--border-radius);" /></div>
+  </div>
+</section>
+
+<section id="technology-stack-rationale" class="section-pad" style="background:var(--surface);">
+  <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:4rem; align-items:center;">
+    <div class="reveal">
+      <p class="eyebrow">Core Technologies Overview</p>
+      <h2 class="section-headline">Strategic Technology Selections for Data Transformation</h2>
+      
+      <p class="section-body">The technology choices center on optimizing efficiency and scalability for Acme Corporation's data architecture. Python, Apache Kafka, and Databricks comprise a modern stack that aligns with operational goals while enhancing team capabilities and performance. Each technology choice is grounded in its proven ability to address specific challenges, ensuring a forward-looking infrastructure.</p>
+      
+      
+    </div>
+    <div class="reveal" style="transition-delay:0.1s;"><img src="https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-2DGqGjO6r4yohofwQTRu7u8j.png?st=2026-03-25T03%3A09%3A54Z&amp;se=2026-03-25T05%3A09%3A54Z&amp;sp=r&amp;sv=2026-02-06&amp;sr=b&amp;rscd=inline&amp;rsct=image/png&amp;skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&amp;sktid=a48cca56-e6da-484e-a814-9c849652bcb3&amp;skt=2026-03-25T00%3A09%3A25Z&amp;ske=2026-03-26T00%3A09%3A25Z&amp;sks=b&amp;skv=2026-02-06&amp;sig=T65XUMoeNK28/OPCmuvm3fLLrzZhhSO2%2BvKtatregRg%3D" alt="" style="width:100%; height:400px; object-fit:cover; border-radius:var(--border-radius);" /></div>
+  </div>
+</section>
+
+<section id="generic" class="section-pad" style="background:var(--surface);">
+  <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:4rem; align-items:center;">
+    <div class="reveal">
+      <p class="eyebrow">Data Architecture Overhaul</p>
+      <h2 class="section-headline">Revitalizing Data Infrastructure for Enhanced Decision-Making</h2>
+      
+      <p class="section-body">Acme Corporation's operational efficiency suffers from an outdated data framework. Relying on legacy systems hinders agility and heightens the risk of service interruptions. The proposed modernization targets critical datasets and introduces advanced technologies to optimize performance and accuracy.</p>
+      
+      
+    </div>
+    <div class="reveal" style="transition-delay:0.1s;"><img src="https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-of6efk3f1gEeEhAZuyUIOcI0.png?st=2026-03-25T03%3A09%3A52Z&amp;se=2026-03-25T05%3A09%3A52Z&amp;sp=r&amp;sv=2026-02-06&amp;sr=b&amp;rscd=inline&amp;rsct=image/png&amp;skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&amp;sktid=a48cca56-e6da-484e-a814-9c849652bcb3&amp;skt=2026-03-25T02%3A56%3A55Z&amp;ske=2026-03-26T02%3A56%3A55Z&amp;sks=b&amp;skv=2026-02-06&amp;sig=nCn9Xh0Fmee/zCbD%2BHtWfitE8EVH/VXS85iPGhwFSKE%3D" alt="" style="width:100%; height:400px; object-fit:cover; border-radius:var(--border-radius);" /></div>
+  </div>
+</section>
+
+<section id="conclusion" class="section-pad" style="background:var(--bg);">
+  <div class="container">
+    <div class="reveal" style="text-align:center; max-width:640px; margin:0 auto 3rem;">
+      <p class="eyebrow">Project Timeline Overview</p>
+      <h2 class="section-headline">Streamlined Phases for Data Transformation</h2>
+    </div>
+    <div style="position:relative; padding-left:2rem; border-left:2px solid var(--border);">
+      
+      <div class="reveal" style="margin-bottom:2.5rem; position:relative; transition-delay:0s;">
+        <div style="position:absolute; left:-2.55rem; top:0.2rem; width:1rem; height:1rem; border-radius:50%; background:var(--accent); border:2px solid var(--bg);"></div>
+        <p style="font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:0.25rem;">from raw data — 2 weeks</p>
+        <h3 style="font-family:var(--hero-font); font-size:1.3rem; font-weight:var(--hero-weight); margin-bottom:0.5rem;">Data Assessment</h3>
+        <p style="font-size:0.9rem; color:var(--text-muted);">Evaluate current data systems to identify gaps and sources of inefficiencies.</p>
+      </div>
+      <div class="reveal" style="margin-bottom:2.5rem; position:relative; transition-delay:0.08s;">
+        <div style="position:absolute; left:-2.55rem; top:0.2rem; width:1rem; height:1rem; border-radius:50%; background:var(--accent); border:2px solid var(--bg);"></div>
+        <p style="font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:0.25rem;">from assessment — 3 weeks</p>
+        <h3 style="font-family:var(--hero-font); font-size:1.3rem; font-weight:var(--hero-weight); margin-bottom:0.5rem;">Planning &amp; Design</h3>
+        <p style="font-size:0.9rem; color:var(--text-muted);">Develop a comprehensive plan for the new data architecture.</p>
+      </div>
+      <div class="reveal" style="margin-bottom:2.5rem; position:relative; transition-delay:0.16s;">
+        <div style="position:absolute; left:-2.55rem; top:0.2rem; width:1rem; height:1rem; border-radius:50%; background:var(--accent); border:2px solid var(--bg);"></div>
+        <p style="font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:0.25rem;">from design — 2 weeks</p>
+        <h3 style="font-family:var(--hero-font); font-size:1.3rem; font-weight:var(--hero-weight); margin-bottom:0.5rem;">Implementation</h3>
+        <p style="font-size:0.9rem; color:var(--text-muted);">Execute the migration to the new cloud-native architecture.</p>
+      </div>
+      <div class="reveal" style="margin-bottom:2.5rem; position:relative; transition-delay:0.24s;">
+        <div style="position:absolute; left:-2.55rem; top:0.2rem; width:1rem; height:1rem; border-radius:50%; background:var(--accent); border:2px solid var(--bg);"></div>
+        <p style="font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:0.25rem;">from implementation — 3 weeks</p>
+        <h3 style="font-family:var(--hero-font); font-size:1.3rem; font-weight:var(--hero-weight); margin-bottom:0.5rem;">Testing &amp; Validation</h3>
+        <p style="font-size:0.9rem; color:var(--text-muted);">Conduct thorough testing to ensure system integrity and performance.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="deliverables" class="section-pad" style="background:var(--surface);">
+  <div class="container">
+    <div class="reveal" style="max-width:640px; margin-bottom:3rem;">
+      <p class="eyebrow">Key Deliverables Overview</p>
+      <h2 class="section-headline">Comprehensive Data Architecture Transformation Plan</h2>
+    </div>
+    <div class="grid-2">
+      
+      <div class="card reveal" style="display:flex; gap:1rem; transition-delay:0s;">
+        <div style="font-size:1.2rem; color:var(--accent); flex-shrink:0; margin-top:2px;">✦</div>
+        <div>
+          <h4 style="font-weight:600; margin-bottom:0.25rem;">Data Mapping Document</h4>
+          <p style="font-size:0.875rem; color:var(--text-muted);">Defines integration points for the 20 critical datasets.</p>
+          
+        </div>
+      </div>
+      <div class="card reveal" style="display:flex; gap:1rem; transition-delay:0.06s;">
+        <div style="font-size:1.2rem; color:var(--accent); flex-shrink:0; margin-top:2px;">✦</div>
+        <div>
+          <h4 style="font-weight:600; margin-bottom:0.25rem;">Cloud-Native Framework</h4>
+          <p style="font-size:0.875rem; color:var(--text-muted);">Establishes the foundation for scalable data operations.</p>
+          
+        </div>
+      </div>
+      <div class="card reveal" style="display:flex; gap:1rem; transition-delay:0.12s;">
+        <div style="font-size:1.2rem; color:var(--accent); flex-shrink:0; margin-top:2px;">✦</div>
+        <div>
+          <h4 style="font-weight:600; margin-bottom:0.25rem;">Governance Protocols</h4>
+          <p style="font-size:0.875rem; color:var(--text-muted);">Streamlines data quality and compliance mechanisms.</p>
+          
+        </div>
+      </div>
+      <div class="card reveal" style="display:flex; gap:1rem; transition-delay:0.18s;">
+        <div style="font-size:1.2rem; color:var(--accent); flex-shrink:0; margin-top:2px;">✦</div>
+        <div>
+          <h4 style="font-weight:600; margin-bottom:0.25rem;">Real-Time Analytics Engine</h4>
+          <p style="font-size:0.875rem; color:var(--text-muted);">Facilitates instant data ingestion and processing.</p>
+          
+        </div>
+      </div>
+      <div class="card reveal" style="display:flex; gap:1rem; transition-delay:0.24s;">
+        <div style="font-size:1.2rem; color:var(--accent); flex-shrink:0; margin-top:2px;">✦</div>
+        <div>
+          <h4 style="font-weight:600; margin-bottom:0.25rem;">User Training Sessions</h4>
+          <p style="font-size:0.875rem; color:var(--text-muted);">Equips staff with knowledge of new tools and methodologies.</p>
+          
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="benefits" class="section-pad" style="background:var(--surface);">
+  <div class="container">
+    <div class="reveal" style="max-width:640px; margin-bottom:3rem;">
+      <p class="eyebrow">What You Gain</p>
+      <h2 class="section-headline">Key Benefits of Modernizing Data Architecture and structure</h2>
+    </div>
+    <div class="grid-3">
+      
+      <div class="reveal" style="transition-delay:0s;">
+        <div style="width:2.5rem; height:2.5rem; border-radius:8px; background:rgba(var(--accent-rgb),0.12); display:flex; align-items:center; justify-content:center; margin-bottom:0.75rem; color:var(--accent);">✦</div>
+        <h3 style="font-weight:700; margin-bottom:0.4rem;">Faster Query Responses</h3>
+        <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">Achieve response times under 200 milliseconds for 95% of data queries, enhancing decision-making speed.</p>
+      </div>
+      <div class="reveal" style="transition-delay:0.06s;">
+        <div style="width:2.5rem; height:2.5rem; border-radius:8px; background:rgba(var(--accent-rgb),0.12); display:flex; align-items:center; justify-content:center; margin-bottom:0.75rem; color:var(--accent);">✦</div>
+        <h3 style="font-weight:700; margin-bottom:0.4rem;">High Data Ingestion Rates</h3>
+        <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">Attain a data ingestion rate of 10,000 records per second, enabling real-time analytics.</p>
+      </div>
+      <div class="reveal" style="transition-delay:0.12s;">
+        <div style="width:2.5rem; height:2.5rem; border-radius:8px; background:rgba(var(--accent-rgb),0.12); display:flex; align-items:center; justify-content:center; margin-bottom:0.75rem; color:var(--accent);">✦</div>
+        <h3 style="font-weight:700; margin-bottom:0.4rem;">Increased System Availability</h3>
+        <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">Deliver an availability rate of 99.9% or higher, minimizing downtime and enhancing reliability.</p>
+      </div>
+      <div class="reveal" style="transition-delay:0.18s;">
+        <div style="width:2.5rem; height:2.5rem; border-radius:8px; background:rgba(var(--accent-rgb),0.12); display:flex; align-items:center; justify-content:center; margin-bottom:0.75rem; color:var(--accent);">✦</div>
+        <h3 style="font-weight:700; margin-bottom:0.4rem;">Streamlined Data Integration</h3>
+        <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">Document and integrate 20 critical datasets to eliminate fragmentation and silos.</p>
+      </div>
+      <div class="reveal" style="transition-delay:0.24s;">
+        <div style="width:2.5rem; height:2.5rem; border-radius:8px; background:rgba(var(--accent-rgb),0.12); display:flex; align-items:center; justify-content:center; margin-bottom:0.75rem; color:var(--accent);">✦</div>
+        <h3 style="font-weight:700; margin-bottom:0.4rem;">Enhanced Data Quality</h3>
+        <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">Reduce operational risks through robust governance mechanisms and improved data integrity.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="generic-9" class="section-pad" style="background:var(--surface);">
+  <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:4rem; align-items:center;">
+    <div class="reveal">
+      <p class="eyebrow">Data Infrastructure Analysis</p>
+      <h2 class="section-headline">Assessment of Acme Corporation's Data Architecture Challenges</h2>
+      
+      <p class="section-body">Acme Corporation's data infrastructure is hindered by outdated systems and fragmented processes. Reliance on legacy technologies, such as SQL Server databases and outdated ETL tools, has created inefficiencies. This presents significant operational risks and impedes data-driven decision-making. more</p>
+      
+      
+    </div>
+    <div class="reveal" style="transition-delay:0.1s;"><img src="https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-utkhHa88LTaey2XybxUJBYS6.png?st=2026-03-25T03%3A09%3A52Z&amp;se=2026-03-25T05%3A09%3A52Z&amp;sp=r&amp;sv=2026-02-06&amp;sr=b&amp;rscd=inline&amp;rsct=image/png&amp;skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&amp;sktid=a48cca56-e6da-484e-a814-9c849652bcb3&amp;skt=2026-03-24T17%3A22%3A35Z&amp;ske=2026-03-25T17%3A22%3A35Z&amp;sks=b&amp;skv=2026-02-06&amp;sig=kMPvF1eGn1pVcx6t%2BwuM9UDGmQEIrRNPfDPSCG8ydh8%3D" alt="" style="width:100%; height:400px; object-fit:cover; border-radius:var(--border-radius);" /></div>
+  </div>
+</section>
+
+<section id="stats" class="section-pad" style="background:var(--surface-alt);">
+  <div class="container">
+    <div class="reveal" style="text-align:center; max-width:640px; margin:0 auto 3rem;">
+      <p class="eyebrow">By The Numbers</p>
+      <h2 class="section-headline">Key Metrics from Data Infrastructure Overhaul</h2>
+    </div>
+    <div class="grid-4">
+      
+      <div class="reveal" style="text-align:center; transition-delay:0s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">200 ms</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">Query Response Time</p>
+        <p style="font-size:0.8rem; color:var(--text-subtle); margin-top:0.25rem;">95% of data queries will respond in under 200 milliseconds.</p>
+      </div>
+      <div class="reveal" style="text-align:center; transition-delay:0.07s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">10,000</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">Records Per Second</p>
+        <p style="font-size:0.8rem; color:var(--text-subtle); margin-top:0.25rem;">Achieving an ingestion rate of 10,000 records per second.</p>
+      </div>
+      <div class="reveal" style="text-align:center; transition-delay:0.14s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">99.9%</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">System Availability</p>
+        <p style="font-size:0.8rem; color:var(--text-subtle); margin-top:0.25rem;">Delivering a system availability rate of 99.9% or higher.</p>
+      </div>
+      <div class="reveal" style="text-align:center; transition-delay:0.21000000000000002s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">20</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">Critical Datasets</p>
+        <p style="font-size:0.8rem; color:var(--text-subtle); margin-top:0.25rem;">Documenting and integrating 20 critical datasets to eliminate fragmentation.</p>
+      </div>
+      <div class="reveal" style="text-align:center; transition-delay:0.28s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">48,000</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">Total Value</p>
+        <p style="font-size:0.8rem; color:var(--text-subtle); margin-top:0.25rem;">The total investment in modernizing the architecture is $48,000.</p>
+      </div>
+      <div class="reveal" style="text-align:center; transition-delay:0.35000000000000003s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">0</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">New stat</p>
+        
+      </div>
+      <div class="reveal" style="text-align:center; transition-delay:0.42000000000000004s;">
+        <p style="font-family:var(--hero-font); font-size:clamp(2.5rem,5vw,3.5rem); font-weight:var(--hero-weight); color:var(--accent); line-height:1;">0</p>
+        <p style="font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); margin-top:0.5rem;">New stat</p>
+        
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="nextsteps" class="section-pad" style="background:var(--accent); color:var(--bg);">
+  <div class="container" style="text-align:center; max-width:700px;">
+    <div class="reveal">
+      <p style="font-size:0.7rem; font-weight:700; letter-spacing:var(--label-tracking); text-transform:uppercase; opacity:0.7; margin-bottom:0.75rem;">Actionable next steps</p>
+      <h2 style="font-family:var(--hero-font); font-weight:var(--hero-weight); font-style:var(--hero-style); font-size:clamp(2rem,5vw,3rem); line-height:1.1; color:var(--bg); margin-bottom:1rem;">Steps to Modernize Data Architecture</h2>
+      <p style="font-size:1.05rem; opacity:0.85; line-height:1.7; margin-bottom:2rem;">Begin the transformation by conducting a comprehensive audit of existing systems and data flows. This will inform the architecture overhaul and establish a clear roadmap for implementation.</p>
+      
+      <div style="display:flex; gap:1rem; justify-content:center; flex-wrap:wrap;">
+        <button style="padding:0.875rem 2rem; background:var(--bg); color:var(--accent); border-radius:var(--border-radius); font-weight:700; border:none; cursor:pointer;">Schedule an audit</button>
+        <button style="padding:0.875rem 2rem; background:transparent; color:var(--bg); border:2px solid var(--bg); border-radius:var(--border-radius); font-weight:600; cursor:pointer;">Contact us today</button>
+      </div>
+      
+    </div>
+  </div>
+</section>
+<script>
+const els = document.querySelectorAll('.reveal');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
+}, { threshold: 0.12 });
+els.forEach(el => obs.observe(el));
+</script>
+</body>
+</html>

@@ -5057,3 +5057,47 @@ body {
   background: var(--primary);
   flex-shrink: 0;
 }
+
+/* ── Diagram containers (ThemedMermaid) ─────────────────────────── */
+
+.diagram-container {
+  container-type: inline-size;
+}
+
+.diagram-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Gantt: wider container, horizontal scroll on small screens */
+.diagram-container.type-gantt-chart {
+  overflow-x: auto;
+}
+
+.diagram-container.type-gantt-chart svg {
+  min-width: 520px;
+}
+
+/* Pie / quadrant: constrain max width for readability */
+.diagram-container.type-pie-chart svg,
+.diagram-container.type-quadrant-matrix svg {
+  max-width: 480px;
+  margin: 0 auto;
+  display: block;
+}
+
+/* Mind map: wider canvas */
+.diagram-container.type-mind-map svg {
+  min-width: 400px;
+}
+
+/* Diagram type label (optional, shown below figcaption) */
+.diagram-type-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.4;
+  text-align: center;
+  margin-top: 4px;
+}

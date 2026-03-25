@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import type { LayoutAST } from '../../../types/presentation';
@@ -13,9 +14,9 @@ import type { LayoutAST } from '../../../types/presentation';
 
 export interface EditSelection {
   sectionId: string;
-  fieldPath: string;        // dot-separated path in content, e.g. "eyebrow", "pillars.0.name"
+  fieldPath: string;
   elementType: 'text' | 'button' | 'image' | 'icon';
-  label: string;            // human-readable label for the edit panel
+  label: string;
 }
 
 // ── Context shape ─────────────────────────────────────────────────────────────
@@ -23,29 +24,27 @@ export interface EditSelection {
 export interface EditContextValue {
   isEditing: true;
   ast: LayoutAST;
-  /** Currently selected element (null = only a section is focused) */
   selection: EditSelection | null;
-  /** Currently focused section id (may differ from selection.sectionId when panel-driven) */
   activeSectionId: string | null;
+  canUndo: boolean;
+  canRedo: boolean;
   selectElement: (s: EditSelection) => void;
   selectSection: (sectionId: string) => void;
   clearSelection: () => void;
   updateField: (sectionId: string, fieldPath: string, value: unknown) => void;
-  /** Replace the entire AST (e.g. after a design-editor-agent apply) */
   replaceAst: (ast: LayoutAST) => void;
-  /** Add an item to an array field in a section's content */
   addArrayItem: (sectionId: string, arrayPath: string, template: unknown) => void;
-  /** Remove an item from an array field by index */
   removeArrayItem: (sectionId: string, arrayPath: string, index: number) => void;
-  /** Move an array item (drag-reorder) */
   moveArrayItem: (sectionId: string, arrayPath: string, from: number, to: number) => void;
-  /** Replace the entire content of a section (e.g. after AI rewrite) */
   updateSection: (sectionId: string, newContent: unknown) => void;
+  addSection: (afterIndex: number, newSection: LayoutAST['sections'][number]) => void;
+  removeSection: (sectionId: string) => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 const EditContext = createContext<EditContextValue | null>(null);
 
-/** Returns null outside of an EditProvider — use this in section components so they work both inside and outside the editor. */
 export function useEditContext(): EditContextValue | null {
   return useContext(EditContext);
 }
@@ -62,7 +61,6 @@ function setDeep(
   const key = path.slice(0, dot);
   const rest = path.slice(dot + 1);
   const child = (obj[key] ?? {}) as Record<string, unknown>;
-  // Handle array indices
   if (/^\d+$/.test(rest.split('.')[0])) {
     const arr = Array.isArray(child) ? [...child] : [];
     const idxStr = rest.split('.')[0];
@@ -78,6 +76,10 @@ function setDeep(
   return { ...obj, [key]: setDeep(child, rest, value) };
 }
 
+// ── History stack limit ───────────────────────────────────────────────────────
+
+const MAX_HISTORY = 50;
+
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 interface ProviderProps {
@@ -92,6 +94,14 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const [activeSectionId, setActiveSectionId] = useState<string | null>(
     initialAst.sections?.[0]?.id ?? null,
   );
+
+  // Undo / redo stacks (hold snapshots before each mutation)
+  const undoStack = useRef<LayoutAST[]>([]);
+  const redoStack = useRef<LayoutAST[]>([]);
+  const [historyVersion, setHistoryVersion] = useState(0); // triggers re-render for canUndo/canRedo
+
+  const canUndo = undoStack.current.length > 0;
+  const canRedo = redoStack.current.length > 0;
 
   const selectElement = useCallback((s: EditSelection) => {
     setSelection(s);
@@ -111,26 +121,48 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     if (onChange) setTimeout(() => onChange(next), 0);
   }, [onChange]);
 
+  /** Push current AST onto undo stack before a mutation */
+  function snapshot(current: LayoutAST) {
+    undoStack.current = [...undoStack.current.slice(-(MAX_HISTORY - 1)), JSON.parse(JSON.stringify(current)) as LayoutAST];
+    redoStack.current = []; // new action clears redo
+    setHistoryVersion(v => v + 1);
+  }
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    setAst(current => {
+      const prev = undoStack.current[undoStack.current.length - 1];
+      undoStack.current = undoStack.current.slice(0, -1);
+      redoStack.current = [JSON.parse(JSON.stringify(current)) as LayoutAST, ...redoStack.current].slice(0, MAX_HISTORY);
+      setHistoryVersion(v => v + 1);
+      notify(prev);
+      return prev;
+    });
+  }, [notify]);
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    setAst(current => {
+      const next = redoStack.current[0];
+      redoStack.current = redoStack.current.slice(1);
+      undoStack.current = [...undoStack.current, JSON.parse(JSON.stringify(current)) as LayoutAST].slice(-MAX_HISTORY);
+      setHistoryVersion(v => v + 1);
+      notify(next);
+      return next;
+    });
+  }, [notify]);
+
   const updateField = useCallback(
     (sectionId: string, fieldPath: string, value: unknown) => {
       setAst(prev => {
+        snapshot(prev);
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
-          if (fieldPath === '__imageUrl') {
-            return { ...sec, image: { ...sec.image, url: value as string | null } };
-          }
-          if (fieldPath === '__imageQuery') {
-            return { ...sec, image: { ...sec.image, query: value as string } };
-          }
-          if (fieldPath === '__imageSource') {
-            return { ...sec, image: { ...sec.image, source: value as string } };
-          }
-          if (fieldPath === '__bgColor') {
-            return { ...sec, bgColor: value as string };
-          }
-          if (fieldPath === '__heading') {
-            return { ...sec, heading: value as string };
-          }
+          if (fieldPath === '__imageUrl') return { ...sec, image: { ...sec.image, url: value as string | null } };
+          if (fieldPath === '__imageQuery') return { ...sec, image: { ...sec.image, query: value as string } };
+          if (fieldPath === '__imageSource') return { ...sec, image: { ...sec.image, source: value as string } };
+          if (fieldPath === '__bgColor') return { ...sec, bgColor: value as string };
+          if (fieldPath === '__heading') return { ...sec, heading: value as string };
           return {
             ...sec,
             content: setDeep(sec.content as unknown as Record<string, unknown>, fieldPath, value) as unknown as typeof sec.content,
@@ -145,13 +177,17 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   );
 
   const replaceAst = useCallback((newAst: LayoutAST) => {
-    setAst(newAst);
-    notify(newAst);
+    setAst(prev => {
+      snapshot(prev);
+      notify(newAst);
+      return newAst;
+    });
   }, [notify]);
 
   const addArrayItem = useCallback(
     (sectionId: string, arrayPath: string, template: unknown) => {
       setAst(prev => {
+        snapshot(prev);
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
           const content = sec.content as unknown as Record<string, unknown>;
@@ -170,6 +206,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const removeArrayItem = useCallback(
     (sectionId: string, arrayPath: string, index: number) => {
       setAst(prev => {
+        snapshot(prev);
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
           const content = sec.content as unknown as Record<string, unknown>;
@@ -189,7 +226,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const moveArrayItem = useCallback(
     (sectionId: string, arrayPath: string, from: number, to: number) => {
       setAst(prev => {
-        // Special case: reorder top-level sections
+        snapshot(prev);
         if (sectionId === '__sections__' && arrayPath === '__sections__') {
           const arr = [...prev.sections];
           const [item] = arr.splice(from, 1);
@@ -218,6 +255,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const updateSection = useCallback(
     (sectionId: string, newContent: unknown) => {
       setAst(prev => {
+        snapshot(prev);
         const sections = prev.sections.map(sec =>
           sec.id === sectionId
             ? { ...sec, content: newContent as typeof sec.content }
@@ -231,6 +269,36 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     [notify],
   );
 
+  const addSection = useCallback(
+    (afterIndex: number, newSection: LayoutAST['sections'][number]) => {
+      setAst(prev => {
+        snapshot(prev);
+        const sections = [...prev.sections];
+        sections.splice(afterIndex + 1, 0, newSection);
+        const next: LayoutAST = { ...prev, sections: sections as typeof prev.sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
+  const removeSection = useCallback(
+    (sectionId: string) => {
+      setAst(prev => {
+        snapshot(prev);
+        const sections = prev.sections.filter(sec => sec.id !== sectionId) as typeof prev.sections;
+        const next: LayoutAST = { ...prev, sections };
+        notify(next);
+        return next;
+      });
+    },
+    [notify],
+  );
+
+  // Suppress unused warning — historyVersion only drives canUndo/canRedo re-render
+  void historyVersion;
+
   return (
     <EditContext.Provider
       value={{
@@ -238,6 +306,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         ast,
         selection,
         activeSectionId,
+        canUndo,
+        canRedo,
         selectElement,
         selectSection,
         clearSelection,
@@ -247,6 +317,10 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         removeArrayItem,
         moveArrayItem,
         updateSection,
+        addSection,
+        removeSection,
+        undo,
+        redo,
       }}
     >
       {children}
