@@ -58,21 +58,23 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
 
             {content.pullquote && (
               <Reveal delay={240}>
-                <blockquote
-                  style={{
-                    borderLeft: `3px solid ${tokens.accent}`,
-                    paddingLeft: 24,
-                    margin: 0,
-                    fontFamily: `'${tokens.heroFont}', serif`,
-                    fontWeight: tokens.heroWeight,
-                    fontStyle: 'italic',
-                    fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
-                    lineHeight: 1.5,
-                    color: tokens.text,
-                  }}
-                >
-                  {content.pullquote}
-                </blockquote>
+                <InlineEditable field="pullquote" label="Pull quote" value={content.pullquote ?? ''} multiline>
+                  <blockquote
+                    style={{
+                      borderLeft: `3px solid ${tokens.accent}`,
+                      paddingLeft: 24,
+                      margin: 0,
+                      fontFamily: `'${tokens.heroFont}', serif`,
+                      fontWeight: tokens.heroWeight,
+                      fontStyle: 'italic',
+                      fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
+                      lineHeight: 1.5,
+                      color: tokens.text,
+                    }}
+                  >
+                    {content.pullquote}
+                  </blockquote>
+                </InlineEditable>
               </Reveal>
             )}
           </div>

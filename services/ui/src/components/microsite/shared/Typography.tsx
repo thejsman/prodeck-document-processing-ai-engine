@@ -2,6 +2,19 @@
 
 import type { PluginTokens } from '../../../types/presentation';
 
+/** Convert basic inline markdown to safe HTML. Only handles **bold**, _italic_, and • bullets. */
+function inlineMarkdownToHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/\n/g, '<br/>');
+}
+
+function hasMarkdown(text: string): boolean {
+  return /\*\*|_[^_]|<br/.test(text);
+}
+
 interface TypoProps {
   children: React.ReactNode;
   tokens: PluginTokens;
@@ -105,19 +118,26 @@ export function SubHeadline({ children, tokens, style }: TypoProps) {
 }
 
 export function Body({ children, tokens, style }: TypoProps) {
-  return (
-    <p
-      style={{
-        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-        fontWeight: 300,
-        lineHeight: 1.85,
-        color: tokens.textMuted,
-        fontSize: '1rem',
-        margin: 0,
-        ...style,
-      }}
-    >
-      {children}
-    </p>
-  );
+  const pStyle: React.CSSProperties = {
+    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+    fontWeight: 300,
+    lineHeight: 1.85,
+    color: tokens.textMuted,
+    fontSize: '1rem',
+    margin: 0,
+    ...style,
+  };
+
+  // Parse inline markdown when children is a plain string
+  if (typeof children === 'string' && hasMarkdown(children)) {
+    return (
+      <p
+        style={pStyle}
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtml(children) }}
+      />
+    );
+  }
+
+  return <p style={pStyle}>{children}</p>;
 }

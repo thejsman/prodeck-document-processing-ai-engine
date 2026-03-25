@@ -7,15 +7,21 @@ import { CircularIconBadge } from '../shared/CircularIconBadge';
 import { Headline, Body, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
+import { InlineIconEdit } from '../editor/InlineIconEdit';
 
 interface Props {
   content: SecurityContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
 export function SecuritySection({ content, tokens }: Props) {
+  const items = content.items ?? [];
+
   return (
     <section
       id="security"
@@ -28,18 +34,21 @@ export function SecuritySection({ content, tokens }: Props) {
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 48 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 48 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         <div
@@ -49,37 +58,57 @@ export function SecuritySection({ content, tokens }: Props) {
             gap: 'clamp(2rem, 4vw, 3rem)',
           }}
         >
-          {(content.items ?? []).map((item, si) => (
+          {items.map((item, si) => (
             <Reveal key={si} variant="fadeUp" delay={160 + si * 80}>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: 12,
-                }}
-              >
-                <CircularIconBadge hint={item.iconHint} tokens={tokens} size={44} />
-
-                <h4
+              <InlineArrayItem arrayPath="items" index={si} total={items.length}>
+                <div
                   style={{
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontWeight: 600,
-                    fontSize: '1.05rem',
-                    color: tokens.text,
-                    margin: 0,
-                    lineHeight: 1.3,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: 12,
                   }}
                 >
-                  {item.name}
-                </h4>
+                  <InlineIconEdit
+                    fieldPath={`items.${si}.iconHint`}
+                    hint={item.iconHint}
+                    color={tokens.accent}
+                    size={44}
+                    containerStyle={{ display: 'inline-flex' }}
+                  />
 
-                <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
-                  {item.description}
-                </Body>
-              </div>
+                  <InlineEditable field={`items.${si}.name`} label="Name" value={item.name ?? ''}>
+                    <h4
+                      style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontWeight: 600,
+                        fontSize: '1.05rem',
+                        color: tokens.text,
+                        margin: 0,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {item.name}
+                    </h4>
+                  </InlineEditable>
+
+                  <InlineEditable field={`items.${si}.description`} label="Description" value={item.description ?? ''} multiline>
+                    <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
+                      {item.description}
+                    </Body>
+                  </InlineEditable>
+                </div>
+              </InlineArrayItem>
             </Reveal>
           ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="items"
+            template={{ iconHint: 'shield', name: 'New security item', description: 'Describe this…' }}
+            label="Add item"
+          />
         </div>
 
         {content.diagram && (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useEditContext, type EditSelection } from './EditContext';
 
 interface Props {
@@ -68,7 +69,11 @@ export function Editable({
   const [draft, setDraft] = useState(value ?? '');
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
+  const [mounted, setMounted] = useState(false);
+  const [inputRect, setInputRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+
+  useEffect(() => setMounted(true), []);
 
   // Sync draft when value prop changes externally
   useEffect(() => { setDraft(value ?? ''); }, [value]);
@@ -90,6 +95,21 @@ export function Editable({
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [slashOpen]);
+
+  // Track input position for portal-based toolbar/slash menu
+  useEffect(() => {
+    if (!editing) { setInputRect(null); return; }
+    function update() {
+      if (inputRef.current) setInputRect(inputRef.current.getBoundingClientRect());
+    }
+    update();
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [editing]);
 
   // Outside editor — render children as-is
   if (!ctx) return <>{children}</>;
@@ -158,12 +178,20 @@ export function Editable({
   const applyFormat = (type: 'bold' | 'italic' | 'bullet') => {
     const el = inputRef.current;
     if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
     let newVal = draft;
-    if (type === 'bold') newVal = wrapSelection(el, '**', '**', 'bold text');
-    if (type === 'italic') newVal = wrapSelection(el, '_', '_', 'italic text');
-    if (type === 'bullet') newVal = prefixLines(el, '•');
+    let cursorOffset = 0;
+    if (type === 'bold') { newVal = wrapSelection(el, '**', '**', 'bold text'); cursorOffset = 2; }
+    if (type === 'italic') { newVal = wrapSelection(el, '_', '_', 'italic text'); cursorOffset = 1; }
+    if (type === 'bullet') { newVal = prefixLines(el, '•'); cursorOffset = 2; }
     setDraft(newVal);
-    setTimeout(() => el.focus(), 0);
+    // Restore cursor inside the wrapped text after React re-renders
+    setTimeout(() => {
+      el.focus();
+      const newPos = start === end ? start + cursorOffset : end + cursorOffset * 2;
+      el.setSelectionRange(newPos, newPos);
+    }, 0);
   };
 
   // Shared inline editor style
@@ -242,21 +270,23 @@ export function Editable({
       {/* Inline editor overlay */}
       {editing && canInlineEdit && (
         <>
-          {/* Rich text formatting toolbar (multiline only) */}
-          {multiline && (
+          {/* Rich text formatting toolbar (multiline only) — rendered in portal to escape overflow:hidden */}
+          {multiline && inputRect && mounted && createPortal(
             <div
               style={{
-                position: 'absolute',
-                top: -36, left: -2,
-                zIndex: 1200,
+                position: 'fixed',
+                top: Math.max(4, inputRect.top - 38),
+                left: inputRect.left,
+                zIndex: 60000,
                 display: 'flex',
                 gap: 3,
                 background: '#1e293b',
                 borderRadius: 6,
                 padding: '3px 5px',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                pointerEvents: 'auto',
               }}
-              onMouseDown={e => e.preventDefault()} // don't blur textarea
+              onMouseDown={e => e.preventDefault()}
             >
               {[
                 { icon: 'B', title: 'Bold (Ctrl+B)', style: { fontWeight: 900 }, action: () => applyFormat('bold') },
@@ -266,7 +296,7 @@ export function Editable({
                 <button
                   key={btn.icon}
                   title={btn.title}
-                  onClick={btn.action}
+                  onMouseDown={e => { e.preventDefault(); btn.action(); }}
                   style={{
                     width: 24, height: 24,
                     borderRadius: 4,
@@ -285,9 +315,10 @@ export function Editable({
               ))}
               <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 2px' }} />
               <span style={{ fontSize: 9, color: '#94a3b8', alignSelf: 'center', paddingRight: 4, fontFamily: 'system-ui' }}>
-                Type / for commands
+                / for commands
               </span>
-            </div>
+            </div>,
+            document.body
           )}
 
           {multiline ? (
@@ -325,27 +356,28 @@ export function Editable({
             />
           )}
 
-          {/* Slash command menu */}
-          {slashOpen && filteredCmds.length > 0 && (
+          {/* Slash command menu — rendered in portal to escape overflow:hidden */}
+          {slashOpen && filteredCmds.length > 0 && inputRect && mounted && createPortal(
             <div
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                left: 0,
-                zIndex: 2000,
+                position: 'fixed',
+                top: inputRect.bottom + 4,
+                left: inputRect.left,
+                zIndex: 60000,
                 background: '#1e293b',
                 borderRadius: 8,
                 boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
                 border: '1px solid rgba(255,255,255,0.1)',
                 overflow: 'hidden',
                 minWidth: 200,
+                pointerEvents: 'auto',
               }}
               onMouseDown={e => e.preventDefault()}
             >
               {filteredCmds.map(cmd => (
                 <button
                   key={cmd.id}
-                  onClick={() => applySlashCommand(cmd.id)}
+                  onMouseDown={e => { e.preventDefault(); applySlashCommand(cmd.id); }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -373,7 +405,8 @@ export function Editable({
                   </div>
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body
           )}
         </>
       )}

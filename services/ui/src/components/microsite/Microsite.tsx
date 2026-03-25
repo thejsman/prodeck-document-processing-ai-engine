@@ -210,12 +210,6 @@ function SectionWithOverlay({
   allSections,
   brief,
   behavior,
-  dragFrom,
-  dragOver,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -225,19 +219,30 @@ function SectionWithOverlay({
   allSections: LayoutAST['sections'];
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
-  dragFrom: number | null;
-  dragOver: number | null;
-  onDragStart: (index: number) => void;
-  onDragOver: (index: number, e: React.DragEvent) => void;
-  onDrop: (index: number) => void;
-  onDragEnd: () => void;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
-  // Apply per-section background override
-  let sectionInner: React.ReactNode = section.bgColor
-    ? <div style={{ background: section.bgColor }}>{inner}</div>
-    : inner;
+  // Apply per-section background override using scoped CSS to beat inline styles
+  const sel = `[data-section-id="${section.id}"] section,[data-section-id="${section.id}"] > div > section`;
+  const hasBgColor = !!section.bgColor;
+  // Background image only applies to hero by default.
+  // For other sections it only applies when the user explicitly set it via
+  // the toolbar (source === 'custom').
+  const isHero = section.sectionType === 'hero';
+  const hasBgImage = !!section.image?.url && (isHero || section.image.source === 'custom');
+  let bgCssRule = '';
+  if (hasBgColor) {
+    const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
+    bgCssRule = `${sel}{background:${safe} !important;}`;
+  } else if (hasBgImage) {
+    bgCssRule = `${sel}{background-image:url("${section.image!.url!.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
+  }
+  let sectionInner: React.ReactNode = bgCssRule ? (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: bgCssRule }} />
+      {inner}
+    </>
+  ) : inner;
 
   // Render embed overlay if section has an embed URL
   if (section.embed?.url) {
@@ -269,23 +274,8 @@ function SectionWithOverlay({
     }
   }
 
-  const isDragging = dragFrom === index;
-  const isDropTarget = dragOver === index && dragFrom !== null && dragFrom !== index;
-
   return (
-    <div
-      draggable={!!editCtx}
-      onDragStart={editCtx ? () => onDragStart(index) : undefined}
-      onDragOver={editCtx ? e => onDragOver(index, e) : undefined}
-      onDrop={editCtx ? () => onDrop(index) : undefined}
-      onDragEnd={editCtx ? onDragEnd : undefined}
-      style={{
-        opacity: isDragging ? 0.4 : 1,
-        transition: 'opacity 0.15s',
-        outline: isDropTarget ? '3px dashed #6366f1' : 'none',
-        outlineOffset: -3,
-      }}
-    >
+    <div>
       <AnimatedSection id={section.id} behavior={behavior} index={index}>
         <SectionIdProvider id={section.id}>
           {editCtx ? (
@@ -333,9 +323,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const [downloading, setDownloading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
-  const [dragOver, setDragOver] = useState<number | null>(null);
-  useEffect(() => setMounted(true), []);
+useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const fonts = ast.customFonts?.length ? ast.customFonts : plugin.fonts;
@@ -572,18 +560,6 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
               allSections={ast.sections}
               brief={ast.brief}
               behavior={ast.behavior}
-              dragFrom={dragFrom}
-              dragOver={dragOver}
-              onDragStart={idx => setDragFrom(idx)}
-              onDragOver={(idx, e) => { e.preventDefault(); setDragOver(idx); }}
-              onDrop={idx => {
-                if (dragFrom !== null && dragFrom !== idx) {
-                  editCtx?.moveArrayItem('__sections__', '__sections__', dragFrom, idx);
-                }
-                setDragFrom(null);
-                setDragOver(null);
-              }}
-              onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
             />
             {/* Insert-after button between sections */}
             {editCtx && <AddSectionButton afterIndex={i} />}

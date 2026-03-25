@@ -8,6 +8,7 @@ import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
 import { Headline, Label, Body } from "../shared/Typography";
 import { InlineEditable } from "../editor/InlineEditable";
+import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 
 interface Props {
   content: ShowcaseContent;
@@ -129,29 +130,40 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {highlights.map((h, i) => (
           <Reveal key={i} delay={280 + i * 60}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div
-                style={{
-                  width: 3,
-                  height: 20,
-                  borderRadius: 2,
-                  background: tokens.accent,
-                  flexShrink: 0,
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: "0.9rem",
-                  fontWeight: 500,
-                  color: tokens.text,
-                }}
-              >
-                {h}
-              </span>
-            </div>
+            <InlineArrayItem arrayPath="highlights" index={i} total={highlights.length}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 3,
+                    height: 20,
+                    borderRadius: 2,
+                    background: tokens.accent,
+                    flexShrink: 0,
+                  }}
+                />
+                <InlineEditable field={`highlights.${i}`} label="Highlight" value={h ?? ''}>
+                  <span
+                    style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontSize: "0.9rem",
+                      fontWeight: 500,
+                      color: tokens.text,
+                    }}
+                  >
+                    {h}
+                  </span>
+                </InlineEditable>
+              </div>
+            </InlineArrayItem>
           </Reveal>
         ))}
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <InlineAddItem
+          arrayPath="highlights"
+          template="New highlight…"
+          label="Add highlight"
+        />
       </div>
     </div>
   );

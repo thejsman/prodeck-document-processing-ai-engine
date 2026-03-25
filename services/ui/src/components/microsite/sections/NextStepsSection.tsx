@@ -80,9 +80,11 @@ export function NextStepsSection({ content, tokens, index, sections = [], sectio
 
         {content.urgencyNote && (
           <Reveal delay={320}>
-            <Body tokens={tokens} style={{ fontSize: '0.85rem', color: tokens.accent, fontWeight: 500 }}>
-              {content.urgencyNote}
-            </Body>
+            <InlineEditable field="urgencyNote" label="Urgency note" value={content.urgencyNote ?? ''}>
+              <Body tokens={tokens} style={{ fontSize: '0.85rem', color: tokens.accent, fontWeight: 500 }}>
+                {content.urgencyNote}
+              </Body>
+            </InlineEditable>
           </Reveal>
         )}
       </div>

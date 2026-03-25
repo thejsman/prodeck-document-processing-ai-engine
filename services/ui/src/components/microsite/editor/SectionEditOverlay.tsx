@@ -594,7 +594,11 @@ function BackgroundPanel({
   const [imgQuery, setImgQuery] = useState(section.image?.query ?? '');
 
   function applyImage() {
-    if (imgUrl.trim()) ctx.updateField(section.id, '__imageUrl', imgUrl.trim());
+    ctx.updateField(section.id, '__bgColor', '');   // clear solid color override
+    if (imgUrl.trim()) {
+      ctx.updateField(section.id, '__imageUrl', imgUrl.trim());
+      ctx.updateField(section.id, '__imageSource', 'custom');
+    }
     if (imgQuery.trim()) ctx.updateField(section.id, '__imageQuery', imgQuery.trim());
     onClose();
   }
@@ -605,10 +609,19 @@ function BackgroundPanel({
     const reader = new FileReader();
     reader.onload = ev => {
       const dataUrl = ev.target?.result as string;
+      ctx.updateField(section.id, '__bgColor', '');  // clear solid color override
       ctx.updateField(section.id, '__imageUrl', dataUrl);
+      ctx.updateField(section.id, '__imageSource', 'custom');
       onClose();
     };
     reader.readAsDataURL(file);
+  }
+
+  function resetToTheme() {
+    ctx.updateField(section.id, '__bgColor', '');
+    ctx.updateField(section.id, '__imageUrl', null);
+    ctx.updateField(section.id, '__imageSource', 'gradient');
+    onClose();
   }
 
   return (
@@ -681,7 +694,7 @@ function BackgroundPanel({
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button
-                onClick={() => { ctx.updateField(section.id, '__imageSource', 'gradient'); onClose(); }}
+                onClick={() => { ctx.updateField(section.id, '__bgColor', ''); ctx.updateField(section.id, '__imageUrl', null); ctx.updateField(section.id, '__imageSource', 'gradient'); onClose(); }}
                 style={{ flex: 1, padding: '7px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' }}
               >
                 Use gradient
@@ -735,7 +748,7 @@ function BackgroundPanel({
               <input
                 type="color"
                 defaultValue="#1e293b"
-                onChange={e => ctx.updateField(section.id, '__bgColor', e.target.value)}
+                onChange={e => { ctx.updateField(section.id, '__imageUrl', null); ctx.updateField(section.id, '__bgColor', e.target.value); }}
                 style={{ width: 40, height: 36, borderRadius: 6, border: '1px solid #e2e8f0', cursor: 'pointer', padding: 2 }}
               />
               <span style={{ fontSize: 11, color: '#94a3b8' }}>Pick any background color</span>
@@ -747,7 +760,7 @@ function BackgroundPanel({
               {BG_PRESETS.map(preset => (
                 <button
                   key={preset.label}
-                  onClick={() => { ctx.updateField(section.id, '__bgColor', preset.value); onClose(); }}
+                  onClick={() => { ctx.updateField(section.id, '__imageUrl', null); ctx.updateField(section.id, '__bgColor', preset.value); onClose(); }}
                   style={{
                     padding: '5px 10px',
                     borderRadius: 100,
@@ -765,6 +778,20 @@ function BackgroundPanel({
             </div>
           </>
         )}
+      </div>
+
+      {/* Reset to theme default */}
+      <div style={{ padding: '10px 14px', borderTop: '1px solid #e2e8f0' }}>
+        <button
+          onClick={resetToTheme}
+          style={{
+            width: '100%', padding: '7px', borderRadius: 6,
+            border: '1px solid #e2e8f0', background: '#f8fafc',
+            color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          ↺ Reset to theme default
+        </button>
       </div>
     </div>
   );

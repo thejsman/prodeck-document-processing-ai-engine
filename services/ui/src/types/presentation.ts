@@ -387,7 +387,7 @@ export interface LayoutSection {
   /** Diagram type metadata from the keyword detector — null when no diagram */
   diagramMeta?: DiagramMeta | null;
   image: {
-    source: 'unsplash' | 'gradient';
+    source: 'unsplash' | 'gradient' | 'custom';
     query: string;
     url: string | null;
     fallback: 'gradient-mesh';

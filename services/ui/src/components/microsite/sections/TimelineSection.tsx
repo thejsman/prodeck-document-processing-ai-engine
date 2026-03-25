@@ -6,6 +6,7 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: TimelineContent;
@@ -15,7 +16,9 @@ interface Props {
   sectionId?: string;
 }
 
-export function TimelineSection({ content, tokens, index, sectionId }: Props) {
+export function TimelineSection({ content, tokens }: Props) {
+  const phases = content.phases ?? [];
+
   return (
     <section
       id="timeline"
@@ -78,69 +81,85 @@ export function TimelineSection({ content, tokens, index, sectionId }: Props) {
             }}
           />
 
-          {(content.phases ?? []).map((phase, pi) => (
+          {phases.map((phase, pi) => (
             <Reveal key={pi} delay={240 + pi * 80}>
-              <div style={{ position: 'relative', paddingBottom: pi < (content.phases ?? []).length - 1 ? 40 : 0 }}>
-                {/* Dot */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: -40 + 3,
-                    top: 4,
-                    width: 18,
-                    height: 18,
-                    borderRadius: '50%',
-                    background: tokens.bg,
-                    border: `2px solid ${tokens.accent}`,
-                    zIndex: 2,
-                  }}
-                >
-                  <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
-                </div>
-
-                {/* Phase card */}
-                <div
-                  style={{
-                    padding: '20px 24px',
-                    borderRadius: 8,
-                    border: `1px solid ${tokens.border}`,
-                    background: tokens.surfaceCard,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-                    <h4
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 600,
-                        fontSize: '1rem',
-                        color: tokens.text,
-                        margin: 0,
-                      }}
-                    >
-                      {phase.name}
-                    </h4>
-                    <span
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        color: tokens.accent,
-                        padding: '2px 10px',
-                        borderRadius: 20,
-                        background: `${tokens.accent}15`,
-                        border: `1px solid ${tokens.accent}30`,
-                      }}
-                    >
-                      {phase.duration}
-                    </span>
+              <InlineArrayItem arrayPath="phases" index={pi} total={phases.length}>
+                <div style={{ position: 'relative', paddingBottom: pi < phases.length - 1 ? 40 : 0 }}>
+                  {/* Dot */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: -40 + 3,
+                      top: 4,
+                      width: 18,
+                      height: 18,
+                      borderRadius: '50%',
+                      background: tokens.bg,
+                      border: `2px solid ${tokens.accent}`,
+                      zIndex: 2,
+                    }}
+                  >
+                    <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
                   </div>
-                  <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
-                    {phase.description}
-                  </Body>
+
+                  {/* Phase card */}
+                  <div
+                    style={{
+                      padding: '20px 24px',
+                      borderRadius: 8,
+                      border: `1px solid ${tokens.border}`,
+                      background: tokens.surfaceCard,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
+                        <h4
+                          style={{
+                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                            fontWeight: 600,
+                            fontSize: '1rem',
+                            color: tokens.text,
+                            margin: 0,
+                          }}
+                        >
+                          {phase.name}
+                        </h4>
+                      </InlineEditable>
+                      <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
+                        <span
+                          style={{
+                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            color: tokens.accent,
+                            padding: '2px 10px',
+                            borderRadius: 20,
+                            background: `${tokens.accent}15`,
+                            border: `1px solid ${tokens.accent}30`,
+                          }}
+                        >
+                          {phase.duration}
+                        </span>
+                      </InlineEditable>
+                    </div>
+                    <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
+                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
+                        {phase.description}
+                      </Body>
+                    </InlineEditable>
+                  </div>
                 </div>
-              </div>
+              </InlineArrayItem>
             </Reveal>
           ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="phases"
+            template={{ name: 'New phase', duration: '2 weeks', description: 'Describe this phase…' }}
+            label="Add phase"
+          />
         </div>
       </div>
     </section>

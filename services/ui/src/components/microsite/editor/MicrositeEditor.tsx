@@ -236,7 +236,15 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   }, [handleKeyDown]);
 
   function handleThemeSelect(id: string) {
-    ctx.replaceAst({ ...ctx.ast, plugin: id });
+    ctx.replaceAst({
+      ...ctx.ast,
+      plugin: id,
+      // Clear any custom token overrides so the new theme applies cleanly
+      customTokens: undefined,
+      customDesignSystem: undefined,
+      customCharacter: undefined,
+      customFonts: undefined,
+    });
   }
 
   return (
@@ -461,7 +469,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       {showThemeModal && (
         <ThemeModal
           selectedPlugin={ctx.ast.plugin}
-          onSelect={id => { if (id) handleThemeSelect(id); }}
+          onSelect={id => { if (id) { handleThemeSelect(id); setShowThemeModal(false); } }}
           onPreview={() => {}}
           onClose={() => setShowThemeModal(false)}
         />
