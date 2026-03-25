@@ -27,6 +27,9 @@ import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
 import type { ToolDescriptor } from '../chat/agent-executor.js';
+import { recommendTemplate } from '../../../templates/template-recommendation.service.js';
+import { extractRfpRequirements } from '../ingestion/extract-rfp-requirements.js';
+import type { RecommendationContext } from '../../../templates/template-types.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -167,6 +170,169 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 }
 
 // ---------------------------------------------------------------------------
+// recommend_template handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Analyse the RFP context and recommend the best proposal template.
+ *
+ * Flow:
+ *   1. Emit phase "Analyzing proposal patterns".
+ *   2. Extract or reuse the requirement matrix from context.
+ *   3. Emit phase "Matching product capabilities".
+ *   4. Call the template recommendation engine.
+ *   5. Emit phase "Selecting optimal template".
+ *   6. If a template is recommended → store in context, stream reasoning.
+ *   7. If fallbackGenerate → use AgentExecutor to generate a custom structure.
+ *   8. Signal DONE to proceed to outline generation.
+ */
+export async function handleRecommendTemplate(ctx: HandlerContext): Promise<HandlerResult> {
+  const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
+
+  // ── Phase 1: Analyze proposal patterns ──────────────────────
+  onPhase('Analyzing proposal patterns');
+
+  // Build or reuse requirement matrix
+  let requirementMatrix = instance.context.requirementMatrix as RecommendationContext['requirementMatrix'] | undefined;
+
+  if (!requirementMatrix) {
+    try {
+      requirementMatrix = await extractRfpRequirements(workdir, namespace);
+      instance.context.requirementMatrix = requirementMatrix;
+    } catch {
+      // Fallback: empty matrix — engine will rely on vector store search
+      requirementMatrix = { functional: [], compliance: [], timeline: [], pricing: [] };
+      instance.context.requirementMatrix = requirementMatrix;
+    }
+  }
+
+  // ── Phase 2: Match product capabilities ─────────────────────
+  onPhase('Matching product capabilities');
+
+  const recommendationContext: RecommendationContext = {
+    requirementMatrix,
+    detectedIndustry: instance.context.detectedIndustry as string | undefined,
+    keyCapabilities: instance.context.keyCapabilities as string[] | undefined,
+    namespace,
+  };
+
+  const recommendation = await recommendTemplate(recommendationContext, workdir);
+
+  // ── Phase 3: Selecting optimal template ─────────────────────
+  onPhase('Selecting optimal template');
+
+  // Store the recommendation in workflow context
+  instance.context.templateRecommendation = recommendation;
+
+  if (!recommendation.fallbackGenerate && recommendation.template) {
+    // ── Recommended an existing template ────────────────────────
+    instance.context.selectedTemplate = recommendation.template;
+
+    const message = [
+      recommendation.reasoning,
+      '',
+      `**Template:** ${recommendation.template.name}`,
+      `**Confidence:** ${(recommendation.confidence * 100).toFixed(0)}%`,
+      '',
+      '**Sections:**',
+      ...recommendation.template.structure.map((s, i) => `${i + 1}. ${s}`),
+      '',
+      'I will use this template to generate your proposal. Proceeding to outline generation.',
+    ].join('\n');
+
+    // Stream the recommendation to the client
+    onChunk(message);
+
+    return {
+      message,
+      stateSignal: 'DONE',
+    };
+  }
+
+  // ── Fallback: generate a custom template structure ──────────
+  onPhase('Generating custom proposal structure');
+
+  const prompt = [
+    'You are a professional proposal strategist.',
+    'Based on the RFP requirements below, generate a proposal section structure.',
+    '',
+    'Requirements:',
+    '- Create an ordered list of section titles (8-12 sections)',
+    '- Each section must be specific to the RFP context, not generic',
+    '- Include an Executive Summary as the first section',
+    '- Include Budget/Pricing and Next Steps as final sections',
+    '- Output ONLY the numbered list of section titles, nothing else',
+    '',
+    `RFP Functional Requirements: ${requirementMatrix.functional.join('; ') || '(none extracted)'}`,
+    `RFP Compliance Requirements: ${requirementMatrix.compliance.join('; ') || '(none extracted)'}`,
+    `RFP Timeline Constraints: ${requirementMatrix.timeline.join('; ') || '(none extracted)'}`,
+    recommendation.reasoning ? `\nContext: ${recommendation.reasoning}` : '',
+  ].join('\n');
+
+  const executor = new AgentExecutor(llmGenerateFn);
+  let generatedStructureText = '';
+
+  for await (const event of executor.runStreaming({
+    prompt,
+    namespace,
+    tools: PROPOSAL_TOOLS,
+  })) {
+    if (event.type === 'token') {
+      onChunk(event.text);
+      generatedStructureText += event.text;
+    } else if (event.type === 'phase') {
+      onPhase(event.name);
+    } else if (event.type === 'tool_request') {
+      onPhase(`Using tool: ${event.tool}`);
+      const toolOutput = await runTool(event.tool, event.input, namespace, onToolEvent);
+      executor.resumeWithToolResult(toolOutput);
+    } else if (event.type === 'final') {
+      if (!generatedStructureText) generatedStructureText = event.result.text;
+    }
+  }
+
+  // Parse the generated structure into section titles
+  const generatedStructure = generatedStructureText
+    .split('\n')
+    .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
+    .filter((line) => line.length > 0);
+
+  // Store as a synthetic template in context
+  instance.context.selectedTemplate = {
+    id: 'generated-custom',
+    name: 'Custom (Generated from RFP)',
+    tags: [],
+    structure: generatedStructure.length > 0 ? generatedStructure : [
+      'Executive Summary',
+      'Problem Statement',
+      'Proposed Solution',
+      'Technical Approach',
+      'Timeline & Milestones',
+      'Team & Credentials',
+      'Budget Estimate',
+      'Next Steps',
+    ],
+  };
+
+  const message = [
+    recommendation.reasoning,
+    '',
+    'I\'ve generated a custom proposal structure tailored to the RFP:',
+    '',
+    ...((instance.context.selectedTemplate as { structure: string[] }).structure).map(
+      (s: string, i: number) => `${i + 1}. ${s}`,
+    ),
+    '',
+    'Proceeding to outline generation with this structure.',
+  ].join('\n');
+
+  return {
+    message,
+    stateSignal: 'DONE',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // generating_outline handler
 // ---------------------------------------------------------------------------
 
@@ -201,18 +367,24 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
 
   onPhase('Generating proposal structure');
 
+  // Use selected template structure from recommendation step (if available)
+  const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
+  const sectionList = selectedTemplate?.structure ?? [
+    'Executive Summary',
+    'Problem Statement',
+    'Proposed Solution',
+    'Technical Approach',
+    'Timeline & Milestones',
+    'Team & Credentials',
+    'Budget Estimate',
+    'Next Steps',
+  ];
+
   const prompt = [
     'You are a professional proposal writer. Create a concise, structured proposal outline based on the RFP below.',
     '',
-    'The outline must include these sections:',
-    '1. Executive Summary',
-    '2. Problem Statement',
-    '3. Proposed Solution',
-    '4. Technical Approach',
-    '5. Timeline & Milestones',
-    '6. Team & Credentials',
-    '7. Budget Estimate',
-    '8. Next Steps',
+    'The outline must follow this section structure:',
+    ...sectionList.map((s, i) => `${i + 1}. ${s}`),
     '',
     rfpContent
       ? `RFP Document:\n${rfpContent}`

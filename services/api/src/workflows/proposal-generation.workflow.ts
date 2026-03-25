@@ -1,15 +1,16 @@
 /**
  * Proposal Generation Workflow — DSL definition.
  *
- * Declarative state machine describing the four-step proposal creation flow.
+ * Declarative state machine describing the proposal creation flow.
  * No side effects; this is a pure configuration object consumed by the
  * ChatOrchestrator to drive state transitions.
  *
  * States:
- *   collecting_rfp      — wait for user to upload RFP document (input)
- *   generating_outline  — LLM generates structured outline from RFP (agent)
- *   generating_sections — LLM expands outline into full proposal draft (tool)
- *   completed           — terminal state, proposal artifact persisted (system)
+ *   collecting_rfp        — wait for user to upload RFP document (input)
+ *   recommend_template    — analyse RFP context and recommend a template (agent)
+ *   generating_outline    — LLM generates structured outline from RFP (agent)
+ *   generating_sections   — LLM expands outline into full proposal draft (tool)
+ *   completed             — terminal state, proposal artifact persisted (system)
  */
 
 export type StateKind = 'input' | 'agent' | 'tool' | 'system';
@@ -34,7 +35,16 @@ export const ProposalWorkflow: WorkflowDefinition = {
 
     collecting_rfp: {
       kind: 'input',
-      transitions: { READY: 'generating_outline' },
+      transitions: { READY: 'recommend_template' },
+    },
+
+    recommend_template: {
+      kind: 'agent',
+      transitions: {
+        DONE: 'generating_outline',
+        /** User chose to pick a different template — re-enter as input. */
+        CHOOSE: 'recommend_template',
+      },
     },
 
     generating_outline: {
