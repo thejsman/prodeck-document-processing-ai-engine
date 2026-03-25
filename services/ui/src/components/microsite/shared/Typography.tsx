@@ -3,7 +3,7 @@
 import type { PluginTokens } from '../../../types/presentation';
 
 /** Convert basic inline markdown to safe HTML. Only handles **bold**, _italic_, and • bullets. */
-function inlineMarkdownToHtml(text: string): string {
+export function inlineMarkdownToHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -11,7 +11,7 @@ function inlineMarkdownToHtml(text: string): string {
     .replace(/\n/g, '<br/>');
 }
 
-function hasMarkdown(text: string): boolean {
+export function hasMarkdown(text: string): boolean {
   return /\*\*|_[^_]|<br/.test(text);
 }
 

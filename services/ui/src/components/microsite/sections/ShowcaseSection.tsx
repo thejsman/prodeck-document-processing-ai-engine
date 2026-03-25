@@ -6,7 +6,7 @@ import type {
 } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
-import { Headline, Label, Body } from "../shared/Typography";
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from "../shared/Typography";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 
@@ -114,9 +114,10 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
               lineHeight: 1.5,
               marginBottom: 18,
             }}
-          >
-            {content.subheadline}
-          </p>
+            {...(hasMarkdown(content.subheadline ?? '')
+              ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.subheadline ?? '') } }
+              : { children: content.subheadline })}
+          />
         </InlineEditable>
       </Reveal>
       <Reveal delay={220}>

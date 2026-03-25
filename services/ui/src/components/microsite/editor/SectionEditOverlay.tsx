@@ -20,6 +20,178 @@ const BG_PRESETS = [
   { label: 'Accent tint', value: 'rgba(var(--ms-accent-rgb,99,102,241),0.08)' },
 ];
 
+// ── Sections that do NOT support diagrams ────────────────────────────────────
+const NO_DIAGRAM_SECTION_TYPES = new Set(['pricing', 'testimonials']);
+
+// ── Context-aware diagram template builders ───────────────────────────────────
+
+function sanitize(s: string) { return (s ?? '').replace(/["]/g, '').slice(0, 40); }
+
+function suggestDiagramType(sectionType: string): string {
+  switch (sectionType) {
+    case 'timeline': return 'gantt';
+    case 'whyus': case 'metrics': case 'stats': return 'pie';
+    case 'security': case 'benefits': case 'techstack': return 'mindmap';
+    case 'testing': return 'orbital';
+    default: return 'flowchart';
+  }
+}
+
+function buildContextTemplate(section: LayoutSection, diagramType: string): string {
+  const c = section.content as unknown as Record<string, unknown>;
+  const hl = sanitize((c.headline as string) || section.heading || 'Overview');
+  type AnyItem = Record<string, string>;
+
+  if (diagramType === 'flowchart') {
+    switch (section.sectionType) {
+      case 'approach': case 'deliverables': case 'problem': {
+        const key = section.sectionType === 'approach' ? 'pillars' : section.sectionType === 'deliverables' ? 'items' : 'painPoints';
+        const raw = (c[key] as unknown[]) ?? [];
+        const items = raw.slice(0, 5);
+        if (items.length) {
+          const nodes = items.map((it, i) => {
+            const label = typeof it === 'string' ? sanitize(it) : sanitize((it as AnyItem).name || (it as AnyItem).title || `Item ${i}`);
+            return `    N${i}["${label}"]`;
+          }).join('\n');
+          const arrows = items.map((_, i) => `    ROOT --> N${i}`).join('\n');
+          return `flowchart TD\n    ROOT["${hl}"]\n${nodes}\n${arrows}`;
+        }
+        break;
+      }
+      case 'challenge':
+        return `flowchart TD\n    A["${hl}"] --> B["Root Cause"]\n    B --> C["Business Impact"]\n    C --> D["Solution Required"]`;
+      case 'nextsteps':
+        return `flowchart LR\n    A["Today"] --> B["${hl}"]\n    B --> C["${sanitize((c.ctaPrimary as string) || 'Get Started')}"]\n    B --> D["${sanitize((c.ctaSecondary as string) || 'Learn More')}"]`;
+      case 'showcase': case 'hero': {
+        const subs = sanitize((c.subheadline as string) || 'Key benefits');
+        return `flowchart TD\n    A["${hl}"] --> B["${subs}"]\n    B --> C["Outcome A"]\n    B --> D["Outcome B"]`;
+      }
+      default: break;
+    }
+    return CHART_TYPES.find(t => t.id === 'flowchart')!.template ?? '';
+  }
+
+  if (diagramType === 'gantt') {
+    if (section.sectionType === 'timeline') {
+      const phases = ((c.phases as AnyItem[]) ?? []).slice(0, 6);
+      if (phases.length) {
+        const lines = phases.map((p, i) => {
+          const name = sanitize(p.name || `Phase ${i + 1}`).replace(/:/g, '');
+          const dur = (p.duration || '14d').match(/(\d+)/)?.[1] ?? '14';
+          return `  ${name} :p${i}, ${i === 0 ? '2025-01-01' : `after p${i - 1}`}, ${dur}d`;
+        }).join('\n');
+        return `gantt\n  title ${hl}\n  dateFormat YYYY-MM-DD\n  section Timeline\n${lines}`;
+      }
+    }
+    return CHART_TYPES.find(t => t.id === 'gantt')!.template ?? '';
+  }
+
+  if (diagramType === 'mindmap') {
+    switch (section.sectionType) {
+      case 'security': case 'benefits': case 'deliverables': {
+        const items = ((c.items as AnyItem[]) ?? []).slice(0, 6);
+        if (items.length) {
+          const branches = items.map(it => `      ${sanitize(it.name || it.title || 'Item')}`).join('\n');
+          return `mindmap\n  root((${hl.slice(0, 18)}))\n    Topics\n${branches}`;
+        }
+        break;
+      }
+      case 'techstack': {
+        const cats = ((c.categories as Array<{name: string; items: string[]}>)) ?? [];
+        if (cats.length) {
+          const branches = cats.slice(0, 4).map(cat => {
+            const subitems = (cat.items ?? []).slice(0, 3).map(i => `        ${sanitize(i)}`).join('\n');
+            return `      ${sanitize(cat.name)}\n${subitems}`;
+          }).join('\n');
+          return `mindmap\n  root((${hl.slice(0, 18)}))\n${branches}`;
+        }
+        break;
+      }
+      default: break;
+    }
+    return CHART_TYPES.find(t => t.id === 'mindmap')!.template ?? '';
+  }
+
+  if (diagramType === 'pie') {
+    const statsKey = section.sectionType === 'metrics' ? 'stats' : 'stats';
+    const raw = (c[statsKey] as AnyItem[]) ?? [];
+    const stats = (Array.isArray(raw) ? raw : [raw]).slice(0, 6);
+    if (stats.length) {
+      const pieces = stats.map(s => {
+        const num = parseFloat((s.number ?? '1').replace(/[^0-9.]/g, '')) || 1;
+        return `  "${sanitize(s.label || 'Item')}": ${num}`;
+      }).join('\n');
+      return `pie title ${hl}\n${pieces}`;
+    }
+    return CHART_TYPES.find(t => t.id === 'pie')!.template ?? '';
+  }
+
+  if (diagramType === 'sequence') {
+    if (section.sectionType === 'testing') {
+      const layers = ((c.layers as AnyItem[]) ?? []).slice(0, 4);
+      if (layers.length) {
+        const msgs = layers.map(l => `  Tester->>${sanitize(l.name || 'Layer').replace(/[-\s]/g, '')}: Execute`).join('\n');
+        return `sequenceDiagram\n  participant Tester\n${msgs}`;
+      }
+    }
+    return CHART_TYPES.find(t => t.id === 'sequence')!.template ?? '';
+  }
+
+  return CHART_TYPES.find(t => t.id === diagramType)?.template ?? '';
+}
+
+function buildOrbitalDefault(section: LayoutSection): OrbitalDiagramData {
+  const c = section.content as unknown as Record<string, unknown>;
+  const hl = sanitize((c.headline as string) || section.heading || 'Core').slice(0, 22);
+  type AnyItem = Record<string, string>;
+  const raw: AnyItem[] = ((c.pillars || c.items) as AnyItem[]) ?? [];
+  const items = raw.slice(0, 6);
+  const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right'] as const;
+  return {
+    type: 'orbital',
+    center: { title: hl, subtitle: section.sectionType },
+    satellites: items.length
+      ? items.map((it, i) => ({
+          title: sanitize(it.name || it.title || `Item ${i + 1}`).slice(0, 22),
+          description: sanitize(it.description || '').slice(0, 40),
+          position: positions[i % positions.length],
+        }))
+      : [
+          { title: 'Feature A', description: 'Key capability', position: 'top-left' },
+          { title: 'Feature B', description: 'Key capability', position: 'top-right' },
+          { title: 'Feature C', description: 'Key capability', position: 'bottom-left' },
+          { title: 'Feature D', description: 'Key capability', position: 'bottom-right' },
+        ],
+  };
+}
+
+function buildPuzzleDefault(section: LayoutSection): PuzzleDiagramData {
+  const c = section.content as unknown as Record<string, unknown>;
+  type AnyItem = Record<string, string>;
+  const raw: AnyItem[] = ((c.pillars || c.items) as AnyItem[]) ?? [];
+  const items = raw.slice(0, 4);
+  const iconTypes = ['process', 'cloud', 'data', 'security'] as const;
+  const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+  const labelSides = ['left', 'right', 'left', 'right'] as const;
+  return {
+    type: 'puzzle',
+    backgroundStyle: 'gradient',
+    pieces: items.length
+      ? items.map((it, i) => ({
+          title: sanitize(it.name || it.title || `Topic ${i + 1}`).slice(0, 22),
+          iconType: iconTypes[i % iconTypes.length],
+          position: positions[i],
+          labelSide: labelSides[i],
+        }))
+      : [
+          { title: 'Strategy', iconType: 'process', position: 'top-left', labelSide: 'left' },
+          { title: 'Technology', iconType: 'cloud', position: 'top-right', labelSide: 'right' },
+          { title: 'Data', iconType: 'data', position: 'bottom-left', labelSide: 'left' },
+          { title: 'Security', iconType: 'security', position: 'bottom-right', labelSide: 'right' },
+        ],
+  };
+}
+
 // ── Chart type templates ──────────────────────────────────────────────────────
 
 const CHART_TYPES = [
@@ -256,18 +428,19 @@ function PuzzleForm({ data, onChange }: { data: PuzzleDiagramData; onChange: (d:
 // ── Diagram editor modal ──────────────────────────────────────────────────────
 
 function DiagramModal({
-  sectionId,
+  section,
   diagram,
   onClose,
 }: {
-  sectionId: string;
+  section: LayoutSection;
   diagram: string;
   onClose: () => void;
 }) {
   const ctx = useEditContext()!;
-  const [value, setValue] = useState(diagram);
+  const suggestedType = !diagram ? suggestDiagramType(section.sectionType) : null;
+
   const [activeType, setActiveType] = useState(() => {
-    if (!diagram) return 'flowchart';
+    if (!diagram) return suggestedType ?? 'flowchart';
     if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
       const data = parseCustomDiagramData(diagram);
       if (data?.type === 'orbital') return 'orbital';
@@ -281,21 +454,19 @@ function DiagramModal({
     return 'custom';
   });
 
+  const [value, setValue] = useState(() => {
+    if (diagram) return diagram.startsWith(CUSTOM_SVG_PREFIX) ? '' : diagram;
+    const type = suggestedType ?? 'flowchart';
+    if (type === 'orbital' || type === 'puzzle') return '';
+    return buildContextTemplate(section, type);
+  });
+
   const [orbitalData, setOrbitalData] = useState<OrbitalDiagramData>(() => {
     if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
       const d = parseCustomDiagramData(diagram);
       if (d?.type === 'orbital') return d as OrbitalDiagramData;
     }
-    return {
-      type: 'orbital',
-      center: { title: 'Core Platform', subtitle: 'Foundation' },
-      satellites: [
-        { title: 'Feature A', description: 'Key capability', position: 'top-left' },
-        { title: 'Feature B', description: 'Key capability', position: 'top-right' },
-        { title: 'Feature C', description: 'Key capability', position: 'bottom-left' },
-        { title: 'Feature D', description: 'Key capability', position: 'bottom-right' },
-      ],
-    };
+    return buildOrbitalDefault(section);
   });
 
   const [puzzleData, setPuzzleData] = useState<PuzzleDiagramData>(() => {
@@ -303,22 +474,15 @@ function DiagramModal({
       const d = parseCustomDiagramData(diagram);
       if (d?.type === 'puzzle') return d as PuzzleDiagramData;
     }
-    return {
-      type: 'puzzle',
-      backgroundStyle: 'gradient',
-      pieces: [
-        { title: 'Strategy', iconType: 'process', position: 'top-left', labelSide: 'left' },
-        { title: 'Technology', iconType: 'cloud', position: 'top-right', labelSide: 'right' },
-        { title: 'Data', iconType: 'data', position: 'bottom-left', labelSide: 'left' },
-        { title: 'Security', iconType: 'security', position: 'bottom-right', labelSide: 'right' },
-      ],
-    };
+    return buildPuzzleDefault(section);
   });
 
   function handleTypeSelect(typeId: string) {
     setActiveType(typeId);
-    const found = CHART_TYPES.find(t => t.id === typeId);
-    if (found && found.template) setValue(found.template);
+    if (typeId === 'orbital') { setOrbitalData(buildOrbitalDefault(section)); return; }
+    if (typeId === 'puzzle') { setPuzzleData(buildPuzzleDefault(section)); return; }
+    const contextTemplate = buildContextTemplate(section, typeId);
+    setValue(contextTemplate || (CHART_TYPES.find(t => t.id === typeId)?.template ?? ''));
   }
 
   function handleSave() {
@@ -328,12 +492,12 @@ function DiagramModal({
     } else if (activeType === 'puzzle') {
       finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(puzzleData);
     }
-    ctx.updateField(sectionId, 'diagram', finalValue);
+    ctx.updateField(section.id, 'diagram', finalValue);
     onClose();
   }
 
   function handleRemove() {
-    ctx.updateField(sectionId, 'diagram', '');
+    ctx.updateField(section.id, 'diagram', '');
     onClose();
   }
 
@@ -1107,14 +1271,16 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             )}
           </div>
 
-          {/* Diagram button — always shown */}
-          <div style={{ position: 'relative' }}>
-            {toolbarBtn(
-              hasDiagram ? '◈ Diagram' : '+ Diagram',
-              null,
-              () => setShowDiagramModal(true),
-            )}
-          </div>
+          {/* Diagram button — only for sections that support diagrams */}
+          {!NO_DIAGRAM_SECTION_TYPES.has(section.sectionType) && (
+            <div style={{ position: 'relative' }}>
+              {toolbarBtn(
+                hasDiagram ? '◈ Diagram' : '+ Diagram',
+                null,
+                () => setShowDiagramModal(true),
+              )}
+            </div>
+          )}
 
           {/* Embed media */}
           <div style={{ position: 'relative' }}>
@@ -1199,7 +1365,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
       {/* Diagram modal */}
       {showDiagramModal && (
         <DiagramModal
-          sectionId={section.id}
+          section={section}
           diagram={String((section.content as unknown as Record<string, unknown>).diagram ?? '')}
           onClose={() => setShowDiagramModal(false)}
         />

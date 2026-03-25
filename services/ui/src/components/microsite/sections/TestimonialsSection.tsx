@@ -4,7 +4,7 @@ import type { PluginTokens, TestimonialsContent } from '../../../types/presentat
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -84,17 +84,20 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
 
                   {/* Quote text */}
                   <InlineEditable field={`items.${i}.quote`} label="Quote" value={item.quote ?? ''} multiline>
-                    <p style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '1rem',
-                      lineHeight: 1.75,
-                      color: tokens.text,
-                      fontStyle: 'italic',
-                      margin: 0,
-                      flex: 1,
-                    }}>
-                      {item.quote}
-                    </p>
+                    <p
+                      style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontSize: '1rem',
+                        lineHeight: 1.75,
+                        color: tokens.text,
+                        fontStyle: 'italic',
+                        margin: 0,
+                        flex: 1,
+                      }}
+                      {...(hasMarkdown(item.quote ?? '')
+                        ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(item.quote ?? '') } }
+                        : { children: item.quote })}
+                    />
                   </InlineEditable>
 
                   {/* Attribution */}

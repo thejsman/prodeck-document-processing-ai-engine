@@ -3,7 +3,7 @@
 import type { PluginTokens, ChallengeContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Body, Label } from '../shared/Typography';
+import { Headline, Body, Label, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
 import { InlineEditable } from '../editor/InlineEditable';
@@ -71,9 +71,10 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
                       lineHeight: 1.5,
                       color: tokens.text,
                     }}
-                  >
-                    {content.pullquote}
-                  </blockquote>
+                    {...(hasMarkdown(content.pullquote ?? '')
+                      ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.pullquote ?? '') } }
+                      : { children: content.pullquote })}
+                  />
                 </InlineEditable>
               </Reveal>
             )}
