@@ -2160,7 +2160,7 @@ export class MicrositeGeneratorAgent implements Agent {
               }
               if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
               // Notify streaming listener that this section is done
-              onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed });
+              onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
               // Force CTA off per constraints
               const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
                 || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));

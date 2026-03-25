@@ -8,14 +8,12 @@ import {
   fetchProposals,
   fetchProposalContent,
   fetchMicrositeContent,
-  synthesizeDesignStyle,
   generateMicrositeStream,
-  runAgent,
   type StreamEvent,
   type ProposalFile,
   type SynthesizedDesignSystem,
 } from '@/lib/api';
-import type { LayoutAST, BrandConfig } from '@/types/presentation';
+import type { LayoutAST, LayoutSection, BrandConfig } from '@/types/presentation';
 import { PLUGINS, fetchPluginsFromApi, DEFAULT_PLUGIN_IDS, THEME_REGISTRY, type ThemeDefinition } from '@/lib/presentation/pluginRegistry';
 import type { PluginMeta } from '@/types/presentation';
 import { Microsite } from './microsite/Microsite';
@@ -487,58 +485,109 @@ export function PresentationPage() {
       const isCustomSynth = selectedPlugin === 'custom-synthesized' && synthesizedDesign;
       const sourceMarkdown = generatedMarkdown ?? mdContent;
 
-      const result = await runAgent(apiKey, {
-        agent: 'microsite-generator-agent',
-        namespace: selectedNamespace,
-        input: {
-          ...((customPrompt || designBrief).trim() ? { prompt: (customPrompt || designBrief).trim() } : {}),
-          metadata: {
-            proposalMarkdown: sourceMarkdown,
-            plugin: selectedPlugin ?? 'none',
-            brand: {
-              companyName: brand.companyName,
-              tagline: brand.tagline,
-              logoText: brand.logoText,
-              primaryColor: brand.primaryColor,
-              secondaryColor: brand.secondaryColor,
-              logoUrl: brand.logoUrl,
-            },
-            ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
-            ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
-            ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
-          },
-        },
-      });
+      const proposalId = selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
 
-      setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
-      setProgress(p => [...p, { text: 'Processing agent response...', done: false }]);
-
-      let ast: LayoutAST | null = null;
-      if (result.json && typeof result.json === 'object') {
-        ast = result.json as LayoutAST;
-      }
-
-      if (ast && ast.sections?.length > 0) {
-        ast.brand = {
+      await generateMicrositeStream(apiKey, selectedNamespace, proposalId, {
+        proposalMarkdown: sourceMarkdown,
+        plugin: selectedPlugin ?? 'none',
+        brand: {
           companyName: brand.companyName,
           tagline: brand.tagline,
-          logoUrl: brand.logoUrl,
           logoText: brand.logoText,
           primaryColor: brand.primaryColor,
           secondaryColor: brand.secondaryColor,
-        };
-        // null → fall back to 'ivory' (cleanest/lightest) for renderer
-        ast.plugin = selectedPlugin ?? 'ivory';
-        setLayoutAST(ast);
-        addEntry(ast);
-        // Store generated markdown so next regeneration refines this output, not original proposal
-        if (result.markdown) setGeneratedMarkdown(result.markdown);
-      }
+          logoUrl: brand.logoUrl,
+        },
+        ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
+        ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
+        signal: abortCtrl.signal,
+        onEvent: (() => {
+          let switched = false;
+          const brandConfig = {
+            companyName: brand.companyName,
+            tagline: brand.tagline,
+            logoUrl: brand.logoUrl,
+            logoText: brand.logoText,
+            primaryColor: brand.primaryColor,
+            secondaryColor: brand.secondaryColor,
+          };
 
-      setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
-      setProgress(p => [...p, { text: 'Microsite ready!', done: true }]);
-      updateExecution(execId, { status: 'completed' });
-      setTimeout(() => { clearSnapshot(); setStep('preview'); }, 600);
+          return (event: StreamEvent) => {
+            console.log('[stream]', event.type, event.type === 'section' ? (event as { sectionType?: string }).sectionType : '');
+            if (event.type === 'start') {
+              setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
+              setProgress(p => [...p, { text: 'Generating sections...', done: false }]);
+
+            } else if (event.type === 'section') {
+              const sec = event;
+              const newSection: LayoutSection = {
+                id: sec.id,
+                heading: sec.heading,
+                sectionType: sec.sectionType as LayoutSection['sectionType'],
+                content: sec.content as unknown as LayoutSection['content'],
+                image: (sec.image as LayoutSection['image']) ?? { source: 'gradient', query: '', url: null, fallback: 'gradient-mesh' },
+                editable: sec.editable ?? true,
+                version: sec.version ?? 1,
+              };
+              setStreamingSections(s => [...s, sec.sectionType]);
+
+              if (!switched) {
+                switched = true;
+                // First section — initialise AST and jump to preview
+                setLayoutAST({
+                  proposalId,
+                  generatedAt: new Date().toISOString(),
+                  meta: { title: selectedProposal?.client ?? selectedNamespace, client: selectedProposal?.client ?? '', date: '', author: '' },
+                  brief: {} as LayoutAST['brief'],
+                  brand: brandConfig,
+                  plugin: selectedPlugin ?? 'ivory',
+                  sections: [newSection],
+                });
+                setStep('preview');
+              } else {
+                // Insert at correct index to maintain section order
+                setLayoutAST(prev => {
+                  if (!prev) return prev;
+                  const sections = [...prev.sections];
+                  const targetIdx = sec.index ?? sections.length;
+                  sections.splice(targetIdx, 0, newSection);
+                  return { ...prev, sections };
+                });
+              }
+
+            } else if (event.type === 'image') {
+              // Image resolved — update that section's URL in place
+              setLayoutAST(prev => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  sections: prev.sections.map(s =>
+                    s.id === event.sectionId
+                      ? { ...s, image: { ...s.image, url: event.url, source: 'unsplash' as const } }
+                      : s
+                  ),
+                };
+              });
+
+            } else if (event.type === 'complete') {
+              const raw = (event as { type: 'complete'; ast: unknown }).ast;
+              if (raw && typeof raw === 'object') {
+                const ast = raw as LayoutAST;
+                ast.brand = brandConfig;
+                ast.plugin = selectedPlugin ?? 'ivory';
+                setLayoutAST(ast);
+                addEntry(ast);
+                setGeneratedMarkdown(sourceMarkdown);
+              }
+              updateExecution(execId, { status: 'completed' });
+              clearSnapshot();
+
+            } else if (event.type === 'error') {
+              throw new Error((event as { type: 'error'; message: string }).message);
+            }
+          };
+        })(),
+      });
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         setError((e as Error).message);
@@ -598,9 +647,10 @@ export function PresentationPage() {
     return (
       <Microsite
         ast={layoutAST}
-        onBack={() => setStep('plugin')}
-        onRegenerate={() => setStep('plugin')}
-        onEdit={() => setShowEditor(true)}
+        generating={generating}
+        onBack={generating ? undefined : () => setStep('plugin')}
+        onRegenerate={generating ? undefined : () => setStep('plugin')}
+        onEdit={generating ? undefined : () => setShowEditor(true)}
       />
     );
   }

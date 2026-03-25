@@ -61,6 +61,8 @@ interface Props {
   onBack?: () => void;
   onRegenerate?: () => void;
   onEdit?: () => void;
+  /** When true, hides the bottom action bar — sections are still streaming in */
+  generating?: boolean;
   /** 'fullscreen' (default) renders as a fixed full-viewport overlay; 'embedded' renders inline for the editor canvas. */
   mode?: 'fullscreen' | 'embedded';
 }
@@ -71,16 +73,24 @@ function AnimatedSection({
   children,
   behavior,
   index,
+  streamingNew = false,
 }: {
   id: string;
   children: React.ReactNode;
   behavior?: LayoutAST['behavior'];
   index: number;
+  /** When true (newly streamed in), skip IntersectionObserver and animate immediately */
+  streamingNew?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(index === 0); // hero always visible
+  const [visible, setVisible] = useState(index === 0 && !streamingNew);
 
   useEffect(() => {
+    if (streamingNew) {
+      // Small delay so the browser paints the initial state before transitioning
+      const t = setTimeout(() => setVisible(true), 30);
+      return () => clearTimeout(t);
+    }
     if (index === 0) return;
     const el = ref.current;
     if (!el) return;
@@ -90,18 +100,21 @@ function AnimatedSection({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [index]);
+  }, [index, streamingNew]);
 
-  const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
-  const delay = Math.min(index * 0.04, 0.24);
+  // During streaming always use slide-up; otherwise honour the theme behavior
+  const effect = streamingNew
+    ? 'slide-up'
+    : behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
+  const delay = streamingNew ? 0 : Math.min(index * 0.04, 0.24);
 
   const animStyle: React.CSSProperties = effect === 'none'
     ? {}
     : {
         opacity: visible ? 1 : 0,
-        transform: visible ? 'none' : effect === 'slide-up' ? 'translateY(28px)' : 'none',
+        transform: visible ? 'none' : 'translateY(32px)',
         transition: visible
-          ? `opacity 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}s`
+          ? `opacity 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s`
           : 'none',
       };
 
@@ -210,6 +223,7 @@ function SectionWithOverlay({
   allSections,
   brief,
   behavior,
+  streamingNew,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -219,6 +233,7 @@ function SectionWithOverlay({
   allSections: LayoutAST['sections'];
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
+  streamingNew?: boolean;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
@@ -276,7 +291,7 @@ function SectionWithOverlay({
 
   return (
     <div>
-      <AnimatedSection id={section.id} behavior={behavior} index={index}>
+      <AnimatedSection id={section.id} behavior={behavior} index={index} streamingNew={streamingNew}>
         <SectionIdProvider id={section.id}>
           {editCtx ? (
             <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
@@ -309,7 +324,7 @@ function getEmbedSrc(url: string): string | null {
   }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = false, mode = 'fullscreen' }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -320,7 +335,23 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| heroFont:', tokens.heroFont);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const prevSectionCount = useRef(0);
   const [downloading, setDownloading] = useState(false);
+
+  // Auto-scroll to the latest section as it streams in
+  useEffect(() => {
+    if (!generating) { prevSectionCount.current = 0; return; }
+    const count = ast.sections?.length ?? 0;
+    if (count <= prevSectionCount.current) return;
+    prevSectionCount.current = count;
+    const lastSection = ast.sections?.[count - 1];
+    if (!lastSection) return;
+    // Small delay to let the section render before scrolling
+    setTimeout(() => {
+      const el = document.getElementById(lastSection.id);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }, [ast.sections?.length, generating]);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
 useEffect(() => setMounted(true), []);
@@ -549,7 +580,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         {/* Insert-before-first button */}
         {editCtx && <AddSectionButton afterIndex={-1} />}
 
-        {(ast.sections ?? []).filter(s => !isSectionEmpty(s)).map((section, i) => (
+        {(ast.sections ?? []).filter(s => !isSectionEmpty(s)).map((section, i, arr) => (
           <React.Fragment key={section.id}>
             <SectionWithOverlay
               section={section}
@@ -560,6 +591,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
               allSections={ast.sections}
               brief={ast.brief}
               behavior={ast.behavior}
+              streamingNew={generating && i === arr.length - 1}
             />
             {/* Insert-after button between sections */}
             {editCtx && <AddSectionButton afterIndex={i} />}
@@ -580,8 +612,29 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         </footer>
       </div>
 
-      {/* Control bar — hidden in embedded mode (editor provides its own controls) */}
-      {!isEmbedded && mounted && createPortal(
+      {/* Generating indicator — shown while sections are still streaming in */}
+      {!isEmbedded && generating && mounted && createPortal(
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 99999,
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 16px', borderRadius: 100,
+          background: `${tokens.bg}ee`, backdropFilter: 'blur(12px)',
+          border: `1px solid ${tokens.border}`, boxShadow: tokens.cardShadow,
+          fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.8rem',
+          fontWeight: 600, color: tokens.textMuted,
+        }}>
+          <div style={{
+            width: 12, height: 12, borderRadius: '50%',
+            border: `2px solid ${tokens.border}`, borderTopColor: tokens.accent,
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          Generating…
+        </div>,
+        document.body,
+      )}
+
+      {/* Control bar — hidden while streaming or in embedded mode */}
+      {!isEmbedded && !generating && mounted && createPortal(
         <div style={{
           position: 'fixed',
           bottom: 24,

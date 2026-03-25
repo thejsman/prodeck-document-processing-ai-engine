@@ -252,24 +252,34 @@ export function registerPresentationRoutes(
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    // Load presentation to get fileName and theme config
-    let presentation: Awaited<ReturnType<typeof getPresentation>>;
-    try {
-      presentation = await getPresentation(workdir, namespace, proposalId);
-    } catch (err) {
-      if ((err as { code?: string }).code === 'NOT_FOUND') {
-        return reply.code(404).send({ error: 'Presentation not found' });
-      }
-      throw err;
-    }
+    const body = req.body as {
+      proposalMarkdown?: string;
+      plugin?: string;
+      brand?: Record<string, unknown>;
+      customInstructions?: string;
+      preSynthesizedDesignSystem?: Record<string, unknown>;
+    } | null;
 
-    // Read proposal markdown
-    const mdPath = path.join(workdir, 'output', presentation.fileName);
+    // Use markdown from body if provided, otherwise read from disk
     let markdown: string;
-    try {
-      markdown = await readFile(mdPath, 'utf-8');
-    } catch {
-      return reply.code(404).send({ error: `Proposal file not found: ${presentation.fileName}` });
+    if (body?.proposalMarkdown) {
+      markdown = body.proposalMarkdown;
+    } else {
+      let presentation: Awaited<ReturnType<typeof getPresentation>>;
+      try {
+        presentation = await getPresentation(workdir, namespace, proposalId);
+      } catch (err) {
+        if ((err as { code?: string }).code === 'NOT_FOUND') {
+          return reply.code(404).send({ error: 'Presentation not found' });
+        }
+        throw err;
+      }
+      const mdPath = path.join(workdir, 'output', presentation.fileName);
+      try {
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch {
+        return reply.code(404).send({ error: `Proposal file not found: ${presentation.fileName}` });
+      }
     }
 
     ensureRegistered(workdir);
@@ -285,12 +295,13 @@ export function registerPresentationRoutes(
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
+        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
-          designConfig: {
-            theme: presentation.config.theme,
-            primaryColor: presentation.config.accentColor,
-          },
+          ...(body?.plugin ? { plugin: body.plugin } : {}),
+          ...(body?.brand ? { brand: body.brand } : {}),
+          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
         },
       });
 
@@ -327,10 +338,11 @@ export function registerPresentationRoutes(
         );
 
         const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+        await mkdir(path.dirname(astPath), { recursive: true });
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
       }
 
-      return reply.send({ assets: result.assets ?? [] });
+      return reply.send({ ast: result.json ?? null, assets: result.assets ?? [] });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: `Agent execution failed: ${message}` });
@@ -344,6 +356,9 @@ export function registerPresentationRoutes(
     const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    // Hijack the reply so Fastify doesn't interfere with our raw SSE response
+    reply.hijack();
 
     // SSE headers — must be set before any writes
     reply.raw.writeHead(200, {
@@ -361,6 +376,7 @@ export function registerPresentationRoutes(
       proposalMarkdown?: string;
       plugin?: string;
       brand?: Record<string, unknown>;
+      customInstructions?: string;
       designBrief?: string;
       preSynthesizedDesignSystem?: Record<string, unknown>;
     } | undefined;
@@ -392,11 +408,13 @@ export function registerPresentationRoutes(
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
+        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
           plugin: body?.plugin ?? 'cobalt',
           brand: body?.brand ?? {},
-          designBrief: body?.designBrief ?? '',
+          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
           // Streaming callback — fires after each section's LLM call completes
           onSectionComplete: (section: Record<string, unknown>) => {
