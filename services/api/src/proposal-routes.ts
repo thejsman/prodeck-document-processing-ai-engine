@@ -41,7 +41,7 @@ import {
   validateTransition,
   type ProposalStatus,
 } from './proposal-meta.js';
-import { createVersionFromEdit } from '../../proposals/proposal-version.service.js';
+import { createVersionFromEdit } from './proposals/proposal-version.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

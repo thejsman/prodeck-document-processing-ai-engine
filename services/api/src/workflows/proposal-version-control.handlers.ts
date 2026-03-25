@@ -15,7 +15,7 @@ import {
   rollbackToVersion,
   findLatestArtifact,
   type ProposalVersion,
-} from '../../../proposals/proposal-version.service.js';
+} from '../proposals/proposal-version.service.js';
 
 // ---------------------------------------------------------------------------
 // Sub-intent detection

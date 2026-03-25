@@ -27,10 +27,10 @@ import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
 import type { ToolDescriptor } from '../chat/agent-executor.js';
-import { recommendTemplate } from '../../../templates/template-recommendation.service.js';
+import { recommendTemplate } from '../templates/template-recommendation.service.js';
 import { extractRfpRequirements } from '../ingestion/extract-rfp-requirements.js';
-import type { RecommendationContext } from '../../../templates/template-types.js';
-import { createInitialVersion } from '../../../proposals/proposal-version.service.js';
+import type { RecommendationContext } from '../templates/template-types.js';
+import { createInitialVersion } from '../proposals/proposal-version.service.js';
 
 // ---------------------------------------------------------------------------
 // Types
