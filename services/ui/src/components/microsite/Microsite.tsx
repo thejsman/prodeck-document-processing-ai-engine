@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
@@ -87,7 +87,6 @@ function AnimatedSection({
 
   useEffect(() => {
     if (streamingNew) {
-      // Small delay so the browser paints the initial state before transitioning
       const t = setTimeout(() => setVisible(true), 30);
       return () => clearTimeout(t);
     }
@@ -118,9 +117,80 @@ function AnimatedSection({
           : 'none',
       };
 
+  const contentRef = useRef<HTMLDivElement>(null);
+  const textNodesRef = useRef<{ node: Text; original: string }[]>([]);
+
+  // Headings appear immediately (preserve structure); only body text gets typed
+  const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'svg', 'h1', 'h2', 'h3', 'h4', 'h5', 'button', 'a']);
+
+  // Before first paint: walk body text nodes and empty them so there's no flash
+  useLayoutEffect(() => {
+    if (!streamingNew) return;
+    const container = contentRef.current;
+    if (!container) return;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        let el = node.parentElement;
+        while (el && el !== container) {
+          if (SKIP_TAGS.has(el.tagName.toLowerCase())) return NodeFilter.FILTER_REJECT;
+          el = el.parentElement;
+        }
+        return (node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT) as number;
+      },
+    });
+    const collected: { node: Text; original: string }[] = [];
+    let n: Node | null;
+    while ((n = walker.nextNode())) {
+      const t = n as Text;
+      collected.push({ node: t, original: t.textContent ?? '' });
+      t.textContent = '';
+    }
+    textNodesRef.current = collected;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After slide-in completes, type body text nodes one character at a time
+  useEffect(() => {
+    if (!streamingNew) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let stopped = false;
+
+    const startTyping = () => {
+      const items = textNodesRef.current;
+      let ni = 0;
+      let ci = 0;
+
+      const tick = () => {
+        if (stopped || ni >= items.length) return;
+        const { node, original } = items[ni];
+        if (ci < original.length) {
+          node.textContent = original.slice(0, ci + 1);
+          ci++;
+          // Space = 6ms (fast separator), normal char = 22ms ≈ natural typing
+          timers.push(setTimeout(tick, original[ci - 1] === ' ' ? 6 : 22));
+        } else {
+          ni++;
+          ci = 0;
+          if (ni < items.length) timers.push(setTimeout(tick, 30));
+        }
+      };
+      tick();
+    };
+
+    // Start after slide-in animation finishes (~620ms)
+    timers.push(setTimeout(startTyping, 620));
+
+    return () => {
+      stopped = true;
+      timers.forEach(clearTimeout);
+      textNodesRef.current.forEach(({ node, original }) => { node.textContent = original; });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div ref={ref} id={id} data-section-id={id} style={animStyle}>
-      {children}
+      <div ref={contentRef}>
+        {children}
+      </div>
     </div>
   );
 }
