@@ -38,6 +38,27 @@ const RFP_ANALYSIS_TRIGGERS = [
 ];
 
 /**
+ * Patterns that signal the user wants version control operations.
+ * Checked before proposal triggers — more specific intent.
+ */
+const VERSION_CONTROL_TRIGGERS = [
+  'rollback',
+  'roll back',
+  'revert',
+  'revert to',
+  'undo changes',
+  'undo edit',
+  'go back to version',
+  'restore version',
+  'show history',
+  'show versions',
+  'version history',
+  'proposal history',
+  'list versions',
+  'proposal versions',
+];
+
+/**
  * Patterns that signal the user wants to create a proposal.
  * Checked in order; first match wins.
  */
@@ -68,6 +89,13 @@ export function routeIntent(message: string): IntentRouteResult | null {
   for (const trigger of RFP_ANALYSIS_TRIGGERS) {
     if (lower.includes(trigger)) {
       return { workflowId: 'rfp_analysis' };
+    }
+  }
+
+  // Version control — checked before proposal triggers
+  for (const trigger of VERSION_CONTROL_TRIGGERS) {
+    if (lower.includes(trigger)) {
+      return { workflowId: 'proposal_version_control' };
     }
   }
 

@@ -30,6 +30,7 @@ import type { ToolDescriptor } from '../chat/agent-executor.js';
 import { recommendTemplate } from '../../../templates/template-recommendation.service.js';
 import { extractRfpRequirements } from '../ingestion/extract-rfp-requirements.js';
 import type { RecommendationContext } from '../../../templates/template-types.js';
+import { createInitialVersion } from '../../../proposals/proposal-version.service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -502,6 +503,14 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
   await writeFile(path.join(proposalsDir, fileName), proposalMarkdown, 'utf-8');
 
   instance.context.proposalArtifactId = fileName;
+
+  // Auto-snapshot: create initial version (v1.0) for the new proposal
+  try {
+    const version = await createInitialVersion(workdir, namespace, fileName, 'system');
+    onPhase(`Saved as version ${version.versionLabel}`);
+  } catch {
+    // Non-fatal — version tracking failure should not block proposal delivery
+  }
 
   return {
     message: proposalMarkdown,

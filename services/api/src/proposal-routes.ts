@@ -41,6 +41,7 @@ import {
   validateTransition,
   type ProposalStatus,
 } from './proposal-meta.js';
+import { createVersionFromEdit } from '../../proposals/proposal-version.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -217,6 +218,20 @@ export function registerProposalRoutes(
         } else {
           await ensureMeta(outputFile);
         }
+      }
+
+      // Auto-snapshot: create version for the generated proposal (fire-and-forget)
+      if (namespace && outputFile) {
+        const generatedFileName = path.basename(outputFile);
+        void createVersionFromEdit(
+          workdir,
+          namespace,
+          generatedFileName,
+          document.content,
+          null,
+          'system',
+          `Generated proposal for "${client}"`,
+        ).catch(() => { /* non-fatal */ });
       }
 
       // Append episodic entry to namespace memory (fire-and-forget)
@@ -593,6 +608,21 @@ export function registerProposalRoutes(
       const updated = await ensureMeta(filePath);
       updated.updatedAt = new Date().toISOString();
       await writeMeta(filePath, updated);
+
+      // Auto-snapshot: create version from user edit (fire-and-forget)
+      // Derive namespace from the request if available
+      const editNamespace = (req.query as Record<string, string>)?.namespace;
+      if (editNamespace) {
+        void createVersionFromEdit(
+          workdir,
+          editNamespace,
+          fileName,
+          body.content,
+          null,
+          'user',
+          'Manual edit',
+        ).catch(() => { /* non-fatal */ });
+      }
 
       return reply.send({ ok: true });
     },

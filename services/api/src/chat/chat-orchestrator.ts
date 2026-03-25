@@ -22,6 +22,7 @@ import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
 import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
+import { ProposalVersionControlWorkflow } from '../workflows/proposal-version-control.workflow.js';
 import {
   createInstance,
   loadActiveInstance,
@@ -48,6 +49,9 @@ import {
   handleGapAnalysis,
   handleGoNoGo,
 } from '../workflows/rfp-analysis.handlers.js';
+import {
+  handleResolveAction,
+} from '../workflows/proposal-version-control.handlers.js';
 
 // ---------------------------------------------------------------------------
 // Workflow registry — extend here to support additional workflows
@@ -56,6 +60,7 @@ import {
 const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   [ProposalWorkflow.id]: ProposalWorkflow,
   [RfpAnalysisWorkflow.id]: RfpAnalysisWorkflow,
+  [ProposalVersionControlWorkflow.id]: ProposalVersionControlWorkflow,
 };
 
 // ---------------------------------------------------------------------------
@@ -91,6 +96,8 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   recommend_template: handleRecommendTemplate,
   generating_outline: handleGeneratingOutline,
   generating_sections: handleGeneratingSections,
+  // proposal_version_control
+  resolve_action: handleResolveAction,
   // rfp_analysis
   checking_rfp: handleCheckingRfp,
   await_rfp_upload: handleAwaitRfpUpload,
@@ -274,6 +281,7 @@ export class ChatOrchestrator {
       const defaultMessages: Record<string, string> = {
         proposal_generation: 'Your proposal draft is ready.',
         rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
+        proposal_version_control: 'Version operation complete.',
       };
       const completionMessage =
         lastResult?.message?.trim() ||
@@ -393,6 +401,7 @@ export class ChatOrchestrator {
       const resumeDefaultMessages: Record<string, string> = {
         proposal_generation: 'Your proposal draft is ready.',
         rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
+        proposal_version_control: 'Version operation complete.',
       };
       if (instance.state === 'completed') {
         const completionMessage =
