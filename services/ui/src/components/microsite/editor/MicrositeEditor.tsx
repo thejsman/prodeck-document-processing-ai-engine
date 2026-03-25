@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { LayoutAST } from '../../../types/presentation';
 import { EditProvider, useEditContext } from './EditContext';
 import { Microsite } from '../Microsite';
@@ -214,6 +214,18 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
   const currentTheme = THEME_REGISTRY.find(t => t.id === ctx.ast.plugin);
 
+  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); ctx.undo(); }
+    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); ctx.redo(); }
+  }, [ctx]);
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
   function handleThemeSelect(id: string) {
     ctx.replaceAst({ ...ctx.ast, plugin: id });
   }
@@ -263,6 +275,33 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
         {/* Right: action buttons */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+
+          {/* Undo / Redo */}
+          <div style={{ display: 'flex', gap: 2, marginRight: 4 }}>
+            {[
+              { label: '↩', title: 'Undo (Ctrl+Z)', action: () => ctx.undo(), enabled: ctx.canUndo },
+              { label: '↪', title: 'Redo (Ctrl+Y)', action: () => ctx.redo(), enabled: ctx.canRedo },
+            ].map(({ label, title, action, enabled }) => (
+              <button
+                key={label}
+                onClick={action}
+                disabled={!enabled}
+                title={title}
+                style={{
+                  width: 30, height: 30, borderRadius: 6,
+                  border: '1px solid #e2e8f0',
+                  background: '#fff',
+                  color: enabled ? '#475569' : '#cbd5e1',
+                  fontSize: 14, fontWeight: 700,
+                  cursor: enabled ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'color 0.15s',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
           {/* Theme switcher */}
           <div ref={themeBtnRef} style={{ position: 'relative' }}>
