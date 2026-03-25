@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutSection } from '../../../types/presentation';
+import type { OrbitalDiagramData, PuzzleDiagramData } from '../../../lib/customDiagramRenderer';
+import { CUSTOM_SVG_PREFIX, parseCustomDiagramData } from '../../../lib/customDiagramRenderer';
 
 // ── Colour swatch presets ─────────────────────────────────────────────────────
 
@@ -88,7 +90,19 @@ const CHART_TYPES = [
     icon: '✎',
     template: '',
   },
-];
+  {
+    id: 'orbital',
+    label: 'Orbital',
+    icon: '⊙',
+    template: null,
+  },
+  {
+    id: 'puzzle',
+    label: 'Puzzle',
+    icon: '⬡',
+    template: null,
+  },
+] as Array<{ id: string; label: string; icon: string; template: string | null }>;
 
 // ── Live diagram preview ──────────────────────────────────────────────────────
 
@@ -143,6 +157,104 @@ function DiagramPreview({ code }: { code: string }) {
 
 // ── Diagram editor modal ──────────────────────────────────────────────────────
 
+// ── Orbital diagram form builder ──────────────────────────────────────────────
+
+const ORBITAL_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right'] as const;
+
+function OrbitalForm({ data, onChange }: { data: OrbitalDiagramData; onChange: (d: OrbitalDiagramData) => void }) {
+  const inp: React.CSSProperties = { width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box', marginBottom: 4 };
+  const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 2 };
+
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Center Node</p>
+        <label style={lbl}>Title</label>
+        <input style={inp} value={data.center.title} onChange={e => onChange({ ...data, center: { ...data.center, title: e.target.value } })} />
+        <label style={lbl}>Subtitle</label>
+        <input style={inp} value={data.center.subtitle} onChange={e => onChange({ ...data, center: { ...data.center, subtitle: e.target.value } })} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Satellites ({data.satellites.length}/6)</p>
+        {data.satellites.length < 6 && (
+          <button
+            onClick={() => onChange({ ...data, satellites: [...data.satellites, { title: 'New Satellite', description: 'Description', position: 'right' }] })}
+            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', cursor: 'pointer', fontWeight: 600 }}
+          >
+            + Add
+          </button>
+        )}
+      </div>
+
+      {data.satellites.map((sat, i) => (
+        <div key={i} style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 8, position: 'relative' }}>
+          <button
+            onClick={() => onChange({ ...data, satellites: data.satellites.filter((_, idx) => idx !== i) })}
+            style={{ position: 'absolute', top: 6, right: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1 }}
+          >✕</button>
+          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Satellite {i + 1}</p>
+          <label style={lbl}>Title</label>
+          <input style={inp} value={sat.title} onChange={e => { const s = [...data.satellites]; s[i] = { ...s[i], title: e.target.value }; onChange({ ...data, satellites: s }); }} />
+          <label style={lbl}>Description</label>
+          <input style={inp} value={sat.description} onChange={e => { const s = [...data.satellites]; s[i] = { ...s[i], description: e.target.value }; onChange({ ...data, satellites: s }); }} />
+          <label style={lbl}>Position</label>
+          <select style={{ ...inp, background: '#fff' }} value={sat.position} onChange={e => { const s = [...data.satellites]; s[i] = { ...s[i], position: e.target.value as typeof sat.position }; onChange({ ...data, satellites: s }); }}>
+            {ORBITAL_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Puzzle diagram form builder ───────────────────────────────────────────────
+
+const PUZZLE_ICON_TYPES = ['gateway', 'monitor', 'stream', 'storage', 'security', 'cloud', 'data', 'api', 'user', 'process', 'integrate', 'deploy'] as const;
+const PUZZLE_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+
+function PuzzleForm({ data, onChange }: { data: PuzzleDiagramData; onChange: (d: PuzzleDiagramData) => void }) {
+  const inp: React.CSSProperties = { width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box', marginBottom: 4 };
+  const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 2 };
+
+  // Ensure always 4 pieces, one per position
+  const pieces = PUZZLE_POSITIONS.map(pos => data.pieces.find(p => p.position === pos) ?? { title: 'Piece', iconType: 'cloud' as const, position: pos, labelSide: (pos.includes('left') ? 'left' : 'right') as 'left' | 'right' });
+
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Background Style</p>
+        <select style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, background: '#fff' }} value={data.backgroundStyle} onChange={e => onChange({ ...data, backgroundStyle: e.target.value as PuzzleDiagramData['backgroundStyle'] })}>
+          <option value="gradient">Gradient</option>
+          <option value="solid">Solid</option>
+          <option value="mesh">Mesh</option>
+        </select>
+      </div>
+
+      <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>4 Puzzle Pieces</p>
+
+      {pieces.map((piece, i) => (
+        <div key={piece.position} style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'capitalize' }}>{piece.position.replace('-', ' ')}</p>
+          <label style={lbl}>Title</label>
+          <input style={inp} value={piece.title} onChange={e => { const updated = pieces.map((p, idx) => idx === i ? { ...p, title: e.target.value } : p); onChange({ ...data, pieces: updated }); }} />
+          <label style={lbl}>Icon Type</label>
+          <select style={{ ...inp, background: '#fff' }} value={piece.iconType} onChange={e => { const updated = pieces.map((p, idx) => idx === i ? { ...p, iconType: e.target.value as typeof piece.iconType } : p); onChange({ ...data, pieces: updated }); }}>
+            {PUZZLE_ICON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <label style={lbl}>Label Side</label>
+          <select style={{ ...inp, background: '#fff' }} value={piece.labelSide} onChange={e => { const updated = pieces.map((p, idx) => idx === i ? { ...p, labelSide: e.target.value as 'left' | 'right' } : p); onChange({ ...data, pieces: updated }); }}>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Diagram editor modal ──────────────────────────────────────────────────────
+
 function DiagramModal({
   sectionId,
   diagram,
@@ -156,12 +268,51 @@ function DiagramModal({
   const [value, setValue] = useState(diagram);
   const [activeType, setActiveType] = useState(() => {
     if (!diagram) return 'flowchart';
+    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
+      const data = parseCustomDiagramData(diagram);
+      if (data?.type === 'orbital') return 'orbital';
+      if (data?.type === 'puzzle') return 'puzzle';
+    }
     if (diagram.startsWith('sequenceDiagram')) return 'sequence';
     if (diagram.startsWith('gantt')) return 'gantt';
     if (diagram.startsWith('pie')) return 'pie';
     if (diagram.startsWith('mindmap')) return 'mindmap';
     if (diagram.startsWith('flowchart') || diagram.startsWith('graph')) return 'flowchart';
     return 'custom';
+  });
+
+  const [orbitalData, setOrbitalData] = useState<OrbitalDiagramData>(() => {
+    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
+      const d = parseCustomDiagramData(diagram);
+      if (d?.type === 'orbital') return d as OrbitalDiagramData;
+    }
+    return {
+      type: 'orbital',
+      center: { title: 'Core Platform', subtitle: 'Foundation' },
+      satellites: [
+        { title: 'Feature A', description: 'Key capability', position: 'top-left' },
+        { title: 'Feature B', description: 'Key capability', position: 'top-right' },
+        { title: 'Feature C', description: 'Key capability', position: 'bottom-left' },
+        { title: 'Feature D', description: 'Key capability', position: 'bottom-right' },
+      ],
+    };
+  });
+
+  const [puzzleData, setPuzzleData] = useState<PuzzleDiagramData>(() => {
+    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
+      const d = parseCustomDiagramData(diagram);
+      if (d?.type === 'puzzle') return d as PuzzleDiagramData;
+    }
+    return {
+      type: 'puzzle',
+      backgroundStyle: 'gradient',
+      pieces: [
+        { title: 'Strategy', iconType: 'process', position: 'top-left', labelSide: 'left' },
+        { title: 'Technology', iconType: 'cloud', position: 'top-right', labelSide: 'right' },
+        { title: 'Data', iconType: 'data', position: 'bottom-left', labelSide: 'left' },
+        { title: 'Security', iconType: 'security', position: 'bottom-right', labelSide: 'right' },
+      ],
+    };
   });
 
   function handleTypeSelect(typeId: string) {
@@ -171,7 +322,13 @@ function DiagramModal({
   }
 
   function handleSave() {
-    ctx.updateField(sectionId, 'diagram', value);
+    let finalValue = value;
+    if (activeType === 'orbital') {
+      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(orbitalData);
+    } else if (activeType === 'puzzle') {
+      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(puzzleData);
+    }
+    ctx.updateField(sectionId, 'diagram', finalValue);
     onClose();
   }
 
@@ -179,6 +336,8 @@ function DiagramModal({
     ctx.updateField(sectionId, 'diagram', '');
     onClose();
   }
+
+  const isCustomForm = activeType === 'orbital' || activeType === 'puzzle';
 
   return (
     <div
@@ -190,20 +349,23 @@ function DiagramModal({
           background: '#fff',
           borderRadius: 14,
           width: '100%',
-          maxWidth: 900,
+          maxWidth: isCustomForm ? 560 : 900,
           height: 'min(640px, 90vh)',
           boxShadow: '0 24px 80px rgba(0,0,0,0.3)',
           fontFamily: 'system-ui, -apple-system, sans-serif',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
+          transition: 'max-width 0.2s',
         }}
       >
         {/* Header */}
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>Edit Diagram</p>
-            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Select a chart type, then customize the code. Preview updates automatically.</p>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>
+              {isCustomForm ? 'Fill in the form to build your diagram.' : 'Select a chart type, then customize the code. Preview updates automatically.'}
+            </p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, padding: 4 }}>✕</button>
         </div>
@@ -237,43 +399,51 @@ function DiagramModal({
           ))}
         </div>
 
-        {/* Body: editor + preview side by side */}
+        {/* Body */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* Code editor */}
-          <div style={{ flex: '0 0 50%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e2e8f0' }}>
-            <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Code</span>
-              <span style={{ fontSize: 10, color: '#94a3b8' }}>Mermaid syntax</span>
-            </div>
-            <textarea
-              value={value}
-              onChange={e => setValue(e.target.value)}
-              spellCheck={false}
-              style={{
-                flex: 1,
-                padding: '12px 16px',
-                border: 'none',
-                outline: 'none',
-                fontSize: 12,
-                fontFamily: 'Consolas, "Courier New", monospace',
-                lineHeight: 1.7,
-                resize: 'none',
-                color: '#1e293b',
-                background: '#fafafa',
-              }}
-            />
-          </div>
+          {activeType === 'orbital' ? (
+            <OrbitalForm data={orbitalData} onChange={setOrbitalData} />
+          ) : activeType === 'puzzle' ? (
+            <PuzzleForm data={puzzleData} onChange={setPuzzleData} />
+          ) : (
+            <>
+              {/* Code editor */}
+              <div style={{ flex: '0 0 50%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e2e8f0' }}>
+                <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Code</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8' }}>Mermaid syntax</span>
+                </div>
+                <textarea
+                  value={value}
+                  onChange={e => setValue(e.target.value)}
+                  spellCheck={false}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: 12,
+                    fontFamily: 'Consolas, "Courier New", monospace',
+                    lineHeight: 1.7,
+                    resize: 'none',
+                    color: '#1e293b',
+                    background: '#fafafa',
+                  }}
+                />
+              </div>
 
-          {/* Live preview */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preview</span>
-              <span style={{ fontSize: 10, color: '#94a3b8' }}>Updates automatically</span>
-            </div>
-            <div style={{ flex: 1, overflow: 'hidden', background: '#fff' }}>
-              <DiagramPreview code={value} />
-            </div>
-          </div>
+              {/* Live preview */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preview</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8' }}>Updates automatically</span>
+                </div>
+                <div style={{ flex: 1, overflow: 'hidden', background: '#fff' }}>
+                  <DiagramPreview code={value} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
