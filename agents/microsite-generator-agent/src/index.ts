@@ -59,7 +59,8 @@ const ALL_SECTION_TYPES = new Set<string>([
  *          "3 sections only", "exactly 3 sections", "just 3 sections"
  */
 function parseExplicitCount(ci: string): number | null {
-  const m = ci.match(/\b(?:only|make\s+it|create|generate|just|exactly|use)?\s*(\d+)\s+sections?\b/i);
+  // Keyword is REQUIRED — prevents false positives from numbered layout lists like "1. Hero Section"
+  const m = ci.match(/\b(?:only|make\s+it|create|generate|just|exactly|use|limit\s+to|max|maximum)\s+(\d+)\s+sections?\b/i);
   return m ? parseInt(m[1], 10) : null;
 }
 
@@ -276,13 +277,21 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
-  const overrideBlock = customInstructions
-    ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST BEFORE ANYTHING ELSE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OF OVERRIDE — ALL RULES BELOW ARE SECONDARY TO THE ABOVE ⚡⚡⚡\n\n`
+  // Only treat customInstructions as a structural override if it explicitly mentions sections or count.
+  // Visual/style-only prompts must NOT override the structural rules (minimum 10 sections).
+  const hasStructuralInstruction = customInstructions
+    ? /section|count|layout|page|slide|only\s+\d+|generate\s+\d+|create\s+\d+|make\s+\d+/i.test(customInstructions)
+    : false;
+  const overrideBlock = (customInstructions && hasStructuralInstruction)
+    ? `⚡⚡⚡ USER STRUCTURE OVERRIDE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
     : '';
-  const customHint = customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '';
+  // Style/visual instructions go at the end as hints only — they do NOT override section count rules
+  const styleHintBlock = (customInstructions && !hasStructuralInstruction)
+    ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 400)}\n`
+    : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '');
   return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
-${styleHint}${customHint}
-RULES:
+${styleHint}
+RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instructions):
 - Output a JSON array of ALL sections — target 12-13 sections, minimum 10
 - You MUST include these core section types (map from proposal content or generate from brief):
   * hero (always first — map executive summary or overview)
@@ -301,7 +310,7 @@ RULES:
 - For sections with no source heading, set aiGenerated: true and generate from brief
 - NEVER output fewer than 10 sections
 - NEVER skip a core section type listed above
-
+${styleHintBlock}
 VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
 
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
@@ -1899,39 +1908,41 @@ function buildOverrideSectionPlanPrompt(
   // Programmatically extract numbered sections from the design prompt's LAYOUT STRUCTURE
   const layoutMatches = fullDesignPrompt.match(/^(\d+)\.\s+(.+?)(?:\r?\n|$)/gm) ?? [];
   const layoutSections = layoutMatches.map(m => m.replace(/^\d+\.\s+/, '').trim());
-  const requiredCount = layoutSections.length;
 
-  const explicitList = layoutSections.length > 0
-    ? `\nTHE DESIGN SPECIFICATION DEFINES EXACTLY ${requiredCount} SECTIONS. YOU MUST OUTPUT EXACTLY ${requiredCount} SECTIONS:\n` +
-      layoutSections.map((s, i) => `  ${i + 1}. ${s}`).join('\n') + '\n'
-    : '\nYou MUST output 7-10 sections matching the layout structure above.\n';
+  const layoutHint = layoutSections.length > 0
+    ? `\nThe design specification mentions these layout sections as visual reference:\n` +
+      layoutSections.map((s, i) => `  ${i + 1}. ${s}`).join('\n') +
+      `\nUse these as TYPE MAPPING HINTS — map them to the appropriate section types below. Then add additional sections from the proposal to reach 12-13 total.\n`
+    : '';
 
   return `${fullDesignPrompt}
 
 ---
 
-You are a section planning expert. Produce a microsite plan that follows the LAYOUT STRUCTURE above with EXACTLY the right number of sections.
-${explicitList}
-TYPE MAPPING (choose closest match for each layout section):
+You are a section planning expert. Produce a comprehensive microsite plan that follows the visual design specification above and covers the FULL proposal content.
+${layoutHint}
+TYPE MAPPING (choose closest match for each section name):
 - Hero / Welcome / Introduction → hero
-- Story / Overview / About / Background → showcase or generic
-- Features / Activities / Services / Approach / What We Offer → approach or deliverables or benefits
+- Executive Summary / Overview / About → approach or generic
+- Solution / Features / Services / What We Offer → approach or deliverables or benefits
 - Timeline / Journey / Process / Steps / Schedule / Roadmap → timeline
-- Highlights / Fun Facts / Proof / Results / Stats → showcase or stats
+- Highlights / Fun Facts / Proof / Results / Stats → stats
 - Pricing / Packages / Investment / Cost → pricing
 - Call To Action / Footer / Next Steps / Get Started / Contact → nextsteps
-- Why Us / Credentials / Trust / Team → whyus
+- Why Us / Credentials / Trust / Team / Differentiators → whyus
 - Challenge / Problem / Pain Points → challenge
+- Testimonials / Reviews / Client Said → testimonials
+- Showcase / Case Study / Features → showcase
 
 MANDATORY RULES:
-- Output a JSON array targeting 12-13 sections, minimum 10 sections
-- You MUST include ALL of these core types (generate if no source content):
+- Output a JSON array with 12-13 sections, minimum 10 sections
+- You MUST include ALL of these core types (generate content from proposal brief if no direct source):
   hero, problem OR challenge, approach, deliverables OR showcase,
   timeline, pricing, stats, benefits, whyus, testimonials, nextsteps
 - Set aiGenerated: true for sections with no direct source content
-- NEVER output fewer than 10 sections regardless of proposal length
+- NEVER output fewer than 10 sections
 - The hero is always first, nextsteps is always last
-- Map existing headings to best-fit types from the valid list
+- Each section must have a unique type — do NOT repeat the same type twice
 
 VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
 
@@ -2392,12 +2403,14 @@ export class MicrositeGeneratorAgent implements Agent {
 
 
       // Deduplicate FIRST (before required-section additions claim all substitute types),
-      // then add missing required sections — but skip ensureRequired for fullOverride since
-      // the design prompt's numbered list defines the exact layout the user wants.
+      // then add missing required sections — unless the user explicitly requested a specific count/list.
+      // Using sectionLimitRequest.hasLimit (not isFullOverride) so that visual-only prompts and
+      // fullDesignPrompt mode without explicit counts both get the full required-section expansion.
       if (sectionPlan) {
         sectionPlan = deduplicateSectionTypes(sectionPlan);
-        if (!isFullOverride) {
+        if (!sectionLimitRequest.hasLimit) {
           sectionPlan = ensureRequiredSections(sectionPlan);
+          console.log('[MicrositeAgent] After ensureRequiredSections:', sectionPlan.length, 'sections');
         }
       }
 
