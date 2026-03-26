@@ -59,6 +59,26 @@ const VERSION_CONTROL_TRIGGERS = [
 ];
 
 /**
+ * Patterns that signal the user wants to create a custom proposal template.
+ * Checked before proposal triggers — more specific intent.
+ */
+const TEMPLATE_CREATION_TRIGGERS = [
+  'create template',
+  'generate template',
+  'build template',
+  'make a template',
+  'create a template',
+  'build a template',
+  'generate a template',
+  'create proposal template',
+  'generate proposal template',
+  'new template',
+  'design a template',
+  'design template',
+  'make template',
+];
+
+/**
  * Patterns that signal the user wants to create a proposal.
  * Checked in order; first match wins.
  */
@@ -89,6 +109,13 @@ export function routeIntent(message: string): IntentRouteResult | null {
   for (const trigger of RFP_ANALYSIS_TRIGGERS) {
     if (lower.includes(trigger)) {
       return { workflowId: 'rfp_analysis' };
+    }
+  }
+
+  // Template creation — checked before proposal triggers
+  for (const trigger of TEMPLATE_CREATION_TRIGGERS) {
+    if (lower.includes(trigger)) {
+      return { workflowId: 'template_creation' };
     }
   }
 

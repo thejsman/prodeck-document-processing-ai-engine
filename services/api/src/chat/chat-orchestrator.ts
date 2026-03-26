@@ -23,6 +23,7 @@ import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
 import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
 import { ProposalVersionControlWorkflow } from '../workflows/proposal-version-control.workflow.js';
+import { TemplateCreationWorkflow } from '../workflows/template-creation.workflow.js';
 import {
   createInstance,
   loadActiveInstance,
@@ -52,6 +53,13 @@ import {
 import {
   handleResolveAction,
 } from '../workflows/proposal-version-control.handlers.js';
+import {
+  handleAnalyzingRfp,
+  handleReviewTemplate,
+  handleGeneratingTemplate,
+  handleNameTemplate,
+  handleSavingTemplate,
+} from '../workflows/template-creation.handlers.js';
 
 // ---------------------------------------------------------------------------
 // Workflow registry — extend here to support additional workflows
@@ -61,6 +69,7 @@ const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   [ProposalWorkflow.id]: ProposalWorkflow,
   [RfpAnalysisWorkflow.id]: RfpAnalysisWorkflow,
   [ProposalVersionControlWorkflow.id]: ProposalVersionControlWorkflow,
+  [TemplateCreationWorkflow.id]: TemplateCreationWorkflow,
 };
 
 // ---------------------------------------------------------------------------
@@ -104,6 +113,12 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   extract_requirements: handleExtractRequirements,
   gap_analysis: handleGapAnalysis,
   go_no_go: handleGoNoGo,
+  // template_creation
+  analyzing_rfp: handleAnalyzingRfp,
+  review_template: handleReviewTemplate,
+  generating_template: handleGeneratingTemplate,
+  name_template: handleNameTemplate,
+  saving_template: handleSavingTemplate,
 };
 
 // ---------------------------------------------------------------------------
@@ -148,7 +163,7 @@ export class ChatOrchestrator {
       if (!intent) {
         return {
           message:
-            'I can help you create proposals. Try saying "Create a proposal for [topic]".',
+            'I can help you create proposals or build custom templates. Try saying "Create a proposal" or "Create a template".',
         };
       }
 
@@ -282,6 +297,7 @@ export class ChatOrchestrator {
         proposal_generation: 'Your proposal draft is ready.',
         rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
         proposal_version_control: 'Version operation complete.',
+        template_creation: 'Template saved successfully.',
       };
       const completionMessage =
         lastResult?.message?.trim() ||
@@ -402,6 +418,7 @@ export class ChatOrchestrator {
         proposal_generation: 'Your proposal draft is ready.',
         rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
         proposal_version_control: 'Version operation complete.',
+        template_creation: 'Template saved successfully.',
       };
       if (instance.state === 'completed') {
         const completionMessage =
