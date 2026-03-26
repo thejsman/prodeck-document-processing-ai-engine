@@ -17,6 +17,7 @@
 import type { Agent, AgentInput, AgentOutput, ToolRegistry } from '@ai-engine/core';
 import { selectBestDiagram, type DiagramSelection } from './diagramDetector.js';
 import { extractDesignTokens, type ExtractedDesignTokens } from './designTokenExtractor.js';
+import { detectSectionLimitRequest, type SectionLimitRequest } from './lib/sectionLimitDetector.js';
 
 // ── Section type classification (mirrors UI types) ───────────────────────────
 
@@ -278,70 +279,38 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
   const overrideBlock = customInstructions
     ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST BEFORE ANYTHING ELSE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OF OVERRIDE — ALL RULES BELOW ARE SECONDARY TO THE ABOVE ⚡⚡⚡\n\n`
     : '';
+  const customHint = customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '';
   return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
-${styleHint}
-## STEP 1 — APPLY USER INSTRUCTIONS FIRST (if USER OVERRIDE is present above)
+${styleHint}${customHint}
+RULES:
+- Output a JSON array of ALL sections — target 12-13 sections, minimum 10
+- You MUST include these core section types (map from proposal content or generate from brief):
+  * hero (always first — map executive summary or overview)
+  * problem OR challenge (the client pain point)
+  * approach OR solution (the proposed methodology)
+  * deliverables OR showcase (what is being delivered)
+  * timeline (project phases and schedule)
+  * pricing (investment and commercial terms)
+  * stats (key metrics and impact numbers — generate from scattered metrics if needed)
+  * benefits (value propositions)
+  * whyus (credentials and differentiators)
+  * testimonials (generate from context if client names or outcomes mentioned)
+  * nextsteps (always last — call to action)
+- Add additional sections if content supports them (generic, showcase, etc.)
+- Map existing source headings to appropriate types
+- For sections with no source heading, set aiGenerated: true and generate from brief
+- NEVER output fewer than 10 sections
+- NEVER skip a core section type listed above
 
-If an OVERRIDE DIRECTIVE was given, parse it for explicit directives BEFORE anything else:
-- Section list specified? ("only hero", "sections: hero, pricing", "create these sections: ...") → use EXACTLY those types in EXACTLY that order
-- Section count specified? ("only 1 section", "make it 3 sections") → honour that count precisely
-- Section removal? ("remove pricing", "skip testimonials", "no nextsteps") → remove those sections
-- Section addition? ("add a benefits section", "include stats") → add them
-- Reorder? ("swap hero and challenge", "put pricing first") → reorder exactly as asked
-- No CTA in hero? ("no cta", "no buttons in hero", "remove cta from hero") → set noCTAInHero: true
-- No CTA anywhere? ("no cta anywhere", "remove all buttons", "no calls to action") → set noCTAEverywhere: true
-- ⚠️ VISUAL-ONLY commands ("add image on hero", "remove image", "dark theme", "no animations", "change font") do NOT affect section structure — plan sections normally from the proposal.
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
 
-OVERRIDE DIRECTIVE supersedes ALL default rules below. Do not normalise or improve the user's structure.
+Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
-## STEP 2 — DEFAULT PLANNING (only when no OVERRIDE DIRECTIVE, or for fields not covered by it)
-
-- Map EACH source heading to a DIFFERENT section type — never assign the same sourceHeading to more than one section
-- "hero" MUST map to the main overview/summary heading (usually the first substantive section)
-- "challenge" or "problem" maps to a requirements, challenges, or gap analysis section — NOT the executive summary
-- "approach" maps to a methodology, architecture, solution design, or technical approach section
-- "deliverables" maps to a scope, deliverables, or output section
-- "timeline" maps to an implementation plan, phases, or schedule section
-- "pricing" maps to a commercial, investment, or pricing section
-- "whyus" maps to credentials, team, about us, or why us section
-- If a section type has no matching sourceHeading, set sourceHeading to null and aiGenerated to true
-- Insert AI-generated sections when they meaningfully improve the narrative:
-  * "stats" — numbers/metrics scattered across the proposal worth consolidating
-  * "benefits" — value propositions worth consolidating as an icon list
-  * "testimonials" — only if client quotes or case study language is present
-- Aim for 8–10 sections covering the full proposal breadth — hero always first, nextsteps always last
-- No duplicate sourceHeadings — each source section feeds at most one output section
-
-## STEP 3 — EXTRACT CONSTRAINTS
-
-Fill in the constraints object based on what the user said:
-- noCTAInHero: true if user said "no cta", "no buttons", "remove cta", "no call to action", "no cta in hero", "without cta"
-- noCTAEverywhere: true if user said "no cta anywhere", "remove all buttons", "no calls to action anywhere"
-- requestedSectionCount: exact number if user said "only X section(s)", "make it X sections", "X sections only" — else null
-- hasCustomStructure: true if user explicitly named sections or order
-- motion: "expressive" if "animate"/"transitions"/"dynamic"; "deliberate" if "subtle motion"; "instant" if "no animation"/"static"; null if unspecified
-- parallax: true if user said "parallax"/"depth effect"; false otherwise
-- scrollEffects: "slide-up" if "slide in/up"; "fade-in" if "fade in"; "none" otherwise
-
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
-
-Return ONLY valid JSON. No markdown, no explanation, no code fences.
-
-{
-  "sections": [
-    { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
-    { "type": "stats", "sourceHeading": null, "rationale": "3 strong metrics buried in approach section", "aiGenerated": true }
-  ],
-  "constraints": {
-    "noCTAInHero": false,
-    "noCTAEverywhere": false,
-    "requestedSectionCount": null,
-    "hasCustomStructure": false,
-    "motion": null,
-    "parallax": false,
-    "scrollEffects": null
-  }
-}
+Format:
+[
+  { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
+  { "type": "stats", "sourceHeading": null, "rationale": "Metrics scattered across proposal — consolidate", "aiGenerated": true }
+]
 
 PROPOSAL:
 ${markdown.slice(0, 8000)}`;
@@ -1204,6 +1173,8 @@ Generate a Testimonials section. Create 2-3 realistic quotes that reflect the cl
 {
   "eyebrow": "4-8 words e.g. 'Client Voices'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
+  "diagram": null,
   "items": [
     {
       "quote": "1-2 sentences, specific outcome or experience, no cliches, reads like a real person said it",
@@ -1241,6 +1212,7 @@ Transform into a Benefits section — a focused icon list of value propositions.
 {
   "eyebrow": "4-8 words e.g. 'What You Gain'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "items": [
     {
       "iconHint": "identity|digital|content|strategy|research|launch|document|website|photo|campaign",
@@ -1277,6 +1249,7 @@ Transform into a Stats section — a standalone impact metrics row. Return:
 {
   "eyebrow": "4-8 words e.g. 'By The Numbers'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "stats": [
     {
       "number": "specific metric e.g. '94%' or '3× faster' or '$2.4M' — from content or reasonably derived from brief",
@@ -1297,6 +1270,7 @@ Transform into a Metrics section — a standalone performance KPIs row with scal
 {
   "eyebrow": "4-8 words e.g. 'Performance at Scale'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "stats": [
     {
       "number": "specific metric e.g. '99.9%' or '3× faster' — from content or brief",
@@ -1318,6 +1292,7 @@ Transform into a Security section. Return:
 {
   "eyebrow": "4-8 words e.g. 'Built for Compliance'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "items": [
     {
       "iconHint": "identity|digital|strategy|research",
@@ -1338,6 +1313,7 @@ Transform into a Tech Stack section. Return:
 {
   "eyebrow": "4-8 words e.g. 'Built on Modern Foundations'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "categories": [
     {
       "iconHint": "identity|digital|content|strategy|research|launch|document|website",
@@ -1358,6 +1334,7 @@ Transform into a Testing & Quality section. Return:
 {
   "eyebrow": "4-8 words e.g. 'Quality Built In'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "layers": [
     {
       "level": 1,
@@ -1935,13 +1912,6 @@ function buildOverrideSectionPlanPrompt(
 
 You are a section planning expert. Produce a microsite plan that follows the LAYOUT STRUCTURE above with EXACTLY the right number of sections.
 ${explicitList}
-ABSOLUTE RULES:
-- Output EXACTLY ${requiredCount > 0 ? requiredCount : '7'} sections — one per layout section listed above
-- Hero is always first; CTA/footer is always last
-- If the proposal has matching content for a section → set aiGenerated=false, fill sourceHeading
-- If no matching content exists → set aiGenerated=true, sourceHeading=null (still required!)
-- Do NOT skip or merge any section — every numbered section above must appear
-
 TYPE MAPPING (choose closest match for each layout section):
 - Hero / Welcome / Introduction → hero
 - Story / Overview / About / Background → showcase or generic
@@ -1953,14 +1923,19 @@ TYPE MAPPING (choose closest match for each layout section):
 - Why Us / Credentials / Trust / Team → whyus
 - Challenge / Problem / Pain Points → challenge
 
+MANDATORY RULES:
+- Output a JSON array targeting 12-13 sections, minimum 10 sections
+- You MUST include ALL of these core types (generate if no source content):
+  hero, problem OR challenge, approach, deliverables OR showcase,
+  timeline, pricing, stats, benefits, whyus, testimonials, nextsteps
+- Set aiGenerated: true for sections with no direct source content
+- NEVER output fewer than 10 sections regardless of proposal length
+- The hero is always first, nextsteps is always last
+- Map existing headings to best-fit types from the valid list
+
 VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
 
-Return ONLY valid JSON array. No markdown, no code fences, no explanation.
-[
-  { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps to hero section 1", "aiGenerated": false },
-  { "type": "showcase", "sourceHeading": null, "rationale": "AI-generated for layout section 2: Introduction/Story", "aiGenerated": true },
-  ...exactly ${requiredCount > 0 ? requiredCount : 7} items total...
-]
+Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
 PROPOSAL:
 ${markdown.slice(0, 8000)}`;
@@ -2035,20 +2010,20 @@ If content is insufficient for this diagram, set diagram to null.`;
   }
 
   const sectionSchemas: Record<string, string> = {
-    hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')", "diagram": null }`,
-    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    pricing: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "string", "rows": [["Item", "Value"]], "totalLabel": "string", "footnote": "string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}] }`,
-    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": null }`,
-    benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}] }`,
-    problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query", "diagram": null }`,
-    stats: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}] }`,
-    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query", "diagram": null }`,
+    hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    pricing: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "string", "rows": [["Item", "Value"]], "totalLabel": "string", "footnote": "string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}], "diagram": null }`,
+    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    stats: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
   };
 
   const schema = sectionSchemas[type] ?? sectionSchemas.generic;
@@ -2099,6 +2074,77 @@ Rewrite this proposal content as polished microsite copy matching the design spe
 ${sectionBlock}
 
 Generate microsite copy following the design specification strictly:`;
+}
+
+// ── Required section enforcement ─────────────────────────────────────────────
+
+const REQUIRED_SECTION_TYPES = [
+  'hero', 'problem', 'challenge', 'approach', 'deliverables',
+  'timeline', 'pricing', 'stats', 'benefits', 'whyus',
+  'testimonials', 'nextsteps',
+] as const;
+
+function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
+  const presentTypes = new Set(plan.map(s => s.type));
+  const additions: SectionPlan[] = [];
+
+  for (const required of REQUIRED_SECTION_TYPES) {
+    const hasEquivalent =
+      presentTypes.has(required as SectionType) ||
+      (required === 'problem' && presentTypes.has('challenge' as SectionType)) ||
+      (required === 'challenge' && presentTypes.has('problem' as SectionType)) ||
+      (required === 'deliverables' && presentTypes.has('showcase' as SectionType));
+
+    if (!hasEquivalent) {
+      additions.push({
+        type: required as SectionType,
+        sourceHeading: null,
+        rationale: 'Required section — generated from proposal brief',
+        aiGenerated: true,
+      });
+    }
+  }
+
+  if (additions.length === 0) return plan;
+
+  const nextstepsIdx = plan.findIndex(s => s.type === 'nextsteps');
+  if (nextstepsIdx >= 0) {
+    return [
+      ...plan.slice(0, nextstepsIdx),
+      ...additions,
+      ...plan.slice(nextstepsIdx),
+    ];
+  }
+  return [...plan, ...additions];
+}
+
+// Preferred substitute types when a duplicate is found, in priority order
+const DEDUP_SUBSTITUTES: SectionType[] = [
+  'showcase', 'benefits', 'deliverables', 'approach', 'problem', 'challenge',
+];
+
+/** Rename duplicate section types so no two sections share the same type.
+ *  'hero' and 'nextsteps' are also deduplicated (keep first only).
+ *  Extra generic sections get renamed to unused types from DEDUP_SUBSTITUTES.
+ */
+function deduplicateSectionTypes(plan: SectionPlan[]): SectionPlan[] {
+  const seenTypes = new Set<string>();
+  const usedTypes = new Set(plan.map(s => s.type));
+
+  return plan.map(section => {
+    if (!seenTypes.has(section.type)) {
+      seenTypes.add(section.type);
+      return section;
+    }
+    // Duplicate found — find first substitute not already in the plan
+    const alt = DEDUP_SUBSTITUTES.find(t => !usedTypes.has(t));
+    if (alt) {
+      usedTypes.add(alt);
+      return { ...section, type: alt };
+    }
+    // No substitute available — keep as-is (will render as generic)
+    return section;
+  });
 }
 
 // ── Agent implementation ─────────────────────────────────────────────────────
@@ -2292,6 +2338,27 @@ export class MicrositeGeneratorAgent implements Agent {
         } catch { /* keep defaults */ }
       }
 
+      // Section limit detection — runs before Pass 0 to inform trimming after plan is parsed
+      const combinedPromptText = [fullDesignPrompt, customInstructions].filter(Boolean).join('\n');
+      const sectionLimitRequest: SectionLimitRequest = detectSectionLimitRequest(combinedPromptText);
+      console.log('[SectionLimitDetector]', JSON.stringify(sectionLimitRequest));
+
+      // Pass 0: Section planning + Pass 1: Brief extraction (parallel — markdown skipped, AST is authoritative)
+      const [planResult, briefResult] = await Promise.all([
+        generateTool.run({
+          query: isFullOverride
+            ? buildOverrideSectionPlanPrompt(proposalMarkdown, fullDesignPrompt)
+            : buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions),
+          content: '',
+        }).catch(() => null),
+        generateTool.run({
+          query: isFullOverride
+            ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
+            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
+          content: '',
+        }).catch(() => null),
+      ]);
+
       // Parse section plan — handles both new { sections, constraints } format and legacy [] format
       let sectionPlan: SectionPlan[] | null = null;
       let planConstraints: SectionPlanConstraints = { noCTAInHero: false, noCTAEverywhere: false, requestedSectionCount: null, hasCustomStructure: false, motion: null, parallax: false, scrollEffects: null };
@@ -2339,6 +2406,16 @@ export class MicrositeGeneratorAgent implements Agent {
       }
 
 
+      // Deduplicate FIRST (before required-section additions claim all substitute types),
+      // then add missing required sections — but skip ensureRequired for fullOverride since
+      // the design prompt's numbered list defines the exact layout the user wants.
+      if (sectionPlan) {
+        sectionPlan = deduplicateSectionTypes(sectionPlan);
+        if (!isFullOverride) {
+          sectionPlan = ensureRequiredSections(sectionPlan);
+        }
+      }
+
       // Code-level constraint fallback: apply regex overrides on top of LLM-parsed planConstraints
       // This guarantees constraint enforcement even when the LLM misses keywords
       if (customInstructions) {
@@ -2362,6 +2439,35 @@ export class MicrositeGeneratorAgent implements Agent {
           if (count && count > 0 && sectionPlan.length > count) {
             sectionPlan = sectionPlan.slice(0, count);
           }
+        }
+      }
+
+      // Apply section limit request (from detectSectionLimitRequest) after ensureRequiredSections
+      if (sectionLimitRequest.hasLimit && sectionPlan) {
+        if (sectionLimitRequest.limitType === 'count' && sectionLimitRequest.requestedCount) {
+          const count = sectionLimitRequest.requestedCount;
+          const hero = sectionPlan.filter(s => s.type === 'hero');
+          const last = sectionPlan.filter(s => s.type === 'nextsteps');
+          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
+          const trimmed = [
+            ...hero,
+            ...middle.slice(0, Math.max(0, count - hero.length - last.length)),
+            ...last,
+          ];
+          sectionPlan = trimmed.slice(0, count);
+          console.log('[SectionLimitDetector] Trimmed to', sectionPlan.length, 'sections per user request');
+        }
+        if (sectionLimitRequest.limitType === 'explicit-list' && sectionLimitRequest.requestedSections) {
+          sectionPlan = sectionPlan.filter(s =>
+            sectionLimitRequest.requestedSections!.some(r =>
+              s.type.includes(r) || r.includes(s.type)
+            )
+          );
+        }
+        if (sectionLimitRequest.limitType === 'exclude-list' && sectionLimitRequest.requestedSections) {
+          sectionPlan = sectionPlan.filter(s =>
+            !sectionLimitRequest.requestedSections!.includes(s.type)
+          );
         }
       }
 
@@ -2718,6 +2824,23 @@ export class MicrositeGeneratorAgent implements Agent {
             borderRadiusStyle: extractedTokens.components.borderRadius,
             themeClass: extractedTokens.themeClass,
           };
+        }
+
+        // Section count validation
+        if (layoutAST && typeof layoutAST === 'object') {
+          const astObj = layoutAST as Record<string, unknown>;
+          if (Array.isArray(astObj.sections)) {
+            const count = astObj.sections.length;
+            console.log('[MicrositeAgent] Section count:', count);
+            console.log('[MicrositeAgent] Sections:', astObj.sections.map((s: any) => s.sectionType).join(', '));
+            const withDiagram = astObj.sections.filter((s: any) => s.content?.diagram).length;
+            const withImage = astObj.sections.filter((s: any) => s.content?.imageQuery).length;
+            console.log('[MicrositeAgent] With diagram:', withDiagram, '/', count);
+            console.log('[MicrositeAgent] With imageQuery:', withImage, '/', count);
+            if (count < 8 && !sectionLimitRequest.hasLimit) {
+              console.warn('[MicrositeAgent] WARNING: Only', count, 'sections generated without user limit. Expected 10+.');
+            }
+          }
         }
       }
     } else {

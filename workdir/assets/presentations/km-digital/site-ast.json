@@ -1,6 +1,6 @@
 {
   "proposalId": "km-digital",
-  "generatedAt": "2026-03-25T13:43:30.245Z",
+  "generatedAt": "2026-03-26T06:22:45.044Z",
   "generationMode": "full-design-prompt-override",
   "fullDesignPromptUsed": true,
   "meta": {
@@ -12,26 +12,26 @@
   "brief": {
     "clientName": "KM Digital",
     "clientIndustry": "IT",
-    "clientChallenge": "Developing an API-first portal that seamlessly integrates white-label and ERP capabilities.",
+    "clientChallenge": "Developing an API-first portal that integrates ERP capabilities while meeting data residency requirements.",
     "proposingCompany": "km-digital",
-    "proposingStrength": "Our proposed technical approach combines full Infrastructure as Code (IaC) practices using Terraform, enabling rapid, repeatable deployments and efficient management of resources.",
-    "engagementSummary": "The engagement focuses on delivering a Minimum Viable Product (MVP) within a 6-month timeframe, followed by a comprehensive platform expansion. The tailored approach, along with committed resources, ensures KM Digital's ambitious goals are met.",
+    "proposingStrength": "Dedicated team structure includes specialized engineers across backend, ML, frontend, and DevOps.",
+    "engagementSummary": "The engagement focuses on delivering a Minimum Viable Product (MVP) within a 6-month timeframe, followed by platform expansion. Emphasis is placed on enhancing observability and integrating critical features for proactive monitoring.",
     "keyOutcomes": [
-      "Successful delivery of a Minimum Viable Product (MVP) within 6 months.",
-      "Implementation of a scalable API-first architecture.",
-      "Enhanced observability stack for proactive monitoring.",
-      "Integration of team collaboration for knowledge transfer."
+      "Delivery of a Minimum Viable Product (MVP) with full API integration.",
+      "Implementation of a robust observability stack.",
+      "Establishment of a multi-tenant architecture.",
+      "Integration of advanced machine learning capabilities for anomaly detection."
     ],
     "totalValue": "$40,000.00",
-    "duration": "10 weeks",
+    "duration": "6 months",
     "primaryTone": "Professional and technical",
-    "heroNarrative": "Seamless integration for enhanced digital capabilities.",
+    "heroNarrative": "Seamless integration for an advanced API-first portal.",
     "industryKeywords": [
-      "API development",
-      "cloud services",
-      "ERP integration",
-      "IT architecture",
-      "data residency"
+      "API integration",
+      "ERP solutions",
+      "data residency",
+      "cloud-native",
+      "observability"
     ]
   },
   "brand": {
@@ -39,85 +39,85 @@
     "tagline": "Strategy & Design Consultancy",
     "logoUrl": null,
     "logoText": "km-digital",
-    "primaryColor": "#C8A96E",
-    "secondaryColor": "#1A1612",
+    "primaryColor": "#ffffff",
+    "secondaryColor": "#ffffff",
     "overrideTheme": true,
     "extractedCssVariables": {
-      "--ms-bg": "#fef9c3",
-      "--ms-bg2": "#fce7f3",
-      "--ms-bg3": "#d1fae5",
+      "--ms-bg": "#f8f7f4",
+      "--ms-bg2": "#f8f7f4",
+      "--ms-bg3": "#f8f7f5",
       "--ms-surface": "#ffffff",
       "--ms-text": "#1a1a1a",
       "--ms-text2": "#4a4a4a",
       "--ms-text3": "#8a8a8a",
       "--ms-border": "rgba(0,0,0,0.10)",
-      "--ms-accent": "#3b82f6",
-      "--ms-accent2": "#f97316",
+      "--ms-accent": "#f97316",
+      "--ms-accent2": "#8b5cf6",
       "--ms-accent3": "#8b5cf6",
-      "--ms-accent4": "#14b8a6",
-      "--ms-accent5": "#22c55e",
-      "--ms-hero-bg": "#fef9c3",
-      "--ms-stats-bg": "#fce7f3",
-      "--ms-challenge-bg": "#d1fae5",
-      "--ms-approach-bg": "#ede9fe",
-      "--ms-timeline-bg": "#d1fae5",
-      "--ms-pricing-bg": "#fef9c3",
-      "--ms-whyus-bg": "#fce7f3",
-      "--ms-benefits-bg": "#d1fae5",
-      "--ms-problem-bg": "#ede9fe",
-      "--ms-nextsteps-bg": "#d1fae5",
-      "--ms-showcase-bg": "#fef9c3",
-      "--ms-deliverables-bg": "#fce7f3",
-      "--ms-generic-bg": "#d1fae5",
-      "--ms-metrics-bg": "#ede9fe",
-      "--ms-hero-accent": "#3b82f6",
-      "--ms-stats-accent": "#f97316",
+      "--ms-accent4": "#8b5cf6",
+      "--ms-accent5": "#f97316",
+      "--ms-hero-bg": "#f8f7f4",
+      "--ms-stats-bg": "#f8f7f4",
+      "--ms-challenge-bg": "#f8f7f5",
+      "--ms-approach-bg": "#f8f7f4",
+      "--ms-timeline-bg": "#f8f7f5",
+      "--ms-pricing-bg": "#f8f7f4",
+      "--ms-whyus-bg": "#f8f7f4",
+      "--ms-benefits-bg": "#f8f7f5",
+      "--ms-problem-bg": "#f8f7f4",
+      "--ms-nextsteps-bg": "#f8f7f5",
+      "--ms-showcase-bg": "#f8f7f4",
+      "--ms-deliverables-bg": "#f8f7f4",
+      "--ms-generic-bg": "#f8f7f5",
+      "--ms-metrics-bg": "#f8f7f4",
+      "--ms-hero-accent": "#f97316",
+      "--ms-stats-accent": "#8b5cf6",
       "--ms-challenge-accent": "#8b5cf6",
-      "--ms-approach-accent": "#3b82f6",
-      "--ms-timeline-accent": "#14b8a6",
-      "--ms-pricing-accent": "#f97316",
+      "--ms-approach-accent": "#f97316",
+      "--ms-timeline-accent": "#8b5cf6",
+      "--ms-pricing-accent": "#8b5cf6",
       "--ms-whyus-accent": "#8b5cf6",
-      "--ms-benefits-accent": "#22c55e",
-      "--ms-problem-accent": "#14b8a6",
-      "--ms-nextsteps-accent": "#3b82f6",
+      "--ms-benefits-accent": "#f97316",
+      "--ms-problem-accent": "#8b5cf6",
+      "--ms-nextsteps-accent": "#f97316",
       "--ms-showcase-accent": "#8b5cf6",
-      "--ms-deliverables-accent": "#14b8a6",
-      "--ms-generic-accent": "#3b82f6",
-      "--ms-metrics-accent": "#22c55e",
-      "--ms-font-heading": "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
-      "--ms-font-body": "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
-      "--ms-h1": "clamp(38px,6vw,72px)",
-      "--ms-h2": "clamp(30px,4.5vw,52px)",
-      "--ms-h1-weight": "800",
-      "--ms-body": "17px",
-      "--ms-body-line-height": "1.8",
+      "--ms-deliverables-accent": "#8b5cf6",
+      "--ms-generic-accent": "#f97316",
+      "--ms-metrics-accent": "#f97316",
+      "--ms-font-heading": "'Source Sans 3', -apple-system, BlinkMacSystemFont, sans-serif",
+      "--ms-font-body": "'Source Sans 3', -apple-system, BlinkMacSystemFont, sans-serif",
+      "--ms-h1": "clamp(36px,5vw,64px)",
+      "--ms-h2": "clamp(28px,4vw,48px)",
+      "--ms-h1-weight": "700",
+      "--ms-body": "15px",
+      "--ms-body-line-height": "1.7",
       "--ms-section-pad": "clamp(80px,10vw,120px)",
       "--ms-container-pad": "clamp(20px,5vw,80px)",
-      "--ms-card-pad": "32px",
-      "--ms-r": "16px",
-      "--ms-r-card": "20px",
-      "--ms-r-btn": "14px",
-      "--ms-shadow": "0 1px 3px rgba(0,0,0,0.06)",
-      "--ms-shadow-hover": "0 4px 12px rgba(0,0,0,0.10)",
-      "--ms-transition": "all 0.3s cubic-bezier(0.34,1.56,0.64,1)",
+      "--ms-card-pad": "24px",
+      "--ms-r": "8px",
+      "--ms-r-card": "12px",
+      "--ms-r-btn": "9px",
+      "--ms-shadow": "0 4px 16px rgba(0,0,0,0.12)",
+      "--ms-shadow-hover": "0 12px 40px rgba(0,0,0,0.18)",
+      "--ms-transition": "all 0.22s cubic-bezier(0.4,0,0.2,1)",
       "--ms-gradients-enabled": "1",
-      "--ms-decorative-enabled": "1"
+      "--ms-decorative-enabled": "0"
     },
-    "googleFontsUrl": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&family=Baloo+2:wght@400;600;700;800&display=swap",
-    "fontFaceDeclarations": ":root { --ms-font-heading: 'Poppins', -apple-system, sans-serif; --ms-font-body: 'Poppins', -apple-system, sans-serif; }",
-    "animationStyle": "bounce",
+    "googleFontsUrl": "https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap",
+    "fontFaceDeclarations": ":root { --ms-font-heading: 'Source Sans 3', -apple-system, sans-serif; --ms-font-body: 'Source Sans 3', -apple-system, sans-serif; }",
+    "animationStyle": "smooth",
     "gradientsEnabled": true,
-    "decorativeEnabled": true,
-    "borderRadiusStyle": "rounded",
-    "themeClass": "theme-custom-prompt theme-br-rounded anim-bounce"
+    "decorativeEnabled": false,
+    "borderRadiusStyle": "subtle",
+    "themeClass": "theme-custom-prompt theme-br-subtle anim-smooth"
   },
   "plugin": "none",
-  "customCharacter": "A playful adventure unfolds in a colorful, child-friendly world.",
+  "customCharacter": "Modern minimalism meets vibrant clarity.",
   "customTokens": {
-    "visualStyle": "Colorful, playful, and joyful digital experience for children",
-    "density": "comfortable",
+    "visualStyle": "Light, modern, and approachable with strong typography.",
+    "density": "spacious",
     "typography": {
-      "style": "humanist",
+      "style": "geometric sans",
       "headingWeight": "700",
       "scale": "moderate"
     },
@@ -129,40 +129,39 @@
     "layoutStyle": {
       "alignment": "centered",
       "heroStyle": "full-bleed",
-      "sectionFlow": "card-grid"
+      "sectionFlow": "editorial-breaks"
     },
     "componentStyle": {
-      "button": "pill",
+      "button": "rounded",
       "card": "elevated",
-      "borderRadius": "16px",
-      "shadow": "subtle"
+      "borderRadius": "12px",
+      "shadow": "none"
     },
     "behavior": {
-      "motion": "expressive",
+      "motion": "deliberate",
       "parallax": false,
-      "scrollEffects": "fade-in"
+      "scrollEffects": "none"
     },
-    "customCharacter": "A playful adventure unfolds in a colorful, child-friendly world.",
-    "bg": "#FCE58F",
-    "text": "#4A4A4A",
-    "accent": "#C8A96E",
-    "heroFont": "Nunito",
-    "bodyFont": "Poppins",
+    "customCharacter": "Modern minimalism meets vibrant clarity.",
+    "bg": "#ffffff",
+    "text": "#7f7f7f",
+    "accent": "#A0522D",
+    "heroFont": "Inter",
+    "bodyFont": "Source Sans Pro",
     "heroWeight": 700,
     "heroStyle": "normal",
-    "labelTracking": "0.15em",
+    "labelTracking": "0.10em",
     "dark": false,
     "noiseOpacity": 0.025,
-    "borderRadius": "16px",
-    "buttonStyle": "pill",
+    "borderRadius": "12px",
+    "buttonStyle": "rounded",
     "layoutPatterns": {
       "heroLayout": "full-bleed",
       "sectionLayouts": [
-        "card-grid",
         "editorial"
       ],
-      "spacingStyle": "balanced",
-      "visualHierarchy": "image-first"
+      "spacingStyle": "generous",
+      "visualHierarchy": "typography-first"
     },
     "sectionRules": {
       "hero": {
@@ -173,7 +172,7 @@
           "backgroundImage",
           "cta1"
         ],
-        "ctaTarget": "nextsteps",
+        "ctaTarget": "pricing",
         "ctaSecondaryTarget": null,
         "alignment": "centered",
         "ctaCount": 1
@@ -194,8 +193,8 @@
     },
     "colorOverrides": {
       "bg": null,
-      "text": null,
-      "accent": null
+      "text": "#7f7f7f",
+      "accent": "#ff9800"
     },
     "tokenOverrides": {
       "borderRadius": null,
@@ -206,19 +205,19 @@
   },
   "customFonts": [
     {
-      "family": "Nunito",
-      "url": "https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap"
+      "family": "Inter",
+      "url": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
     },
     {
-      "family": "Poppins",
-      "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
+      "family": "Source Sans Pro",
+      "url": "https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;500;600;700;800&display=swap"
     }
   ],
   "customDesignSystem": {
-    "visualStyle": "Colorful, playful, and joyful digital experience for children",
-    "density": "comfortable",
+    "visualStyle": "Light, modern, and approachable with strong typography.",
+    "density": "spacious",
     "typography": {
-      "style": "humanist",
+      "style": "geometric sans",
       "headingWeight": "700",
       "scale": "moderate"
     },
@@ -230,27 +229,26 @@
     "layoutStyle": {
       "alignment": "centered",
       "heroStyle": "full-bleed",
-      "sectionFlow": "card-grid"
+      "sectionFlow": "editorial-breaks"
     },
     "componentStyle": {
-      "button": "pill",
+      "button": "rounded",
       "card": "elevated",
-      "borderRadius": "16px",
-      "shadow": "subtle"
+      "borderRadius": "12px",
+      "shadow": "none"
     },
     "behavior": {
-      "motion": "expressive",
+      "motion": "deliberate",
       "parallax": false,
-      "scrollEffects": "fade-in"
+      "scrollEffects": "none"
     },
     "layoutPatterns": {
       "heroLayout": "full-bleed",
       "sectionLayouts": [
-        "card-grid",
         "editorial"
       ],
-      "spacingStyle": "balanced",
-      "visualHierarchy": "image-first"
+      "spacingStyle": "generous",
+      "visualHierarchy": "typography-first"
     },
     "sectionRules": {
       "hero": {
@@ -261,7 +259,7 @@
           "backgroundImage",
           "cta1"
         ],
-        "ctaTarget": "nextsteps",
+        "ctaTarget": "pricing",
         "ctaSecondaryTarget": null,
         "alignment": "centered",
         "ctaCount": 1
@@ -282,8 +280,8 @@
     },
     "colorOverrides": {
       "bg": null,
-      "text": null,
-      "accent": null
+      "text": "#7f7f7f",
+      "accent": "#ff9800"
     },
     "tokenOverrides": {
       "borderRadius": null,
@@ -293,77 +291,68 @@
     }
   },
   "behavior": {
-    "motion": "expressive",
+    "motion": "deliberate",
     "parallax": false,
-    "scrollEffects": "fade-in"
+    "scrollEffects": "none"
   },
   "sections": [
     {
-      "id": "welcome-to-our-colorful-adventure",
-      "heading": "Welcome to Our Colorful Adventure!",
+      "id": "hero",
+      "heading": "hero",
       "sectionType": "hero",
       "content": {
-        "eyebrow": "Join Our Adventure!",
-        "headline": "Welcome to Our Colorful Adventure!",
-        "subheadline": "Dive into a world of fun and bright experiences designed just for you! Let's explore the magic together!",
-        "body": "At km-digital, we believe in creating joyful experiences that inspire curiosity and creativity. Our adventure starts now — are you ready to make learning exciting?",
-        "ctaPrimary": "Let's Explore!",
-        "ctaSecondary": "See More",
-        "imageQuery": "colorful playful children learning illustration",
-        "diagram": null,
-        "variant": "editorial"
+        "eyebrow": "Unlock Your IT Potential",
+        "headline": "Empowering Seamless API-First Portal Integration",
+        "subheadline": "Transform your ERP capabilities while ensuring data residency with our dedicated expertise.",
+        "body": "At km-digital, we understand the complexities of developing an effective API-first portal. Our skilled team is focused on delivering a Minimum Viable Product (MVP) within six months, ensuring proactive monitoring and robust functionality.",
+        "ctaPrimary": "Get Started Now",
+        "ctaSecondary": "Learn More",
+        "imageQuery": "light orange abstract tech illustration",
+        "diagram": null
       },
       "diagramMeta": {
         "typeId": "trend-chart",
         "typeLabel": "Trend Chart",
         "category": "metric",
-        "confidence": "medium",
+        "confidence": "high",
         "matchedKeywords": [],
         "score": 5,
         "isCustomSvg": false
       },
       "image": {
         "source": "dalle",
-        "query": "colorful playful children learning illustration",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-5CdjcOrICDYu9xYiMrHsTwHa.png?st=2026-03-25T12%3A43%3A52Z&se=2026-03-25T14%3A43%3A52Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T02%3A28%3A41Z&ske=2026-03-26T02%3A28%3A41Z&sks=b&skv=2026-02-06&sig=2XPUcaI2eMi5SMhtpQnmuqUZk8mW0huiP/8W48O6p5E%3D",
+        "query": "light orange abstract tech illustration",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-9uwTqijsdYqIk70lUjqDM041.png?st=2026-03-26T05%3A23%3A11Z&se=2026-03-26T07%3A23%3A11Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A10%3A20Z&ske=2026-03-27T02%3A10%3A20Z&sks=b&skv=2026-02-06&sig=bd7r76QNIMkb0N7gwACFdHyiAEqnaRWuQZpR7SBLUfQ%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "showcase",
-      "heading": "showcase",
-      "sectionType": "showcase",
+      "id": "challenge",
+      "heading": "challenge",
+      "sectionType": "challenge",
       "content": {
-        "eyebrow": "Exciting Digital Adventures",
-        "headline": "Let's Explore a Colorful World Together!",
-        "subheadline": "Welcome to km-digital's playful microsite designed for kids! Dive into engaging stories, activities, and fun.",
-        "body": "At km-digital, we believe in creating joyful experiences that spark curiosity in children. Our microsite offers a vibrant and friendly space where children can learn, play, and explore through colorful narratives and delightful interactions.",
-        "highlights": [
-          "Playful illustrations and vibrant colors",
-          "Engaging storytelling with fun activities",
-          "Interactive elements that encourage exploration",
-          "Designed for kids of all ages",
-          "Responsive layouts for all devices"
-        ],
-        "imageQuery": "children playing colorful",
-        "diagram": null,
-        "variant": "card-grid"
+        "eyebrow": "Advanced API-First Portal Challenges",
+        "headline": "Integrating ERP Capabilities with Data Residency Compliance",
+        "body": "KM Digital faces the challenge of developing a robust API-first portal that seamlessly integrates ERP functionality while adhering to strict data residency requirements. Our dedicated team will ensure that this complex project is executed efficiently, focusing on delivering an MVP within a 6-month timeframe. With a strong emphasis on observability and critical feature integration, we are poised to elevate your digital landscape.",
+        "pullquote": "Our specialized team is ready to tackle your digital integration challenges.",
+        "imageQuery": "light orange background technology",
+        "diagram": null
       },
       "diagramMeta": {
-        "typeId": "system-architecture",
-        "typeLabel": "System Architecture",
-        "category": "architecture",
-        "confidence": "medium",
+        "typeId": "decision-tree",
+        "typeLabel": "Decision Tree",
+        "category": "flow",
+        "confidence": "high",
         "matchedKeywords": [],
         "score": 5,
         "isCustomSvg": false
       },
       "image": {
-        "source": "dalle",
-        "query": "children playing colorful",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-I6Or4Wfe5GAPSKI0l3Lf1VRa.png?st=2026-03-25T12%3A43%3A49Z&se=2026-03-25T14%3A43%3A49Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T10%3A19%3A03Z&ske=2026-03-26T10%3A19%3A03Z&sks=b&skv=2026-02-06&sig=F1VoF2jyu3Au5j2uUR4ONdBJX/8olk0aY9T0evbBIB0%3D",
+        "source": "gradient",
+        "query": "light orange background technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-sW8xB9kogWGB9kFfwRxh9ALR.png?st=2026-03-26T05%3A22%3A36Z&se=2026-03-26T07%3A22%3A36Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A17%3A34Z&ske=2026-03-27T03%3A17%3A34Z&sks=b&skv=2026-02-06&sig=vvdaKGE4jKrqsMq0u9q5ikjHxDrKZJBUg5fOA4VYfLI%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -374,154 +363,176 @@
       "heading": "approach",
       "sectionType": "approach",
       "content": {
-        "eyebrow": "Exciting Digital Adventures Await!",
-        "headline": "Join Us for a Whimsical Journey in Tech!",
-        "subheadline": "At km-digital, we blend vibrant design and playful interactions to create joyful digital experiences for children. Let's explore how we can bring your ideas to life with colorful storytelling and engaging functionality.",
+        "eyebrow": "Integrating ERP with API-first solutions",
+        "headline": "Building a Seamless API-First Portal for KM Digital",
+        "subheadline": "km-digital is set to revolutionize data residency and ERP capabilities. Our dedicated team will ensure a successful MVP delivery with cutting-edge observability.",
         "pillars": [
           {
-            "iconHint": "whimsical icon of a rainbow",
-            "name": "Playful Design",
-            "description": "Our approach centers around delightful visuals that encourage exploration. Vibrant colors and friendly illustrations make every interaction joyful."
+            "iconHint": "dedicated team",
+            "name": "Specialized Expertise",
+            "description": "Our engineers are experienced across backend, machine learning, frontend, and DevOps. This ensures a well-rounded approach to your project."
           },
           {
-            "iconHint": "icon of a fun character",
-            "name": "Engaging Interactions",
-            "description": "We create fun, structured interfaces that are intuitive and accessible. Every click brings a smile, ensuring a captivating experience for young users."
+            "iconHint": "agile process",
+            "name": "MVP Focus",
+            "description": "We emphasize delivering a Minimum Viable Product within 6 months. This allows for speedy validation and iterative enhancements."
           },
           {
-            "iconHint": "icon of a friendly robot",
-            "name": "Innovative Solutions",
-            "description": "With our expertise in UX design, we combine technology and creativity. Our solutions are not only effective but also filled with imaginative flair."
+            "iconHint": "cloud architecture",
+            "name": "Scalable Solutions",
+            "description": "Our architecture will support multi-tenancy and future growth. Enhancements can be seamlessly integrated as needed."
+          },
+          {
+            "iconHint": "monitoring tools",
+            "name": "Robust Observability",
+            "description": "We will implement a comprehensive observability stack. This ensures proactive monitoring and system health management."
           }
         ],
-        "imageQuery": "colorful child-friendly digital experiences",
-        "diagram": null,
-        "variant": "split"
+        "imageQuery": "light orange background IT professionals working together",
+        "diagram": "graph TD\\nA[Engagement Summary] --> B[Minimum Viable Product MV] --> C[Enhanced Observability] --> D[Multi-Tenant Architecture] --> E[Machine Learning Capabilities]"
       },
       "diagramMeta": {
         "typeId": "process-flow",
         "typeLabel": "Process Flow",
         "category": "flow",
-        "confidence": "medium",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "colorful child-friendly digital experiences",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-tJmayaWogrd1xSzAphAUa9Qr.png?st=2026-03-25T12%3A43%3A20Z&se=2026-03-25T14%3A43%3A20Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T02%3A22%3A10Z&ske=2026-03-26T02%3A22%3A10Z&sks=b&skv=2026-02-06&sig=2yK07MrBIIb%2Bu0acVEm7Txn3FQXMMOK8ve3qd//np84%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "timeline",
-      "heading": "timeline",
-      "sectionType": "timeline",
-      "content": {
-        "eyebrow": "Explore Digital Adventures",
-        "headline": "Join Us for Playful Learning Experiences!",
-        "subheadline": "Discover how km-digital makes digital fun and engaging for everyone! Let's create memories together.",
-        "phases": [
-          {
-            "label": "Kickoff",
-            "duration": "Week 1",
-            "name": "Project Launch",
-            "description": "We initiate our adventure with a thrilling kickoff meeting!"
-          },
-          {
-            "label": "Development",
-            "duration": "Weeks 2-6",
-            "name": "Building Together",
-            "description": "Our team crafts a vibrant online space filled with interactive features."
-          },
-          {
-            "label": "Testing",
-            "duration": "Weeks 7-8",
-            "name": "Quality Check",
-            "description": "Ensuring every element sparkles with joy and functionality!"
-          },
-          {
-            "label": "Launch",
-            "duration": "Week 9",
-            "name": "Go Live",
-            "description": "Finally unveiling our playful masterpiece to the world!"
-          },
-          {
-            "label": "Feedback & Iteration",
-            "duration": "Week 10",
-            "name": "Learn & Grow",
-            "description": "Gathering feedback to enhance our digital experience."
-          }
-        ],
-        "imageQuery": "colorful playground",
-        "diagram": null,
-        "variant": "asymmetric"
-      },
-      "diagramMeta": {
-        "typeId": "gantt-chart",
-        "typeLabel": "Project Gantt",
-        "category": "timeline",
         "confidence": "high",
         "matchedKeywords": [],
-        "score": 8,
+        "score": 5,
         "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playground",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-xFlE7wu1x4sDqlJV8f3w6QAl.png?st=2026-03-25T12%3A43%3A20Z&se=2026-03-25T14%3A43%3A20Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T06%3A00%3A45Z&ske=2026-03-26T06%3A00%3A45Z&sks=b&skv=2026-02-06&sig=fyuSwDrFBFpxp/x4Bu6KcG6Gdvq6rj73PHjtUlX4YvA%3D",
+        "query": "light orange background IT professionals working together",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-FVQHdsRhW1YTrRXKa4LPIZTF.png?st=2026-03-26T05%3A22%3A44Z&se=2026-03-26T07%3A22%3A44Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T04%3A59%3A33Z&ske=2026-03-27T04%3A59%3A33Z&sks=b&skv=2026-02-06&sig=Z9/Xrmx03/7sBjbBKVrgrPhNyeAPCvnRzyod7C5/iS0%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "stats",
-      "heading": "stats",
-      "sectionType": "stats",
+      "id": "deliverables",
+      "heading": "deliverables",
+      "sectionType": "deliverables",
       "content": {
-        "eyebrow": "Exciting Digital Adventures Await",
-        "headline": "Join km-digital in Creating a Colorful Experience!",
-        "stats": [
+        "eyebrow": "Delivering Digital Transformation",
+        "headline": "Empowering Your Business with API-First Solutions",
+        "items": [
           {
-            "number": "$40,000.00",
-            "label": "Total Value",
-            "context": "Investment for a playful and engaging microsite."
+            "iconHint": "api",
+            "name": "Minimum Viable Product",
+            "detail": "We will deliver a fully integrated MVP with robust API capabilities."
           },
           {
-            "number": "10 weeks",
-            "label": "Project Duration",
-            "context": "Timeline for delivering the joyful digital experience."
+            "iconHint": "observability",
+            "name": "Observability Stack",
+            "detail": "Implementing a comprehensive observability framework for proactive monitoring."
           },
           {
-            "number": "6 months",
-            "label": "MVP Delivery",
-            "context": "Our goal for the Minimum Viable Product launch."
+            "iconHint": "architecture",
+            "name": "Multi-Tenant Architecture",
+            "detail": "Establishing a scalable architecture to support your platform needs."
           },
           {
-            "number": "4 key outcomes",
-            "label": "Core Deliverables",
-            "context": "Ensuring a delightful and cheerful user journey."
+            "iconHint": "ml",
+            "name": "Machine Learning Integration",
+            "detail": "Incorporating advanced ML features for effective anomaly detection."
           }
         ],
-        "variant": "grid"
+        "imageQuery": "orange background technology",
+        "diagram": "graph TB\\n    A[Project Kick-off] --> B[Requirements Gathering]\\n    B --> C[Design Phase]\\n    C --> D[Development Phase]\\n    D --> E[Testing]\\n    E --> F[Deployment]\\n    F --> G[Feedback and Iteration]"
       },
       "diagramMeta": {
-        "typeId": "pie-chart",
-        "typeLabel": "Distribution Chart",
-        "category": "metric",
-        "confidence": "medium",
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
         "matchedKeywords": [],
         "score": 5,
         "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "",
-        "url": null,
+        "query": "orange background technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-Mh6UMxwxbJR5e2SHt4IYO5UN.png?st=2026-03-26T05%3A22%3A35Z&se=2026-03-26T07%3A22%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A21%3A23Z&ske=2026-03-27T02%3A21%3A23Z&sks=b&skv=2026-02-06&sig=eE9T9V%2BhDzXbp4lONVmkhlxDJfSqEFbECsQnbC0yICM%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
+      "content": {
+        "eyebrow": "Unlock Your Digital Potential",
+        "headline": "Empower Your Business with API-First Solutions",
+        "imageQuery": "technology integration API cloud",
+        "items": [
+          {
+            "iconHint": "clock",
+            "title": "Rapid MVP Delivery",
+            "description": "Achieve a Minimum Viable Product within just 6 months, kickstarting your digital transformation."
+          },
+          {
+            "iconHint": "data-analytics",
+            "title": "Advanced Observability",
+            "description": "Leverage a robust observability stack to monitor system performance proactively."
+          },
+          {
+            "iconHint": "cloud",
+            "title": "Multi-Tenant Architecture",
+            "description": "Establish a scalable solution that supports multiple clients seamlessly."
+          },
+          {
+            "iconHint": "machine-learning",
+            "title": "Innovative ML Integration",
+            "description": "Implement machine learning capabilities for enhanced anomaly detection and insights."
+          }
+        ],
+        "diagram": "graph TD\\nA[User] --> B[Discover API Solutions]\\nB --> C[Integrate ERP Capabilities]\\nC --> D[Ensure Data Residency]\\nD --> E[Deliver MVP]\\nE --> F[Expand Platform Features]"
+      },
+      "diagramMeta": {
+        "typeId": "user-journey",
+        "typeLabel": "User Journey",
+        "category": "specialized",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "technology integration API cloud",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-0OCTjEjfCJG3EnGLlsYUDeVb.png?st=2026-03-26T05%3A22%3A33Z&se=2026-03-26T07%3A22%3A33Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A42%3A31Z&ske=2026-03-27T02%3A42%3A31Z&sks=b&skv=2026-02-06&sig=QQrKAL9wtVgh2cgGXzpnrYSDt1W6G7HWdJ8estdcKLM%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "generic",
+      "heading": "generic",
+      "sectionType": "generic",
+      "content": {
+        "eyebrow": "Empowering businesses through technology",
+        "headline": "Unlocking the Future with API-First Integration Solutions",
+        "body": "At km-digital, we specialize in creating seamless, API-first portals that enhance your ERP capabilities while ensuring compliance with data residency requirements. Our dedicated team, equipped with specialized engineers, focuses on delivering a compelling Minimum Viable Product (MVP) within 6 months, paving the way for future platform enhancements and robust observability. Join us in transforming your IT landscape into a cloud-native powerhouse.",
+        "imageQuery": "API integration technology",
+        "diagram": "graph TD\\nA[Client Needs] --> B[API-First Portal] --> C[ERP Integration]\\nC --> D[Data Residency Compliance]\\nD --> E[Delivery of MVP]\\nE --> F[Observability Enhancements]\\nF --> G[Future Upgrades]"
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "API integration technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-SzWhLG3RpfiQ6NP66dx05DVT.png?st=2026-03-26T05%3A22%3A33Z&se=2026-03-26T07%3A22%3A33Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T06%3A22%3A33Z&ske=2026-03-27T06%3A22%3A33Z&sks=b&skv=2026-02-06&sig=6Z%2Bhnwh9GeQOIPNOCd%2BUNdyyD8jr8F4YABPHdQe4Fx0%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -532,29 +543,27 @@
       "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "Welcome to a Colorful Adventure!",
-        "headline": "Join Us for an Exciting Digital Journey!",
-        "body": "At km-digital, we create playful, colorful digital experiences that engage and inspire. Together, let’s explore a world of fun-filled learning and creativity!",
-        "ctaPrimary": "Let's Explore!",
-        "ctaSecondary": "See More",
-        "urgencyNote": null,
-        "imageQuery": "children playing colorful digital games",
-        "diagram": null,
-        "variant": "centered"
+        "eyebrow": "Empowering Your Digital Transformation",
+        "headline": "Crafting a Seamless API-First Portal Experience",
+        "body": "At km-digital, we focus on developing an API-first portal that seamlessly integrates ERP capabilities while ensuring compliance with data residency requirements. Our dedicated team of specialized engineers will guide you through a structured approach to deliver a robust, cloud-native solution tailored to your needs.",
+        "ctaPrimary": "Get Started Now",
+        "ctaSecondary": "Learn More",
+        "urgencyNote": "Limited slots available for this engagement.",
+        "imageQuery": "light background orange digital integration"
       },
       "diagramMeta": {
         "typeId": "process-flow",
         "typeLabel": "Process Flow",
         "category": "flow",
-        "confidence": "medium",
+        "confidence": "high",
         "matchedKeywords": [],
         "score": 5,
         "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "children playing colorful digital games",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-NZ3rfcln27Gu0EvIfc5nCWu1.png?st=2026-03-25T12%3A43%3A21Z&se=2026-03-25T14%3A43%3A21Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-24T15%3A19%3A38Z&ske=2026-03-25T15%3A19%3A38Z&sks=b&skv=2026-02-06&sig=p4fEjy7zSiR3wO8nzAzIUzkl3SGfFVQ8zQetIcVTzUs%3D",
+        "query": "light background orange digital integration",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-M1A6Ta8wb8cP8ZzLDf2V1Lq5.png?st=2026-03-26T05%3A22%3A34Z&se=2026-03-26T07%3A22%3A34Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A52%3A33Z&ske=2026-03-27T02%3A52%3A33Z&sks=b&skv=2026-02-06&sig=hyzgfMAAWNk/RF6I2mizfYxuNGM93w3wsgp6H65KBew%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,

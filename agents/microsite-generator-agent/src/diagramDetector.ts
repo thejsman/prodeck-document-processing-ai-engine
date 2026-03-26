@@ -86,29 +86,61 @@ export function selectBestDiagram(
   })).sort((a, b) => b.score - a.score);
 
   const top = scored[0];
-  if (!top || top.score < 3) return null;
-  if (top.score < top.dt.minScore) {
-    // Fall back to second-best if it meets its own threshold
-    const second = scored[1];
-    if (!second || second.score < second.dt.minScore || second.score < 3) return null;
-    return {
-      diagramType: second.dt,
-      score: second.score,
-      matchedKeywords: second.matchedKeywords,
-      matchedBigrams: second.matchedBigrams,
-      matchedPatterns: second.matchedPatterns,
-      confidence: second.score >= 6 ? 'high' : 'medium',
-    };
+
+  // Lowered thresholds: high ≥5, medium ≥2, low ≥1
+  if (top && top.score >= 1) {
+    const confidence: 'high' | 'medium' | 'low' =
+      top.score >= 5 ? 'high' :
+      top.score >= 2 ? 'medium' :
+      'low';
+
+    // If top meets its own minScore, return it
+    if (top.score >= top.dt.minScore || top.score >= 2) {
+      return {
+        diagramType: top.dt,
+        score: top.score,
+        matchedKeywords: top.matchedKeywords,
+        matchedBigrams: top.matchedBigrams,
+        matchedPatterns: top.matchedPatterns,
+        confidence,
+      };
+    }
   }
 
-  return {
-    diagramType: top.dt,
-    score: top.score,
-    matchedKeywords: top.matchedKeywords,
-    matchedBigrams: top.matchedBigrams,
-    matchedPatterns: top.matchedPatterns,
-    confidence: top.score >= 6 ? 'high' : top.score >= 3 ? 'medium' : 'low',
+  // Section-type fallback when score is 0 or below threshold
+  const sectionTypeFallback: Record<string, string | undefined> = {
+    hero:         'mind-map',
+    problem:      'quadrant-matrix',
+    challenge:    'quadrant-matrix',
+    approach:     'system-architecture',
+    deliverables: 'dependency-map',
+    timeline:     'gantt-chart',
+    pricing:      'pie-chart',
+    whyus:        'org-chart',
+    benefits:     'mind-map',
+    stats:        'trend-chart',
+    showcase:     'system-architecture',
+    testimonials: undefined,
+    nextsteps:    'process-flow',
+    generic:      'process-flow',
   };
+
+  const fallbackTypeId = sectionTypeFallback[sectionType];
+  if (fallbackTypeId) {
+    const fallbackType = DIAGRAM_REGISTRY.find(d => d.id === fallbackTypeId);
+    if (fallbackType) {
+      return {
+        diagramType: fallbackType,
+        score: 0,
+        confidence: 'low' as const,
+        matchedKeywords: [],
+        matchedBigrams: [],
+        matchedPatterns: [],
+      };
+    }
+  }
+
+  return null;
 }
 
 // ── Public: build Gamma-quality diagram prompt ────────────────────────────────
