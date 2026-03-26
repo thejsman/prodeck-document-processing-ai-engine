@@ -20,6 +20,15 @@ interface Message {
 
 // ── Page ───────────────────────────────────────────────────────────
 
+function getOrCreateSessionId(namespace: string): string {
+  const key = `chat-session-id-${namespace}`;
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const id = crypto.randomUUID();
+  localStorage.setItem(key, id);
+  return id;
+}
+
 export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
@@ -29,6 +38,9 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
+  const [insights, setInsights] = useState<string[]>([]);
+
+  const chatSessionIdRef = useRef<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -36,6 +48,44 @@ export default function ChatPage() {
   const revealedLenRef = useRef(0);
 
   const { chunks, isStreaming, error, startStream, reset } = useSSE(apiKey, '/api/query');
+
+  const fetchInsights = useCallback((ns: string) => {
+    fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+      .then((res) => (res.ok ? res.json() : { suggestions: [] }))
+      .then((data: { suggestions: string[] }) => setInsights(data.suggestions ?? []))
+      .catch(() => { /* insights unavailable — leave as-is */ });
+  }, [apiKey]);
+
+  // Load persisted chat history and initial insights on mount (or namespace change)
+  useEffect(() => {
+    const ns = namespace || 'default';
+    const sessionId = getOrCreateSessionId(ns);
+    chatSessionIdRef.current = sessionId;
+
+    fetch(`/api/chat/session/${sessionId}/history?namespace=${encodeURIComponent(ns)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+      .then((res) => (res.ok ? res.json() : { messages: [] }))
+      .then((data: { messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }> }) => {
+        if (data.messages.length > 0) {
+          setMessages(data.messages);
+        }
+      })
+      .catch(() => { /* history unavailable — start fresh */ });
+
+    fetchInsights(ns);
+  }, [namespace, apiKey, fetchInsights]);
+
+  // Refresh insights after each query completes (isStreaming: true → false)
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming) {
+      fetchInsights(namespace || 'default');
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming, namespace, fetchInsights]);
 
   // Typewriter: gradually reveal chunks so tokens appear one by one
   // even when the OS pipe delivers them in bulk batches.
@@ -99,10 +149,15 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: q }]);
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    startStream({ question: q, namespace: namespace || 'default' });
+    startStream({ question: q, namespace: namespace || 'default', chatSessionId: chatSessionIdRef.current ?? undefined });
   }, [input, isStreaming, chunks, namespace, reset, startStream]);
 
   function handleClear() {
+    // Rotate to a new session ID so the fresh chat has clean history
+    const ns = namespace || 'default';
+    const newId = crypto.randomUUID();
+    localStorage.setItem(`chat-session-id-${ns}`, newId);
+    chatSessionIdRef.current = newId;
     setMessages([]);
     reset();
     setDisplayed('');
@@ -164,7 +219,7 @@ export default function ChatPage() {
           {/* Messages */}
           <div className="chat-v2-messages">
             {!hasContent ? (
-              <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} />
+              <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
             ) : (
               <>
                 {messages.map((m, i) => (
@@ -287,7 +342,7 @@ export default function ChatPage() {
         </div>
 
         {/* Context panel */}
-        {contextOpen && <ChatContextPanel namespace={namespace} />}
+        {contextOpen && <ChatContextPanel namespace={namespace} insights={insights} />}
       </div>
     </div>
   );

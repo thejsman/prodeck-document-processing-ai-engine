@@ -11,6 +11,7 @@ import {
   listNamespaces,
 } from '@ai-engine/runtime';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
+import { appendChatTurn } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
 import {
   resolvePolicy,
@@ -159,6 +160,7 @@ export function registerRoutes(
       question?: string;
       namespace?: string;
       stream?: boolean;
+      chatSessionId?: string;
     } | undefined;
 
     if (!body?.question) {
@@ -166,6 +168,7 @@ export function registerRoutes(
     }
 
     const namespace = body.namespace ?? 'default';
+    const chatSessionId = typeof body.chatSessionId === 'string' ? body.chatSessionId.trim() : undefined;
     const storageDir = path.join(workdir, 'namespaces', namespace);
 
     if (body.stream) {
@@ -206,6 +209,9 @@ export function registerRoutes(
             source: 'chat-query',
             content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
           });
+          if (chatSessionId) {
+            void appendChatTurn(workdir, namespace, chatSessionId, body.question!, result.answer);
+          }
           reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
           reply.raw.end();
           return;
@@ -226,6 +232,9 @@ export function registerRoutes(
           source: 'chat-query',
           content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
         });
+        if (chatSessionId) {
+          void appendChatTurn(workdir, namespace, chatSessionId, body.question, result.answer);
+        }
         reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
         reply.raw.end();
       } catch (err) {
@@ -249,6 +258,9 @@ export function registerRoutes(
         source: 'chat-query',
         content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
       });
+      if (chatSessionId) {
+        void appendChatTurn(workdir, namespace, chatSessionId, body.question!, result.answer);
+      }
       return reply.send(result);
     }
 
@@ -263,6 +275,9 @@ export function registerRoutes(
       source: 'chat-query',
       content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
     });
+    if (chatSessionId) {
+      void appendChatTurn(workdir, namespace, chatSessionId, body.question, result.answer);
+    }
     return reply.send(result);
   });
 

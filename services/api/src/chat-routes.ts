@@ -29,6 +29,9 @@ import {
   chatSessionBus,
   type ChatSessionEvent,
 } from './chat/chat-session-bus.js';
+import { loadHistory } from './chat/chat-history.service.js';
+import { scanNamespace } from './namespace/namespace-intelligence.service.js';
+import { deriveInsightSuggestions } from './namespace/insight-rules.js';
 import type { ProviderPolicyConfig } from './provider-policy.js';
 
 // ---------------------------------------------------------------------------
@@ -131,6 +134,54 @@ export function registerChatRoutes(
       return reply.code(502).send({ error: `Chat orchestration failed: ${errorMessage}` });
     }
   });
+
+  // ── GET /namespace/:namespace/insights ────────────────────────
+  //
+  // Returns derived insight suggestions for a namespace based on its current
+  // filesystem state (documents indexed, RFP presence, proposal drafts, etc.).
+  // Clients call this on mount and after each query to keep suggestions fresh.
+  //
+  app.get(
+    '/namespace/:namespace/insights',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace } = req.params as { namespace: string };
+
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing namespace param' });
+      }
+
+      try {
+        const insights = await scanNamespace(workdir, namespace.trim());
+        const suggestions = deriveInsightSuggestions(insights);
+        return reply.send({ suggestions, insights });
+      } catch {
+        return reply.send({ suggestions: [], insights: null });
+      }
+    },
+  );
+
+  // ── GET /chat/session/:chatSessionId/history ──────────────────
+  //
+  // Returns the persisted message history for a session.
+  // Query param: namespace (required)
+  //
+  app.get(
+    '/chat/session/:chatSessionId/history',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { chatSessionId } = req.params as { chatSessionId: string };
+      const { namespace } = req.query as { namespace?: string };
+
+      if (!chatSessionId?.trim()) {
+        return reply.code(400).send({ error: 'Missing chatSessionId param' });
+      }
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing namespace query param' });
+      }
+
+      const history = await loadHistory(workdir, namespace.trim(), chatSessionId.trim());
+      return reply.send({ messages: history?.messages ?? [] });
+    },
+  );
 
   // ── GET /chat/session/:chatSessionId/stream ────────────────────
   //
