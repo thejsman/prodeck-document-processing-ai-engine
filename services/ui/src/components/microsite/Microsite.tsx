@@ -71,10 +71,6 @@ interface Props {
   onBack?: () => void;
   onRegenerate?: () => void;
   onEdit?: () => void;
-  /** When true, hides the bottom action bar — sections are still streaming in */
-  generating?: boolean;
-  /** Expected total number of sections (from plan event) — used to show skeleton placeholders */
-  streamingTotal?: number;
   /** 'fullscreen' (default) renders as a fixed full-viewport overlay; 'embedded' renders inline for the editor canvas. */
   mode?: 'fullscreen' | 'embedded';
 }
@@ -85,23 +81,16 @@ function AnimatedSection({
   children,
   behavior,
   index,
-  streamingNew = false,
 }: {
   id: string;
   children: React.ReactNode;
   behavior?: LayoutAST['behavior'];
   index: number;
-  /** When true (newly streamed in), skip IntersectionObserver and animate immediately */
-  streamingNew?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(index === 0 && !streamingNew);
+  const [visible, setVisible] = useState(index === 0);
 
   useEffect(() => {
-    if (streamingNew) {
-      const t = setTimeout(() => setVisible(true), 30);
-      return () => clearTimeout(t);
-    }
     if (index === 0) return;
     const el = ref.current;
     if (!el) return;
@@ -111,32 +100,20 @@ function AnimatedSection({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [index, streamingNew]);
+  }, [index]);
 
-  // During streaming always use slide-up; otherwise honour the theme behavior
-  const effect = streamingNew
-    ? 'slide-up'
-    : behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
-  const delay = streamingNew ? 0 : Math.min(index * 0.04, 0.24);
+  const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
+  const delay = Math.min(index * 0.04, 0.24);
 
   const animStyle: React.CSSProperties = effect === 'none'
     ? {}
-    : streamingNew
-      ? {
-          // Gamma-style: fast fade + subtle rise, no delay
-          opacity: visible ? 1 : 0,
-          transform: visible ? 'none' : 'translateY(20px) scale(0.995)',
-          transition: visible
-            ? 'opacity 0.45s cubic-bezier(0.22,1,0.36,1), transform 0.45s cubic-bezier(0.22,1,0.36,1)'
-            : 'none',
-        }
-      : {
-          opacity: visible ? 1 : 0,
-          transform: visible ? 'none' : 'translateY(32px)',
-          transition: visible
-            ? `opacity 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s`
-            : 'none',
-        };
+    : {
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'none' : 'translateY(32px)',
+        transition: visible
+          ? `opacity 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s`
+          : 'none',
+      };
 
   // No typewriter effect — content reveals with the slide-in animation (Gamma style)
 
@@ -249,135 +226,6 @@ function renderSection(
   return inner;
 }
 
-// ── Skeleton placeholder shown for in-flight sections during streaming ────────
-
-function SectionSkeleton({ tokens, sectionNumber, isActive }: { tokens: PluginTokens; sectionNumber: number; isActive?: boolean }) {
-  const isHero = sectionNumber === 1;
-  const isStats = sectionNumber % 4 === 0;
-  const isGrid = sectionNumber % 3 === 0 && !isStats;
-
-  return (
-    <div style={{
-      minHeight: isHero ? '92vh' : '58vh',
-      background: isHero ? tokens.surface : tokens.bg,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: isStats ? 32 : 20,
-      padding: isHero ? '120px 48px' : '72px 48px',
-      position: 'relative',
-      overflow: 'hidden',
-      borderTop: `1px solid ${tokens.border}`,
-      transition: 'box-shadow 0.4s ease',
-      boxShadow: isActive ? `inset 0 0 0 2px ${tokens.accent}40, 0 0 40px ${tokens.accent}18` : 'none',
-    }}>
-      <style>{`
-        @keyframes ms-sk-shimmer{0%{background-position:-800px 0}100%{background-position:800px 0}}
-        @keyframes ms-sk-pulse{0%,100%{opacity:0.5}50%{opacity:1}}
-        .ms-sk{background:linear-gradient(90deg,${tokens.surface}55 25%,${tokens.surfaceAlt ?? tokens.surface}bb 50%,${tokens.surface}55 75%);background-size:800px 100%;animation:ms-sk-shimmer 1.8s infinite linear;border-radius:6px}
-        .ms-sk-dot{width:6px;height:6px;border-radius:50%;background:${tokens.accent};animation:ms-sk-pulse 1.2s ease-in-out infinite}
-        .ms-sk-dot:nth-child(2){animation-delay:0.2s}
-        .ms-sk-dot:nth-child(3){animation-delay:0.4s}
-      `}</style>
-
-      {/* Hero skeleton */}
-      {isHero && <>
-        <div className="ms-sk" style={{ width: 110, height: 12, marginBottom: 8 }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 700, alignItems: 'center' }}>
-          <div className="ms-sk" style={{ width: '78%', height: 52 }} />
-          <div className="ms-sk" style={{ width: '55%', height: 52 }} />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 560, alignItems: 'center', marginTop: 8 }}>
-          <div className="ms-sk" style={{ width: '90%', height: 14 }} />
-          <div className="ms-sk" style={{ width: '75%', height: 14 }} />
-        </div>
-        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-          <div className="ms-sk" style={{ width: 148, height: 46, borderRadius: 23 }} />
-          <div className="ms-sk" style={{ width: 120, height: 46, borderRadius: 23, opacity: 0.6 }} />
-        </div>
-      </>}
-
-      {/* Stats skeleton */}
-      {isStats && !isHero && <>
-        <div className="ms-sk" style={{ width: 90, height: 12 }} />
-        <div className="ms-sk" style={{ width: '50%', height: 36 }} />
-        <div style={{ display: 'flex', gap: 32, marginTop: 16, justifyContent: 'center' }}>
-          {[1,2,3].map(n => (
-            <div key={n} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <div className="ms-sk" style={{ width: 80, height: 52, borderRadius: 8 }} />
-              <div className="ms-sk" style={{ width: 64, height: 12 }} />
-            </div>
-          ))}
-        </div>
-      </>}
-
-      {/* Grid skeleton */}
-      {isGrid && !isHero && <>
-        <div className="ms-sk" style={{ width: 90, height: 12 }} />
-        <div className="ms-sk" style={{ width: '52%', height: 34 }} />
-        <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 860 }}>
-          {[1,2,3,4].map(n => (
-            <div key={n} style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 180 }}>
-              <div className="ms-sk" style={{ width: 36, height: 36, borderRadius: 8 }} />
-              <div className="ms-sk" style={{ width: '80%', height: 14 }} />
-              <div className="ms-sk" style={{ width: '100%', height: 10 }} />
-              <div className="ms-sk" style={{ width: '70%', height: 10 }} />
-            </div>
-          ))}
-        </div>
-      </>}
-
-      {/* Default skeleton */}
-      {!isHero && !isStats && !isGrid && <>
-        <div className="ms-sk" style={{ width: 90, height: 12 }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 560, alignItems: 'center' }}>
-          <div className="ms-sk" style={{ width: '62%', height: 36 }} />
-          <div className="ms-sk" style={{ width: '44%', height: 36 }} />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 480, alignItems: 'center' }}>
-          <div className="ms-sk" style={{ width: '100%', height: 13 }} />
-          <div className="ms-sk" style={{ width: '85%', height: 13 }} />
-          <div className="ms-sk" style={{ width: '68%', height: 13 }} />
-        </div>
-      </>}
-
-      {/* Active building indicator */}
-      {isActive && (
-        <div style={{
-          position: 'absolute', bottom: 24,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <div style={{ display: 'flex', gap: 5 }}>
-            <div className="ms-sk-dot" />
-            <div className="ms-sk-dot" />
-            <div className="ms-sk-dot" />
-          </div>
-          <span style={{
-            fontFamily: 'sans-serif', fontSize: 11,
-            color: tokens.accent, opacity: 0.7,
-            letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
-          }}>
-            Building section {sectionNumber}
-          </span>
-        </div>
-      )}
-
-      {/* Inactive label */}
-      {!isActive && (
-        <div style={{
-          position: 'absolute', bottom: 20,
-          fontFamily: 'sans-serif', fontSize: 11,
-          color: tokens.textSubtle, opacity: 0.3,
-          letterSpacing: '0.08em', textTransform: 'uppercase',
-        }}>
-          Section {sectionNumber}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Section overlay wrapper (editor-only) ────────────────────────────────────
 
 function SectionWithOverlay({
@@ -389,7 +237,6 @@ function SectionWithOverlay({
   allSections,
   brief,
   behavior,
-  streamingNew,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -399,7 +246,6 @@ function SectionWithOverlay({
   allSections: LayoutAST['sections'];
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
-  streamingNew?: boolean;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
@@ -457,7 +303,7 @@ function SectionWithOverlay({
 
   return (
     <div>
-      <AnimatedSection id={section.id} behavior={behavior} index={index} streamingNew={streamingNew}>
+      <AnimatedSection id={section.id} behavior={behavior} index={index}>
         <SectionIdProvider id={section.id}>
           {editCtx ? (
             <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
@@ -511,7 +357,7 @@ function isColorDark(hex: string): boolean {
   } catch { return false; }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = false, streamingTotal, mode = 'fullscreen' }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -567,27 +413,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = fals
   const contentRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
-  // Track recently-arrived section IDs for slide-in animation + auto-scroll (Gamma style)
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [recentlyArrived, setRecentlyArrived] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (!generating) return;
-    const sections = ast.sections ?? [];
-    const newIds = sections.map(s => s.id).filter(id => !recentlyArrived.has(id));
-    if (!newIds.length) return;
-    setRecentlyArrived(prev => new Set([...prev, ...newIds]));
-    // Auto-scroll to the latest arrived section (Gamma feel)
-    const latestId = newIds[newIds.length - 1];
-    setTimeout(() => {
-      const el = sectionRefs.current.get(latestId);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 80);
-    newIds.forEach(id => {
-      setTimeout(() => {
-        setRecentlyArrived(prev => { const next = new Set(prev); next.delete(id); return next; });
-      }, 2500);
-    });
-  }, [ast.sections?.length, generating]); // eslint-disable-line react-hooks/exhaustive-deps
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
 useEffect(() => setMounted(true), []);
@@ -850,41 +676,26 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         {editCtx && <AddSectionButton afterIndex={-1} />}
 
         {(() => {
-          // ── Gamma-style append rendering ──────────────────────────────────
-          // Sections grow the page downward one by one — no pre-allocated skeleton
-          // slots. A single active skeleton appends below the last real section
-          // while generation is in progress, giving a smooth top-to-bottom reveal.
-          const arrivedSections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
-          const total = streamingTotal || arrivedSections.length;
-
+          const sections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
           return (
             <>
-              {arrivedSections.map((section, i) => (
+              {sections.map((section, i) => (
                 <React.Fragment key={section.id}>
                   <div ref={el => { if (el) sectionRefs.current.set(section.id, el); else sectionRefs.current.delete(section.id); }}>
                     <SectionWithOverlay
                       section={section}
                       index={i}
-                      total={total}
+                      total={sections.length}
                       tokens={tokens}
                       brand={ast.brand}
-                      allSections={arrivedSections}
+                      allSections={sections}
                       brief={ast.brief}
                       behavior={ast.behavior}
-                      streamingNew={generating && recentlyArrived.has(section.id)}
                     />
                   </div>
                   {editCtx && <AddSectionButton afterIndex={i} />}
                 </React.Fragment>
               ))}
-              {/* Single active skeleton at the bottom while generating */}
-              {generating && (
-                <SectionSkeleton
-                  tokens={tokens}
-                  sectionNumber={arrivedSections.length + 1}
-                  isActive={true}
-                />
-              )}
             </>
           );
         })()}
@@ -903,33 +714,8 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         </footer>
       </div>
 
-      {/* Planning overlay removed — generate step handles the loading state before first section */}
-
-      {/* Generating indicator — progress counter while sections are streaming in */}
-      {!isEmbedded && generating && mounted && (ast.sections ?? []).filter(s => !isSectionEmpty(s)).length > 0 && createPortal(
-        <div style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 99999,
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '9px 16px', borderRadius: 100,
-          background: `${tokens.bg}ee`, backdropFilter: 'blur(12px)',
-          border: `1px solid ${tokens.border}`, boxShadow: tokens.cardShadow,
-          fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.8rem',
-          fontWeight: 600, color: tokens.textMuted,
-        }}>
-          <div style={{
-            width: 12, height: 12, borderRadius: '50%',
-            border: `2px solid ${tokens.border}`, borderTopColor: tokens.accent,
-            animation: 'spin 0.8s linear infinite',
-          }} />
-          {streamingTotal
-            ? `Section ${(ast.sections ?? []).filter(s => !isSectionEmpty(s)).length} of ${streamingTotal}`
-            : 'Generating…'}
-        </div>,
-        document.body,
-      )}
-
-      {/* Control bar — hidden while streaming or in embedded mode */}
-      {!isEmbedded && !generating && mounted && createPortal(
+      {/* Control bar */}
+      {!isEmbedded && mounted && createPortal(
         <div style={{
           position: 'fixed',
           bottom: 24,

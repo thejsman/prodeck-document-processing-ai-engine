@@ -757,9 +757,6 @@ export function PresentationPage() {
             };
             setStreamingSections((s) => [...s, sec.sectionType]);
 
-            // Switch to preview on first section — generate step shows progress until then
-            setStep("preview");
-
             setLayoutAST((prev) => {
               if (!prev) return prev;
               const sections = [...prev.sections];
@@ -799,6 +796,7 @@ export function PresentationPage() {
               currentHistoryIdRef.current = saved.id;
               setGeneratedMarkdown(sourceMarkdown);
             }
+            setStep("preview");
             updateExecution(execId, { status: "completed" });
             clearSnapshot();
           } else if (event.type === "error") {
@@ -820,9 +818,12 @@ export function PresentationPage() {
       // Safety net: if complete event never fired (e.g. server error during image fetch),
       // save whatever sections we have so history is never lost.
       const latestAST = layoutASTRef.current;
-      if (latestAST?.sections?.length && !currentHistoryIdRef.current) {
-        const saved = addEntry(latestAST);
-        currentHistoryIdRef.current = saved.id;
+      if (latestAST?.sections?.length) {
+        if (!currentHistoryIdRef.current) {
+          const saved = addEntry(latestAST);
+          currentHistoryIdRef.current = saved.id;
+        }
+        setStep("preview");
       }
       setGenerating(false);
     }
@@ -912,11 +913,9 @@ export function PresentationPage() {
     return (
       <Microsite
         ast={layoutAST}
-        generating={generating}
-        streamingTotal={generating ? streamingTotal : undefined}
-        onBack={generating ? undefined : () => setStep("plugin")}
-        onRegenerate={generating ? undefined : () => setStep("plugin")}
-        onEdit={generating ? undefined : () => setShowEditor(true)}
+        onBack={() => setStep("plugin")}
+        onRegenerate={() => setStep("plugin")}
+        onEdit={() => setShowEditor(true)}
       />
     );
   }
