@@ -233,20 +233,12 @@ function getDefaultContent(sectionType: string): Record<string, unknown> {
           {
             iconHint: 'digital',
             name: 'Frontend',
-            items: [
-              { name: 'React', iconHint: 'digital' },
-              { name: 'TypeScript', iconHint: 'document' },
-              { name: 'Tailwind CSS', iconHint: 'content' },
-            ],
+            items: ['React', 'TypeScript', 'Tailwind CSS'],
           },
           {
             iconHint: 'tool',
             name: 'Backend',
-            items: [
-              { name: 'Node.js', iconHint: 'bolt' },
-              { name: 'PostgreSQL', iconHint: 'document' },
-              { name: 'Redis', iconHint: 'bolt' },
-            ],
+            items: ['Node.js', 'PostgreSQL', 'Redis'],
           },
         ],
       };

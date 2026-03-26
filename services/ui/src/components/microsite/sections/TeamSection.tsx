@@ -4,7 +4,7 @@ import type { PluginTokens, TeamContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, SubHeadline, Label, Body } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
@@ -88,23 +88,15 @@ export function TeamSection({ content, tokens }: Props) {
 
                   <div style={{ flex: 1, width: '100%' }}>
                     <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
-                      <div style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 700, fontSize: '1rem', color: tokens.text, marginBottom: 4,
-                      }}>
+                      <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>
                         {member.name}
-                      </div>
+                      </SubHeadline>
                     </InlineEditable>
 
                     <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
-                      <div style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 500, fontSize: '0.8rem',
-                        color: tokens.accent, marginBottom: 12,
-                        textTransform: 'uppercase', letterSpacing: '0.06em',
-                      }}>
+                      <Label tokens={tokens} style={{ fontWeight: 500, fontSize: '0.8rem', letterSpacing: '0.06em', marginBottom: 12, display: 'block' }}>
                         {member.role}
-                      </div>
+                      </Label>
                     </InlineEditable>
 
                     <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline>

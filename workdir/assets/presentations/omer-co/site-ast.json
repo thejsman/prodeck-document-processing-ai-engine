@@ -720,6 +720,56 @@
       "version": 1
     },
     {
+      "id": "section-1774525135779-zacfp",
+      "heading": "Team",
+      "sectionType": "team",
+      "content": {
+        "eyebrow": "THE TEAM",
+        "headline": "The People Behind the Work",
+        "subheadline": "Experienced professionals committed to your success.",
+        "members": [
+          {
+            "iconHint": "identity",
+            "name": "Niranjan Bhambhi",
+            "role": "Project Lead",
+            "bio": "Experienced leader with 20+ years delivering complex projects."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Sam Rivera",
+            "role": "Lead Designer",
+            "bio": "Award-winning designer focused on user-centred experiences."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Jordan Lee",
+            "role": "Technical Lead",
+            "bio": "Full-stack engineer specialising in scalable architectures."
+          },
+          {
+            "name": "Rohtash",
+            "role": "Role Title",
+            "bio": "Brief bio…",
+            "iconHint": "identity"
+          },
+          {
+            "name": "Sumit",
+            "role": "Role Title",
+            "bio": "Brief bio…",
+            "iconHint": "identity"
+          }
+        ]
+      },
+      "image": {
+        "source": "gradient",
+        "query": "team",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
       "id": "testimonials",
       "heading": "testimonials",
       "sectionType": "testimonials",
