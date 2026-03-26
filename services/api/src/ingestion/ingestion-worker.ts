@@ -65,6 +65,15 @@ async function processBufferJob(
   const uploadsDir = path.join(storageDir, 'uploads');
   const filesToIndex = allFiles ?? [fileName];
 
+  // Read namespace config to resolve the correct vector store backend
+  const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
+  const configResolver = new ConfigResolver(configLoader);
+  const config = await configResolver.resolve({ namespace });
+  const rawVs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+  const vectorStoreConfig = (rawVs?.type === 'faiss' || rawVs?.type === 'qdrant')
+    ? { type: rawVs.type as 'faiss' | 'qdrant', url: rawVs.url }
+    : undefined;
+
   const documents: { fileName: string; content: string }[] = [];
   for (const f of filesToIndex) {
     const content = await readFile(path.join(uploadsDir, f), 'utf-8');
@@ -75,10 +84,10 @@ async function processBufferJob(
     const policy = resolvePolicy(policyConfig, namespace, 'ingest');
     await executeWithPolicy(
       policy,
-      () => ingestDocuments({ documents, storageDir, namespace }),
+      () => ingestDocuments({ documents, storageDir, namespace, vectorStoreConfig }),
     );
   } else {
-    await ingestDocuments({ documents, storageDir, namespace });
+    await ingestDocuments({ documents, storageDir, namespace, vectorStoreConfig });
   }
 }
 

@@ -9,7 +9,10 @@ import {
   ingestDocuments,
   queryKnowledgeBase,
   listNamespaces,
+  createNodeConfigLoader,
+  type VectorStoreConfig,
 } from '@ai-engine/runtime';
+import { ConfigResolver } from '@ai-engine/core';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
 import { appendChatTurn } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
@@ -111,6 +114,23 @@ function attachProviderInfo(req: FastifyRequest, info: ProviderInfo): void {
   (req as FastifyRequest & { __providerInfo: ProviderInfo }).__providerInfo = info;
 }
 
+/** Read the vectorStore config for a namespace from workdir/config/namespaces/<ns>.json */
+async function resolveVectorStoreConfig(
+  workdir: string,
+  namespace: string,
+): Promise<VectorStoreConfig | undefined> {
+  try {
+    const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
+    const configResolver = new ConfigResolver(configLoader);
+    const config = await configResolver.resolve({ namespace });
+    const vs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+    if (!vs?.type || (vs.type !== 'faiss' && vs.type !== 'qdrant')) return undefined;
+    return { type: vs.type, url: vs.url };
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -170,6 +190,7 @@ export function registerRoutes(
     const namespace = body.namespace ?? 'default';
     const chatSessionId = typeof body.chatSessionId === 'string' ? body.chatSessionId.trim() : undefined;
     const storageDir = path.join(workdir, 'namespaces', namespace);
+    const vectorStoreConfig = await resolveVectorStoreConfig(workdir, namespace);
 
     if (body.stream) {
       reply.raw.writeHead(200, {
@@ -191,6 +212,7 @@ export function registerRoutes(
               storageDir,
               namespace,
               stream: true,
+              vectorStoreConfig,
               onChunk: (chunk: string) => {
                 reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
               },
@@ -222,6 +244,7 @@ export function registerRoutes(
           storageDir,
           namespace,
           stream: true,
+          vectorStoreConfig,
           onChunk: (chunk: string) => {
             reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
           },
@@ -249,7 +272,7 @@ export function registerRoutes(
       const policy = resolvePolicy(policyConfig, namespace, 'query');
       const { result, usedFallback, provider } = await executeWithPolicy(
         policy,
-        () => queryKnowledgeBase({ question: body.question!, storageDir, namespace }),
+        () => queryKnowledgeBase({ question: body.question!, storageDir, namespace, vectorStoreConfig }),
       );
 
       attachProviderInfo(req, { provider, usedFallback, policySource: policy.source });
@@ -268,6 +291,7 @@ export function registerRoutes(
       question: body.question,
       storageDir,
       namespace,
+      vectorStoreConfig,
     });
 
     void appendEpisodicEntry(workdir, namespace, {
