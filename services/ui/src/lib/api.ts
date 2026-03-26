@@ -16,6 +16,9 @@ export interface TemplateSection {
 }
 
 export interface TemplateInfo {
+  /** Filename slug — used for API routing (GET/POST /templates/:id). */
+  id: string;
+  /** Human-readable display name from the YAML `name:` field. */
   name: string;
   version: string;
   description: string;
