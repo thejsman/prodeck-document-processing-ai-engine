@@ -107,6 +107,9 @@ export function MicrositeHistory() {
         proposalId={editingEntry.id}
         onClose={() => setEditingEntry(null)}
         onExport={(editedAst) => {
+          // Replace the existing entry instead of adding a duplicate
+          if (editingEntry.source === 'local') deleteEntry(editingEntry.id);
+          else setServerEntries(prev => prev.filter(e => e.id !== editingEntry.id));
           addEntry(editedAst, editingEntry.namespace);
           setEditingEntry(null);
         }}
@@ -323,23 +326,27 @@ export function MicrositeHistory() {
                 >
                   Preview
                 </button>
-                {isLocal && (
-                  <button
-                    onClick={() => deleteEntry(entry.id)}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: 6,
-                      padding: "7px 10px",
-                      fontSize: 12,
-                      color: "var(--color-text-muted)",
-                      cursor: "pointer",
-                    }}
-                    title="Delete from history"
-                  >
-                    ×
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    if (isLocal) {
+                      deleteEntry(entry.id);
+                    } else {
+                      setServerEntries(prev => prev.filter(e => e.id !== entry.id));
+                    }
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 6,
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    color: "var(--color-text-muted)",
+                    cursor: "pointer",
+                  }}
+                  title="Remove from history"
+                >
+                  ×
+                </button>
               </div>
             </div>
           );

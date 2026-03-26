@@ -273,12 +273,14 @@ export function PresentationPage() {
 
   // Step 4
   const [generating, setGenerating] = useState(false);
+  const [streamingTotal, setStreamingTotal] = useState(0);
   // If we restored a snapshot where generation was running, track that separately
   const [wasGenerating, setWasGenerating] = useState(() => !!(_snap?.wasGenerating && _snap.step === 'generate'));
   const [progress, setProgress] = useState<ProgressItem[]>(() => _snap?.step === 'generate' ? (_snap.progress ?? []) : []);
   const [error, setError] = useState<string | null>(() => _snap?.step === 'generate' ? (_snap.error ?? null) : null);
   const [streamingSections, setStreamingSections] = useState<string[]>(() => _snap?.step === 'generate' ? (_snap.streamingSections ?? []) : []);
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentHistoryIdRef = useRef<string | null>(null);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
@@ -293,7 +295,7 @@ export function PresentationPage() {
     return (localStorage.getItem('ms_activeTab') as 'generate' | 'history') || 'generate';
   });
   // addEntry scoped to selectedNamespace; totalHistory unfiltered for accurate tab count
-  const { addEntry } = useMicrositeHistory(selectedNamespace);
+  const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace);
   const { history: totalHistory } = useMicrositeHistory();
 
   const handleTabChange = (tab: 'generate' | 'history') => {
@@ -462,10 +464,36 @@ export function PresentationPage() {
 
   const runPipeline = useCallback(async () => {
     if (!apiKey || !selectedNamespace) return;
+
+    // Build stable refs before any state updates
+    const proposalId = selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
+    const brandConfig = {
+      companyName: brand.companyName,
+      tagline: brand.tagline,
+      logoUrl: brand.logoUrl,
+      logoText: brand.logoText,
+      primaryColor: brand.primaryColor,
+      secondaryColor: brand.secondaryColor,
+    };
+
+    // ── Immediately switch to preview with an empty AST + skeletons ──────────
+    // This gives the Gamma-like effect: all skeleton slides appear right away,
+    // then fill in as sections arrive — no blank waiting screen.
     setGenerating(true);
     setError(null);
     setProgress([]);
-    setLayoutAST(null);
+    setStreamingSections([]);
+    setStreamingTotal(0);
+    setLayoutAST({
+      proposalId,
+      generatedAt: new Date().toISOString(),
+      meta: { title: selectedProposal?.client ?? selectedNamespace, client: selectedProposal?.client ?? '', date: '', author: '' },
+      brief: {} as LayoutAST['brief'],
+      brand: brandConfig,
+      plugin: selectedPlugin ?? 'ivory',
+      sections: [],
+    });
+    // Stay on generate step — switch to preview only when first section arrives
 
     const execId = crypto.randomUUID();
     addExecution({
@@ -478,47 +506,33 @@ export function PresentationPage() {
     const abortCtrl = new AbortController();
 
     try {
-      setStreamingSections([]);
       setProgress([{ text: 'Connecting to AI pipeline...', done: true }]);
       setProgress(p => [...p, { text: 'Running design synthesis + section planning...', done: false }]);
 
       const isCustomSynth = selectedPlugin === 'custom-synthesized' && synthesizedDesign;
       const sourceMarkdown = generatedMarkdown ?? mdContent;
 
-      const proposalId = selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
-
       await generateMicrositeStream(apiKey, selectedNamespace, proposalId, {
         proposalMarkdown: sourceMarkdown,
         plugin: selectedPlugin ?? 'none',
-        brand: {
-          companyName: brand.companyName,
-          tagline: brand.tagline,
-          logoUrl: brand.logoUrl,
-          logoText: brand.logoText,
-          primaryColor: brand.primaryColor,
-          secondaryColor: brand.secondaryColor,
-        },
+        brand: brandConfig,
         ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
         ...((customPrompt || designBrief).trim() ? { fullDesignPrompt: (customPrompt || designBrief).trim() } : {}),
         ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
         ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
         signal: abortCtrl.signal,
-        onEvent: (() => {
-          let switched = false;
-          const brandConfig = {
-            companyName: brand.companyName,
-            tagline: brand.tagline,
-            logoUrl: brand.logoUrl,
-            logoText: brand.logoText,
-            primaryColor: brand.primaryColor,
-            secondaryColor: brand.secondaryColor,
-          };
-
-          return (event: StreamEvent) => {
+        onEvent: (event: StreamEvent) => {
             console.log('[stream]', event.type, event.type === 'section' ? (event as { sectionType?: string }).sectionType : '');
             if (event.type === 'start') {
               setProgress(p => p.map((x, i) => i === p.length - 1 ? { ...x, done: true } : x));
               setProgress(p => [...p, { text: 'Generating sections...', done: false }]);
+
+            } else if (event.type === 'plan') {
+              const planEvent = event as { type: 'plan'; totalSections: number };
+              setStreamingTotal(planEvent.totalSections);
+              setProgress(p => p.map((x, i) => i === p.length - 1
+                ? { ...x, done: true, text: `Generating ${planEvent.totalSections} sections...` }
+                : x));
 
             } else if (event.type === 'section') {
               const sec = event;
@@ -533,29 +547,16 @@ export function PresentationPage() {
               };
               setStreamingSections(s => [...s, sec.sectionType]);
 
-              if (!switched) {
-                switched = true;
-                // First section — initialise AST and jump to preview
-                setLayoutAST({
-                  proposalId,
-                  generatedAt: new Date().toISOString(),
-                  meta: { title: selectedProposal?.client ?? selectedNamespace, client: selectedProposal?.client ?? '', date: '', author: '' },
-                  brief: {} as LayoutAST['brief'],
-                  brand: brandConfig,
-                  plugin: selectedPlugin ?? 'ivory',
-                  sections: [newSection],
-                });
-                setStep('preview');
-              } else {
-                // Insert at correct index to maintain section order
-                setLayoutAST(prev => {
-                  if (!prev) return prev;
-                  const sections = [...prev.sections];
-                  const targetIdx = sec.index ?? sections.length;
-                  sections.splice(targetIdx, 0, newSection);
-                  return { ...prev, sections };
-                });
-              }
+              // Switch to preview on first section — generate step shows progress until then
+              setStep('preview');
+
+              setLayoutAST(prev => {
+                if (!prev) return prev;
+                const sections = [...prev.sections];
+                const targetIdx = sec.index ?? sections.length;
+                sections.splice(targetIdx, 0, newSection);
+                return { ...prev, sections };
+              });
 
             } else if (event.type === 'image') {
               // Image resolved — update that section's URL in place
@@ -579,7 +580,8 @@ export function PresentationPage() {
                 ast.brand = { ...(ast.brand ?? {}), ...brandConfig };
                 ast.plugin = selectedPlugin ?? 'ivory';
                 setLayoutAST(ast);
-                addEntry(ast);
+                const saved = addEntry(ast);
+                currentHistoryIdRef.current = saved.id;
                 setGeneratedMarkdown(sourceMarkdown);
               }
               updateExecution(execId, { status: 'completed' });
@@ -588,8 +590,7 @@ export function PresentationPage() {
             } else if (event.type === 'error') {
               throw new Error((event as { type: 'error'; message: string }).message);
             }
-          };
-        })(),
+        },
       });
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
@@ -641,7 +642,9 @@ export function PresentationPage() {
           onClose={() => setShowEditor(false)}
           onExport={editedAst => {
             setLayoutAST(editedAst);
-            addEntry(editedAst);
+            if (currentHistoryIdRef.current) deleteEntry(currentHistoryIdRef.current);
+            const saved = addEntry(editedAst);
+            currentHistoryIdRef.current = saved.id;
             setShowEditor(false);
           }}
         />
@@ -651,6 +654,7 @@ export function PresentationPage() {
       <Microsite
         ast={layoutAST}
         generating={generating}
+        streamingTotal={generating ? streamingTotal : undefined}
         onBack={generating ? undefined : () => setStep('plugin')}
         onRegenerate={generating ? undefined : () => setStep('plugin')}
         onEdit={generating ? undefined : () => setShowEditor(true)}
@@ -679,7 +683,7 @@ export function PresentationPage() {
           const isActive = activeTab === tab;
           const label = tab === 'generate'
             ? 'Generate'
-            : `History${totalHistory.length > 0 ? ` (${totalHistory.length})` : ''}`;
+            : `History${totalHistory.length > 0 ? ` (${totalHistory.length})` : ' (0)'}`;
           return (
             <button
               key={tab}

@@ -1,35 +1,38 @@
 {
   "proposalId": "acme",
-  "generatedAt": "2026-03-16T10:34:09.040Z",
+  "generatedAt": "2026-03-26T06:38:09.398Z",
+  "generationMode": "default",
+  "fullDesignPromptUsed": false,
   "meta": {
-    "title": "Proposal for omer",
-    "client": "omer",
-    "date": "2026-03-10",
+    "title": "Proposal for Acme corp",
+    "client": "Acme corp",
+    "date": "2026-03-23",
     "author": ""
   },
   "brief": {
-    "clientName": "Global NBR",
-    "clientIndustry": "tech",
-    "clientChallenge": "Global NBR is facing significant tech debt and operational inefficiencies.",
+    "clientName": "Acme Corporation",
+    "clientIndustry": "IT",
+    "clientChallenge": "An outdated data infrastructure compromises operational efficiency and decision-making abilities.",
     "proposingCompany": "acme",
-    "proposingStrength": "acme has a proven track record in delivering transformative operational solutions in the tech sector.",
-    "engagementSummary": "This engagement aims to streamline Global NBR's operational framework through a four-phase implementation plan. By leveraging advanced technology and promoting knowledge transfer, it addresses their immediate needs for efficiency and compliance.",
+    "proposingStrength": "98% client satisfaction rate with a 3x acceleration in delivery.",
+    "engagementSummary": "A comprehensive migration to a modernized data architecture will be delivered, utilizing cloud-native technologies and robust governance frameworks. The engagement enhances operational performance and enables data-driven decision-making.",
     "keyOutcomes": [
-      "Reduce month-end processes from nine days to five",
-      "Decrease reconciliation tasks from 30% to 10% of FTE",
-      "Enhance data integrity and governance",
-      "Empower teams through effective knowledge transfer"
+      "86% reduction in operational risks",
+      "3x acceleration in delivery speed",
+      "98% client satisfaction rate",
+      "Doubling the accuracy of reporting",
+      "Elimination of 8% variance in active loan counts"
     ],
-    "totalValue": "$1.2M to $1.5M",
-    "duration": "12 months",
+    "totalValue": "$XXX,XXX",
+    "duration": "32 weeks",
     "primaryTone": "authoritative",
-    "heroNarrative": "Transforming operational efficiency in the tech landscape",
+    "heroNarrative": "Transforming data infrastructure for agile decision-making",
     "industryKeywords": [
+      "IT",
+      "data architecture",
+      "cloud-native",
       "operational efficiency",
-      "data governance",
-      "technology implementation",
-      "automation",
-      "compliance"
+      "data governance"
     ]
   },
   "brand": {
@@ -40,7 +43,12 @@
     "primaryColor": "#C8A96E",
     "secondaryColor": "#1A1612"
   },
-  "plugin": "ivory",
+  "plugin": "cobalt",
+  "behavior": {
+    "motion": "deliberate",
+    "parallax": false,
+    "scrollEffects": "none"
+  },
   "sections": [
     {
       "id": "executive-summary",
@@ -48,164 +56,242 @@
       "sectionType": "hero",
       "content": {
         "eyebrow": "Proposal · March 2026",
-        "headline": "Streamlining Operational Efficiency for Global NBR",
-        "subheadline": "A four-phase plan to reduce month-end processes and enhance data governance within tech operations.",
-        "body": "Operational delays hinder performance and compliance. Acme’s structured approach delivers measurable improvements and long-term viability. Engage now to address immediate challenges and prepare for future demands.",
-        "ctaPrimary": "Start the transformation",
-        "ctaSecondary": "Learn more",
-        "imageQuery": "dramatic tech architecture dark minimal"
+        "headline": "Modernizing Data Infrastructure for Enhanced Decision-Making",
+        "subheadline": "Transform your data environment to improve operational efficiency and reporting accuracy.",
+        "body": "Time-sensitive challenges necessitate immediate action to avoid operational setbacks. acme provides proven methodologies to deliver swift and impactful results.",
+        "ctaPrimary": "",
+        "ctaSecondary": "",
+        "ctaTarget": "timeline",
+        "ctaSecondaryTarget": "approach",
+        "imageQuery": "Cinematic photorealistic scene of a high-tech data center with glowing screens and dynamic data visualizations, dramatic lighting, cool blue and green color palette.",
+        "diagram": "xychart-beta\nA[Data Architecture]\nB[Current State]\nC[Migration Roadmap]\nD[Operational Efficiency]\nE[Governance Framework]\nF[Reporting Accuracy]",
+        "variant": "split",
+        "cta": ""
+      },
+      "diagramMeta": {
+        "typeId": "trend-chart",
+        "typeLabel": "Trend Chart",
+        "category": "metric",
+        "confidence": "high",
+        "matchedKeywords": [
+          "performance",
+          "rate"
+        ],
+        "score": 12,
+        "isCustomSvg": false
       },
       "image": {
-        "source": "gradient",
-        "query": "dramatic tech architecture dark minimal",
-        "url": null,
+        "source": "dalle",
+        "query": "Cinematic photorealistic scene of a high-tech data center with glowing screens and dynamic data visualizations, dramatic lighting, cool blue and green color palette.",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-Rgaj8Ad1BAFRtBnGAUHxiuLj.png?st=2026-03-26T05%3A36%3A54Z&se=2026-03-26T07%3A36%3A54Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T17%3A28%3A40Z&ske=2026-03-26T17%3A28%3A40Z&sks=b&skv=2026-02-06&sig=cuIQC82awd1oeYkG7MDxm7zSbrd/NZEeDv2Cje4TTTs%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "understanding-of-requirements",
-      "heading": "Understanding of Requirements",
-      "sectionType": "generic",
+      "id": "problem-statement",
+      "heading": "Problem Statement",
+      "sectionType": "problem",
       "content": {
-        "eyebrow": "Key Insights Into Client Needs",
-        "headline": "Analyzing Global NBR's Critical Operational Challenges",
-        "body": "Global NBR faces operational inefficiencies exacerbated by tech debt. Key priorities include enhancing automation, ensuring data integrity, and establishing compliance protocols. Addressing these challenges will enable the organization to operate more efficiently and maintain trust in data management.",
-        "imageQuery": "operational efficiency technology"
+        "eyebrow": "The Real Cost of Waiting",
+        "headline": "Data Infrastructure Failures Could Result in Catastrophic Losses",
+        "body": "Operational inefficiencies from outdated technologies risk significant financial losses and damage to reputation. Immediate action is necessary to modernize data systems or face ongoing disruptions and inadequacies. Stakeholders may lose confidence in decision-making processes, further widening the operational gap.",
+        "painPoints": [
+          "Increase operational risks by 86%",
+          "Suffer a 8% variance in critical reports",
+          "Prolong onboarding processes for new staff",
+          "Depend on unreliable tribal knowledge",
+          "Endanger business continuity with service disruptions"
+        ],
+        "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
+        "diagram": "graph LR\\n  A[Frontend] --> B[APIs]\\n  B --> C[Data Processing]\\n  C --> D[Data Storage]\\n  D --> E[Reporting Tools]\\n  E --> F[Analytics]\\n  F --> G[Decision-Making]\\n  G --> H[Actionable Insights]",
+        "variant": "editorial"
+      },
+      "diagramMeta": {
+        "typeId": "data-flow",
+        "typeLabel": "Data Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [
+          "data",
+          "etl",
+          "extract",
+          "transform",
+          "load"
+        ],
+        "score": 10,
+        "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "operational efficiency technology",
-        "url": null,
+        "query": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-vtSWfrQZOvJWFobWrVYJlpcb.png?st=2026-03-26T05%3A38%3A17Z&se=2026-03-26T07%3A38%3A17Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T12%3A00%3A00Z&ske=2026-03-26T12%3A00%3A00Z&sks=b&skv=2026-02-06&sig=tBXRd7%2BHQHmR1qBeyn%2BXV3hPR/thd2/JZLoKvRt41mY%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "proposed-solution",
-      "heading": "Proposed Solution",
+      "id": "proposed-approach",
+      "heading": "Proposed Approach",
       "sectionType": "approach",
       "content": {
-        "eyebrow": "Operational Efficiency Initiative",
-        "headline": "Streamlining Global NBR's Operational Framework",
-        "subheadline": "This approach delivers concrete outcomes through structured phases. Each phase targets immediate needs while laying the groundwork for sustained performance.",
+        "eyebrow": "Strategic Data Modernization",
+        "headline": "Comprehensive Approach to Data Infrastructure Overhaul",
+        "subheadline": "A systematic framework for transforming Acme Corporation's data landscape. This methodology focuses on assessing current systems, designing a future-ready architecture, and establishing governance practices.",
         "pillars": [
           {
-            "iconHint": "strategy",
-            "name": "Data Governance",
-            "description": "Activate Collibra to establish data governance. Ensure compliance and enhance data quality across the organization."
-          },
-          {
-            "iconHint": "content",
-            "name": "Data Transformation",
-            "description": "Implement dbt to facilitate reliable data transformation. Enable teams to create accurate data models quickly."
+            "iconHint": "identity",
+            "name": "Current Infrastructure Assessment",
+            "description": "Thorough analysis of data assets to identify critical datasets. This step ensures accurate decision-making and optimizes operational efficiency."
           },
           {
             "iconHint": "digital",
-            "name": "Workflow Orchestration",
-            "description": "Integrate Apache Airflow to automate data workflows. Improve data availability and responsiveness to business needs."
-          },
-          {
-            "iconHint": "launch",
-            "name": "Advanced Analytics",
-            "description": "Utilize Databricks for real-time data processing. Drive data-driven decision-making with complex analytics capabilities."
-          }
-        ],
-        "imageQuery": "operational efficiency technology",
-        "diagram": "graph LR\n  A[Data Governance] --> B[Data Transformation] --> C[Workflow Orchestration] --> D[Advanced Analytics]"
-      },
-      "image": {
-        "source": "gradient",
-        "query": "operational efficiency technology",
-        "url": null,
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "scope-of-work",
-      "heading": "Scope of Work",
-      "sectionType": "deliverables",
-      "content": {
-        "eyebrow": "Delivering Precise Operational Solutions",
-        "headline": "Key Deliverables for Global NBR's Operational Efficiency",
-        "items": [
-          {
-            "iconHint": "document",
-            "name": "Data Pipeline Specifications",
-            "detail": "Defines the design and functionality of data pipelines."
-          },
-          {
-            "iconHint": "document",
-            "name": "Governance Policies Handbook",
-            "detail": "Outlines compliance guidelines with SOC 2 Type II, GLBA, and CCPA."
-          },
-          {
-            "iconHint": "document",
-            "name": "Working Data Pipelines",
-            "detail": "Develops and tests pipelines to boost operational efficiency."
+            "name": "Future-Ready Architecture Design",
+            "description": "Development of a modernized architecture integrating cloud-native technologies. This will minimize downtime and accommodate evolving business needs."
           },
           {
             "iconHint": "content",
-            "name": "Knowledge Transfer Sessions",
-            "detail": "Equips team members with necessary training on operations and governance."
+            "name": "Data Management and Governance",
+            "description": "Implementation of governance solutions to standardize data definitions. This practice enhances data quality and mitigates metric discrepancies."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Pilot Migration Planning",
+            "description": "Structured roadmap for phased migrations minimizing disruption. Parallel systems will maintain operational effectiveness during transitions."
+          },
+          {
+            "iconHint": "research",
+            "name": "Continuous Monitoring and Optimization",
+            "description": "Establishment of monitoring protocols to ensure performance post-migration. This ensures responsiveness to evolving business challenges."
           }
         ],
-        "imageQuery": "operational efficiency tech"
+        "imageQuery": "DALL-E 3 prompt: a modern office environment illuminated with soft lighting, teams collaborating over data architecture blueprints, professional photography, 4K",
+        "diagram": "graph TB\nA[Frontend] --> B[API Gateway]\nB --> C[Microservices]\nB --> D[Event Stream]\nC --> E[Data Processing]\nD --> F[Data Storage]\nE --> G[Data Analytics]\nE --> H[Monitoring Tools]\nF --> I[Data Governance]\nG --> J[Reporting Interface]",
+        "variant": "card-grid"
+      },
+      "diagramMeta": {
+        "typeId": "system-architecture",
+        "typeLabel": "System Architecture",
+        "category": "architecture",
+        "confidence": "high",
+        "matchedKeywords": [
+          "architecture",
+          "system",
+          "infrastructure",
+          "component",
+          "cloud"
+        ],
+        "score": 30,
+        "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "operational efficiency tech",
-        "url": null,
+        "query": "DALL-E 3 prompt: a modern office environment illuminated with soft lighting, teams collaborating over data architecture blueprints, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-RhwdaZdg41MW5BDZwmVf75sP.png?st=2026-03-26T05%3A38%3A15Z&se=2026-03-26T07%3A38%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A25%3A38Z&ske=2026-03-27T02%3A25%3A38Z&sks=b&skv=2026-02-06&sig=4FEqr2PnOQSNRSsnywXKm5xP6kznfQMuE9kcOsfPNpE%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "implementation-plan",
-      "heading": "Implementation Plan",
-      "sectionType": "timeline",
+      "id": "deliverables",
+      "heading": "Deliverables",
+      "sectionType": "deliverables",
       "content": {
-        "eyebrow": "Operational Efficiency Implementation Timeline",
-        "headline": "Strategic Phased Approach to Enhance Operations",
-        "subheadline": "This timeline outlines critical phases for advancing Global NBR's operational framework.",
-        "phases": [
+        "eyebrow": "Key Deliverables Overview",
+        "headline": "Strategic Outputs for Acme Corporation's Transformation",
+        "items": [
           {
-            "label": "Current Assessment and Design",
-            "duration": "12 weeks",
-            "name": "Phase 1",
-            "description": "Evaluate existing operations and finalize ML architecture."
+            "iconHint": "strategy",
+            "name": "Initial Assessment Report",
+            "detail": "A comprehensive analysis detailing the current state of the data infrastructure."
           },
           {
-            "label": "Development and Integration",
-            "duration": "24 weeks",
-            "name": "Phase 2",
-            "description": "Develop algorithms and integrate data governance models."
+            "iconHint": "document",
+            "name": "Documentation Audit",
+            "detail": "Inventory of existing SSIS packages, highlighting documentation gaps."
           },
           {
-            "label": "Operational Readiness",
-            "duration": "12 weeks",
-            "name": "Phase 3",
-            "description": "Ensure all systems are integrated and staff are trained."
+            "iconHint": "strategy",
+            "name": "Architecture Diagram",
+            "detail": "Visual representation of the proposed modern data architecture."
           },
           {
-            "label": "Optimization and Monitoring",
-            "duration": "12 weeks",
-            "name": "Phase 4",
-            "description": "Assess performance and develop long-term improvement strategies."
+            "iconHint": "strategy",
+            "name": "Gap Analysis Report",
+            "detail": "Comparison between existing and proposed architectures identifying critical gaps."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Migration Roadmap",
+            "detail": "Structured plan for transitioning to the new data architecture."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Prototyped Data Ingestion Layer",
+            "detail": "Implementation of initial data ingestion layer using Apache Kafka."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Lakehouse Solution Setup",
+            "detail": "Deployment of a centralized cloud-native lakehouse."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Microservices Deployment",
+            "detail": "Implementation of essential microservices for enhanced scalability."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Governance Framework Implementation",
+            "detail": "Introduction of governance framework to ensure compliance and data quality."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Monitoring and Security Setup",
+            "detail": "Configuration of tools for ongoing performance monitoring and security."
+          },
+          {
+            "iconHint": "document",
+            "name": "Testing & Quality Assurance Report",
+            "detail": "Summary of testing process and verification against performance metrics."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Final Project Review & Handover",
+            "detail": "Collaborative session to present final architecture and lessons learned."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Post-Implementation Support Plan",
+            "detail": "Outline of support and maintenance strategies following deployment."
           }
         ],
-        "imageQuery": "timeline",
-        "diagram": "gantt\n  title Project Schedule\n  dateFormat YYYY-MM-DD\n  section Phase 1\n  Current Assessment :a1, 2024-01-01, 12w\n  section Phase 2\n  Development :a2, after a1, 24w\n  section Phase 3\n  Operational Readiness :a3, after a2, 12w\n  section Phase 4\n  Optimization :a4, after a3, 12w"
+        "imageQuery": "Cinematic photorealistic scene of a modern architecture meeting room filled with data visualizations and project plans, soft directional lighting, focused atmosphere, professional photography, 4K",
+        "diagram": "graph TB\nA[Frontend] --> B[Microservices]\nB --> C[Lakehouse]\nA --> D[Data Ingestion Layer]\nC --> E[Governance Framework]\nD --> F[Monitoring Tools]\nE --> G[Documentation Audit]\nF --> H[Testing & QA]\nG --> I[Initial Assessment]\nH --> J[Final Review]",
+        "variant": "split"
+      },
+      "diagramMeta": {
+        "typeId": "system-architecture",
+        "typeLabel": "System Architecture",
+        "category": "architecture",
+        "confidence": "high",
+        "matchedKeywords": [
+          "architecture",
+          "system",
+          "infrastructure",
+          "layer",
+          "cloud"
+        ],
+        "score": 22,
+        "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "timeline",
-        "url": null,
+        "query": "Cinematic photorealistic scene of a modern architecture meeting room filled with data visualizations and project plans, soft directional lighting, focused atmosphere, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zWMrovw9kBexphWMtD7amNb0.png?st=2026-03-26T05%3A38%3A14Z&se=2026-03-26T07%3A38%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A22%3A53Z&ske=2026-03-27T03%3A22%3A53Z&sks=b&skv=2026-02-06&sig=kV2pnOWYwUIk6CQtFcOetjbtvxU%2BhGcfYK/5zUrjuEE%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -216,100 +302,132 @@
       "heading": "Timeline",
       "sectionType": "timeline",
       "content": {
-        "eyebrow": "Project Timeline Overview",
-        "headline": "A 12-Month Path to Operational Efficiency",
-        "subheadline": "This timeline outlines key phases for optimizing Global NBR’s processes. Expect strategic milestones and a clear focus on achieving operational goals.",
+        "eyebrow": "Project Transformation Timeline",
+        "headline": "Comprehensive Migration to Modern Data Architecture",
+        "subheadline": "A detailed timeline guiding the transition over 32 weeks.",
         "phases": [
           {
-            "label": "Phase 1: Assessment and Design",
-            "duration": "3 months",
-            "name": "Assessment & Design",
-            "description": "Conduct a thorough system assessment and design operational architecture."
+            "label": "Project Initiation and Discovery",
+            "duration": "4 weeks",
+            "name": "Discovery Phase",
+            "description": "Conduct kickoff meetings and assessments to align goals and identify risks."
           },
           {
-            "label": "Phase 2: Development and Implementation",
-            "duration": "6 months",
-            "name": "Development & Implementation",
-            "description": "Implement solutions while focusing on process optimization and technology integration."
+            "label": "Critical Dataset Identification and Requirement Gathering",
+            "duration": "3 weeks",
+            "name": "Data Requirement Analysis",
+            "description": "Engage stakeholders to identify critical datasets that optimize operations."
           },
           {
-            "label": "Phase 3: Training and Knowledge Transfer",
-            "duration": "1 month",
-            "name": "Training",
-            "description": "Facilitate training sessions to document processes and ensure effective knowledge transfer."
+            "label": "Architectural Design and Approval",
+            "duration": "4 weeks",
+            "name": "Architecture Approval",
+            "description": "Draft and finalize architectural changes through stakeholder feedback."
           },
           {
-            "label": "Phase 4: Optimization and Monitoring",
-            "duration": "3 months",
-            "name": "Optimization",
-            "description": "Monitor performance and optimize processes based on defined metrics."
+            "label": "Migration Planning and Roadmap Development",
+            "duration": "3 weeks",
+            "name": "Migration Roadmap",
+            "description": "Develop a structured transition plan with resource allocation details."
+          },
+          {
+            "label": "Implementation and Development",
+            "duration": "8 weeks",
+            "name": "System Development",
+            "description": "Set up environments and develop data ingestion layers for real-time integration."
+          },
+          {
+            "label": "Testing and Quality Assurance",
+            "duration": "4 weeks",
+            "name": "Quality Assurance",
+            "description": "Conduct system testing and user acceptance testing to ensure functionality."
+          },
+          {
+            "label": "Deployment and Go Live",
+            "duration": "2 weeks",
+            "name": "Final Migration",
+            "description": "Execute final data migration and transition operations to the new system."
+          },
+          {
+            "label": "Post-Implementation Support and Optimization",
+            "duration": "4 weeks",
+            "name": "Ongoing Support",
+            "description": "Monitor performance and collect feedback for continuous improvement."
           }
         ],
-        "imageQuery": "project timeline",
-        "diagram": "gantt\n  title Project Schedule\n  dateFormat YYYY-MM-DD\n  section Phase 1\n  Assessment & Design :a1, 2024-01-01, 90d\n  section Phase 2\n  Development & Implementation :a2, after a1, 180d\n  section Phase 3\n  Training :a3, after a2, 30d\n  section Phase 4\n  Optimization :a4, after a3, 90d"
+        "imageQuery": "Cinematic photorealistic scene of a high-tech office filled with screens displaying data visualizations, bright and functional lighting, depicting a team collaborating over data architecture plans.",
+        "diagram": "gantt\n    A[Project Initiation and Discovery] : 4 weeks\n    B[Critical Dataset Identification] : 3 weeks\n    C[Architectural Design and Approval] : 4 weeks\n    D[Migration Planning] : 3 weeks\n    E[Implementation and Development] : 8 weeks\n    F[Testing and Quality Assurance] : 4 weeks\n    G[Deployment and Go Live] : 2 weeks\n    H[Post-Implementation Support] : 4 weeks",
+        "variant": "split"
       },
-      "image": {
-        "source": "gradient",
-        "query": "project timeline",
-        "url": null,
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "pricing-commercials",
-      "heading": "Pricing & Commercials",
-      "sectionType": "pricing",
-      "content": {
-        "eyebrow": "Transparent Investment Structure",
-        "headline": "Unlock Operational Efficiency with Strategic Investment",
-        "subheadline": "Maximize outcomes while minimizing complexity",
-        "rows": [
-          [
-            "Item",
-            "Investment"
-          ],
-          [
-            "Team Size",
-            "$2,800/week"
-          ],
-          [
-            "Duration",
-            "5 weeks"
-          ],
-          [
-            "Total Estimated Cost",
-            "$14,000"
-          ]
+      "diagramMeta": {
+        "typeId": "gantt-chart",
+        "typeLabel": "Project Gantt",
+        "category": "timeline",
+        "confidence": "high",
+        "matchedKeywords": [
+          "timeline",
+          "phase",
+          "roadmap",
+          "plan",
+          "kickoff",
+          "deploy"
         ],
-        "totalLabel": "Total Investment",
-        "footnote": "Payment is due within 30 days of invoicing.",
-        "cta": "Request Detailed Proposal",
-        "imageQuery": "business efficiency technology"
+        "score": 30,
+        "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "business efficiency technology",
-        "url": null,
+        "query": "Cinematic photorealistic scene of a high-tech office filled with screens displaying data visualizations, bright and functional lighting, depicting a team collaborating over data architecture plans.",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-7SS84rpNkGXH9vfjOrebc5Ru.png?st=2026-03-26T05%3A38%3A16Z&se=2026-03-26T07%3A38%3A16Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A11%3A05Z&ske=2026-03-27T02%3A11%3A05Z&sks=b&skv=2026-02-06&sig=DwtttwOkXpRPMv96OXKs03pbZIA4GREbhLsBliSdcKU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "risk-compliance-considerations",
-      "heading": "Risk & Compliance Considerations",
-      "sectionType": "generic",
+      "id": "security",
+      "heading": "security",
+      "sectionType": "security",
       "content": {
-        "eyebrow": "Mitigating Risks and Ensuring Compliance",
-        "headline": "Navigating Risk and Compliance Challenges in Tech",
-        "body": "Operational integrity hinges on robust risk management and compliance. Key risks include regulatory non-compliance, data quality issues, and cybersecurity threats. Effective strategies address these challenges while fostering trust and accountability with stakeholders.",
-        "imageQuery": "risk management technology"
+        "eyebrow": "Designed for Maximum Security",
+        "headline": "Robust Governance Framework Ensures Data Integrity and Safety",
+        "items": [
+          {
+            "iconHint": "identity",
+            "name": "Identity Access Management",
+            "description": "Controls user access to sensitive data, ensuring only authorized personnel can view or manipulate information."
+          },
+          {
+            "iconHint": "digital",
+            "name": "Data Encryption Protocols",
+            "description": "Encrypts data at rest and in transit, protecting sensitive information from unauthorized access and breaches."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Regular Security Audits",
+            "description": "Conducts routine assessments of the data infrastructure to identify vulnerabilities and ensure compliance with governance standards."
+          },
+          {
+            "iconHint": "research",
+            "name": "Incident Response Plan",
+            "description": "Establishes a framework for responding to data breaches, enabling quick recovery and minimal disruption."
+          }
+        ],
+        "diagram": "graph TB\nA[Identity Access Management] --> B[Data Encryption Protocols]\nA --> C[Regular Security Audits]\nA --> D[Incident Response Plan]\nB --> E[Protected Data]\nC --> F[Compliance Standards]\nD --> G[Risk Mitigation]\nE --> H[Operational Efficiency]\nF --> H",
+        "variant": "asymmetric"
+      },
+      "diagramMeta": {
+        "typeId": "network-topology",
+        "typeLabel": "Network Topology",
+        "category": "architecture",
+        "confidence": "medium",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "risk management technology",
+        "query": "",
         "url": null,
         "fallback": "gradient-mesh"
       },
@@ -317,21 +435,363 @@
       "version": 1
     },
     {
-      "id": "next-steps",
-      "heading": "Next Steps",
+      "id": "techstack",
+      "heading": "techstack",
+      "sectionType": "techstack",
+      "content": {
+        "eyebrow": "Built on Cloud-Native Technologies",
+        "headline": "Modernizing Data Architecture for Enhanced Efficiency",
+        "categories": [
+          {
+            "iconHint": "digital",
+            "name": "Frontend",
+            "items": [
+              "React",
+              "Angular",
+              "Vue.js"
+            ]
+          },
+          {
+            "iconHint": "digital",
+            "name": "Backend",
+            "items": [
+              "Node.js",
+              "Django",
+              "Express"
+            ]
+          },
+          {
+            "iconHint": "document",
+            "name": "Database",
+            "items": [
+              "PostgreSQL",
+              "MongoDB",
+              "Amazon DynamoDB"
+            ]
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Cloud Services",
+            "items": [
+              "AWS",
+              "Azure",
+              "Google Cloud"
+            ]
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Data Governance",
+            "items": [
+              "Apache Atlas",
+              "IBM InfoSphere",
+              "Collibra"
+            ]
+          }
+        ],
+        "diagram": "graph LR\\nA[Frontend]\\nB[Backend]\\nC[Database]\\nD[Cloud Services]\\nE[Data Governance]\\nA --> B\\nB --> C\\nC --> D\\nD --> E",
+        "variant": "editorial"
+      },
+      "diagramMeta": {
+        "typeId": "data-flow",
+        "typeLabel": "Data Flow",
+        "category": "flow",
+        "confidence": "medium",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "testing",
+      "heading": "testing",
+      "sectionType": "testing",
+      "content": {
+        "eyebrow": "Quality Built In",
+        "headline": "Comprehensive Testing Framework for Reliable Data Migration",
+        "layers": [
+          {
+            "level": 1,
+            "name": "Unit Tests",
+            "coverage": "90%",
+            "description": "Validates individual components of the data architecture for expected functionality."
+          },
+          {
+            "level": 2,
+            "name": "Integration Tests",
+            "coverage": "85%",
+            "description": "Ensures that different components of the architecture work together as intended."
+          },
+          {
+            "level": 3,
+            "name": "End-to-End Tests",
+            "coverage": "80%",
+            "description": "Simulates real user scenarios to ensure the entire system functions cohesively."
+          },
+          {
+            "level": 4,
+            "name": "Performance Tests",
+            "coverage": "75%",
+            "description": "Assesses the system's speed and responsiveness under various load conditions."
+          }
+        ],
+        "additionalInfo": [
+          {
+            "heading": "Continuous Monitoring",
+            "body": "We implement ongoing monitoring to ensure continued system integrity and performance."
+          },
+          {
+            "heading": "Reporting Accuracy",
+            "body": "Testing processes aim to double reporting accuracy and eliminate data variances."
+          }
+        ],
+        "diagram": "graph LR\n  A[Unit Tests] --> B[Integration Tests]\n  B --> C[End-to-End Tests]\n  C --> D[Performance Tests]",
+        "variant": "minimal"
+      },
+      "diagramMeta": null,
+      "image": {
+        "source": "gradient",
+        "query": "",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
+      "content": {
+        "eyebrow": "What You Gain",
+        "headline": "Key Benefits of Modernizing Your Data Infrastructure",
+        "items": [
+          {
+            "iconHint": "strategy",
+            "title": "Operational Efficiency",
+            "description": "Reduce operational risks by 86% and enhance productivity across teams."
+          },
+          {
+            "iconHint": "research",
+            "title": "Accelerated Delivery",
+            "description": "Achieve a 3x faster delivery of data-driven insights for informed decision-making."
+          },
+          {
+            "iconHint": "document",
+            "title": "Improved Reporting Accuracy",
+            "description": "Double the accuracy of reporting with standardized data definitions and centralized governance."
+          },
+          {
+            "iconHint": "identity",
+            "title": "Enhanced Data Governance",
+            "description": "Implement robust data governance frameworks to ensure compliance and data integrity."
+          },
+          {
+            "iconHint": "launch",
+            "title": "Flexibility and Scalability",
+            "description": "Adopt a modern architecture designed for agility and scalability in response to evolving needs."
+          },
+          {
+            "iconHint": "content",
+            "title": "Documentation Improvement",
+            "description": "Establish comprehensive documentation that mitigates knowledge gaps and supports onboarding."
+          }
+        ],
+        "diagram": "journey\\nA[Assess and Analyze Current Infrastructure]\\nB[Design a Future-Ready Data Architecture]\\nC[Establish Data Management and Governance Practices]\\nD[Pilot Migration Strategy]\\nE[Ensure Continuous Monitoring and Performance Optimization]\\nF[Deploy New Data Architecture]\\nG[Achieve Data-Driven Decision Making]"
+      },
+      "diagramMeta": {
+        "typeId": "user-journey",
+        "typeLabel": "User Journey",
+        "category": "specialized",
+        "confidence": "medium",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "stats",
+      "heading": "stats",
+      "sectionType": "stats",
+      "content": {
+        "eyebrow": "By The Numbers",
+        "headline": "Key Metrics from the Data Transformation Initiative",
+        "stats": [
+          {
+            "number": "86%",
+            "label": "Operational Risk Reduction",
+            "context": "This highlights the significant decrease in operational risks through improved governance."
+          },
+          {
+            "number": "3×",
+            "label": "Accelerated Delivery Speed",
+            "context": "This indicates the expected increase in project delivery efficiency."
+          },
+          {
+            "number": "98%",
+            "label": "Client Satisfaction Rate",
+            "context": "Reflects the high approval rate from clients on similar past projects."
+          },
+          {
+            "number": "2×",
+            "label": "Accuracy of Reporting",
+            "context": "This signifies the expected improvement in reporting precision post-implementation."
+          },
+          {
+            "number": "8%",
+            "label": "Variance Elimination",
+            "context": "This denotes the target reduction in discrepancies in active loan counts."
+          }
+        ],
+        "diagram": "pie\nOperational Risk Reduction: 38\nAccelerated Delivery Speed: 25\nClient Satisfaction Rate: 18\nAccuracy of Reporting: 11\nVariance Elimination: 8",
+        "variant": "centered"
+      },
+      "diagramMeta": {
+        "typeId": "pie-chart",
+        "typeLabel": "Distribution Chart",
+        "category": "metric",
+        "confidence": "medium",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "",
+        "url": null,
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "nextsteps",
+      "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "Critical steps for project initiation",
-        "headline": "Next Steps for Global NBR Partnership",
-        "body": "Confirm key milestones and responsibilities to ensure alignment. Focus on securing access to necessary data and finalizing proposals. Timely execution of these actions is crucial for maintaining momentum.",
-        "ctaPrimary": "Review Action Items",
-        "ctaSecondary": "Confirm Participation",
+        "eyebrow": "Implementing the Plan",
+        "headline": "Next Steps for Acme Corporation's Data Transformation",
+        "body": "To initiate the transformation of Acme Corporation's data infrastructure, key action items include conducting a comprehensive data assessment and engaging stakeholders in a kickoff meeting. These steps will lay the groundwork for effective architecture design and migration planning.",
+        "ctaPrimary": "Schedule Kickoff Meeting",
+        "ctaSecondary": "Begin Data Assessment",
         "urgencyNote": null,
-        "imageQuery": "business planning"
+        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene of a business meeting in a modern, well-lit conference room, diverse professionals collaborating over architectural plans and data charts, professional photography, 4K",
+        "diagram": "graph TD\\nA[Kickoff Meeting] --> B[Data Assessment]\\nB --> C[Architecture Design Workshop]\\nC --> D[Migrations Planning]\\nD --> E[Pilot Implementation]\\nE --> F[Governance Framework]\\nF --> G[Full-Scale Implementation]",
+        "variant": "split"
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "medium",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
       },
       "image": {
         "source": "gradient",
-        "query": "business planning",
+        "query": "DALL-E 3 prompt: cinematic photorealistic scene of a business meeting in a modern, well-lit conference room, diverse professionals collaborating over architectural plans and data charts, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-gQxew82GisDjmFNOAxQ70zDP.png?st=2026-03-26T05%3A38%3A17Z&se=2026-03-26T07%3A38%3A17Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T20%3A20%3A32Z&ske=2026-03-26T20%3A20%3A32Z&sks=b&skv=2026-02-06&sig=3BLbhPpy3cJDUF7oSRiSPTtlcGrIQiEtFVNHvrXn8/Y%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "whyus",
+      "heading": "whyus",
+      "sectionType": "whyus",
+      "content": {
+        "eyebrow": "Why Choose Acme",
+        "headline": "Proven Expertise in Transforming Data Architectures",
+        "body": "Acme excels in delivering strategic data solutions that modernize infrastructure and enhance operational efficiency. Our focus on data-driven decision-making is backed by a track record of success, ensuring measurable improvements for our clients.",
+        "stats": [
+          {
+            "number": "98%",
+            "label": "Client satisfaction rate",
+            "context": "Reflects our commitment to excellence."
+          },
+          {
+            "number": "3x",
+            "label": "Acceleration in delivery",
+            "context": "Demonstrates our efficiency in execution."
+          },
+          {
+            "number": "86%",
+            "label": "Reduction in operational risks",
+            "context": "Highlights our emphasis on governance."
+          }
+        ],
+        "imageQuery": "DALL-E 3 prompt: Cinematic photorealistic scene of a diverse team in a modern office, collaborating around a digital whiteboard with complex data flows and architecture diagrams; soft natural lighting, focused expressions, professional photography, 4K",
+        "diagram": "graph TD\\n  A[Frontend] --> B[Backend]\\n  B --> C[Database]\\n  A --> D[API Layer]\\n  D --> E[Data Processing]\\n  E --> F[Analytics]\\n  F --> G[Reporting]\\n  G --> H[Governance]",
+        "variant": "asymmetric"
+      },
+      "diagramMeta": {
+        "typeId": "org-chart",
+        "typeLabel": "Team Structure",
+        "category": "relationship",
+        "confidence": "medium",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "DALL-E 3 prompt: Cinematic photorealistic scene of a diverse team in a modern office, collaborating around a digital whiteboard with complex data flows and architecture diagrams; soft natural lighting, focused expressions, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-bZqqJnkhDQZTBWTgVp77JZro.png?st=2026-03-26T05%3A38%3A16Z&se=2026-03-26T07%3A38%3A16Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A29%3A15Z&ske=2026-03-27T02%3A29%3A15Z&sks=b&skv=2026-02-06&sig=N6%2BtwFFyzIacuyzx7BKPU2BEQAFBX3mafXBVnYEVkMs%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "testimonials",
+      "heading": "testimonials",
+      "sectionType": "testimonials",
+      "content": {
+        "eyebrow": "Client Voices",
+        "headline": "Hear from Our Partners in Transformation",
+        "items": [
+          {
+            "quote": "The transition to a modernized data architecture reduced our operational risks by 86% and increased the accuracy of our reporting. The partnership with acme was instrumental in achieving these results.",
+            "name": "Jessica Tran",
+            "title": "Chief Information Officer",
+            "company": "Innovate Tech Solutions"
+          },
+          {
+            "quote": "Thanks to acme's rigorous approach, we now have a centralized data ecosystem that streamlines our decision-making. Our delivery speed has tripled, allowing us to respond much faster to market changes.",
+            "name": "Liam O’Connor",
+            "title": "Data Services Director",
+            "company": "NextGen Financials"
+          },
+          {
+            "quote": "The engagement was thorough and data-driven. The clear roadmap and effective execution eradicated the pains we faced with our legacy systems.",
+            "name": "Sophie Patel",
+            "title": "Operations Manager",
+            "company": "ClearPath Analytics"
+          }
+        ],
+        "variant": "card-grid"
+      },
+      "diagramMeta": null,
+      "image": {
+        "source": "gradient",
+        "query": "",
         "url": null,
         "fallback": "gradient-mesh"
       },

@@ -11,7 +11,7 @@ export type SectionType =
   | 'hero' | 'challenge' | 'approach' | 'deliverables' | 'timeline'
   | 'pricing' | 'whyus' | 'nextsteps' | 'testimonials' | 'showcase'
   | 'benefits' | 'problem' | 'stats' | 'metrics' | 'security'
-  | 'techstack' | 'testing' | 'generic';
+  | 'techstack' | 'testing' | 'faq' | 'team' | 'comparison' | 'casestudy' | 'chart' | 'generic';
 
 export type DiagramTypeId =
   | 'process-flow' | 'decision-tree' | 'data-flow'

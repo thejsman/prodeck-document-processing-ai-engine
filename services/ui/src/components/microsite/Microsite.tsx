@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
@@ -23,6 +23,11 @@ import { MetricsSection } from './sections/MetricsSection';
 import { SecuritySection } from './sections/SecuritySection';
 import { TechStackSection } from './sections/TechStackSection';
 import { TestingSection } from './sections/TestingSection';
+import { FaqSection } from './sections/FaqSection';
+import { TeamSection } from './sections/TeamSection';
+import { ComparisonSection } from './sections/ComparisonSection';
+import { CaseStudySection } from './sections/CaseStudySection';
+import { ChartSection } from './sections/ChartSection';
 
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
@@ -50,6 +55,11 @@ import type {
   SecurityContent,
   TechStackContent,
   TestingContent,
+  FaqContent,
+  TeamContent,
+  ComparisonContent,
+  CaseStudyContent,
+  ChartContent,
 } from '../../types/presentation';
 
 /** Unique stable DOM id for the fullscreen scroll container */
@@ -63,6 +73,8 @@ interface Props {
   onEdit?: () => void;
   /** When true, hides the bottom action bar — sections are still streaming in */
   generating?: boolean;
+  /** Expected total number of sections (from plan event) — used to show skeleton placeholders */
+  streamingTotal?: number;
   /** 'fullscreen' (default) renders as a fixed full-viewport overlay; 'embedded' renders inline for the editor canvas. */
   mode?: 'fullscreen' | 'embedded';
 }
@@ -109,88 +121,28 @@ function AnimatedSection({
 
   const animStyle: React.CSSProperties = effect === 'none'
     ? {}
-    : {
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'none' : 'translateY(32px)',
-        transition: visible
-          ? `opacity 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s`
-          : 'none',
-      };
-
-  const contentRef = useRef<HTMLDivElement>(null);
-  const textNodesRef = useRef<{ node: Text; original: string }[]>([]);
-
-  // Headings appear immediately (preserve structure); only body text gets typed
-  const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'svg', 'h1', 'h2', 'h3', 'h4', 'h5', 'button', 'a']);
-
-  // Before first paint: walk body text nodes and empty them so there's no flash
-  useLayoutEffect(() => {
-    if (!streamingNew) return;
-    const container = contentRef.current;
-    if (!container) return;
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => {
-        let el = node.parentElement;
-        while (el && el !== container) {
-          if (SKIP_TAGS.has(el.tagName.toLowerCase())) return NodeFilter.FILTER_REJECT;
-          el = el.parentElement;
+    : streamingNew
+      ? {
+          // Gamma-style: fast fade + subtle rise, no delay
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'none' : 'translateY(20px) scale(0.995)',
+          transition: visible
+            ? 'opacity 0.45s cubic-bezier(0.22,1,0.36,1), transform 0.45s cubic-bezier(0.22,1,0.36,1)'
+            : 'none',
         }
-        return (node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT) as number;
-      },
-    });
-    const collected: { node: Text; original: string }[] = [];
-    let n: Node | null;
-    while ((n = walker.nextNode())) {
-      const t = n as Text;
-      collected.push({ node: t, original: t.textContent ?? '' });
-      t.textContent = '';
-    }
-    textNodesRef.current = collected;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      : {
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'none' : 'translateY(32px)',
+          transition: visible
+            ? `opacity 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s`
+            : 'none',
+        };
 
-  // After slide-in completes, type body text nodes one character at a time
-  useEffect(() => {
-    if (!streamingNew) return;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    let stopped = false;
-
-    const startTyping = () => {
-      const items = textNodesRef.current;
-      let ni = 0;
-      let ci = 0;
-
-      const tick = () => {
-        if (stopped || ni >= items.length) return;
-        const { node, original } = items[ni];
-        if (ci < original.length) {
-          node.textContent = original.slice(0, ci + 1);
-          ci++;
-          // Space = 6ms (fast separator), normal char = 22ms ≈ natural typing
-          timers.push(setTimeout(tick, original[ci - 1] === ' ' ? 6 : 22));
-        } else {
-          ni++;
-          ci = 0;
-          if (ni < items.length) timers.push(setTimeout(tick, 30));
-        }
-      };
-      tick();
-    };
-
-    // Start after slide-in animation finishes (~620ms)
-    timers.push(setTimeout(startTyping, 620));
-
-    return () => {
-      stopped = true;
-      timers.forEach(clearTimeout);
-      textNodesRef.current.forEach(({ node, original }) => { node.textContent = original; });
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // No typewriter effect — content reveals with the slide-in animation (Gamma style)
 
   return (
     <div ref={ref} id={id} data-section-id={id} style={animStyle}>
-      <div ref={contentRef}>
-        {children}
-      </div>
+      {children}
     </div>
   );
 }
@@ -275,11 +227,155 @@ function renderSection(
     case 'testing':
       inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
       break;
+    case 'faq':
+      inner = <FaqSection content={section.content as FaqContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'team':
+      inner = <TeamSection content={section.content as TeamContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'comparison':
+      inner = <ComparisonSection content={section.content as ComparisonContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'casestudy':
+      inner = <CaseStudySection content={section.content as CaseStudyContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'chart':
+      inner = <ChartSection content={section.content as ChartContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
     default:
       inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
   }
 
   return inner;
+}
+
+// ── Skeleton placeholder shown for in-flight sections during streaming ────────
+
+function SectionSkeleton({ tokens, sectionNumber, isActive }: { tokens: PluginTokens; sectionNumber: number; isActive?: boolean }) {
+  const isHero = sectionNumber === 1;
+  const isStats = sectionNumber % 4 === 0;
+  const isGrid = sectionNumber % 3 === 0 && !isStats;
+
+  return (
+    <div style={{
+      minHeight: isHero ? '92vh' : '58vh',
+      background: isHero ? tokens.surface : tokens.bg,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: isStats ? 32 : 20,
+      padding: isHero ? '120px 48px' : '72px 48px',
+      position: 'relative',
+      overflow: 'hidden',
+      borderTop: `1px solid ${tokens.border}`,
+      transition: 'box-shadow 0.4s ease',
+      boxShadow: isActive ? `inset 0 0 0 2px ${tokens.accent}40, 0 0 40px ${tokens.accent}18` : 'none',
+    }}>
+      <style>{`
+        @keyframes ms-sk-shimmer{0%{background-position:-800px 0}100%{background-position:800px 0}}
+        @keyframes ms-sk-pulse{0%,100%{opacity:0.5}50%{opacity:1}}
+        .ms-sk{background:linear-gradient(90deg,${tokens.surface}55 25%,${tokens.surfaceAlt ?? tokens.surface}bb 50%,${tokens.surface}55 75%);background-size:800px 100%;animation:ms-sk-shimmer 1.8s infinite linear;border-radius:6px}
+        .ms-sk-dot{width:6px;height:6px;border-radius:50%;background:${tokens.accent};animation:ms-sk-pulse 1.2s ease-in-out infinite}
+        .ms-sk-dot:nth-child(2){animation-delay:0.2s}
+        .ms-sk-dot:nth-child(3){animation-delay:0.4s}
+      `}</style>
+
+      {/* Hero skeleton */}
+      {isHero && <>
+        <div className="ms-sk" style={{ width: 110, height: 12, marginBottom: 8 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 700, alignItems: 'center' }}>
+          <div className="ms-sk" style={{ width: '78%', height: 52 }} />
+          <div className="ms-sk" style={{ width: '55%', height: 52 }} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 560, alignItems: 'center', marginTop: 8 }}>
+          <div className="ms-sk" style={{ width: '90%', height: 14 }} />
+          <div className="ms-sk" style={{ width: '75%', height: 14 }} />
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <div className="ms-sk" style={{ width: 148, height: 46, borderRadius: 23 }} />
+          <div className="ms-sk" style={{ width: 120, height: 46, borderRadius: 23, opacity: 0.6 }} />
+        </div>
+      </>}
+
+      {/* Stats skeleton */}
+      {isStats && !isHero && <>
+        <div className="ms-sk" style={{ width: 90, height: 12 }} />
+        <div className="ms-sk" style={{ width: '50%', height: 36 }} />
+        <div style={{ display: 'flex', gap: 32, marginTop: 16, justifyContent: 'center' }}>
+          {[1,2,3].map(n => (
+            <div key={n} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <div className="ms-sk" style={{ width: 80, height: 52, borderRadius: 8 }} />
+              <div className="ms-sk" style={{ width: 64, height: 12 }} />
+            </div>
+          ))}
+        </div>
+      </>}
+
+      {/* Grid skeleton */}
+      {isGrid && !isHero && <>
+        <div className="ms-sk" style={{ width: 90, height: 12 }} />
+        <div className="ms-sk" style={{ width: '52%', height: 34 }} />
+        <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 860 }}>
+          {[1,2,3,4].map(n => (
+            <div key={n} style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 180 }}>
+              <div className="ms-sk" style={{ width: 36, height: 36, borderRadius: 8 }} />
+              <div className="ms-sk" style={{ width: '80%', height: 14 }} />
+              <div className="ms-sk" style={{ width: '100%', height: 10 }} />
+              <div className="ms-sk" style={{ width: '70%', height: 10 }} />
+            </div>
+          ))}
+        </div>
+      </>}
+
+      {/* Default skeleton */}
+      {!isHero && !isStats && !isGrid && <>
+        <div className="ms-sk" style={{ width: 90, height: 12 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 560, alignItems: 'center' }}>
+          <div className="ms-sk" style={{ width: '62%', height: 36 }} />
+          <div className="ms-sk" style={{ width: '44%', height: 36 }} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 480, alignItems: 'center' }}>
+          <div className="ms-sk" style={{ width: '100%', height: 13 }} />
+          <div className="ms-sk" style={{ width: '85%', height: 13 }} />
+          <div className="ms-sk" style={{ width: '68%', height: 13 }} />
+        </div>
+      </>}
+
+      {/* Active building indicator */}
+      {isActive && (
+        <div style={{
+          position: 'absolute', bottom: 24,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{ display: 'flex', gap: 5 }}>
+            <div className="ms-sk-dot" />
+            <div className="ms-sk-dot" />
+            <div className="ms-sk-dot" />
+          </div>
+          <span style={{
+            fontFamily: 'sans-serif', fontSize: 11,
+            color: tokens.accent, opacity: 0.7,
+            letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
+          }}>
+            Building section {sectionNumber}
+          </span>
+        </div>
+      )}
+
+      {/* Inactive label */}
+      {!isActive && (
+        <div style={{
+          position: 'absolute', bottom: 20,
+          fontFamily: 'sans-serif', fontSize: 11,
+          color: tokens.textSubtle, opacity: 0.3,
+          letterSpacing: '0.08em', textTransform: 'uppercase',
+        }}>
+          Section {sectionNumber}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Section overlay wrapper (editor-only) ────────────────────────────────────
@@ -415,7 +511,7 @@ function isColorDark(hex: string): boolean {
   } catch { return false; }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = false, mode = 'fullscreen' }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = false, streamingTotal, mode = 'fullscreen' }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -469,23 +565,29 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, generating = fals
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const prevSectionCount = useRef(0);
   const [downloading, setDownloading] = useState(false);
 
-  // Auto-scroll to the latest section as it streams in
+  // Track recently-arrived section IDs for slide-in animation + auto-scroll (Gamma style)
+  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [recentlyArrived, setRecentlyArrived] = useState<Set<string>>(new Set());
   useEffect(() => {
-    if (!generating) { prevSectionCount.current = 0; return; }
-    const count = ast.sections?.length ?? 0;
-    if (count <= prevSectionCount.current) return;
-    prevSectionCount.current = count;
-    const lastSection = ast.sections?.[count - 1];
-    if (!lastSection) return;
-    // Small delay to let the section render before scrolling
+    if (!generating) return;
+    const sections = ast.sections ?? [];
+    const newIds = sections.map(s => s.id).filter(id => !recentlyArrived.has(id));
+    if (!newIds.length) return;
+    setRecentlyArrived(prev => new Set([...prev, ...newIds]));
+    // Auto-scroll to the latest arrived section (Gamma feel)
+    const latestId = newIds[newIds.length - 1];
     setTimeout(() => {
-      const el = document.getElementById(lastSection.id);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const el = sectionRefs.current.get(latestId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 80);
-  }, [ast.sections?.length, generating]);
+    newIds.forEach(id => {
+      setTimeout(() => {
+        setRecentlyArrived(prev => { const next = new Set(prev); next.delete(id); return next; });
+      }, 2500);
+    });
+  }, [ast.sections?.length, generating]); // eslint-disable-line react-hooks/exhaustive-deps
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
 useEffect(() => setMounted(true), []);
@@ -747,23 +849,45 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         {/* Insert-before-first button */}
         {editCtx && <AddSectionButton afterIndex={-1} />}
 
-        {(ast.sections ?? []).filter(s => !isSectionEmpty(s)).map((section, i, arr) => (
-          <React.Fragment key={section.id}>
-            <SectionWithOverlay
-              section={section}
-              index={i}
-              total={ast.sections.length}
-              tokens={tokens}
-              brand={ast.brand}
-              allSections={ast.sections}
-              brief={ast.brief}
-              behavior={ast.behavior}
-              streamingNew={generating && i === arr.length - 1}
-            />
-            {/* Insert-after button between sections */}
-            {editCtx && <AddSectionButton afterIndex={i} />}
-          </React.Fragment>
-        ))}
+        {(() => {
+          // ── Gamma-style append rendering ──────────────────────────────────
+          // Sections grow the page downward one by one — no pre-allocated skeleton
+          // slots. A single active skeleton appends below the last real section
+          // while generation is in progress, giving a smooth top-to-bottom reveal.
+          const arrivedSections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
+          const total = streamingTotal || arrivedSections.length;
+
+          return (
+            <>
+              {arrivedSections.map((section, i) => (
+                <React.Fragment key={section.id}>
+                  <div ref={el => { if (el) sectionRefs.current.set(section.id, el); else sectionRefs.current.delete(section.id); }}>
+                    <SectionWithOverlay
+                      section={section}
+                      index={i}
+                      total={total}
+                      tokens={tokens}
+                      brand={ast.brand}
+                      allSections={arrivedSections}
+                      brief={ast.brief}
+                      behavior={ast.behavior}
+                      streamingNew={generating && recentlyArrived.has(section.id)}
+                    />
+                  </div>
+                  {editCtx && <AddSectionButton afterIndex={i} />}
+                </React.Fragment>
+              ))}
+              {/* Single active skeleton at the bottom while generating */}
+              {generating && (
+                <SectionSkeleton
+                  tokens={tokens}
+                  sectionNumber={arrivedSections.length + 1}
+                  isActive={true}
+                />
+              )}
+            </>
+          );
+        })()}
 
         <footer
           style={{
@@ -779,8 +903,10 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         </footer>
       </div>
 
-      {/* Generating indicator — shown while sections are still streaming in */}
-      {!isEmbedded && generating && mounted && createPortal(
+      {/* Planning overlay removed — generate step handles the loading state before first section */}
+
+      {/* Generating indicator — progress counter while sections are streaming in */}
+      {!isEmbedded && generating && mounted && (ast.sections ?? []).filter(s => !isSectionEmpty(s)).length > 0 && createPortal(
         <div style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 99999,
           display: 'flex', alignItems: 'center', gap: 8,
@@ -795,7 +921,9 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
             border: `2px solid ${tokens.border}`, borderTopColor: tokens.accent,
             animation: 'spin 0.8s linear infinite',
           }} />
-          Generating…
+          {streamingTotal
+            ? `Section ${(ast.sections ?? []).filter(s => !isSectionEmpty(s)).length} of ${streamingTotal}`
+            : 'Generating…'}
         </div>,
         document.body,
       )}

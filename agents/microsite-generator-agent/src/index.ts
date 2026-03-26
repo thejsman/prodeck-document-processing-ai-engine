@@ -38,12 +38,17 @@ type SectionType =
   | 'security'
   | 'techstack'
   | 'testing'
+  | 'faq'
+  | 'team'
+  | 'comparison'
+  | 'casestudy'
+  | 'chart'
   | 'generic';
 
 const ALL_SECTION_TYPES = new Set<string>([
   'hero','challenge','approach','deliverables','timeline','pricing',
   'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
-  'metrics','security','techstack','testing','generic',
+  'metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic',
 ]);
 
 /**
@@ -318,7 +323,7 @@ Fill in the constraints object based on what the user said:
 - parallax: true if user said "parallax"/"depth effect"; false otherwise
 - scrollEffects: "slide-up" if "slide in/up"; "fade-in" if "fade in"; "none" otherwise
 
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences.
 
@@ -354,7 +359,7 @@ You are a section plan editor. Reshape the plan below to satisfy the USER COMMAN
 CURRENT PLAN:
 ${JSON.stringify(plan, null, 2)}
 
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 
 RULES:
 - Return ONLY a valid JSON array — same format as CURRENT PLAN
@@ -376,7 +381,7 @@ Parse the following user instruction into a structured command JSON.
 
 CURRENT PLUGIN: "${currentPlugin}"
 VALID PLUGINS: obsidian, ivory, cobalt, sage
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
 
 USER INSTRUCTION:
@@ -497,6 +502,11 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
   security:     ['card-grid',   'split',      'asymmetric'],
   techstack:    ['card-grid',   'split',      'minimal'],
   testing:      ['card-grid',   'minimal',    'editorial'],
+  faq:          ['centered',    'minimal',    'editorial'],
+  team:         ['card-grid',   'centered',   'minimal'],
+  comparison:   ['centered',    'minimal',    'editorial'],
+  casestudy:    ['split',       'editorial',  'asymmetric'],
+  chart:        ['centered',    'editorial',  'minimal'],
   generic:      ['centered',    'split',      'minimal'],
 };
 
@@ -530,6 +540,11 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   security:     'editorial',
   techstack:    'editorial',
   testing:      'editorial',
+  faq:          'editorial',
+  team:         'card-grid',
+  comparison:   'editorial',
+  casestudy:    'editorial',
+  chart:        'editorial',
   generic:      'editorial',
 };
 
@@ -553,6 +568,11 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
   security:     'minimal',
   techstack:    'minimal',
   testing:      'minimal',
+  faq:          'minimal',
+  team:         'minimal',
+  comparison:   'minimal',
+  casestudy:    'minimal',
+  chart:        'minimal',
   generic:      'minimal',
 };
 
@@ -578,6 +598,11 @@ const BOLD_VARIANTS: Record<SectionType, string> = {
   security:     'asymmetric',
   techstack:    'card-grid',
   testing:      'card-grid',
+  faq:          'centered',
+  team:         'card-grid',
+  comparison:   'centered',
+  casestudy:    'split',
+  chart:        'centered',
   generic:      'split',
 };
 
@@ -1024,9 +1049,10 @@ export function buildSectionPrompt(
   const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
-  const fallbackContext = proposalMarkdown
-    ? `\n\nFull proposal for additional context:\n${proposalMarkdown.slice(0, 3000)}`
-    : '';
+  // When effectiveBody is empty, pass the full proposal — no truncation, no data loss
+  const fallbackContext = (!effectiveBody && proposalMarkdown)
+    ? `\n\nFull proposal (use ALL relevant data from this to populate the section):\n${proposalMarkdown}`
+    : (proposalMarkdown ? `\n\nFull proposal for additional context:\n${proposalMarkdown.slice(0, 4000)}` : '');
 
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
@@ -1347,6 +1373,111 @@ Transform into a Testing & Quality section. Return:
     }
   ],
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.'}",
+  ${meta}
+}`,
+
+    faq: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a FAQ section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Common Questions'",
+  "headline": "8-12 words",
+  "subheadline": "1-2 sentences or null",
+  "items": [
+    {
+      "question": "A realistic question a prospect would ask, 8-16 words",
+      "answer": "2-3 sentences, specific and reassuring — address the real concern behind the question"
+    }
+  ],
+  ${meta}
+}`,
+
+    team: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Team section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Meet the Team'",
+  "headline": "8-12 words",
+  "subheadline": "1-2 sentences or null",
+  "members": [
+    {
+      "name": "First Last",
+      "role": "2-4 words, job title",
+      "bio": "2-3 sentences, expertise and relevance to this engagement",
+      "iconHint": "identity|strategy|research|digital|content|launch"
+    }
+  ],
+  ${meta}
+}`,
+
+    comparison: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Comparison section showing our advantage vs alternatives. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Why Choose Us'",
+  "headline": "8-12 words",
+  "subheadline": "1-2 sentences or null",
+  "usLabel": "2-4 words, our name/label",
+  "themLabel": "2-4 words, competitor label e.g. 'Others' or 'Traditional Agencies'",
+  "rows": [
+    {
+      "feature": "3-6 words, the capability or attribute being compared",
+      "us": "Short value or '✓' for yes",
+      "them": "'✗' for no, or a short weaker value"
+    }
+  ],
+  ${meta}
+}`,
+
+    casestudy: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Case Study section with a challenge-solution-outcome narrative plus metrics. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Case Study'",
+  "headline": "8-14 words, the transformation story headline",
+  "challenge": "2-3 sentences describing the client's core problem and its consequences",
+  "solution": "2-3 sentences describing the approach and what made it different",
+  "outcome": "2-3 sentences describing measurable results and lasting impact",
+  "metrics": [
+    {
+      "value": "specific metric e.g. '3×' or '94%' or '$2.4M'",
+      "label": "2-4 words, what was achieved"
+    }
+  ],
+  "imageQuery": "DALL-E 3 prompt: cinematic scene showing transformation, success, or breakthrough. High contrast, dramatic lighting.",
+  ${meta}
+}`,
+
+    chart: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Chart section. Choose the best chart type for the data: bar (comparisons), line (trends over time), pie (parts of a whole), donut (same with center label). Return:
+{
+  "eyebrow": "4-8 words",
+  "headline": "8-12 words",
+  "body": "1-2 sentences explaining what the chart shows or null",
+  "chartType": "bar | line | pie | donut",
+  "unit": "unit suffix e.g. '%' or 'k' or '$M' — or null",
+  "data": [
+    {
+      "label": "2-4 words, the data point label",
+      "value": numeric_value
+    }
+  ],
   ${meta}
 }`,
 
@@ -2081,69 +2212,85 @@ export class MicrositeGeneratorAgent implements Agent {
     const preSynthesized = (meta.preSynthesizedDesignSystem as { rawTokens?: Record<string, unknown> } | undefined)?.rawTokens;
 
     if (generateTool) {
-      // Pass -1: Design system synthesis (skipped if preSynthesizedDesignSystem provided)
-      let designSystemResult: { customCharacter: string; rawTokens: Record<string, unknown> } | null = null;
-      if (preSynthesized) {
-        const character = typeof preSynthesized.customCharacter === 'string' ? preSynthesized.customCharacter : 'custom-synthesized';
-        designSystemResult = { customCharacter: character, rawTokens: preSynthesized };
-        console.log('[microsite-agent] Using pre-synthesized design system — skipping Pass -1');
-      } else {
-        console.log('[microsite-agent] brandLanguagePrompt present:', !!brandLanguagePrompt.trim(), '| length:', brandLanguagePrompt.length);
-        if (brandLanguagePrompt.trim()) {
-          console.log('[microsite-agent] Running Pass -1: design system synthesis...');
-          designSystemResult = await this.synthesizeDesignSystem(
-            generateTool,
-            brandLanguagePrompt,
-            metaPlugin,
-            metaBrand.primaryColor as string | undefined,
-            brandImage || undefined,
-          );
-          console.log('[microsite-agent] designSystemResult:', designSystemResult ? `OK — character: "${designSystemResult.customCharacter}"` : 'NULL (synthesis failed or returned invalid JSON)');
-        }
-      }
-      const effectiveCharacter = designSystemResult?.customCharacter;
+      // ── PARALLEL WARM-UP: Pass -1 + CommandParser + Pass 1 all fire simultaneously ──
+      // Pass 0 (section planning) must wait for CommandParser (plugin override),
+      // but Pass -1 (design tokens) and Pass 1 (brief) are fully independent — run them now.
+      console.log('[microsite-agent] Starting parallel warm-up: Pass -1 + CommandParser + Pass 1...');
 
-      // Command Parser: Parse customInstructions into structured ParsedCommand (runs before Pass 0)
-      let parsedCommand: ParsedCommand = DEFAULT_PARSED_COMMAND;
-      if (customInstructions) {
-        try {
-          const cmdResult = await generateTool.run({
-            query: buildCommandParserPrompt(customInstructions, metaPlugin),
-            content: '',
-          });
-          if (cmdResult?.text) {
-            const raw = cmdResult.text.trim();
-            const jsonStart = raw.indexOf('{');
-            const jsonEnd = raw.lastIndexOf('}');
-            const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
-            const parsed = safeParseJSON(jsonStr);
-            if (parsed && typeof parsed.designOverrides === 'object' && typeof parsed.contentOverrides === 'object') {
-              parsedCommand = parsed as unknown as ParsedCommand;
-              // Plugin override — affects Pass 0 and Pass 2 prompts
-              if (typeof parsedCommand.designOverrides.plugin === 'string' && parsedCommand.designOverrides.plugin) {
-                metaPlugin = parsedCommand.designOverrides.plugin;
-                console.log('[microsite-agent] Command parser: plugin overridden to', metaPlugin);
-              }
-            }
+      // Pass 0 planning markdown — 2000 chars per section (enough to identify structure)
+      const planningMarkdown = sourceSections.map(s => `## ${s.name}\n${s.content.slice(0, 2000)}`).join('\n\n');
+
+      const [designSystemRaw, cmdRaw, briefResult, planResult] = await Promise.all([
+        // Pass -1: Design system synthesis
+        (async () => {
+          if (preSynthesized) {
+            console.log('[microsite-agent] Using pre-synthesized design system — skipping Pass -1');
+            return preSynthesized;
           }
-        } catch { /* keep defaults if command parsing fails */ }
-      }
+          if (!brandLanguagePrompt.trim()) return null;
+          console.log('[microsite-agent] Pass -1: design system synthesis...');
+          const r = await this.synthesizeDesignSystem(generateTool, brandLanguagePrompt, metaPlugin, metaBrand.primaryColor as string | undefined, brandImage || undefined);
+          console.log('[microsite-agent] Pass -1 done:', r ? `character="${r.customCharacter}"` : 'NULL');
+          return r;
+        })(),
 
-      // Pass 0: Section planning + Pass 1: Brief extraction (parallel — markdown skipped, AST is authoritative)
-      const [planResult, briefResult] = await Promise.all([
-        generateTool.run({
-          query: isFullOverride
-            ? buildOverrideSectionPlanPrompt(proposalMarkdown, fullDesignPrompt)
-            : buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions),
-          content: '',
-        }).catch(() => null),
+        // CommandParser: structured intent extraction
+        (async () => {
+          if (!customInstructions) return null;
+          try {
+            const r = await generateTool.run({ query: buildCommandParserPrompt(customInstructions, metaPlugin), content: '' });
+            return r?.text ?? null;
+          } catch { return null; }
+        })(),
+
+        // Pass 1: Brief extraction — full document (no truncation — all data must reach the LLM)
         generateTool.run({
           query: isFullOverride
             ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
             : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
           content: '',
         }).catch(() => null),
+
+        // Pass 0: Section planning — runs in parallel with Pass -1 and Pass 1 (no dependency on them)
+        Promise.race([
+          generateTool.run({
+            query: isFullOverride
+              ? buildOverrideSectionPlanPrompt(planningMarkdown, fullDesignPrompt)
+              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions),
+            content: '',
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
+        ]).catch(() => null),
       ]);
+
+      // Resolve design system result
+      let designSystemResult: { customCharacter: string; rawTokens: Record<string, unknown> } | null = null;
+      if (preSynthesized) {
+        const character = typeof preSynthesized.customCharacter === 'string' ? preSynthesized.customCharacter : 'custom-synthesized';
+        designSystemResult = { customCharacter: character, rawTokens: preSynthesized };
+      } else if (designSystemRaw && typeof (designSystemRaw as { customCharacter?: unknown }).customCharacter === 'string') {
+        designSystemResult = designSystemRaw as { customCharacter: string; rawTokens: Record<string, unknown> };
+      }
+      const effectiveCharacter = designSystemResult?.customCharacter;
+
+      // Apply CommandParser result (plugin override affects Pass 0 prompt)
+      let parsedCommand: ParsedCommand = DEFAULT_PARSED_COMMAND;
+      if (cmdRaw) {
+        try {
+          const raw = (cmdRaw as string).trim();
+          const jsonStart = raw.indexOf('{');
+          const jsonEnd = raw.lastIndexOf('}');
+          const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
+          const parsed = safeParseJSON(jsonStr);
+          if (parsed && typeof parsed.designOverrides === 'object' && typeof parsed.contentOverrides === 'object') {
+            parsedCommand = parsed as unknown as ParsedCommand;
+            if (typeof parsedCommand.designOverrides.plugin === 'string' && parsedCommand.designOverrides.plugin) {
+              metaPlugin = parsedCommand.designOverrides.plugin;
+              console.log('[microsite-agent] Command parser: plugin overridden to', metaPlugin);
+            }
+          }
+        } catch { /* keep defaults */ }
+      }
 
       // Parse section plan — handles both new { sections, constraints } format and legacy [] format
       let sectionPlan: SectionPlan[] | null = null;
@@ -2224,7 +2371,19 @@ export class MicrositeGeneratorAgent implements Agent {
         brief = safeParseJSON(briefResult.text);
         console.log('[microsite-agent] brief parse:', brief ? `OK — client="${brief.clientName}", company="${brief.proposingCompany}"` : `FAILED — raw (first 200): ${briefResult.text.slice(0, 200)}`);
       } else {
-        console.log('[microsite-agent] brief parse: SKIPPED — briefResult has no text');
+        console.log('[microsite-agent] brief parse: SKIPPED — briefResult has no text, using fallback brief');
+      }
+      // Fallback brief so Pass 2 always runs even if Pass 1 LLM call failed
+      if (!brief) {
+        brief = {
+          clientName: meta.clientName ?? 'Client',
+          proposingCompany: meta.proposingCompany ?? 'Us',
+          primaryTone: 'authoritative',
+          industry: '',
+          coreProblem: '',
+          proposedSolution: '',
+          keyBenefits: [],
+        };
       }
 
       // Markdown is backward-compat only — derive from source sections (no extra LLM call)
@@ -2269,7 +2428,7 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
-      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','generic']);
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
@@ -2293,6 +2452,14 @@ export class MicrositeGeneratorAgent implements Agent {
             heading = sourceHeading;
           }
 
+          // Pricing fallback: if rawBody is empty, scan all source sections for price data
+          if (!rawBody && type === 'pricing') {
+            const pricePattern = /\$|£|€|USD|GBP|EUR|\d[\d,]+(\.\d+)?\s*(k|K|M|mn|million|thousand)?\/?(mo|month|yr|year|hour|hr|day)|total|invest|cost|fee|rate|price|package|tier/i;
+            const pricingSections = sourceSections.filter(s => pricePattern.test(s.content) || pricePattern.test(s.name));
+            if (pricingSections.length > 0) {
+              rawBody = pricingSections.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
+            }
+          }
           resolvedSections.push({ type, heading, rawBody, aiGenerated: planned.aiGenerated || !sourceHeading });
         }
       } else {
@@ -2358,8 +2525,9 @@ export class MicrositeGeneratorAgent implements Agent {
           customInstructions,
         );
 
-        // Optional streaming callback — called after each section completes
+        // Optional streaming callbacks
         const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
+        const onPlanReady = meta.onPlanReady as ((data: Record<string, unknown>) => void) | undefined;
 
         const seenSlugs = new Map<string, number>();
         // Filter out sections hidden by the parsed command; preserve original index for preassigned variant lookup
@@ -2369,77 +2537,87 @@ export class MicrositeGeneratorAgent implements Agent {
         const pass2Sections = resolvedSections
           .map((s, originalIdx) => ({ ...s, originalIdx }))
           .filter(s => sectionsToHide.length === 0 || !sectionsToHide.includes(s.type));
-        const sectionResults = await Promise.all(
-          pass2Sections.map(async (s, idx) => {
-            const baseSlug = slugify(s.heading);
-            const count = seenSlugs.get(baseSlug) ?? 0;
-            seenSlugs.set(baseSlug, count + 1);
-            const id = count === 0 ? baseSlug : `${baseSlug}-${idx}`;
-            const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
-            const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
-            const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
-            const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
-            console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
-            const diagramSelection = diagramSel;
-            const prompt = isFullOverride
-              ? buildOverrideSectionPrompt(
-                  s.type,
-                  s.heading,
-                  s.rawBody ?? '',
-                  briefStr,
-                  fullDesignPrompt,
-                  brandName,
-                  s.aiGenerated ?? false,
-                  diagramSelection
-                )
-              : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
-            try {
-              const result = await generateTool!.run({ query: prompt, content: '' });
-              const parsed = safeParseJSON(result.text ?? '') ?? {};
-              if (!parsed.headline && !parsed.eyebrow) {
-                console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
-              }
-              if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
-              // Notify streaming listener that this section is done
-              onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
-              // Force CTA off per constraints
-              const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
-                || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));
-              if (shouldStripCTA) {
-                parsed.ctaPrimary = '';
-                parsed.ctaSecondary = '';
-                parsed.cta = '';
-                if (parsed.ui && typeof parsed.ui === 'object') {
-                  (parsed.ui as Record<string, unknown>).showCTA = false;
+
+        // Notify caller of final section plan before generation starts
+        onPlanReady?.({
+          totalSections: pass2Sections.length,
+          sectionTypes: pass2Sections.map(s => s.type),
+        });
+
+        // Process sections in batches of 3 to avoid OpenAI rate limiting
+        // Sections stream progressively (Gamma-style): first 3 appear in ~10-15s
+        const BATCH_SIZE = 2;
+        const sectionResults: Array<{ id: string; heading: string; type: string; content: Record<string, unknown>; diagramMeta: unknown }> = [];
+
+        for (let batchStart = 0; batchStart < pass2Sections.length; batchStart += BATCH_SIZE) {
+          const batch = pass2Sections.slice(batchStart, batchStart + BATCH_SIZE);
+          const batchOutputs = await Promise.all(
+            batch.map(async (s, batchIdx) => {
+              const idx = batchStart + batchIdx;
+              const baseSlug = slugify(s.heading);
+              const count = seenSlugs.get(baseSlug) ?? 0;
+              seenSlugs.set(baseSlug, count + 1);
+              const id = count === 0 ? baseSlug : `${baseSlug}-${idx}`;
+              const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
+              const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
+              const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
+              const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
+              console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
+              const prompt = isFullOverride
+                ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel)
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
+              try {
+                const timeoutMs = 90_000;
+                const result = await Promise.race([
+                  generateTool!.run({ query: prompt, content: '' }),
+                  new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Section "${s.type}" timed out after ${timeoutMs}ms`)), timeoutMs)),
+                ]);
+                const parsed = safeParseJSON(result.text ?? '') ?? {};
+                if (!parsed.headline && !parsed.eyebrow) {
+                  console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
                 }
+                if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
+                onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
+                const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
+                  || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));
+                if (shouldStripCTA) {
+                  parsed.ctaPrimary = '';
+                  parsed.ctaSecondary = '';
+                  parsed.cta = '';
+                  if (parsed.ui && typeof parsed.ui === 'object') {
+                    (parsed.ui as Record<string, unknown>).showCTA = false;
+                  }
+                }
+                const diagramMeta = diagramSel ? {
+                  typeId: diagramSel.diagramType.id,
+                  typeLabel: diagramSel.diagramType.label,
+                  category: diagramSel.diagramType.category,
+                  confidence: diagramSel.confidence,
+                  matchedKeywords: diagramSel.matchedKeywords,
+                  score: diagramSel.score,
+                  isCustomSvg: diagramSel.diagramType.isCustomSvg ?? false,
+                } : null;
+                return { id, heading: s.heading, type: s.type, content: parsed, diagramMeta };
+              } catch (err) {
+                console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
+                return {
+                  id,
+                  heading: s.heading,
+                  type: s.type,
+                  content: {
+                    eyebrow: s.heading,
+                    headline: s.heading,
+                    body: s.rawBody.split('\n').slice(0, 3).join(' ').slice(0, 200),
+                    imageQuery: `business ${s.heading.toLowerCase()} professional`,
+                  },
+                  diagramMeta: null,
+                };
               }
-              const diagramMeta = diagramSel ? {
-                typeId: diagramSel.diagramType.id,
-                typeLabel: diagramSel.diagramType.label,
-                category: diagramSel.diagramType.category,
-                confidence: diagramSel.confidence,
-                matchedKeywords: diagramSel.matchedKeywords,
-                score: diagramSel.score,
-                isCustomSvg: diagramSel.diagramType.isCustomSvg ?? false,
-              } : null;
-              return { id, heading: s.heading, type: s.type, content: parsed, diagramMeta };
-            } catch (err) {
-              console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
-              return {
-                id,
-                heading: s.heading,
-                type: s.type,
-                content: {
-                  eyebrow: s.heading,
-                  headline: s.heading,
-                  body: s.rawBody.split('\n').slice(0, 3).join(' ').slice(0, 200),
-                  imageQuery: `business ${s.heading.toLowerCase()} professional`,
-                },
-                diagramMeta: null,
-              };
-            }
-          }),
-        );
+            })
+          );
+          sectionResults.push(...batchOutputs);
+          console.log(`[microsite-agent] Batch ${Math.floor(batchStart / BATCH_SIZE) + 1} complete — ${sectionResults.length}/${pass2Sections.length} sections done`);
+        }
 
         // Resolve image URLs in parallel (loremflickr.com — free, keyword-based)
         const imageUrls = await Promise.all(

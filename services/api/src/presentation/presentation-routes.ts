@@ -404,6 +404,14 @@ export function registerPresentationRoutes(
       return reply.raw.end();
     }
 
+    // Pre-compute image config so parallel fetches can start during section generation
+    const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
+    const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+    const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
+
+    // Map of sectionId → in-flight image fetch Promise (started as sections complete)
+    const imageFetches = new Map<string, Promise<string | null>>();
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
@@ -418,35 +426,66 @@ export function registerPresentationRoutes(
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
-          // Streaming callback — fires after each section's LLM call completes
+          // Plan callback — fires once with the final section list before generation starts
+          onPlanReady: (plan: Record<string, unknown>) => {
+            send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes });
+          },
+          // Section callback — fires after each section's LLM call completes; kicks off image fetch immediately
           onSectionComplete: (section: Record<string, unknown>) => {
             send({ type: 'section', ...section });
+            // Start image fetch in parallel — don't await, fire-and-forget with tracked promise
+            const sectionId = section.id as string | undefined;
+            const sectionType = section.sectionType as string | undefined;
+            const imageQuery = (section.content as Record<string, unknown> | undefined)?.imageQuery as string | undefined;
+            if (sectionId && sectionType && imageQuery?.trim()) {
+              const chosenSource = resolveImageSource(sectionType, hasUnsplash, hasDalle);
+              if (chosenSource !== 'gradient') {
+                const fetchPromise = (async (): Promise<string | null> => {
+                  try {
+                    let url: string | null = null;
+                    if (chosenSource === 'dalle') {
+                      const prompt = buildDallePrompt(sectionType, imageQuery, accentColor);
+                      url = await generateDalle3Image(prompt);
+                    } else {
+                      url = await fetchUnsplashImageUrl(imageQuery);
+                    }
+                    if (url) send({ type: 'image', sectionId, url });
+                    return url;
+                  } catch { return null; }
+                })();
+                imageFetches.set(sectionId, fetchPromise);
+              }
+            }
           },
         },
       });
 
-      // Resolve images for all sections
+      // Reconcile images: await any in-flight fetches, fetch remaining sections that had no query at callback time
       type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
       if (ast?.sections) {
-        const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
-        const hasDalle = !!(env.OPENAI_API_KEY?.trim());
-        const accentColor = ast.brand?.primaryColor;
-
         await Promise.all(
           ast.sections.map(async (sec) => {
+            const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
+            if (imageFetches.has(secId)) {
+              // Await the parallel fetch that already started during streaming
+              const url = await imageFetches.get(secId)!;
+              if (url) { sec.image.url = url; sec.image.source = hasDalle ? 'dalle' : 'unsplash'; }
+              return;
+            }
+            // Section had no imageQuery at callback time — try now using AST image.query
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
             const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
             if (chosenSource === 'gradient') { sec.image.source = 'gradient'; return; }
             sec.image.source = chosenSource;
             if (chosenSource === 'dalle') {
-              const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
+              const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
               const url = await generateDalle3Image(prompt);
-              if (url) { sec.image.url = url; send({ type: 'image', sectionId: (sec as unknown as { id?: string }).id ?? sec.sectionType, url }); }
+              if (url) { sec.image.url = url; send({ type: 'image', sectionId: secId, url }); }
             } else {
               const url = await fetchUnsplashImageUrl(query);
-              if (url) { sec.image.url = url; send({ type: 'image', sectionId: (sec as unknown as { id?: string }).id ?? sec.sectionType, url }); }
+              if (url) { sec.image.url = url; send({ type: 'image', sectionId: secId, url }); }
             }
           }),
         );

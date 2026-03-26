@@ -18,6 +18,11 @@ export type SectionType =
   | 'security'
   | 'techstack'
   | 'testing'
+  | 'faq'
+  | 'team'
+  | 'comparison'
+  | 'casestudy'
+  | 'chart'
   | 'generic';
 
 // ── Parsed markdown structures ───────────────────────────────────────────────
@@ -355,6 +360,90 @@ export interface TestingContent {
   diagram?: string;
 }
 
+// ── FAQ ──────────────────────────────────────────────────────────────────────
+
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
+export interface FaqContent {
+  eyebrow: string;
+  headline: string;
+  subheadline?: string;
+  items: FaqItem[];
+}
+
+// ── Team ─────────────────────────────────────────────────────────────────────
+
+export interface TeamMember {
+  name: string;
+  role: string;
+  bio: string;
+  iconHint: string;
+}
+
+export interface TeamContent {
+  eyebrow: string;
+  headline: string;
+  subheadline?: string;
+  members: TeamMember[];
+  imageQuery: string;
+}
+
+// ── Comparison ───────────────────────────────────────────────────────────────
+
+export interface ComparisonRow {
+  feature: string;
+  us: string;
+  them: string;
+}
+
+export interface ComparisonContent {
+  eyebrow: string;
+  headline: string;
+  subheadline?: string;
+  usLabel: string;
+  themLabel: string;
+  rows: ComparisonRow[];
+  imageQuery: string;
+}
+
+// ── Case Study ───────────────────────────────────────────────────────────────
+
+export interface CaseStudyMetric {
+  value: string;
+  label: string;
+}
+
+export interface CaseStudyContent {
+  eyebrow: string;
+  headline: string;
+  challenge: string;
+  solution: string;
+  outcome: string;
+  metrics: CaseStudyMetric[];
+  imageQuery: string;
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+
+export interface ChartDataPoint {
+  label: string;
+  value: number;
+  color?: string;
+}
+
+export interface ChartContent {
+  eyebrow: string;
+  headline: string;
+  body?: string;
+  chartType: 'bar' | 'line' | 'pie' | 'donut';
+  data: ChartDataPoint[];
+  unit?: string;
+  imageQuery: string;
+}
+
 export type SectionContent =
   | HeroContent
   | ChallengeContent
@@ -373,6 +462,11 @@ export type SectionContent =
   | SecurityContent
   | TechStackContent
   | TestingContent
+  | FaqContent
+  | TeamContent
+  | ComparisonContent
+  | CaseStudyContent
+  | ChartContent
   | GenericContent;
 
 // ── Diagram metadata (detector output, stored alongside each section) ────────

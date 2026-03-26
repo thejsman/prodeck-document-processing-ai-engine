@@ -107,6 +107,7 @@ export function InlineAddItem({ arrayPath, template, label = 'Add item' }: AddPr
   if (!ctx || !sectionId) return null;
 
   function cloneTemplate() {
+    if (Array.isArray(template)) return [...template];
     if (template !== null && typeof template === 'object') return { ...(template as Record<string, unknown>) };
     return template;
   }

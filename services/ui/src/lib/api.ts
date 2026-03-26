@@ -641,6 +641,7 @@ export interface AgentRunResult {
 
 export type StreamEvent =
   | { type: 'start'; message: string }
+  | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
   | { type: 'complete'; ast: unknown }
