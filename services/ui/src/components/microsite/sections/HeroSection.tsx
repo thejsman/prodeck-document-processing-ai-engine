@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PluginTokens, HeroContent, BrandConfig, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -57,6 +57,10 @@ export function HeroSection({
   sectionId,
 }: Props) {
   console.log('HERO PROPS →', { variant, ui, behavior, content });
+
+  // Track image URL with error fallback — DALL-E URLs expire after 2h, drop them gracefully
+  const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
+  useEffect(() => { setActiveImageUrl(imageUrl); }, [imageUrl]);
 
   const resolvedVariant = variant ?? 'centered';
   const showCTA = ui?.showCTA !== false && !!(content.ctaPrimary?.trim() || content.ctaSecondary?.trim());
@@ -254,15 +258,15 @@ export function HeroSection({
 
   // ── Shared section shell ──────────────────────────────────────────────────
 
-  // Full-width background image from Unsplash (if available)
-  const hasBgImage = !!imageUrl;
+  // Full-width background image — activeImageUrl clears itself on load error (e.g. expired DALL-E SAS tokens)
+  const hasBgImage = !!activeImageUrl;
   const bgScrim = tokens.dark ? 'rgba(0,0,0,0.62)' : 'rgba(15,15,20,0.55)';
 
   const sectionStyle: React.CSSProperties = {
     position: 'relative',
     padding: 'clamp(4rem, 8vw, 7rem) 2rem',
     background: hasBgImage
-      ? `url(${imageUrl}) center center / cover no-repeat`
+      ? `url(${activeImageUrl}) center center / cover no-repeat`
       : getSectionGradient('hero', tokens),
     overflow: 'hidden',
   };
@@ -515,6 +519,8 @@ export function HeroSection({
   // ════════════════════════════════════════════════════════════════════════════
   return (
     <section style={sectionStyle}>
+      {/* Hidden probe image — fires onError when URL expires (e.g. DALL-E SAS token), clearing the broken bg */}
+      {activeImageUrl && <img src={activeImageUrl} onError={() => setActiveImageUrl(null)} style={{ display: 'none' }} aria-hidden alt="" />}
       {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
       <NoiseOverlay opacity={tokens.noiseOpacity} />
       <div style={container}>
