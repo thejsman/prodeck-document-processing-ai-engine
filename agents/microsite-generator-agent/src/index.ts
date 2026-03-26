@@ -2343,21 +2343,6 @@ export class MicrositeGeneratorAgent implements Agent {
       const sectionLimitRequest: SectionLimitRequest = detectSectionLimitRequest(combinedPromptText);
       console.log('[SectionLimitDetector]', JSON.stringify(sectionLimitRequest));
 
-      // Pass 0: Section planning + Pass 1: Brief extraction (parallel — markdown skipped, AST is authoritative)
-      const [planResult, briefResult] = await Promise.all([
-        generateTool.run({
-          query: isFullOverride
-            ? buildOverrideSectionPlanPrompt(proposalMarkdown, fullDesignPrompt)
-            : buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions),
-          content: '',
-        }).catch(() => null),
-        generateTool.run({
-          query: isFullOverride
-            ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
-            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
-          content: '',
-        }).catch(() => null),
-      ]);
 
       // Parse section plan — handles both new { sections, constraints } format and legacy [] format
       let sectionPlan: SectionPlan[] | null = null;
