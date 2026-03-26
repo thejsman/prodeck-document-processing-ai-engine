@@ -239,11 +239,19 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     ctx.replaceAst({
       ...ctx.ast,
       plugin: id,
-      // Clear any custom token overrides so the new theme applies cleanly
+      // Clear all custom token/design overrides so the new theme renders cleanly
       customTokens: undefined,
       customDesignSystem: undefined,
       customCharacter: undefined,
       customFonts: undefined,
+      // Also clear CSS variable overrides — these override tokens in Microsite.tsx
+      // regardless of plugin, so they must be wiped when switching themes
+      brand: {
+        ...ctx.ast.brand,
+        extractedCssVariables: undefined,
+        googleFontsUrl: undefined,
+        overrideTheme: undefined,
+      },
     });
   }
 
@@ -259,42 +267,49 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
+      <style>{`
+        .mse-topbar {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 0 16px; height: 48px;
+          background: #fff; border-bottom: 1px solid #e2e8f0;
+          flex-shrink: 0; gap: 12px;
+        }
+        .mse-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .mse-right { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .mse-title { font-size: 12px; font-weight: 700; color: #1e293b; white-space: nowrap; }
+        .mse-badge { font-size: 11px; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+        .mse-viewport-toggle { display: flex; gap: 1px; background: #f1f5f9; border-radius: 7px; padding: 2px; margin-right: 4px; }
+        .mse-btn-label { display: inline; }
+        .mse-back-btn { padding: 5px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: #64748b; white-space: nowrap; }
+        .mse-action-btn { padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .mse-theme-btn { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        @media (max-width: 600px) {
+          .mse-topbar { height: auto; padding: 6px 10px; gap: 6px; flex-wrap: wrap; }
+          .mse-right { gap: 4px; }
+          .mse-title { font-size: 11px; }
+          .mse-badge { display: none; }
+          .mse-viewport-toggle { display: none; }
+          .mse-btn-label { display: none; }
+          .mse-back-btn { padding: 5px 8px; font-size: 11px; }
+          .mse-action-btn { padding: 5px 8px; font-size: 11px; }
+          .mse-theme-btn { padding: 5px 8px; font-size: 11px; }
+        }
+      `}</style>
+
       {/* Top bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 16px',
-          height: 48,
-          background: '#fff',
-          borderBottom: '1px solid #e2e8f0',
-          flexShrink: 0,
-          gap: 12,
-        }}
-      >
+      <div className="mse-topbar">
         {/* Left: back + title + live badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '5px 10px', borderRadius: 6, border: '1px solid #e2e8f0',
-              background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#64748b',
-            }}
-          >
-            ← Back
-          </button>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Microsite Editor</span>
-          <span style={{ fontSize: 11, color: '#94a3b8', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10 }}>
-            Live Preview
-          </span>
+        <div className="mse-left">
+          <button className="mse-back-btn" onClick={onClose}>← <span className="mse-btn-label">Back</span></button>
+          <span className="mse-title">Microsite Editor</span>
+          <span className="mse-badge">Live Preview</span>
         </div>
 
         {/* Right: action buttons */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="mse-right">
 
           {/* Viewport toggle */}
-          <div style={{ display: 'flex', gap: 1, background: '#f1f5f9', borderRadius: 7, padding: 2, marginRight: 4 }}>
+          <div className="mse-viewport-toggle">
             {VIEWPORT_OPTIONS.map(opt => (
               <button
                 key={opt.id}
@@ -346,24 +361,17 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           {/* Theme switcher */}
           <div ref={themeBtnRef} style={{ position: 'relative' }}>
             <button
+              className="mse-theme-btn"
               onClick={() => setShowThemePanel(v => !v)}
               style={{
-                padding: '5px 12px',
-                borderRadius: 6,
                 border: '1px solid #e2e8f0',
                 background: showThemePanel ? '#f5f3ff' : '#fff',
                 color: showThemePanel ? '#6366f1' : '#475569',
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
                 transition: 'all 0.15s',
               }}
             >
               <span style={{ fontSize: 14 }}>🎨</span>
-              <span>Theme</span>
+              <span className="mse-btn-label">Theme</span>
               {currentTheme && (
                 <span
                   style={{
@@ -388,31 +396,27 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           </div>
 
           <button
+            className="mse-action-btn"
             onClick={() => setShowDesignPanel(v => !v)}
             style={{
-              padding: '6px 14px', borderRadius: 6, border: '1px solid #e2e8f0',
+              border: '1px solid #e2e8f0',
               background: showDesignPanel ? '#6366f1' : '#fff',
               color: showDesignPanel ? '#fff' : '#475569',
-              fontSize: 12, fontWeight: 700, cursor: 'pointer',
             }}
           >
-            ✦ Design AI
+            ✦ <span className="mse-btn-label">Design </span>AI
           </button>
           <button
+            className="mse-action-btn"
             onClick={() => setShowPublishModal(true)}
-            style={{
-              padding: '6px 14px', borderRadius: 6, border: '1px solid #e2e8f0',
-              background: '#fff', color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-            }}
+            style={{ border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}
           >
-            ↑ Publish
+            ↑ <span className="mse-btn-label">Publish</span>
           </button>
           <button
+            className="mse-action-btn"
             onClick={() => onExport(ctx.ast)}
-            style={{
-              padding: '6px 14px', borderRadius: 6, border: 'none',
-              background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-            }}
+            style={{ border: 'none', background: '#6366f1', color: '#fff' }}
           >
             Save
           </button>

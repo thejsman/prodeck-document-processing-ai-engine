@@ -90,7 +90,24 @@ export function PricingSection({ content, tokens, index, sections = [], sectionI
           </InlineEditable>
         </Reveal>
 
-        {/* Pricing table */}
+        {/* Pricing table — or fallback when agent didn't populate rows */}
+        {(content.rows ?? []).length === 0 && !content.totalLabel && (
+          <Reveal delay={240}>
+            <div style={{
+              padding: '24px',
+              borderRadius: 8,
+              border: `1px solid ${tokens.border}`,
+              background: tokens.surfaceCard,
+              marginBottom: 24,
+              textAlign: 'center',
+              color: tokens.textMuted,
+              fontSize: '0.9rem',
+            }}>
+              Pricing details available on request.
+            </div>
+          </Reveal>
+        )}
+
         {(content.rows ?? []).length > 0 && (
           <Reveal delay={240}>
             <div

@@ -20,6 +20,21 @@ interface Props {
 
 const ACCENT = '#6366f1';
 
+// Colour swatches available in the inline toolbar
+const COLOR_SWATCHES = [
+  { label: 'Accent',  value: ACCENT },
+  { label: 'Red',     value: '#ef4444' },
+  { label: 'Orange',  value: '#f97316' },
+  { label: 'Yellow',  value: '#eab308' },
+  { label: 'Green',   value: '#22c55e' },
+  { label: 'Cyan',    value: '#06b6d4' },
+  { label: 'Blue',    value: '#3b82f6' },
+  { label: 'Purple',  value: '#8b5cf6' },
+  { label: 'Pink',    value: '#ec4899' },
+  { label: 'White',   value: '#ffffff' },
+  { label: 'Muted',   value: '#94a3b8' },
+];
+
 // Slash command options
 const SLASH_COMMANDS = [
   { id: 'bold',   label: '**Bold**',       icon: 'B', desc: 'Bold text',       apply: (t: string) => `**${t || 'bold text'}**` },
@@ -186,12 +201,36 @@ export function Editable({
     if (type === 'italic') { newVal = wrapSelection(el, '_', '_', 'italic text'); cursorOffset = 1; }
     if (type === 'bullet') { newVal = prefixLines(el, '•'); cursorOffset = 2; }
     setDraft(newVal);
-    // Restore cursor inside the wrapped text after React re-renders
     setTimeout(() => {
       el.focus();
       const newPos = start === end ? start + cursorOffset : end + cursorOffset * 2;
       el.setSelectionRange(newPos, newPos);
     }, 0);
+  };
+
+  const applyColor = (color: string) => {
+    const el = inputRef.current;
+    if (!el) return;
+    const newVal = wrapSelection(el, `[c=${color}]`, '[/c]', 'text');
+    setDraft(newVal);
+    setTimeout(() => el.focus(), 0);
+  };
+
+  const clearFormatting = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const selected = el.value.slice(start, end);
+    if (!selected) return;
+    // Strip bold, italic, color markup from the selection
+    const stripped = selected
+      .replace(/\[c=#?[a-zA-Z0-9]+\](.*?)\[\/c\]/gs, '$1')
+      .replace(/\*\*(.+?)\*\*/gs, '$1')
+      .replace(/_(.+?)_/gs, '$1');
+    const newVal = el.value.slice(0, start) + stripped + el.value.slice(end);
+    setDraft(newVal);
+    setTimeout(() => { el.focus(); el.setSelectionRange(start, start + stripped.length); }, 0);
   };
 
   // Shared inline editor style
@@ -270,53 +309,84 @@ export function Editable({
       {/* Inline editor overlay */}
       {editing && canInlineEdit && (
         <>
-          {/* Rich text formatting toolbar (multiline only) — rendered in portal to escape overflow:hidden */}
-          {multiline && inputRect && mounted && createPortal(
+          {/* Rich text formatting toolbar — rendered in portal to escape overflow:hidden */}
+          {inputRect && mounted && createPortal(
             <div
               style={{
                 position: 'fixed',
-                top: Math.max(4, inputRect.top - 38),
+                top: Math.max(4, inputRect.top - 44),
                 left: inputRect.left,
                 zIndex: 60000,
                 display: 'flex',
-                gap: 3,
+                alignItems: 'center',
+                gap: 2,
                 background: '#1e293b',
                 borderRadius: 6,
-                padding: '3px 5px',
+                padding: '3px 6px',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                 pointerEvents: 'auto',
+                flexWrap: 'wrap',
+                maxWidth: 420,
               }}
               onMouseDown={e => e.preventDefault()}
             >
+              {/* Format buttons */}
               {[
                 { icon: 'B', title: 'Bold (Ctrl+B)', style: { fontWeight: 900 }, action: () => applyFormat('bold') },
-                { icon: 'I', title: 'Italic (Ctrl+I)', style: { fontStyle: 'italic' }, action: () => applyFormat('italic') },
-                { icon: '•', title: 'Bullet list', style: {}, action: () => applyFormat('bullet') },
+                { icon: 'I', title: 'Italic (Ctrl+I)', style: { fontStyle: 'italic' as const }, action: () => applyFormat('italic') },
+                ...(multiline ? [{ icon: '•', title: 'Bullet list', style: {}, action: () => applyFormat('bullet') }] : []),
               ].map(btn => (
                 <button
                   key={btn.icon}
                   title={btn.title}
                   onMouseDown={e => { e.preventDefault(); btn.action(); }}
-                  style={{
-                    width: 24, height: 24,
-                    borderRadius: 4,
-                    border: 'none',
-                    background: 'transparent',
-                    color: '#fff',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: 'system-ui',
-                    ...btn.style,
-                  }}
+                  style={{ width: 24, height: 24, borderRadius: 4, border: 'none', background: 'transparent', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', ...btn.style }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.15)'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                 >{btn.icon}</button>
               ))}
-              <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 2px' }} />
-              <span style={{ fontSize: 9, color: '#94a3b8', alignSelf: 'center', paddingRight: 4, fontFamily: 'system-ui' }}>
-                / for commands
-              </span>
+
+              {/* Separator */}
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 3px', alignSelf: 'stretch' }} />
+
+              {/* Colour swatches */}
+              {COLOR_SWATCHES.map(swatch => (
+                <button
+                  key={swatch.value}
+                  title={`Color: ${swatch.label}`}
+                  onMouseDown={e => { e.preventDefault(); applyColor(swatch.value); }}
+                  style={{
+                    width: 16, height: 16, borderRadius: '50%',
+                    border: '2px solid rgba(255,255,255,0.25)',
+                    background: swatch.value,
+                    cursor: 'pointer',
+                    padding: 0,
+                    flexShrink: 0,
+                    transition: 'transform 0.1s, border-color 0.1s',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.3)'; (e.currentTarget as HTMLElement).style.borderColor = '#fff'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.25)'; }}
+                />
+              ))}
+
+              {/* Separator */}
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 3px', alignSelf: 'stretch' }} />
+
+              {/* Clear formatting */}
+              <button
+                title="Clear formatting from selection"
+                onMouseDown={e => { e.preventDefault(); clearFormatting(); }}
+                style={{ width: 24, height: 24, borderRadius: 4, border: 'none', background: 'transparent', color: '#94a3b8', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.15)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+              >Tx</button>
+
+              {multiline && (
+                <>
+                  <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 3px', alignSelf: 'stretch' }} />
+                  <span style={{ fontSize: 9, color: '#94a3b8', alignSelf: 'center', paddingRight: 2, fontFamily: 'system-ui' }}>/ cmds</span>
+                </>
+              )}
             </div>,
             document.body
           )}
@@ -351,6 +421,10 @@ export function Editable({
               onKeyDown={e => {
                 if (e.key === 'Enter') { e.preventDefault(); commit(); }
                 if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                if (e.ctrlKey || e.metaKey) {
+                  if (e.key === 'b') { e.preventDefault(); applyFormat('bold'); }
+                  if (e.key === 'i') { e.preventDefault(); applyFormat('italic'); }
+                }
               }}
               style={{ ...editorBaseStyle, height: '1.5em' }}
             />

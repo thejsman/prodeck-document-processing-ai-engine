@@ -913,8 +913,8 @@ export function PresentationPage() {
     return (
       <Microsite
         ast={layoutAST}
-        onBack={() => setStep("plugin")}
-        onRegenerate={() => setStep("plugin")}
+        onBack={() => setStep("generate")}
+        onRegenerate={() => setStep("generate")}
         onEdit={() => setShowEditor(true)}
       />
     );
@@ -983,10 +983,13 @@ export function PresentationPage() {
           })}
         </div>
 
-        {activeTab === "history" ? (
+        {/* History panel — always mounted so count never resets on tab switch */}
+        <div style={{ display: activeTab === "history" ? "block" : "none" }}>
           <MicrositeHistory onCountChange={setTotalHistoryCount} />
-        ) : (
-          <>
+        </div>
+
+        {/* Generate panel — always mounted, hidden when on history tab */}
+        <div style={{ display: activeTab !== "history" ? "block" : "none" }}>
             {/* Stepper */}
             <div
               style={{
@@ -2271,8 +2274,7 @@ export function PresentationPage() {
                 )}
               </div>
             )}
-          </>
-        )}
+        </div>
       </div>
 
       {/* Theme selector modal — opens via 'More themes' button */}

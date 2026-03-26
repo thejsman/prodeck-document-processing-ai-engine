@@ -42,17 +42,21 @@ function formatDate(iso: string): string {
   }
 }
 
+// Module-level: survives tab switches / remounts within the same browser session.
+// Prevents deleted entries from reappearing when the component remounts and the
+// server fetch races ahead of the DELETE completing.
+const _sessionDeleted = new Set<string>();
+
 export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { apiKey } = useAuth();
   // All local history (no namespace filter)
-  const { history: localHistory, deleteEntry, addEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined); // deleteEntry used for card delete button
+  const { history: localHistory, deleteEntry, addEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
   const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
-  // Tracks namespaces deleted this session — prevents them from re-appearing if
-  // fetchAllMicrositeHistory races ahead of the server DELETE completing
-  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(new Set());
+  // Initialised from the module-level set so remounts preserve deleted state
+  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(() => new Set(_sessionDeleted));
 
   // Fetch server-side history on mount
   useEffect(() => {
@@ -65,7 +69,8 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
             .filter(
               (item) =>
                 item.ast &&
-                (item.ast as { sections?: unknown[] }).sections?.length,
+                (item.ast as { sections?: unknown[] }).sections?.length &&
+                !_sessionDeleted.has(item.namespace),
             )
             .map((item) => ({
               id: `server::${item.namespace}`,
@@ -344,11 +349,15 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                 </button>
                 <button
                   onClick={() => {
+                    // Persist deletion in module-level set so remounts stay clean
+                    _sessionDeleted.add(entry.namespace);
                     setDeletedNamespaces(prev => new Set([...prev, entry.namespace]));
+                    // Always remove from serverEntries immediately (covers local entries
+                    // that also have a server copy, preventing them flashing back)
+                    setServerEntries(prev => prev.filter(e => e.namespace !== entry.namespace));
                     if (isLocal) {
-                      deleteEntry(entry.id);
+                      deleteEntry(entry.id); // also fires server DELETE via hook
                     } else {
-                      setServerEntries(prev => prev.filter(e => e.id !== entry.id));
                       if (apiKey) deleteMicrositeHistoryFromServer(apiKey, entry.namespace).catch(() => {});
                     }
                   }}
