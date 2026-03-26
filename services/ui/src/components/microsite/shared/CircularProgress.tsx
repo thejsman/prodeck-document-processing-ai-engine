@@ -7,13 +7,17 @@ interface Props {
   value: number;        // 0–100
   label: string;
   description?: string;
+  /** Override label rendering with a custom node (e.g. InlineEditable wrapper) */
+  labelNode?: React.ReactNode;
+  /** Override description rendering with a custom node (e.g. InlineEditable wrapper) */
+  descriptionNode?: React.ReactNode;
   size?: number;        // diameter in px, default 140
   strokeWidth?: number; // default 10
   tokens: PluginTokens;
   delay?: number;
 }
 
-export function CircularProgress({ value, label, description, size = 140, strokeWidth = 10, tokens, delay = 0 }: Props) {
+export function CircularProgress({ value, label, description, labelNode, descriptionNode, size = 140, strokeWidth = 10, tokens, delay = 0 }: Props) {
   const [animated, setAnimated] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -118,12 +122,12 @@ export function CircularProgress({ value, label, description, size = 140, stroke
             letterSpacing: '0.06em',
             textTransform: 'uppercase' as const,
             color: tokens.text,
-            marginBottom: description ? 6 : 0,
+            marginBottom: (description || descriptionNode) ? 6 : 0,
           }}
         >
-          {label}
+          {labelNode ?? label}
         </div>
-        {description && (
+        {(descriptionNode || description) && (
           <div
             style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
@@ -134,7 +138,7 @@ export function CircularProgress({ value, label, description, size = 140, stroke
               maxWidth: 160,
             }}
           >
-            {description}
+            {descriptionNode ?? description}
           </div>
         )}
       </div>

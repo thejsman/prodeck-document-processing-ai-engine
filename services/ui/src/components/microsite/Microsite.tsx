@@ -193,16 +193,16 @@ function renderSection(
       inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'metrics':
-      inner = <MetricsSection content={section.content as MetricsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <MetricsSection content={section.content as MetricsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'security':
-      inner = <SecuritySection content={section.content as SecurityContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <SecuritySection content={section.content as SecurityContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'techstack':
-      inner = <TechStackSection content={section.content as TechStackContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <TechStackSection content={section.content as TechStackContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'testing':
-      inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'faq':
       inner = <FaqSection content={section.content as FaqContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;

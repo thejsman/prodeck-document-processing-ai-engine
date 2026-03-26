@@ -79,11 +79,15 @@ export function useMicrositeHistory(namespace?: string, apiKey?: string) {
       namespace: ns ?? namespace ?? '',
       ast: astForStorage,
     };
-    setAll(prev => {
-      const next = [entry, ...prev].slice(0, 50);
-      writeAll(next);
-      return next;
-    });
+    // Write to localStorage immediately (outside React state) so the entry is
+    // persisted even if this runs after the component has unmounted (e.g. the
+    // caller is inside a finally block of an async function that outlives the
+    // component lifecycle).
+    const current = readAll();
+    const next = [entry, ...current].slice(0, 50);
+    writeAll(next);
+    // Sync React state so in-component views update too
+    setAll(() => next);
     // Sync to server (fire-and-forget)
     if (apiKey && entry.namespace) {
       saveMicrositeHistoryToServer(apiKey, entry.namespace, astForStorage).catch(() => {});

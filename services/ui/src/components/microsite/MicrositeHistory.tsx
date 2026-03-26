@@ -42,11 +42,6 @@ function formatDate(iso: string): string {
   }
 }
 
-// Module-level: survives tab switches / remounts within the same browser session.
-// Prevents deleted entries from reappearing when the component remounts and the
-// server fetch races ahead of the DELETE completing.
-const _sessionDeleted = new Set<string>();
-
 export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { apiKey } = useAuth();
   // All local history (no namespace filter)
@@ -55,8 +50,8 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
   const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
-  // Initialised from the module-level set so remounts preserve deleted state
-  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(() => new Set(_sessionDeleted));
+  // Component is always-mounted so state survives tab switches — no module-level set needed
+  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(() => new Set<string>());
 
   // Fetch server-side history on mount
   useEffect(() => {
@@ -69,8 +64,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
             .filter(
               (item) =>
                 item.ast &&
-                (item.ast as { sections?: unknown[] }).sections?.length &&
-                !_sessionDeleted.has(item.namespace),
+                (item.ast as { sections?: unknown[] }).sections?.length,
             )
             .map((item) => ({
               id: `server::${item.namespace}`,
@@ -349,8 +343,6 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                 </button>
                 <button
                   onClick={() => {
-                    // Persist deletion in module-level set so remounts stay clean
-                    _sessionDeleted.add(entry.namespace);
                     setDeletedNamespaces(prev => new Set([...prev, entry.namespace]));
                     // Always remove from serverEntries immediately (covers local entries
                     // that also have a server copy, preventing them flashing back)

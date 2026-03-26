@@ -479,7 +479,13 @@ export function PresentationPage() {
           typeof ast === "object" &&
           (ast as { sections?: unknown[] }).sections?.length
         ) {
-          setLayoutAST(ast as LayoutAST);
+          const recovered = ast as LayoutAST;
+          setLayoutAST(recovered);
+          // Save recovered microsite to local history so it appears in the history tab
+          if (!currentHistoryIdRef.current) {
+            const saved = addEntry(recovered);
+            currentHistoryIdRef.current = saved.id;
+          }
           setProgress((p) =>
             p.map((x, i) =>
               i === p.length - 1

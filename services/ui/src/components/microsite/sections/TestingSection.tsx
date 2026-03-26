@@ -72,6 +72,20 @@ export function TestingSection({ content, tokens }: Props) {
                     value={numericValue}
                     label={layer.name}
                     description={layer.description}
+                    labelNode={
+                      <InlineEditable field={`layers.${originalIndex}.name`} label="Layer name" value={layer.name ?? ''}>
+                        <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.85rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: tokens.text }}>
+                          {layer.name}
+                        </span>
+                      </InlineEditable>
+                    }
+                    descriptionNode={
+                      <InlineEditable field={`layers.${originalIndex}.description`} label="Description" value={layer.description ?? ''} multiline>
+                        <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 300, fontSize: '0.8rem', color: tokens.textMuted, lineHeight: 1.5 }}>
+                          {layer.description}
+                        </span>
+                      </InlineEditable>
+                    }
                     size={140}
                     strokeWidth={10}
                     tokens={tokens}
