@@ -753,7 +753,7 @@
             "iconHint": "identity"
           },
           {
-            "name": "Sumit",
+            "name": "[c=#3b82f6]Team Member[/c]",
             "role": "Role Title",
             "bio": "Brief bio…",
             "iconHint": "identity"
@@ -841,7 +841,10 @@
         "fallback": "gradient-mesh"
       },
       "editable": true,
-      "version": 1
+      "version": 1,
+      "embed": {
+        "url": "https://www.youtube.com/watch?v=fr1f84rg4Nw"
+      }
     }
   ]
 }

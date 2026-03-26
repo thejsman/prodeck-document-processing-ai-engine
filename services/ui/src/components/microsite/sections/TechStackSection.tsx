@@ -6,6 +6,7 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
 import { Headline, SubHeadline, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
+import { inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { ThemedMermaid } from '../shared/ThemedMermaid';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
@@ -112,7 +113,9 @@ export function TechStackSection({ content, tokens }: Props) {
                             }}
                           />
                           <InlineEditable field={`categories.${ci}.items.${ii}`} label="Item" value={item ?? ''}>
-                            {item}
+                            {typeof item === 'string' && hasMarkdown(item)
+                              ? <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtml(item) }} />
+                              : item}
                           </InlineEditable>
                         </li>
                       </InlineArrayItem>
