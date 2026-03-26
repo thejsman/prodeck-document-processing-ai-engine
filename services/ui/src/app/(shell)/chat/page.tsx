@@ -20,6 +20,44 @@ interface Message {
 
 // ── Page ───────────────────────────────────────────────────────────
 
+// ── System query interception ───────────────────────────────────
+// Certain factual questions about system state (namespaces, indexed docs, etc.)
+// must be answered from the API directly — RAG will hallucinate these.
+
+interface SystemQueryHandler {
+  pattern: RegExp;
+  fetch: (apiKey: string, namespace: string) => Promise<string>;
+}
+
+const SYSTEM_QUERIES: SystemQueryHandler[] = [
+  {
+    pattern: /\b(what|list|show|which).*(namespace|namespaces)\b|\bnamespaces.*(available|exist|have)\b/i,
+    fetch: async (apiKey) => {
+      const res = await fetch('/api/namespaces', { headers: { Authorization: `Bearer ${apiKey}` } });
+      if (!res.ok) return 'Could not retrieve namespaces.';
+      const data = await res.json() as { namespaces?: string[] };
+      const list = data.namespaces ?? [];
+      if (list.length === 0) return 'No namespaces found. Create one to get started.';
+      return `Available namespaces:\n\n${list.map((n) => `- \`${n}\``).join('\n')}`;
+    },
+  },
+];
+
+async function trySystemQuery(
+  q: string,
+  apiKey: string,
+  namespace: string,
+): Promise<string | null> {
+  for (const handler of SYSTEM_QUERIES) {
+    if (handler.pattern.test(q)) {
+      return handler.fetch(apiKey, namespace);
+    }
+  }
+  return null;
+}
+
+// ── Session helpers ─────────────────────────────────────────────
+
 function getOrCreateSessionId(namespace: string): string {
   const key = `chat-session-id-${namespace}`;
   const existing = localStorage.getItem(key);
@@ -149,8 +187,21 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: q }]);
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    startStream({ question: q, namespace: namespace || 'default', chatSessionId: chatSessionIdRef.current ?? undefined });
-  }, [input, isStreaming, chunks, namespace, reset, startStream]);
+
+    const ns = namespace || 'default';
+
+    // Intercept system queries — answer from API directly, skip RAG
+    trySystemQuery(q, apiKey, ns).then((answer) => {
+      if (answer !== null) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `assistant-${Date.now()}`, role: 'assistant', content: answer },
+        ]);
+        return;
+      }
+      startStream({ question: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
+    });
+  }, [input, isStreaming, chunks, namespace, apiKey, reset, startStream]);
 
   function handleClear() {
     // Rotate to a new session ID so the fresh chat has clean history
