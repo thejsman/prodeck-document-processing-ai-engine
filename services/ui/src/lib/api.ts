@@ -553,6 +553,23 @@ export interface MicrositeHistoryServerEntry {
   ast: unknown;
 }
 
+export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<void> {
+  const res = await fetch('/api/presentations/history/save', {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ namespace, ast }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
+  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
+    method: 'DELETE',
+    headers: authHeaders(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
 export async function fetchAllMicrositeHistory(apiKey: string): Promise<MicrositeHistoryServerEntry[]> {
   const res = await fetch('/api/presentations/history', { headers: authHeaders(apiKey) });
   const data = await handleResponse<{ entries: MicrositeHistoryServerEntry[] }>(res);

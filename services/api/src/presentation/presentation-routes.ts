@@ -12,7 +12,7 @@
  *   POST /presentations/:namespace/:proposalId/publish — export to self-contained HTML
  */
 
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, stat, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { env } from 'node:process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -146,6 +146,31 @@ export function registerPresentationRoutes(
     // Sort newest first
     entries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
     return reply.send({ entries });
+  });
+
+  // POST /presentations/history/save — save an AST entry for a namespace
+  app.post('/presentations/history/save', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { namespace?: string; ast?: unknown } | undefined;
+    if (!body?.namespace || !body?.ast) {
+      return reply.code(400).send({ error: 'Missing required fields: namespace, ast' });
+    }
+    const { namespace, ast } = body;
+    const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
+    await mkdir(nsDir, { recursive: true });
+    await writeFile(path.join(nsDir, 'site-ast.json'), JSON.stringify(ast, null, 2), 'utf-8');
+    return reply.send({ ok: true });
+  });
+
+  // DELETE /presentations/history/:namespace — remove a namespace's saved AST
+  app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    try {
+      await rm(astPath);
+    } catch {
+      // File didn't exist — still return ok
+    }
+    return reply.send({ ok: true });
   });
 
   // POST /presentations/create

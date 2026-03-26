@@ -8,7 +8,6 @@ import {
   fetchProposals,
   fetchProposalContent,
   fetchMicrositeContent,
-  fetchAllMicrositeHistory,
   generateMicrositeStream,
   type StreamEvent,
   type ProposalFile,
@@ -34,7 +33,7 @@ import { ThemeModal } from "./microsite/ThemeModal";
 import { ThemeFullPreview } from "./microsite/ThemeFullPreview";
 import { ThemePreviewCard } from "./microsite/ThemePreviewCard";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
-import { useMicrositeHistory } from "@/lib/useMicrositeHistory";
+import { useMicrositeHistory, getHistoryCount } from "@/lib/useMicrositeHistory";
 
 // ── Pipeline steps ───────────────────────────────────────────────────────────
 type StepId = "upload" | "brand" | "plugin" | "generate" | "preview";
@@ -371,9 +370,12 @@ export function PresentationPage() {
   );
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentHistoryIdRef = useRef<string | null>(null);
+  const layoutASTRef = useRef<LayoutAST | null>(null);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
+  // Keep ref in sync so finally block can read latest AST without stale closure
+  useEffect(() => { layoutASTRef.current = layoutAST; }, [layoutAST]);
   const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal
@@ -389,24 +391,10 @@ export function PresentationPage() {
       "generate"
     );
   });
-  // addEntry scoped to selectedNamespace; totalHistory unfiltered for accurate tab count
-  const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace);
-  const { history: localHistory } = useMicrositeHistory();
-  const [serverHistoryCount, setServerHistoryCount] = useState(0);
-  useEffect(() => {
-    if (!apiKey) return;
-    fetchAllMicrositeHistory(apiKey)
-      .then((entries) =>
-        setServerHistoryCount(
-          entries.filter(
-            (e) =>
-              e.ast && (e.ast as { sections?: unknown[] }).sections?.length,
-          ).length,
-        ),
-      )
-      .catch(() => {});
-  }, [apiKey]);
-  const totalHistoryCount = Math.max(localHistory.length, serverHistoryCount);
+  // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
+  const { addEntry } = useMicrositeHistory(selectedNamespace, apiKey);
+  // Count reported directly from MicrositeHistory (combined local + server, always accurate)
+  const [totalHistoryCount, setTotalHistoryCount] = useState(() => getHistoryCount());
 
   const handleTabChange = (tab: "generate" | "history") => {
     setActiveTab(tab);
@@ -829,6 +817,13 @@ export function PresentationPage() {
         });
       }
     } finally {
+      // Safety net: if complete event never fired (e.g. server error during image fetch),
+      // save whatever sections we have so history is never lost.
+      const latestAST = layoutASTRef.current;
+      if (latestAST?.sections?.length && !currentHistoryIdRef.current) {
+        const saved = addEntry(latestAST);
+        currentHistoryIdRef.current = saved.id;
+      }
       setGenerating(false);
     }
   }, [
@@ -844,6 +839,7 @@ export function PresentationPage() {
     addExecution,
     updateExecution,
     selectedProposal,
+    addEntry,
   ]);
 
   // ── Preview loading state ──────────────────────────────────────────────────
@@ -905,8 +901,7 @@ export function PresentationPage() {
           onClose={() => setShowEditor(false)}
           onExport={(editedAst) => {
             setLayoutAST(editedAst);
-            if (currentHistoryIdRef.current)
-              deleteEntry(currentHistoryIdRef.current);
+            // Create a separate copy in history — original entry is preserved
             const saved = addEntry(editedAst);
             currentHistoryIdRef.current = saved.id;
             setShowEditor(false);
@@ -990,7 +985,7 @@ export function PresentationPage() {
         </div>
 
         {activeTab === "history" ? (
-          <MicrositeHistory />
+          <MicrositeHistory onCountChange={setTotalHistoryCount} />
         ) : (
           <>
             {/* Stepper */}

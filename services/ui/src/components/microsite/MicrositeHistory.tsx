@@ -7,7 +7,7 @@ import {
   useMicrositeHistory,
   type MicrositeHistoryEntry,
 } from "@/lib/useMicrositeHistory";
-import { fetchAllMicrositeHistory } from "@/lib/api";
+import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
 import type { LayoutAST } from "@/types/presentation";
@@ -42,14 +42,17 @@ function formatDate(iso: string): string {
   }
 }
 
-export function MicrositeHistory() {
+export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { apiKey } = useAuth();
   // All local history (no namespace filter)
-  const { history: localHistory, deleteEntry, addEntry } = useMicrositeHistory();
+  const { history: localHistory, deleteEntry, addEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined); // deleteEntry used for card delete button
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
   const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
+  // Tracks namespaces deleted this session — prevents them from re-appearing if
+  // fetchAllMicrositeHistory races ahead of the server DELETE completing
+  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(new Set());
 
   // Fetch server-side history on mount
   useEffect(() => {
@@ -79,24 +82,29 @@ export function MicrositeHistory() {
 
   // Merge local + server, deduplicate by namespace (prefer local/newer)
   const combined: CombinedEntry[] = (() => {
-    const localMapped: CombinedEntry[] = localHistory.map((e) => ({
-      id: e.id,
-      savedAt: e.savedAt,
-      namespace: e.namespace,
-      ast: e.ast,
-      source: "local" as const,
-    }));
+    const localMapped: CombinedEntry[] = localHistory
+      .filter((e) => !deletedNamespaces.has(e.namespace))
+      .map((e) => ({
+        id: e.id,
+        savedAt: e.savedAt,
+        namespace: e.namespace,
+        ast: e.ast,
+        source: "local" as const,
+      }));
 
-    // Add server entries that aren't already covered by a local entry for the same namespace
+    // Add server entries that aren't already covered by a local entry or pending delete
     const localNamespaces = new Set(localMapped.map((e) => e.namespace));
     const serverOnly = serverEntries.filter(
-      (e) => !localNamespaces.has(e.namespace),
+      (e) => !localNamespaces.has(e.namespace) && !deletedNamespaces.has(e.namespace),
     );
 
     return [...localMapped, ...serverOnly].sort(
       (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
     );
   })();
+
+  // Report combined count to parent whenever it changes
+  useEffect(() => { onCountChange?.(combined.length); }, [combined.length, onCountChange]);
 
   // Editor mode — opened from preview or history card
   if (editingEntry) {
@@ -107,10 +115,18 @@ export function MicrositeHistory() {
         proposalId={editingEntry.id}
         onClose={() => setEditingEntry(null)}
         onExport={(editedAst) => {
-          // Replace the existing entry instead of adding a duplicate
-          if (editingEntry.source === 'local') deleteEntry(editingEntry.id);
-          else setServerEntries(prev => prev.filter(e => e.id !== editingEntry.id));
-          addEntry(editedAst, editingEntry.namespace);
+          // Create a separate copy — original entry is preserved
+          const saved = addEntry(editedAst, editingEntry.namespace);
+          // Force re-read from localStorage so history grid reflects the new entry
+          refresh();
+          // Update the preview so the user sees their changes immediately
+          setPreviewEntry({
+            id: saved.id,
+            savedAt: saved.savedAt,
+            namespace: saved.namespace,
+            ast: editedAst,
+            source: 'local',
+          });
           setEditingEntry(null);
         }}
       />
@@ -121,7 +137,7 @@ export function MicrositeHistory() {
     return (
       <Microsite
         ast={previewEntry.ast}
-        onBack={() => setPreviewEntry(null)}
+        onBack={() => { refresh(); setPreviewEntry(null); }}
         onEdit={() => setEditingEntry(previewEntry)}
       />
     );
@@ -328,10 +344,12 @@ export function MicrositeHistory() {
                 </button>
                 <button
                   onClick={() => {
+                    setDeletedNamespaces(prev => new Set([...prev, entry.namespace]));
                     if (isLocal) {
                       deleteEntry(entry.id);
                     } else {
                       setServerEntries(prev => prev.filter(e => e.id !== entry.id));
+                      if (apiKey) deleteMicrositeHistoryFromServer(apiKey, entry.namespace).catch(() => {});
                     }
                   }}
                   style={{

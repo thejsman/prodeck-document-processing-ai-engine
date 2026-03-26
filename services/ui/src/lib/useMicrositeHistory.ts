@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { LayoutAST } from '@/types/presentation';
+import { saveMicrositeHistoryToServer, deleteMicrositeHistoryFromServer } from './api';
 
 export interface MicrositeHistoryEntry {
   id: string;
@@ -12,6 +13,16 @@ export interface MicrositeHistoryEntry {
 
 const STORAGE_KEY = 'ms_history';
 const EVENT_NAME = 'ms-history-update';
+
+export function getHistoryCount(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as unknown[]).length : 0;
+  } catch {
+    return 0;
+  }
+}
 
 function readAll(): MicrositeHistoryEntry[] {
   if (typeof window === 'undefined') return [];
@@ -41,7 +52,7 @@ function writeAll(entries: MicrositeHistoryEntry[]) {
   }
 }
 
-export function useMicrositeHistory(namespace?: string) {
+export function useMicrositeHistory(namespace?: string, apiKey?: string) {
   const [all, setAll] = useState<MicrositeHistoryEntry[]>(() => readAll());
 
   // Re-sync when other hook instances write
@@ -73,16 +84,29 @@ export function useMicrositeHistory(namespace?: string) {
       writeAll(next);
       return next;
     });
+    // Sync to server (fire-and-forget)
+    if (apiKey && entry.namespace) {
+      saveMicrositeHistoryToServer(apiKey, entry.namespace, astForStorage).catch(() => {});
+    }
     return entry;
-  }, [namespace]);
+  }, [namespace, apiKey]);
 
   const deleteEntry = useCallback((id: string) => {
     setAll(prev => {
+      const deletedNs = prev.find(e => e.id === id)?.namespace;
       const next = prev.filter(e => e.id !== id);
       writeAll(next);
+      // Sync delete to server (fire-and-forget)
+      if (apiKey && deletedNs) {
+        deleteMicrositeHistoryFromServer(apiKey, deletedNs).catch(() => {});
+      }
       return next;
     });
+  }, [apiKey]);
+
+  const refresh = useCallback(() => {
+    setAll(readAll());
   }, []);
 
-  return { history, addEntry, deleteEntry };
+  return { history, addEntry, deleteEntry, refresh };
 }
