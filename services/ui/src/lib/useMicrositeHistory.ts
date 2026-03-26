@@ -95,22 +95,55 @@ export function useMicrositeHistory(namespace?: string, apiKey?: string) {
     return entry;
   }, [namespace, apiKey]);
 
-  const deleteEntry = useCallback((id: string) => {
-    setAll(prev => {
-      const deletedNs = prev.find(e => e.id === id)?.namespace;
-      const next = prev.filter(e => e.id !== id);
+  const updateEntry = useCallback((id: string, ast: LayoutAST): MicrositeHistoryEntry => {
+    const astForStorage: LayoutAST = ast.brand?.logoUrl?.startsWith('data:')
+      ? { ...ast, brand: { ...ast.brand, logoUrl: null } }
+      : ast;
+    const current = readAll();
+    const existing = current.find(e => e.id === id);
+    if (!existing) {
+      // Not in localStorage (e.g. server-only entry) — create new entry instead
+      const entry: MicrositeHistoryEntry = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        savedAt: new Date().toISOString(),
+        namespace: namespace ?? '',
+        ast: astForStorage,
+      };
+      const next = [entry, ...current].slice(0, 50);
       writeAll(next);
-      // Sync delete to server (fire-and-forget)
-      if (apiKey && deletedNs) {
-        deleteMicrositeHistoryFromServer(apiKey, deletedNs).catch(() => {});
+      setAll(() => next);
+      if (apiKey && entry.namespace) {
+        saveMicrositeHistoryToServer(apiKey, entry.namespace, astForStorage).catch(() => {});
       }
-      return next;
-    });
+      return entry;
+    }
+    const updated: MicrositeHistoryEntry = { ...existing, savedAt: new Date().toISOString(), ast: astForStorage };
+    const next = current.map(e => e.id === id ? updated : e);
+    writeAll(next);
+    setAll(() => next);
+    if (apiKey && updated.namespace) {
+      saveMicrositeHistoryToServer(apiKey, updated.namespace, astForStorage).catch(() => {});
+    }
+    return updated;
+  }, [namespace, apiKey]);
+
+  const deleteEntry = useCallback((id: string) => {
+    // Read current state synchronously so we can find the namespace before filtering
+    const current = readAll();
+    const deletedNs = current.find(e => e.id === id)?.namespace;
+    const next = current.filter(e => e.id !== id);
+    // Persist synchronously (same pattern as addEntry — avoids side-effects in updater)
+    writeAll(next);
+    setAll(() => next);
+    // Sync delete to server (fire-and-forget, outside updater to avoid Strict Mode double-invoke)
+    if (apiKey && deletedNs) {
+      deleteMicrositeHistoryFromServer(apiKey, deletedNs).catch(() => {});
+    }
   }, [apiKey]);
 
   const refresh = useCallback(() => {
     setAll(readAll());
   }, []);
 
-  return { history, addEntry, deleteEntry, refresh };
+  return { history, addEntry, updateEntry, deleteEntry, refresh };
 }

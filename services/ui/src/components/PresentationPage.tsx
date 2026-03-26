@@ -249,6 +249,7 @@ interface WizardSnapshot {
   error: string | null;
   selectedNamespace: string;
   selectedProposal: ProposalFile | null;
+  generationStartedAt?: number;
 }
 
 function readSnapshot(): WizardSnapshot | null {
@@ -371,6 +372,7 @@ export function PresentationPage() {
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentHistoryIdRef = useRef<string | null>(null);
   const layoutASTRef = useRef<LayoutAST | null>(null);
+  const generationStartedAtRef = useRef<number>(_snap?.generationStartedAt ?? 0);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
@@ -441,6 +443,7 @@ export function PresentationPage() {
         error,
         selectedNamespace,
         selectedProposal,
+        generationStartedAt: generationStartedAtRef.current,
       });
     } else {
       // Back to earlier steps — clear the snapshot
@@ -456,11 +459,10 @@ export function PresentationPage() {
     selectedProposal,
   ]);
 
-  // ── When restored to generate step with wasGenerating, auto-check for result ──
+  // ── When restored to generate step with wasGenerating, poll until result is ready ──
   useEffect(() => {
     if (!wasGenerating || !apiKey || !selectedNamespace || !selectedProposal)
       return;
-    // Clear the flag immediately to avoid re-running
     setWasGenerating(false);
     setProgress((p) => {
       const last = p[p.length - 1];
@@ -468,62 +470,78 @@ export function PresentationPage() {
         return [...p, { text: "Checking for results…", done: false }];
       return p;
     });
-    fetchMicrositeContent(
-      apiKey,
-      selectedNamespace,
-      selectedProposal.fileName.replace(/\.md$/, ""),
-    )
-      .then((ast) => {
+
+    const startedAt = generationStartedAtRef.current;
+    const key = apiKey;
+    const ns = selectedNamespace;
+    const pid = selectedProposal.fileName.replace(/\.md$/, "");
+    let stopped = false;
+    let pollCount = 0;
+    const MAX_POLLS = 60; // 5 minutes at 5s intervals
+
+    async function poll() {
+      if (stopped) return;
+      try {
+        const { ast, savedAt } = await fetchMicrositeContent(key, ns, pid);
+        if (stopped) return;
+        const isNew = savedAt
+          ? new Date(savedAt).getTime() > startedAt
+          : false;
         if (
           ast &&
           typeof ast === "object" &&
-          (ast as { sections?: unknown[] }).sections?.length
+          (ast as { sections?: unknown[] }).sections?.length &&
+          isNew
         ) {
           const recovered = ast as LayoutAST;
           setLayoutAST(recovered);
-          // Save recovered microsite to local history so it appears in the history tab
           if (!currentHistoryIdRef.current) {
             const saved = addEntry(recovered);
             currentHistoryIdRef.current = saved.id;
           }
           setProgress((p) =>
             p.map((x, i) =>
-              i === p.length - 1
-                ? { ...x, text: "Microsite ready!", done: true }
-                : x,
+              i === p.length - 1 ? { ...x, text: "Microsite ready!", done: true } : x,
             ),
           );
-          setTimeout(() => {
-            clearSnapshot();
-            setStep("preview");
-          }, 600);
+          stopped = true;
+          setTimeout(() => { clearSnapshot(); setStep("preview"); }, 600);
         } else {
+          pollCount++;
+          if (pollCount < MAX_POLLS) {
+            setProgress((p) =>
+              p.map((x, i) =>
+                i === p.length - 1
+                  ? { ...x, text: `Still generating… (${pollCount * 5}s)`, done: false }
+                  : x,
+              ),
+            );
+            setTimeout(poll, 5000);
+          } else {
+            setProgress((p) =>
+              p.map((x, i) =>
+                i === p.length - 1
+                  ? { ...x, text: "Generation was interrupted — click Generate to restart.", done: false }
+                  : x,
+              ),
+            );
+          }
+        }
+      } catch {
+        if (!stopped) {
           setProgress((p) =>
             p.map((x, i) =>
               i === p.length - 1
-                ? {
-                    ...x,
-                    text: "Generation was interrupted — click Generate to restart.",
-                    done: false,
-                  }
+                ? { ...x, text: "Generation was interrupted — click Generate to restart.", done: false }
                 : x,
             ),
           );
         }
-      })
-      .catch(() => {
-        setProgress((p) =>
-          p.map((x, i) =>
-            i === p.length - 1
-              ? {
-                  ...x,
-                  text: "Generation was interrupted — click Generate to restart.",
-                  done: false,
-                }
-              : x,
-          ),
-        );
-      });
+      }
+    }
+
+    poll();
+    return () => { stopped = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasGenerating]);
 
@@ -621,7 +639,7 @@ export function PresentationPage() {
       selectedNamespace,
       selectedProposal.fileName.replace(/\.md$/, ""),
     )
-      .then((ast) => {
+      .then(({ ast }) => {
         if (
           ast &&
           typeof ast === "object" &&
@@ -654,6 +672,7 @@ export function PresentationPage() {
     // ── Immediately switch to preview with an empty AST + skeletons ──────────
     // This gives the Gamma-like effect: all skeleton slides appear right away,
     // then fill in as sections arrive — no blank waiting screen.
+    generationStartedAtRef.current = Date.now();
     setGenerating(true);
     setError(null);
     setProgress([]);

@@ -18,7 +18,7 @@ export default function MicrositeViewPage() {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
     fetchMicrositeContent(apiKey, namespace, proposalId)
-      .then(data => {
+      .then(({ ast: data }) => {
         setAst(data as LayoutAST | null);
         setLoading(false);
       })

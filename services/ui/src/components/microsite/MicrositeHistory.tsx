@@ -45,13 +45,11 @@ function formatDate(iso: string): string {
 export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { apiKey } = useAuth();
   // All local history (no namespace filter)
-  const { history: localHistory, deleteEntry, addEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
+  const { history: localHistory, deleteEntry, addEntry, updateEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
   const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
-  // Component is always-mounted so state survives tab switches — no module-level set needed
-  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(() => new Set<string>());
 
   // Fetch server-side history on mount
   useEffect(() => {
@@ -82,7 +80,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
   // Merge local + server, deduplicate by namespace (prefer local/newer)
   const combined: CombinedEntry[] = (() => {
     const localMapped: CombinedEntry[] = localHistory
-      .filter((e) => !deletedNamespaces.has(e.namespace))
+      .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
       .map((e) => ({
         id: e.id,
         savedAt: e.savedAt,
@@ -91,10 +89,10 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
         source: "local" as const,
       }));
 
-    // Add server entries that aren't already covered by a local entry or pending delete
+    // Add server entries that aren't already covered by a local entry
     const localNamespaces = new Set(localMapped.map((e) => e.namespace));
     const serverOnly = serverEntries.filter(
-      (e) => !localNamespaces.has(e.namespace) && !deletedNamespaces.has(e.namespace),
+      (e) => !localNamespaces.has(e.namespace),
     );
 
     return [...localMapped, ...serverOnly].sort(
@@ -114,11 +112,11 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
         proposalId={editingEntry.id}
         onClose={() => setEditingEntry(null)}
         onExport={(editedAst) => {
-          // Create a separate copy — original entry is preserved
-          const saved = addEntry(editedAst, editingEntry.namespace);
-          // Force re-read from localStorage so history grid reflects the new entry
+          // Update in-place for local entries; create new local entry for server-only entries
+          const saved = editingEntry.source === 'local'
+            ? updateEntry(editingEntry.id, editedAst)
+            : addEntry(editedAst, editingEntry.namespace);
           refresh();
-          // Update the preview so the user sees their changes immediately
           setPreviewEntry({
             id: saved.id,
             savedAt: saved.savedAt,
@@ -343,12 +341,10 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                 </button>
                 <button
                   onClick={() => {
-                    setDeletedNamespaces(prev => new Set([...prev, entry.namespace]));
-                    // Always remove from serverEntries immediately (covers local entries
-                    // that also have a server copy, preventing them flashing back)
+                    // Remove from server state immediately (prevents flash-back)
                     setServerEntries(prev => prev.filter(e => e.namespace !== entry.namespace));
                     if (isLocal) {
-                      deleteEntry(entry.id); // also fires server DELETE via hook
+                      deleteEntry(entry.id); // removes from localStorage + fires server DELETE
                     } else {
                       if (apiKey) deleteMicrositeHistoryFromServer(apiKey, entry.namespace).catch(() => {});
                     }

@@ -538,10 +538,11 @@ export function registerPresentationRoutes(
     const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
     try {
       const raw = await readFile(astPath, 'utf-8');
-      return reply.send({ ast: JSON.parse(raw) });
+      const fileStat = await stat(astPath);
+      return reply.send({ ast: JSON.parse(raw), savedAt: fileStat.mtime.toISOString() });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return reply.send({ ast: null });
+        return reply.send({ ast: null, savedAt: null });
       }
       throw err;
     }

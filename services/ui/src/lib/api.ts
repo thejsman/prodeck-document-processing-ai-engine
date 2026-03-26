@@ -538,13 +538,13 @@ export async function fetchMicrositeContent(
   apiKey: string,
   namespace: string,
   proposalId: string,
-): Promise<unknown | null> {
+): Promise<{ ast: unknown | null; savedAt: string | null }> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`,
     { headers: authHeaders(apiKey) },
   );
-  const data = await handleResponse<{ ast: unknown | null }>(res);
-  return data.ast;
+  const data = await handleResponse<{ ast: unknown | null; savedAt: string | null }>(res);
+  return { ast: data.ast ?? null, savedAt: data.savedAt ?? null };
 }
 
 export interface MicrositeHistoryServerEntry {
