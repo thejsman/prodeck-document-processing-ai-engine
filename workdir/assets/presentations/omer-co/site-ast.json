@@ -1,8 +1,8 @@
 {
   "proposalId": "omer-co",
-  "generatedAt": "2026-03-26T11:35:46.713Z",
-  "generationMode": "default",
-  "fullDesignPromptUsed": false,
+  "generatedAt": "2026-03-26T13:01:36.939Z",
+  "generationMode": "full-design-prompt-override",
+  "fullDesignPromptUsed": true,
   "meta": {
     "title": "Proposal for KM Digital",
     "client": "KM Digital",
@@ -10,29 +10,28 @@
     "author": ""
   },
   "brief": {
-    "clientName": "Acme Corporation",
+    "clientName": "KM Digital",
     "clientIndustry": "IT",
-    "clientChallenge": "Outdated data infrastructure limits operational efficiency and agility in decision-making.",
+    "clientChallenge": "Acme Corporation faces significant challenges due to an outdated data infrastructure that limits operational efficiency and agility in decision-making.",
     "proposingCompany": "omer-co",
-    "proposingStrength": "Expert in modern data architecture transformation with proven methodologies.",
-    "engagementSummary": "Building a robust, scalable data architecture utilizing cloud-native solutions like Databricks and Apache Kafka. This transformation enables real-time analytics and decision-making capabilities.",
+    "proposingStrength": "KM Digital leverages modern technologies and design principles to create efficient and scalable architectures.",
+    "engagementSummary": "The engagement includes a comprehensive overhaul of Acme Corporation's data architecture. It focuses on implementing advanced technologies and improving data governance for enhanced operational efficiency.",
     "keyOutcomes": [
-      "Reduce operational risks through improved governance by identifying 20 critical datasets.",
-      "Achieve query response times under 200 milliseconds for 95% of data queries.",
-      "Enable a data ingestion rate of 10,000 records per second.",
-      "Ensure system availability rate of 99.9% or higher.",
-      "Establish a centralized lakehouse for enhanced data accessibility and speed."
+      "Modernized data architecture for improved operational efficiency",
+      "Real-time analytics capabilities through event-driven models",
+      "Enhanced data governance for better compliance and quality",
+      "Scalability to handle increasing data volumes effectively"
     ],
     "totalValue": "$48,000.00",
     "duration": "10 weeks",
-    "primaryTone": "authoritative",
-    "heroNarrative": "Transforming data into a strategic asset for competitive advantage.",
+    "primaryTone": "Professional and technical",
+    "heroNarrative": "Transforming outdated data systems for future success.",
     "industryKeywords": [
-      "IT",
-      "data architecture",
-      "cloud-native solutions",
-      "real-time analytics",
-      "digital transformation"
+      "Data architecture",
+      "Cloud solutions",
+      "IT transformation",
+      "Data governance",
+      "Real-time analytics"
     ]
   },
   "brand": {
@@ -40,319 +39,293 @@
     "tagline": "Strategy & Design Consultancy",
     "logoUrl": null,
     "logoText": "omer-co",
-    "primaryColor": "#00a080",
-    "secondaryColor": "#e04040"
+    "primaryColor": "#C8A96E",
+    "secondaryColor": "#1A1612",
+    "overrideTheme": true,
+    "extractedCssVariables": {
+      "--ms-bg": "#e0f2fe",
+      "--ms-bg2": "#bae6fd",
+      "--ms-bg3": "#fef9c3",
+      "--ms-surface": "#ffffff",
+      "--ms-text": "#1a1a1a",
+      "--ms-text2": "#4a4a4a",
+      "--ms-text3": "#8a8a8a",
+      "--ms-border": "rgba(0,0,0,0.10)",
+      "--ms-accent": "#3b82f6",
+      "--ms-accent2": "#f97316",
+      "--ms-accent3": "#8b5cf6",
+      "--ms-accent4": "#14b8a6",
+      "--ms-accent5": "#22c55e",
+      "--ms-hero-bg": "#e0f2fe",
+      "--ms-stats-bg": "#bae6fd",
+      "--ms-challenge-bg": "#fef9c3",
+      "--ms-approach-bg": "#fce7f3",
+      "--ms-timeline-bg": "#d1fae5",
+      "--ms-pricing-bg": "#e0f2fe",
+      "--ms-whyus-bg": "#bae6fd",
+      "--ms-benefits-bg": "#fef9c3",
+      "--ms-problem-bg": "#fce7f3",
+      "--ms-nextsteps-bg": "#d1fae5",
+      "--ms-showcase-bg": "#e0f2fe",
+      "--ms-deliverables-bg": "#bae6fd",
+      "--ms-generic-bg": "#fef9c3",
+      "--ms-metrics-bg": "#fce7f3",
+      "--ms-hero-accent": "#3b82f6",
+      "--ms-stats-accent": "#f97316",
+      "--ms-challenge-accent": "#8b5cf6",
+      "--ms-approach-accent": "#3b82f6",
+      "--ms-timeline-accent": "#14b8a6",
+      "--ms-pricing-accent": "#f97316",
+      "--ms-whyus-accent": "#8b5cf6",
+      "--ms-benefits-accent": "#22c55e",
+      "--ms-problem-accent": "#14b8a6",
+      "--ms-nextsteps-accent": "#3b82f6",
+      "--ms-showcase-accent": "#8b5cf6",
+      "--ms-deliverables-accent": "#14b8a6",
+      "--ms-generic-accent": "#3b82f6",
+      "--ms-metrics-accent": "#22c55e",
+      "--ms-font-heading": "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
+      "--ms-font-body": "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
+      "--ms-h1": "clamp(38px,6vw,72px)",
+      "--ms-h2": "clamp(30px,4.5vw,52px)",
+      "--ms-h1-weight": "800",
+      "--ms-body": "17px",
+      "--ms-body-line-height": "1.8",
+      "--ms-section-pad": "clamp(80px,10vw,120px)",
+      "--ms-container-pad": "clamp(20px,5vw,80px)",
+      "--ms-card-pad": "32px",
+      "--ms-r": "16px",
+      "--ms-r-card": "20px",
+      "--ms-r-btn": "14px",
+      "--ms-shadow": "0 1px 3px rgba(0,0,0,0.06)",
+      "--ms-shadow-hover": "0 4px 12px rgba(0,0,0,0.10)",
+      "--ms-transition": "all 0.3s cubic-bezier(0.34,1.56,0.64,1)",
+      "--ms-gradients-enabled": "1",
+      "--ms-decorative-enabled": "1"
+    },
+    "googleFontsUrl": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&family=Baloo+2:wght@400;600;700;800&display=swap",
+    "fontFaceDeclarations": ":root { --ms-font-heading: 'Poppins', -apple-system, sans-serif; --ms-font-body: 'Poppins', -apple-system, sans-serif; }",
+    "animationStyle": "bounce",
+    "gradientsEnabled": true,
+    "decorativeEnabled": true,
+    "borderRadiusStyle": "rounded",
+    "themeClass": "theme-custom-prompt theme-br-rounded anim-bounce"
   },
-  "plugin": "gold",
+  "plugin": "ivory",
+  "customCharacter": "A whimsical and vibrant digital playground where fun meets learning.",
+  "customTokens": {
+    "visualStyle": "Playful and colorful with cheerful illustrations, rich storytelling elements.",
+    "density": "comfortable",
+    "typography": {
+      "style": "humanist",
+      "headingWeight": 700,
+      "scale": "moderate"
+    },
+    "colorStrategy": {
+      "type": "vibrant",
+      "contrast": "high",
+      "accentUsage": "dominant"
+    },
+    "layoutStyle": {
+      "alignment": "centered",
+      "heroStyle": "full-bleed",
+      "sectionFlow": "continuous"
+    },
+    "componentStyle": {
+      "button": "rounded",
+      "card": "elevated",
+      "borderRadius": "16px",
+      "shadow": "subtle"
+    },
+    "behavior": {
+      "motion": "expressive",
+      "parallax": false,
+      "scrollEffects": "fade-in"
+    },
+    "customCharacter": "A whimsical and vibrant digital playground where fun meets learning.",
+    "bg": "#C8A96E",
+    "text": "#333333",
+    "accent": "#FF5733",
+    "heroFont": "Nunito",
+    "bodyFont": "Poppins",
+    "heroWeight": 700,
+    "heroStyle": "normal",
+    "labelTracking": "0.10em",
+    "dark": false,
+    "noiseOpacity": 0.025,
+    "borderRadius": "16px",
+    "buttonStyle": "rounded",
+    "layoutPatterns": {
+      "heroLayout": "full-bleed",
+      "sectionLayouts": [
+        "card-grid",
+        "editorial"
+      ],
+      "spacingStyle": "generous",
+      "visualHierarchy": "image-first"
+    },
+    "sectionRules": {
+      "hero": {
+        "fields": [
+          "eyebrow",
+          "heading",
+          "subheading",
+          "backgroundImage",
+          "cta1"
+        ],
+        "ctaTarget": "pricing",
+        "ctaSecondaryTarget": null,
+        "alignment": "centered",
+        "ctaCount": 1
+      },
+      "nextsteps": {
+        "fields": [
+          "heading",
+          "subheading",
+          "body",
+          "cta1",
+          "cta2"
+        ],
+        "ctaTarget": null,
+        "ctaSecondaryTarget": null,
+        "alignment": "centered",
+        "ctaCount": 2
+      }
+    },
+    "colorOverrides": {
+      "bg": null,
+      "text": null,
+      "accent": null
+    },
+    "tokenOverrides": {
+      "borderRadius": null,
+      "heroFontSize": null,
+      "bodyFontSize": null,
+      "sectionPadding": null
+    }
+  },
+  "customFonts": [
+    {
+      "family": "Nunito",
+      "url": "https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap"
+    },
+    {
+      "family": "Poppins",
+      "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
+    }
+  ],
+  "customDesignSystem": {
+    "visualStyle": "Playful and colorful with cheerful illustrations, rich storytelling elements.",
+    "density": "comfortable",
+    "typography": {
+      "style": "humanist",
+      "headingWeight": 700,
+      "scale": "moderate"
+    },
+    "colorStrategy": {
+      "type": "vibrant",
+      "contrast": "high",
+      "accentUsage": "dominant"
+    },
+    "layoutStyle": {
+      "alignment": "centered",
+      "heroStyle": "full-bleed",
+      "sectionFlow": "continuous"
+    },
+    "componentStyle": {
+      "button": "rounded",
+      "card": "elevated",
+      "borderRadius": "16px",
+      "shadow": "subtle"
+    },
+    "behavior": {
+      "motion": "expressive",
+      "parallax": false,
+      "scrollEffects": "fade-in"
+    },
+    "layoutPatterns": {
+      "heroLayout": "full-bleed",
+      "sectionLayouts": [
+        "card-grid",
+        "editorial"
+      ],
+      "spacingStyle": "generous",
+      "visualHierarchy": "image-first"
+    },
+    "sectionRules": {
+      "hero": {
+        "fields": [
+          "eyebrow",
+          "heading",
+          "subheading",
+          "backgroundImage",
+          "cta1"
+        ],
+        "ctaTarget": "pricing",
+        "ctaSecondaryTarget": null,
+        "alignment": "centered",
+        "ctaCount": 1
+      },
+      "nextsteps": {
+        "fields": [
+          "heading",
+          "subheading",
+          "body",
+          "cta1",
+          "cta2"
+        ],
+        "ctaTarget": null,
+        "ctaSecondaryTarget": null,
+        "alignment": "centered",
+        "ctaCount": 2
+      }
+    },
+    "colorOverrides": {
+      "bg": null,
+      "text": null,
+      "accent": null
+    },
+    "tokenOverrides": {
+      "borderRadius": null,
+      "heroFontSize": null,
+      "bodyFontSize": null,
+      "sectionPadding": null
+    }
+  },
   "behavior": {
-    "motion": "deliberate",
+    "motion": "expressive",
     "parallax": false,
-    "scrollEffects": "none"
+    "scrollEffects": "fade-in"
   },
   "sections": [
     {
-      "id": "technical-executive-summary",
-      "heading": "Technical Executive Summary",
+      "id": "hero",
+      "heading": "hero",
       "sectionType": "hero",
       "content": {
-        "eyebrow": "Proposal · March 2026",
-        "headline": "Revamping Data Architecture for Strategic Advantage",
-        "subheadline": "Acme Corporation's transformation begins with modern data infrastructure. Achieving operational efficiency is a critical step towards data-driven decision-making.",
-        "body": "Outdated systems hinder progress and risk operational failures. Omer-co specializes in transforming data architectures, utilizing advanced cloud-native technologies to enhance capabilities and speed.",
-        "ctaPrimary": "Start Transformation",
-        "ctaSecondary": "Learn More",
-        "ctaTarget": "approach",
-        "ctaSecondaryTarget": "timeline",
-        "imageQuery": "Cinematic photorealistic server room with modern cloud computing architecture, dark tones with soft ambient lighting, evoking sophistication and high tech.",
-        "diagram": "graph TB\nA[Frontend] --> B[API Gateway]\nB --> C[Microservices]\nC --> D[Databricks]\nC --> E[Apache Kafka]\nB --> F[Data Lakehouse]\nF --> G[Analytics Engine]\nF --> H[Data Governance]\nH --> I[Monitoring System]\nH --> J[User Access Control]",
+        "eyebrow": "Exciting IT Transformation Ahead!",
+        "headline": "Transforming Outdated Data Systems for Future Success",
+        "subheadline": "Join us on a playful journey to modernize Acme Corporation's data architecture.",
+        "body": "At omer-co, we empower Acme Corporation with vibrant data-driven solutions that enhance efficiency! Our cheerful approach tackles big challenges and unlocks the doors to operational agility.",
+        "ctaPrimary": "Discover More!",
+        "ctaSecondary": "Join the Adventure",
+        "imageQuery": "colorful playful technology transformation illustration",
+        "diagram": null,
         "variant": "asymmetric"
       },
       "diagramMeta": {
-        "typeId": "system-architecture",
-        "typeLabel": "System Architecture",
-        "category": "architecture",
+        "typeId": "trend-chart",
+        "typeLabel": "Trend Chart",
+        "category": "metric",
         "confidence": "high",
-        "matchedKeywords": [
-          "architecture",
-          "infrastructure",
-          "layer",
-          "cloud"
-        ],
-        "score": 16,
+        "matchedKeywords": [],
+        "score": 5,
         "isCustomSvg": false
       },
       "image": {
         "source": "dalle",
-        "query": "Cinematic photorealistic server room with modern cloud computing architecture, dark tones with soft ambient lighting, evoking sophistication and high tech.",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-xBUzBCL0SvXt5cHCjONria3O.png?st=2026-03-26T10%3A34%3A51Z&se=2026-03-26T12%3A34%3A51Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T05%3A56%3A26Z&ske=2026-03-27T05%3A56%3A26Z&sks=b&skv=2026-02-06&sig=lRv25DZkqy8hSpTdIXS4Mf0J/4RNTZtY7AwZ2WeZPic%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "current-state-technical-gaps",
-      "heading": "Current State & Technical Gaps",
-      "sectionType": "challenge",
-      "content": {
-        "eyebrow": "Identifying Critical Challenges",
-        "headline": "Outdated Data Infrastructure Limits Operational Efficiency",
-        "body": "Acme Corporation's reliance on outdated technologies hampers decision-making. Without immediate action, inefficiencies will escalate, increasing operational risks and stifling growth. The status quo jeopardizes not only performance but also the organization’s competitive edge.",
-        "pullquote": "A modern data architecture is essential for agility and accuracy.",
-        "imageQuery": "DALL-E 3 prompt: a cinematic view of a cluttered, outdated IT infrastructure with dim lighting, capturing a sense of urgency and inadequacy, professional photography, 4K",
-        "diagram": "graph TD\n  A[Current Architecture] --> B[Outdated ETL Processes]\n  A --> C[Metric Discrepancies]\n  A --> D[Legacy Infrastructure Risks]\n  B --> E[Inadequate Documentation]\n  C --> F[No Centralized Data Catalog]\n  D --> G[Potential Points of Failure]",
-        "variant": "split"
-      },
-      "diagramMeta": {
-        "typeId": "decision-tree",
-        "typeLabel": "Decision Tree",
-        "category": "flow",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "DALL-E 3 prompt: a cinematic view of a cluttered, outdated IT infrastructure with dim lighting, capturing a sense of urgency and inadequacy, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-X8TahpW6dqUFjWCPbbPXPydI.png?st=2026-03-26T10%3A35%3A51Z&se=2026-03-26T12%3A35%3A51Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A11%3A59Z&ske=2026-03-27T03%3A11%3A59Z&sks=b&skv=2026-02-06&sig=qfPSV1Qy750A77yDDjczJ6%2BmJe9UbHKp8o6ahoviymM%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "proposed-architecture",
-      "heading": "Proposed Architecture",
-      "sectionType": "approach",
-      "content": {
-        "eyebrow": "Data Architecture Revolution",
-        "headline": "Transforming Outdated Infrastructure into a Strategic Asset",
-        "subheadline": "A streamlined approach to modern data architecture enhances agility and decision-making. This transformation prioritizes real-time analytics and system resilience.",
-        "pillars": [
-          {
-            "iconHint": "strategy",
-            "name": "Modern Data Ingestion",
-            "description": "Implement an event-driven data ingestion layer to support real-time analytics. This allows for immediate responsiveness to data changes and user needs."
-          },
-          {
-            "iconHint": "identity",
-            "name": "Centralized Lakehouse",
-            "description": "Establish a centralized lakehouse for unified data storage and access. This delivers substantial improvements in data speed and accessibility."
-          },
-          {
-            "iconHint": "research",
-            "name": "Enhanced Data Governance",
-            "description": "Introduce robust governance mechanisms to ensure data quality and compliance. This mitigates risks and enhances trust in data usage."
-          },
-          {
-            "iconHint": "launch",
-            "name": "Scalable Computing Engine",
-            "description": "Deploy a containerized processing engine to facilitate scalable operations. This ensures optimal performance during peak demands."
-          }
-        ],
-        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic view of a futuristic data center, bright illumination, advanced technologies in use, professional atmosphere, 4K",
-        "diagram": "graph TB\nA[Frontend] --> B[Event-driven Ingestion]\nB --> C[Data Lakehouse]\nC --> D[Containerized Processing]\nD --> E[Governance Mechanisms]\nE --> F[Analytics Layer]\nF --> G[User Insights]\nG --> H[Strategic Decisions]",
-        "variant": "card-grid"
-      },
-      "diagramMeta": {
-        "typeId": "system-architecture",
-        "typeLabel": "System Architecture",
-        "category": "architecture",
-        "confidence": "high",
-        "matchedKeywords": [
-          "architecture",
-          "system"
-        ],
-        "score": 12,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "DALL-E 3 prompt: cinematic photorealistic view of a futuristic data center, bright illumination, advanced technologies in use, professional atmosphere, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-mdydwLj8PIEZpYefC5xoCMjQ.png?st=2026-03-26T10%3A35%3A52Z&se=2026-03-26T12%3A35%3A52Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A42%3A31Z&ske=2026-03-27T02%3A42%3A31Z&sks=b&skv=2026-02-06&sig=J/LqHs5%2BVE6N1WdZZFreusQxlM2NvMq/EhK56VA/9ko%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "technology-stack",
-      "heading": "Technology Stack",
-      "sectionType": "techstack",
-      "content": {
-        "eyebrow": "Built on Modern Foundations",
-        "headline": "Technology Stack for Data Architecture Transformation",
-        "imageQuery": "data architecture cloud computing",
-        "categories": [
-          {
-            "iconHint": "strategy",
-            "name": "Data Processing",
-            "items": [
-              "Python",
-              "Apache Spark",
-              "Apache Kafka",
-              "dbt"
-            ]
-          },
-          {
-            "iconHint": "document",
-            "name": "Data Storage",
-            "items": [
-              "PostgreSQL",
-              "Databricks Lakehouse",
-              "Collibra"
-            ]
-          },
-          {
-            "iconHint": "launch",
-            "name": "Deployment",
-            "items": [
-              "Microsoft Azure",
-              "Docker",
-              "Kubernetes"
-            ]
-          },
-          {
-            "iconHint": "research",
-            "name": "Monitoring",
-            "items": [
-              "Azure Monitor",
-              "Grafana"
-            ]
-          }
-        ],
-        "diagram": "graph TB\nA[Frontend] --> B[Apache Kafka]\nB --> C[Apache Spark]\nC --> D[Databricks Lakehouse]\nD --> E[PostgreSQL]\nE --> F[Azure Monitor]\nF --> G[Grafana]\nH[Docker] --> I[Kubernetes]\nI --> J[Microsoft Azure]",
-        "variant": "editorial"
-      },
-      "diagramMeta": {
-        "typeId": "system-architecture",
-        "typeLabel": "System Architecture",
-        "category": "architecture",
-        "confidence": "high",
-        "matchedKeywords": [
-          "architecture",
-          "system",
-          "infrastructure",
-          "stack",
-          "platform",
-          "cloud"
-        ],
-        "score": 27,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "data architecture cloud computing",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-SeYopmQyTEqFExHMlt1Hx9T5.png?st=2026-03-26T10%3A35%3A53Z&se=2026-03-26T12%3A35%3A53Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A34%3A27Z&ske=2026-03-27T02%3A34%3A27Z&sks=b&skv=2026-02-06&sig=AYFBedIzGOTShNPkehr3%2B8Mjm3qCgOZOFkU/awStVQc%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "security-measures",
-      "heading": "Security Measures",
-      "sectionType": "security",
-      "content": {
-        "eyebrow": "Designed for Maximum Protection",
-        "headline": "Comprehensive Data Security Framework for High Integrity",
-        "imageQuery": "data security technology abstract",
-        "items": [
-          {
-            "iconHint": "identity",
-            "name": "Data Encryption Standards",
-            "description": "Encrypts sensitive information at rest and in transit, safeguarding against unauthorized access."
-          },
-          {
-            "iconHint": "digital",
-            "name": "Access Control Mechanisms",
-            "description": "Utilizes role-based access controls to ensure that only authorized personnel can access critical datasets."
-          },
-          {
-            "iconHint": "strategy",
-            "name": "Regular Security Audits",
-            "description": "Conducts frequent audits to identify vulnerabilities and ensure compliance with industry standards."
-          },
-          {
-            "iconHint": "research",
-            "name": "Incident Response Plan",
-            "description": "Establishes a protocol for rapid response to data breaches, minimizing potential damage."
-          }
-        ],
-        "diagram": "graph TB\nA[Data Encryption] --> B[Access Control]\nB --> C[Security Audits]\nC --> D[Incident Response]",
-        "variant": "asymmetric"
-      },
-      "diagramMeta": {
-        "typeId": "network-topology",
-        "typeLabel": "Network Topology",
-        "category": "architecture",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "data security technology abstract",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-yy2Kutp6x41nGjPEXKBZ61cz.png?st=2026-03-26T10%3A35%3A54Z&se=2026-03-26T12%3A35%3A54Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A22%3A19Z&ske=2026-03-27T02%3A22%3A19Z&sks=b&skv=2026-02-06&sig=M0IOwKmdNUtwom2nLLbfHee35IaEEd%2BqGS7Z1If2Vs4%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "testing-framework",
-      "heading": "Testing Framework",
-      "sectionType": "testing",
-      "content": {
-        "eyebrow": "Quality Built In",
-        "headline": "Comprehensive Testing Strategy for Data Architecture",
-        "imageQuery": "quality assurance testing architecture",
-        "layers": [
-          {
-            "level": 1,
-            "name": "Unit Tests",
-            "coverage": "90%",
-            "description": "Validates individual components of the architecture for reliability."
-          },
-          {
-            "level": 2,
-            "name": "Integration Tests",
-            "coverage": "85%",
-            "description": "Ensures that multiple components work together as intended."
-          },
-          {
-            "level": 3,
-            "name": "End-to-End Tests",
-            "coverage": "80%",
-            "description": "Simulates real-world scenarios to validate overall system performance."
-          },
-          {
-            "level": 4,
-            "name": "Performance Tests",
-            "coverage": "75%",
-            "description": "Assesses system speed and responsiveness under various conditions."
-          }
-        ],
-        "additionalInfo": [
-          {
-            "heading": "Continuous Monitoring",
-            "body": "Testing does not cease post-deployment. Ongoing assessments ensure systems remain optimal."
-          },
-          {
-            "heading": "Feedback Loops",
-            "body": "Regular feedback from tests drives iterative improvements in the data architecture."
-          }
-        ],
-        "diagram": "graph LR\n  A[Unit Tests] --> B[Integration Tests]\n  B --> C[End-to-End Tests]\n  C --> D[Performance Tests]",
-        "variant": "split"
-      },
-      "diagramMeta": null,
-      "image": {
-        "source": "gradient",
-        "query": "quality assurance testing architecture",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-HPFjqfdAz8ylzoHiEnkIbyW4.png?st=2026-03-26T10%3A35%3A52Z&se=2026-03-26T12%3A35%3A52Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T23%3A15%3A02Z&ske=2026-03-26T23%3A15%3A02Z&sks=b&skv=2026-02-06&sig=oHSICKNeVp97FA/5ngek9dcTiM0oi3z8li8i14jTlKk%3D",
+        "query": "colorful playful technology transformation illustration",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-xtTl5lE2OhHJKRDR9wGOGkFH.png?st=2026-03-26T12%3A00%3A38Z&se=2026-03-26T14%3A00%3A38Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T06%3A13%3A22Z&ske=2026-03-27T06%3A13%3A22Z&sks=b&skv=2026-02-06&sig=%2BNtHTHLlw6%2BtWqWUjI6VgtCcDdadnfT9LQm%2BRJEMJxQ%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -363,56 +336,32 @@
       "heading": "timeline",
       "sectionType": "timeline",
       "content": {
-        "eyebrow": "Project Implementation Timeline",
-        "headline": "Phased Approach to Data Transformation",
-        "subheadline": "A structured timeline ensures timely delivery and operational readiness.",
+        "eyebrow": "Bright Futures Await!",
+        "headline": "Empowering Acme Corporation with Modern Data Solutions",
+        "subheadline": "Join us on a colorful journey to transform outdated data systems into agile, efficient architectures. At omer-co, we make IT transformation exciting and effective.",
         "phases": [
           {
-            "label": "Kickoff & Analysis",
-            "duration": "2 Weeks",
-            "name": "Project Kickoff",
-            "description": "Conduct kickoff meeting and requirements gathering for critical datasets."
+            "label": "Phase 1",
+            "duration": "2 weeks",
+            "name": "Discovery & Planning",
+            "description": "We analyze current systems and design a roadmap for modernization."
           },
           {
-            "label": "Design & Define",
-            "duration": "3 Weeks",
+            "label": "Phase 2",
+            "duration": "4 weeks",
             "name": "Architecture Design",
-            "description": "Finalize the architecture and API contracts for the new data ecosystem."
+            "description": "We craft a new, scalable data architecture that meets all needs."
           },
           {
-            "label": "Core Development",
-            "duration": "4 Weeks",
-            "name": "Core Components",
-            "description": "Implement data ingestion and storage layers while deploying key microservices."
-          },
-          {
-            "label": "Integration Processing",
-            "duration": "4 Weeks",
-            "name": "Data Processing",
-            "description": "Configure the data processing engine, ensuring successful data loads."
-          },
-          {
-            "label": "Testing & Assurance",
-            "duration": "3 Weeks",
-            "name": "Quality Assurance",
-            "description": "Complete unit and integration testing to validate system reliability."
-          },
-          {
-            "label": "Review & Deploy",
-            "duration": "3 Weeks",
-            "name": "Final Deployment",
-            "description": "Conduct UAT and transition the new architecture into production."
-          },
-          {
-            "label": "Support & Optimize",
-            "duration": "2 Weeks",
-            "name": "Post-Deployment",
-            "description": "Set up monitoring and perform initial performance reviews to optimize the system."
+            "label": "Phase 3",
+            "duration": "4 weeks",
+            "name": "Implementation",
+            "description": "We bring the new architecture to life with modern technologies."
           }
         ],
-        "imageQuery": "Modern tech office with screens displaying data analytics and team collaboration, soft lighting, professional atmosphere, 4K",
-        "diagram": "gantt\nA[Kickoff & Analysis] : a1, 2026-03-21, 2w\nA[Design & Define] : a2, after a1, 3w\nA[Core Development] : a3, after a2, 4w\nA[Integration Processing] : a4, after a3, 4w\nA[Testing & Assurance] : a5, after a4, 3w\nA[Review & Deploy] : a6, after a5, 3w\nA[Support & Optimize] : a7, after a6, 2w",
-        "variant": "split"
+        "imageQuery": "colorful children-friendly technology",
+        "diagram": null,
+        "variant": "asymmetric"
       },
       "diagramMeta": {
         "typeId": "gantt-chart",
@@ -425,55 +374,46 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Modern tech office with screens displaying data analytics and team collaboration, soft lighting, professional atmosphere, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-JtaeOBZkEXMMMVyUTpDCXKuS.png?st=2026-03-26T10%3A35%3A54Z&se=2026-03-26T12%3A35%3A54Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T23%3A32%3A48Z&ske=2026-03-26T23%3A32%3A48Z&sks=b&skv=2026-02-06&sig=8w9OFGaIH4M/0ARVJ35SiIcxWWjC4jVIuti/txfrg9g%3D",
+        "query": "colorful children-friendly technology",
+        "url": null,
         "fallback": "gradient-mesh"
       },
       "editable": true,
-      "version": 1
+      "version": 1,
+      "bgColor": "#1e1b4b"
     },
     {
       "id": "deliverables",
       "heading": "deliverables",
       "sectionType": "deliverables",
       "content": {
-        "eyebrow": "Key Project Deliverables",
-        "headline": "Proposed Deliverables for Data Architecture Transformation",
+        "eyebrow": "Exciting IT Transformation Journey",
+        "headline": "**Revamping Data Infrastructure for Future Success**",
         "items": [
           {
-            "iconHint": "document",
-            "name": "Kickoff Meeting",
-            "detail": "Align on project objectives and deliverables with stakeholders."
+            "iconHint": "cloud",
+            "name": "Modern Data Architecture",
+            "detail": "Empowering businesses with a cutting-edge data infrastructure."
           },
           {
-            "iconHint": "document",
-            "name": "Architecture Diagram",
-            "detail": "Comprehensive outline of the new data ecosystem."
+            "iconHint": "analytics",
+            "name": "Real-Time Analytics",
+            "detail": "Driving insights with advanced event-driven models."
           },
           {
-            "iconHint": "strategy",
-            "name": "Data Governance Framework",
-            "detail": "Ensures compliance and data quality across the architecture."
+            "iconHint": "shield",
+            "name": "Enhanced Data Governance",
+            "detail": "Ensuring compliance and data quality across the board."
           },
           {
-            "iconHint": "identity",
-            "name": "User Acceptance Testing",
-            "detail": "Verify that the solution meets business requirements before go-live."
-          },
-          {
-            "iconHint": "campaign",
-            "name": "Performance Monitoring Tools",
-            "detail": "Set up tools to track system performance post-deployment."
-          },
-          {
-            "iconHint": "document",
-            "name": "Final Documentation",
-            "detail": "Comprehensive guide covering workflows and governance policies."
+            "iconHint": "scalability",
+            "name": "Scalability Solutions",
+            "detail": "Streamlined processes for efficiently handling growth."
           }
         ],
-        "imageQuery": "Cinematic photorealistic scene of a team in a modern conference room during a project kickoff meeting, soft lighting, atmosphere of collaboration, professional photography, 4K",
-        "diagram": "graph TD\nA[Kickoff Meeting] --> B[Architecture Diagram]\nB --> C[Data Governance Framework]\nC --> D[Performance Monitoring Tools]\nD --> E[User Acceptance Testing]\nE --> F[Final Documentation]",
-        "variant": "minimal"
+        "imageQuery": "colorful playful children digital experience",
+        "diagram": null,
+        "variant": "card-grid"
       },
       "diagramMeta": {
         "typeId": "process-flow",
@@ -486,8 +426,174 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Cinematic photorealistic scene of a team in a modern conference room during a project kickoff meeting, soft lighting, atmosphere of collaboration, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-bEPJWX1H4xf1yGHaA7X0h8zk.png?st=2026-03-26T10%3A35%3A53Z&se=2026-03-26T12%3A35%3A53Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A52%3A33Z&ske=2026-03-27T02%3A52%3A33Z&sks=b&skv=2026-02-06&sig=Rkm%2BGlQqmqZkC1rywGhvdqpq7JIOS1QdU1CDlxI/36M%3D",
+        "query": "colorful playful children digital experience",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zLXHxJWF8CLSxVoVKOHBdQw2.png?st=2026-03-26T12%3A01%3A31Z&se=2026-03-26T14%3A01%3A31Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A09%3A12Z&ske=2026-03-27T02%3A09%3A12Z&sks=b&skv=2026-02-06&sig=FC8JU8%2BZaQ1OPh/SGdRPowrKZpNKVu%2B/xu/BXUMnBuY%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
+      "content": {
+        "eyebrow": "Brighten Your Digital World",
+        "headline": "[c=#ec4899]Revamping Data Infrastructure for a Cheerful Tomorrow[/c]",
+        "imageQuery": "colorful digital landscape for kids",
+        "items": [
+          {
+            "iconHint": "sparkling star",
+            "title": "Enhanced Efficiency",
+            "description": "Our new solutions will ensure that data flows smoothly and quickly, reducing wait times and boosting productivity."
+          },
+          {
+            "iconHint": "happy computer",
+            "title": "Modern Architecture",
+            "description": "We'll transform outdated systems into vibrant, playful spaces that inspire creativity and innovation."
+          },
+          {
+            "iconHint": "light bulb",
+            "title": "Real-Time Insights",
+            "description": "Stay ahead with analytics that bring instant understanding to decision-making in a fun way."
+          },
+          {
+            "iconHint": "checkmark badge",
+            "title": "Better Compliance",
+            "description": "Our upgrades ensure data governance that meets regulations while keeping things playful and user-friendly."
+          }
+        ],
+        "diagram": null,
+        "variant": "editorial"
+      },
+      "diagramMeta": {
+        "typeId": "user-journey",
+        "typeLabel": "User Journey",
+        "category": "specialized",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "colorful digital landscape for kids",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-RoaHan4VvOCMWNHNodUNNFn5.png?st=2026-03-26T12%3A01%3A24Z&se=2026-03-26T14%3A01%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T19%3A58%3A17Z&ske=2026-03-26T19%3A58%3A17Z&sks=b&skv=2026-02-06&sig=gEU2dhGDCmnUHCcJSP5ZY1Gea%2Bnfb1RD7F4kKzn1jTI%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "problem",
+      "heading": "problem",
+      "sectionType": "problem",
+      "content": {
+        "eyebrow": "Exciting Digital Transformation",
+        "headline": "Revamping Data Systems for Acme Corporation's Future Success",
+        "body": "Acme Corporation faces challenges with an outdated data infrastructure that hinders efficiency. Omer-co is ready to transform these systems with modern technologies for enhanced decision-making and operational agility.",
+        "painPoints": [
+          "Limited operational efficiency due to outdated systems",
+          "Slow decision-making from inefficient data processes",
+          "Compliance issues with current data governance",
+          "Inability to scale with increasing data volumes",
+          "Lack of real-time analytics capabilities"
+        ],
+        "imageQuery": "colorful playful technology",
+        "diagram": null,
+        "variant": "centered"
+      },
+      "diagramMeta": {
+        "typeId": "quadrant-matrix",
+        "typeLabel": "Priority Matrix",
+        "category": "metric",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "colorful playful technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-6Kn1VozTk86DfnvbXwM15Rdy.png?st=2026-03-26T12%3A01%3A24Z&se=2026-03-26T14%3A01%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T16%3A13%3A25Z&ske=2026-03-26T16%3A13%3A25Z&sks=b&skv=2026-02-06&sig=y/mwTa9LIuQUQvv2iP12scymE/G8J9DVY%2BkN%2B03Llpk%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "challenge",
+      "heading": "challenge",
+      "sectionType": "challenge",
+      "content": {
+        "eyebrow": "Brightening Digital Experiences for Kids",
+        "headline": "Bringing Joyful Digital Adventures to Life with Omer-Co",
+        "body": "At Omer-Co, we specialize in creating playful and colorful digital landscapes where children can explore, learn, and have fun. Our designs are crafted with care, ensuring that every interaction is not just engaging but also easy to navigate.",
+        "pullquote": "Transforming playful ideas into vibrant digital experiences for kids.",
+        "imageQuery": "playful children digital art",
+        "diagram": null,
+        "variant": "card-grid"
+      },
+      "diagramMeta": {
+        "typeId": "decision-tree",
+        "typeLabel": "Decision Tree",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "playful children digital art",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-O4hLYs5YfUn9RdLmxhGyYL01.png?st=2026-03-26T12%3A01%3A32Z&se=2026-03-26T14%3A01%3A32Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A42%3A18Z&ske=2026-03-27T02%3A42%3A18Z&sks=b&skv=2026-02-06&sig=czqNBmovqfUU9MdjScNM8WdMHtczF8f0UxDfgmZLFfk%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "approach",
+      "heading": "approach",
+      "sectionType": "approach",
+      "content": {
+        "eyebrow": "Bright Futures Ahead!",
+        "headline": "Creating Joyful Digital Experiences for Kids",
+        "subheadline": "At omer-co, we craft colorful and playful microsites that inspire imagination. Our goal is to deliver engaging, child-friendly experiences that delight young audiences.",
+        "pillars": [
+          {
+            "iconHint": "playful color palette",
+            "name": "Joyful Design",
+            "description": "We utilize bright colors and friendly illustrations to create a playful environment for kids. Our designs encourage exploration and engagement at every click!"
+          },
+          {
+            "iconHint": "responsive design",
+            "name": "All-Device Accessibility",
+            "description": "Our microsites are optimized for desktop, tablet, and mobile, so joy is accessible anywhere. This ensures that children can delight in our experiences on any device."
+          },
+          {
+            "iconHint": "animated interactions",
+            "name": "Interactive Fun",
+            "description": "We incorporate smooth animations and fun micro-interactions to enhance engagement. Our goal is to make every visit a delight-filled adventure."
+          }
+        ],
+        "imageQuery": "children's playful digital experiences",
+        "diagram": "graph TD\\nA[Client Challenge] --> B[Omer-co Approach]\\nB --> C[Modern Data Architecture]\\nB --> D[Real-time Analytics]\\nB --> E[Enhanced Data Governance]\\nC --> F[Improved Operational Efficiency]\\nD --> G[Scalability for Growth]",
+        "variant": "split"
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "children's playful digital experiences",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-K4kQNE940elMazkI6AF8cBdA.png?st=2026-03-26T12%3A01%3A25Z&se=2026-03-26T14%3A01%3A25Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T08%3A03%3A34Z&ske=2026-03-27T08%3A03%3A34Z&sks=b&skv=2026-02-06&sig=yo4qx53pPqTvUspyS6pjkEr9za7h%2BjJ9FGHJSCsshlU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -498,36 +604,21 @@
       "heading": "pricing",
       "sectionType": "pricing",
       "content": {
-        "eyebrow": "Investment Overview",
-        "headline": "Unlocking Modern Data Solutions for Scalability",
-        "subheadline": "This investment transforms Acme's data architecture into a high-performance engine.",
+        "eyebrow": "Exciting pricing for our engagement",
+        "headline": "Transparent Pricing for Your Digital Transformation",
+        "subheadline": "Discover the value of our services and investment.",
         "rows": [
           [
-            "Team Size",
-            "$4,800.00"
-          ],
-          [
-            "Duration",
-            "10 weeks"
-          ],
-          [
-            "Rate per Person per Week",
-            "$1,200.00"
-          ],
-          [
-            "Weekly Cost",
-            "$4,800.00"
-          ],
-          [
-            "Total Estimated Cost",
-            "$48,000.00"
+            "Item",
+            "Value"
           ]
         ],
-        "totalLabel": "Total: $48,000.00",
-        "footnote": "Payment terms: Net-30 from invoice date, billed monthly in arrears.",
-        "cta": "Contact us today",
-        "imageQuery": "Cinematic photorealistic scene of a high-tech data center, soft blue lighting, professionals engaged in data analysis, executive collaboration, professional photography, 4K",
-        "variant": "split"
+        "totalLabel": "Total Estimated Cost",
+        "footnote": "Pricing valid for 30 days from date of proposal.",
+        "cta": "Get started today!",
+        "imageQuery": "colorful playful children",
+        "diagram": null,
+        "variant": "minimal"
       },
       "diagramMeta": {
         "typeId": "system-architecture",
@@ -549,8 +640,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Cinematic photorealistic scene of a high-tech data center, soft blue lighting, professionals engaged in data analysis, executive collaboration, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-X7QaEJaGc51jbebVTF0Frei6.png?st=2026-03-26T10%3A35%3A51Z&se=2026-03-26T12%3A35%3A51Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A25%3A38Z&ske=2026-03-27T02%3A25%3A38Z&sks=b&skv=2026-02-06&sig=VfAvFefYQ8/TAdqzmM9pRqER4Yaanu5S3fRLrtLTAJ0%3D",
+        "query": "colorful playful children",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-MeXX87q8rN9ozkjcImuaqBTP.png?st=2026-03-26T12%3A01%3A36Z&se=2026-03-26T14%3A01%3A36Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T15%3A21%3A38Z&ske=2026-03-26T15%3A21%3A38Z&sks=b&skv=2026-02-06&sig=3cd9zj0X3kRayxWD9ITsupiJMaX0wrhPJ9HxmAAC8I4%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -561,38 +652,28 @@
       "heading": "stats",
       "sectionType": "stats",
       "content": {
-        "eyebrow": "By The Numbers",
-        "headline": "Key Metrics of Architectural Transformation Impact",
-        "imageQuery": "data architecture transformation",
+        "eyebrow": "Welcome to omer-co!",
+        "headline": "Bringing Joyful Digital Adventures for Kids!",
+        "imageQuery": "bright playful children technology",
         "stats": [
           {
             "number": "$48,000",
-            "label": "Total Project Cost",
-            "context": "This represents the complete investment in upgrading the data infrastructure."
+            "label": "Total Engagement Value",
+            "context": "This project represents a total value of $48,000."
           },
           {
-            "number": "99.9%",
-            "label": "System Availability Goal",
-            "context": "This aims for continuous operation and reliability post-transformation."
+            "number": "10 weeks",
+            "label": "Project Duration",
+            "context": "The complete transformation will take 10 weeks."
           },
           {
-            "number": "10,000 records/second",
-            "label": "Data Ingestion Rate",
-            "context": "This enables efficient processing of high volumes of operational data."
-          },
-          {
-            "number": "200 milliseconds",
-            "label": "Query Response Time",
-            "context": "This represents the target performance metric for quick data access."
-          },
-          {
-            "number": "20",
-            "label": "Critical Datasets Identified",
-            "context": "This helps in targeting key areas for improved governance and analytics."
+            "number": "4 key outcomes",
+            "label": "Achievement Focus",
+            "context": "Our approach delivers 4 crucial outcomes for your data needs."
           }
         ],
-        "diagram": "pie\nData Ingestion Rate\nQuery Response Time\nSystem Availability\nTotal Project Cost\nCritical Datasets Identified",
-        "variant": "editorial"
+        "diagram": null,
+        "variant": "card-grid"
       },
       "diagramMeta": {
         "typeId": "pie-chart",
@@ -605,68 +686,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "data architecture transformation",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-YRy3vmz0ozxHMwaQIWkHjktu.png?st=2026-03-26T10%3A35%3A51Z&se=2026-03-26T12%3A35%3A51Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A52%3A57Z&ske=2026-03-27T03%3A52%3A57Z&sks=b&skv=2026-02-06&sig=sCtClJ6%2Bg1x23WDNS%2BgCeK26Vp7HKk53wGs3VljegaI%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "benefits",
-      "heading": "benefits",
-      "sectionType": "benefits",
-      "content": {
-        "eyebrow": "Key Value Propositions",
-        "headline": "Unlock Strategic Advantages Through Data Modernization",
-        "imageQuery": "Data architecture transformation",
-        "items": [
-          {
-            "iconHint": "strategy",
-            "title": "Operational Efficiency",
-            "description": "Achieve a data architecture that minimizes downtime and maximizes productivity with a system availability rate of 99.9%."
-          },
-          {
-            "iconHint": "digital",
-            "title": "Real-Time Analytics",
-            "description": "Harness rapid data ingestion of 10,000 records per second, enabling immediate insights for informed decision-making."
-          },
-          {
-            "iconHint": "identity",
-            "title": "Risk Mitigation",
-            "description": "Reduce operational risks by identifying and governing critical datasets, enhancing data quality and compliance."
-          },
-          {
-            "iconHint": "launch",
-            "title": "Improved Query Performance",
-            "description": "Ensure that 95% of data queries return results in under 200 milliseconds, enhancing user experience and responsiveness."
-          },
-          {
-            "iconHint": "document",
-            "title": "Centralized Data Access",
-            "description": "Establish a centralized lakehouse to facilitate streamlined data accessibility, ensuring teams can leverage data efficiently."
-          },
-          {
-            "iconHint": "strategy",
-            "title": "Scalable Architecture",
-            "description": "Deploy a cloud-native architecture allowing for scalable operations that evolve with business demands."
-          }
-        ],
-        "diagram": "journey\\nA[Data Sources]\\nB[Ingestion Layer]\\nC[Centralized Lakehouse]\\nD[Processing Engine]\\nE[Analytics Layer]\\nF[Real-Time Decision Making]\\nG[Business Insights]"
-      },
-      "diagramMeta": {
-        "typeId": "user-journey",
-        "typeLabel": "User Journey",
-        "category": "specialized",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "Data architecture transformation",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-jjgLRU474hBPoO29BOXCoC5z.png?st=2026-03-26T10%3A35%3A53Z&se=2026-03-26T12%3A35%3A53Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T21%3A24%3A29Z&ske=2026-03-26T21%3A24%3A29Z&sks=b&skv=2026-02-06&sig=i0dnjeMfwdCCJVZvxkbDJUWNdXyQQ8uuRNCOgWqBmTs%3D",
+        "query": "bright playful children technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-74eXiA7wvr1ADSDMh0ywNZrN.png?st=2026-03-26T12%3A01%3A24Z&se=2026-03-26T14%3A01%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T21%3A02%3A34Z&ske=2026-03-26T21%3A02%3A34Z&sks=b&skv=2026-02-06&sig=wSeAcXR/M5ow4BeJWSB9chO37KHM%2BKTSqfUQQdTB5sw%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -677,28 +698,28 @@
       "heading": "whyus",
       "sectionType": "whyus",
       "content": {
-        "eyebrow": "Why Choose omer-co",
-        "headline": "Transforming Data Architecture for Maximum Impact",
-        "body": "omer-co specializes in modernizing data infrastructures, delivering tailored solutions for operational efficiency. Our proven methodologies ensure a seamless transition to cloud-native architectures, empowering organizations to make data-driven decisions.",
+        "eyebrow": "Revolutionizing IT with Playful Design",
+        "headline": "Exciting Solutions for Modern Data Challenges",
+        "body": "At omer-co, we’re transforming Acme Corporation’s dated data systems into vibrant, efficient architectures. Our playful yet professional approach infuses joy into technology, ensuring a better future for your data operations.",
         "stats": [
           {
-            "number": "20",
-            "label": "critical datasets",
-            "context": "identified for enhanced governance."
+            "number": "$48,000.00",
+            "label": "Total Project Value",
+            "context": "Engagements are tailored to maximize value."
           },
           {
-            "number": "10,000",
-            "label": "records per second",
-            "context": "data ingestion rate achieved."
+            "number": "10 weeks",
+            "label": "Projected Duration",
+            "context": "Rapid transformation for timely results."
           },
           {
-            "number": "99.9%",
-            "label": "availability rate",
-            "context": "ensured for outstanding system reliability."
+            "number": "4",
+            "label": "Key Outcomes",
+            "context": "Focus on modern data architecture and governance."
           }
         ],
-        "imageQuery": "DALL-E 3 prompt: Stunning modern data center with sleek lines and ambient blue lighting, advanced servers and cloud technology display, professional atmosphere, 4K",
-        "diagram": "graph TD\n  A[Frontend] --> B[APIs]\n  B --> C[Backend]\n  C --> D[Database]\n  C --> E[Data Lakehouse]\n  E --> F[Analytics]\n  F --> G[Reporting]\n  B --> H[Integration]",
+        "imageQuery": "colorful children illustrations",
+        "diagram": null,
         "variant": "centered"
       },
       "diagramMeta": {
@@ -712,58 +733,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "DALL-E 3 prompt: Stunning modern data center with sleek lines and ambient blue lighting, advanced servers and cloud technology display, professional atmosphere, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-jN27ZQiyfKjguZC5b55Mw3Bf.png?st=2026-03-26T10%3A35%3A53Z&se=2026-03-26T12%3A35%3A53Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T15%3A21%3A35Z&ske=2026-03-26T15%3A21%3A35Z&sks=b&skv=2026-02-06&sig=JL0omgHgAEYvh1iQzxYgLUGXiFg97%2BXErrdxsNSb5XU%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "section-1774525135779-zacfp",
-      "heading": "Team",
-      "sectionType": "team",
-      "content": {
-        "eyebrow": "THE TEAM",
-        "headline": "The People Behind the Work",
-        "subheadline": "Experienced professionals committed to your success.",
-        "members": [
-          {
-            "iconHint": "identity",
-            "name": "Niranjan Bhambhi",
-            "role": "Project Lead",
-            "bio": "Experienced leader with 20+ years delivering complex projects."
-          },
-          {
-            "iconHint": "identity",
-            "name": "Sam Rivera",
-            "role": "Lead Designer",
-            "bio": "Award-winning designer focused on user-centred experiences."
-          },
-          {
-            "iconHint": "identity",
-            "name": "Jordan Lee",
-            "role": "Technical Lead",
-            "bio": "Full-stack engineer specialising in scalable architectures."
-          },
-          {
-            "name": "Rohtash",
-            "role": "Role Title",
-            "bio": "Brief bio…",
-            "iconHint": "identity"
-          },
-          {
-            "name": "[c=#3b82f6]Team Member[/c]",
-            "role": "Role Title",
-            "bio": "Brief bio…",
-            "iconHint": "identity"
-          }
-        ]
-      },
-      "image": {
-        "source": "gradient",
-        "query": "team",
-        "url": null,
+        "query": "colorful children illustrations",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-DvYIqylFyEyNB9WFCczD7UNO.png?st=2026-03-26T12%3A01%3A24Z&se=2026-03-26T14%3A01%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A51%3A25Z&ske=2026-03-27T02%3A51%3A25Z&sks=b&skv=2026-02-06&sig=3dHmSLnpQOqzkKe%2BrcQWONTWzasnkM04cuKkfbLjaQU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -774,37 +745,31 @@
       "heading": "testimonials",
       "sectionType": "testimonials",
       "content": {
-        "eyebrow": "Client Voices",
-        "headline": "Real Insights from Our Partners",
-        "imageQuery": "professional business meeting collaboration",
-        "diagram": null,
+        "eyebrow": "What Our Clients Say",
+        "headline": "Joyful Transformations with omer-co!",
+        "imageQuery": "colorful happy children playing",
         "items": [
           {
-            "quote": "The transformation of our data infrastructure has been nothing short of remarkable. With omer-co's expertise, we reduced our query response times and enabled real-time analytics that have redefined our decision-making process.",
-            "name": "Jessica Miller",
-            "title": "Chief Data Officer",
-            "company": "Nexus Technologies"
+            "quote": "omer-co turned our old systems into a lively, modern infrastructure!",
+            "name": "Sophia Lee",
+            "title": "IT Manager",
+            "company": "KM Digital"
           },
           {
-            "quote": "Partnering with omer-co allowed us to identify critical datasets and improve operational governance significantly. Their team understood our challenges and delivered solutions that truly fit our needs.",
-            "name": "Michael Chen",
-            "title": "Data Architect",
-            "company": "Quantis Solutions"
-          },
-          {
-            "quote": "Through this collaboration, we have achieved a greater level of clarity and efficiency in our data operations. The new architecture not only met our expectations but has also positioned us for future growth.",
-            "name": "Sarah Johnson",
-            "title": "Operations Manager",
-            "company": "Innovate IT Services"
+            "quote": "The engagement was fun and effective, making it easier for us to thrive!",
+            "name": "Mark Thompson",
+            "title": "Project Lead",
+            "company": "Acme Corporation"
           }
         ],
-        "variant": "editorial"
+        "diagram": null,
+        "variant": "split"
       },
       "diagramMeta": null,
       "image": {
         "source": "dalle",
-        "query": "professional business meeting collaboration",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-u3Tp1xsGr5oumKQSHsqUcWgU.png?st=2026-03-26T10%3A35%3A56Z&se=2026-03-26T12%3A35%3A56Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T15%3A24%3A47Z&ske=2026-03-26T15%3A24%3A47Z&sks=b&skv=2026-02-06&sig=ok8BfaWldoyZ3yZglFjtVbGC4Ww3HcngDvx6ukGpyHc%3D",
+        "query": "colorful happy children playing",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-kFHtpzOiJaJXsOfxUDuBbqJV.png?st=2026-03-26T12%3A01%3A29Z&se=2026-03-26T14%3A01%3A29Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A40%3A11Z&ske=2026-03-27T02%3A40%3A11Z&sks=b&skv=2026-02-06&sig=Ywjn1e3g0mQbLrTvFWS7Moxbm13ac%2BfYwN15/zyU%2BnU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -815,15 +780,15 @@
       "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "Immediate Next Steps",
-        "headline": "Prepare for Your Data Transformation Journey",
-        "body": "Start by discussing key objectives with your stakeholders. Outline your requirements for the 20 critical datasets to kick off the gap analysis. Establish communication channels to ensure collaboration throughout the transformation process.",
-        "ctaPrimary": "Schedule a Meeting",
-        "ctaSecondary": "Get Started Now",
-        "urgencyNote": null,
-        "imageQuery": "Cinematic photorealistic scene of a diverse team in a modern conference room, engaged in a focused discussion, soft directional lighting, professional atmosphere, 4K",
-        "diagram": "graph TD\nA[Kickoff Meeting] --> B[Requirements Gathering]\nA --> C[Gap Analysis Completed]\nB --> D[Documentation Established]\nC --> E[Integration Assessment]\nD --> F[Transformation Initiation]\nE --> F",
-        "variant": "minimal"
+        "eyebrow": "Bright Ideas for a Better Future",
+        "headline": "Transforming Data Systems with Joy and Innovation",
+        "body": "At omer-co, we’re all about creating engaging experiences that make technology understandable and fun! Our playful approach helps Acme Corporation revamp their outdated data infrastructure into something modern, efficient, and ready for the future.",
+        "ctaPrimary": "Discover Our Approach",
+        "ctaSecondary": "Learn More Today",
+        "urgencyNote": "Let's make your data playful and powerful!",
+        "imageQuery": "playful, colorful technology kids",
+        "diagram": null,
+        "variant": "editorial"
       },
       "diagramMeta": {
         "typeId": "process-flow",
@@ -836,15 +801,12 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Cinematic photorealistic scene of a diverse team in a modern conference room, engaged in a focused discussion, soft directional lighting, professional atmosphere, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-D0YY7L8N47fc8SYcFxKTSzg2.png?st=2026-03-26T10%3A35%3A53Z&se=2026-03-26T12%3A35%3A53Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A11%3A52Z&ske=2026-03-27T03%3A11%3A52Z&sks=b&skv=2026-02-06&sig=n8ckH71VtmdC7DIU3%2ByyQoLLQZYe%2BVhMOdkDG%2BmEWfE%3D",
+        "query": "playful, colorful technology kids",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-tAbWw9fOD9tPbobWfZXdhlXc.png?st=2026-03-26T12%3A01%3A36Z&se=2026-03-26T14%3A01%3A36Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A13%3A25Z&ske=2026-03-27T02%3A13%3A25Z&sks=b&skv=2026-02-06&sig=EOKwAzhGPmchCKcdAmSK6U9SRMMBD%2BJmZTP2JM6c7PU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
-      "version": 1,
-      "embed": {
-        "url": "https://www.youtube.com/watch?v=fr1f84rg4Nw"
-      }
+      "version": 1
     }
   ]
 }

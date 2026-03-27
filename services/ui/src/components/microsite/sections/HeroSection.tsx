@@ -374,7 +374,7 @@ export function HeroSection({
           )}
           <R delay={60}>
             <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(2.2rem, 5vw, 4rem)',
+              fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
               lineHeight: 1.05,
               marginBottom: 32,
             }}>
@@ -493,7 +493,7 @@ export function HeroSection({
           {eyebrow}
           <R delay={60}>
             <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(2.4rem, 6vw, 4.5rem)',
+              fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
               lineHeight: 1.02,
               marginBottom: 24,
             }}>

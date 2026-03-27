@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditContext, type EditSelection } from './EditContext';
 
@@ -19,28 +19,29 @@ interface Props {
 }
 
 const ACCENT = '#6366f1';
+const GLOW = 'rgba(99,102,241,0.35)';
 
 // Colour swatches available in the inline toolbar
 const COLOR_SWATCHES = [
-  { label: 'Accent',  value: ACCENT },
-  { label: 'Red',     value: '#ef4444' },
-  { label: 'Orange',  value: '#f97316' },
-  { label: 'Yellow',  value: '#eab308' },
-  { label: 'Green',   value: '#22c55e' },
+  { label: 'Accent',  value: '#6366f1' },
   { label: 'Cyan',    value: '#06b6d4' },
-  { label: 'Blue',    value: '#3b82f6' },
-  { label: 'Purple',  value: '#8b5cf6' },
+  { label: 'Green',   value: '#22c55e' },
+  { label: 'Yellow',  value: '#eab308' },
+  { label: 'Orange',  value: '#f97316' },
+  { label: 'Red',     value: '#ef4444' },
   { label: 'Pink',    value: '#ec4899' },
-  { label: 'White',   value: '#ffffff' },
-  { label: 'Muted',   value: '#94a3b8' },
+  { label: 'Purple',  value: '#8b5cf6' },
+  { label: 'Blue',    value: '#3b82f6' },
+  { label: 'White',   value: '#f1f5f9' },
+  { label: 'Muted',   value: '#64748b' },
 ];
 
 // Slash command options
 const SLASH_COMMANDS = [
-  { id: 'bold',   label: '**Bold**',       icon: 'B', desc: 'Bold text',       apply: (t: string) => `**${t || 'bold text'}**` },
-  { id: 'italic', label: '_Italic_',       icon: 'I', desc: 'Italic text',     apply: (t: string) => `_${t || 'italic text'}_` },
-  { id: 'bullet', label: '• Bullet list',  icon: '•', desc: 'Bullet list item', apply: (t: string) => `• ${t || 'list item'}` },
-  { id: 'h2',     label: '## Heading',     icon: 'H', desc: 'Section heading', apply: (t: string) => `## ${t || 'Heading'}` },
+  { id: 'bold',   label: '**Bold**',       icon: 'B', desc: 'Bold text',        apply: (t: string) => `**${t || 'bold text'}**` },
+  { id: 'italic', label: '_Italic_',       icon: 'I', desc: 'Italic text',      apply: (t: string) => `_${t || 'italic text'}_` },
+  { id: 'bullet', label: '• Bullet',       icon: '•', desc: 'Bullet list item', apply: (t: string) => `• ${t || 'list item'}` },
+  { id: 'h2',     label: '## Heading',     icon: 'H', desc: 'Section heading',  apply: (t: string) => `## ${t || 'Heading'}` },
 ];
 
 function wrapSelection(
@@ -69,6 +70,28 @@ function prefixLines(
   return before + prefixed + val.slice(end);
 }
 
+// Auto-grow textarea height based on content
+function autoGrow(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+// Clamp a portal position within viewport bounds
+function clampPortalRect(
+  preferredLeft: number,
+  preferredTop: number,
+  width: number,
+  height: number,
+  margin = 8,
+): { left: number; top: number } {
+  const maxLeft = window.innerWidth - width - margin;
+  const maxTop = window.innerHeight - height - margin;
+  return {
+    left: Math.max(margin, Math.min(preferredLeft, maxLeft)),
+    top: Math.max(margin, Math.min(preferredTop, maxTop)),
+  };
+}
+
 export function Editable({
   sectionId,
   fieldPath,
@@ -84,9 +107,11 @@ export function Editable({
   const [draft, setDraft] = useState(value ?? '');
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
+  const [slashSelected, setSlashSelected] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [inputRect, setInputRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+  const toolbarWidth = 380; // estimated toolbar width for clamping
 
   useEffect(() => setMounted(true), []);
 
@@ -96,12 +121,13 @@ export function Editable({
   // Focus input when entering edit mode
   useEffect(() => {
     if (editing && inputRef.current) {
-      inputRef.current.focus();
       const el = inputRef.current;
+      el.focus();
       const len = el.value.length;
       el.setSelectionRange(len, len);
+      if (multiline && el instanceof HTMLTextAreaElement) autoGrow(el);
     }
-  }, [editing]);
+  }, [editing, multiline]);
 
   // Close slash menu on outside click
   useEffect(() => {
@@ -125,6 +151,19 @@ export function Editable({
       window.removeEventListener('resize', update);
     };
   }, [editing]);
+
+  // Keyboard navigation for slash menu
+  const handleSlashKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!slashOpen) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSlashSelected(s => Math.min(s + 1, filteredCmds.length - 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSlashSelected(s => Math.max(s - 1, 0)); }
+    if (e.key === 'Escape') { e.preventDefault(); setSlashOpen(false); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredCmds[slashSelected]) applySlashCommand(filteredCmds[slashSelected].id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slashOpen, slashSelected]);
 
   // Outside editor — render children as-is
   if (!ctx) return <>{children}</>;
@@ -160,7 +199,8 @@ export function Editable({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     const val = e.target.value;
     setDraft(val);
-    // Detect slash command: '/' at start or after newline
+    if (multiline && e.target instanceof HTMLTextAreaElement) autoGrow(e.target);
+    // Detect slash command: '/' at start or after newline/space
     const pos = e.target.selectionStart ?? val.length;
     const textBefore = val.slice(0, pos);
     const slashIdx = textBefore.lastIndexOf('/');
@@ -168,6 +208,7 @@ export function Editable({
       const query = textBefore.slice(slashIdx + 1);
       if (!query.includes(' ') && query.length <= 10) {
         setSlashQuery(query);
+        setSlashSelected(0);
         setSlashOpen(true);
         return;
       }
@@ -178,7 +219,6 @@ export function Editable({
   const applySlashCommand = (cmdId: string) => {
     const cmd = SLASH_COMMANDS.find(c => c.id === cmdId);
     if (!cmd || !inputRef.current) { setSlashOpen(false); return; }
-    // Find the slash position
     const el = inputRef.current;
     const pos = el.selectionStart ?? draft.length;
     const textBefore = draft.slice(0, pos);
@@ -223,7 +263,6 @@ export function Editable({
     const end = el.selectionEnd ?? 0;
     const selected = el.value.slice(start, end);
     if (!selected) return;
-    // Strip bold, italic, color markup from the selection
     const stripped = selected
       .replace(/\[c=#?[a-zA-Z0-9]+\](.*?)\[\/c\]/gs, '$1')
       .replace(/\*\*(.+?)\*\*/gs, '$1')
@@ -233,17 +272,35 @@ export function Editable({
     setTimeout(() => { el.focus(); el.setSelectionRange(start, start + stripped.length); }, 0);
   };
 
-  // Shared inline editor style
+  const filteredCmds = slashOpen
+    ? SLASH_COMMANDS.filter(c =>
+        c.id.startsWith(slashQuery) ||
+        c.label.toLowerCase().includes(slashQuery.toLowerCase())
+      )
+    : [];
+
+  // Compute clamped toolbar position
+  const toolbarPos = inputRect
+    ? clampPortalRect(
+        inputRect.left,
+        inputRect.top - 44,
+        toolbarWidth,
+        40,
+      )
+    : null;
+
+  // Shared inline editor style — futuristic glassmorphism
   const editorBaseStyle: React.CSSProperties = {
     position: 'absolute',
-    inset: -2,
-    width: 'calc(100% + 4px)',
-    background: 'rgba(0,0,0,0.75)',
-    backdropFilter: 'blur(4px)',
-    color: '#fff',
-    border: `2px solid ${ACCENT}`,
-    borderRadius: 4,
-    padding: '6px 8px',
+    inset: -3,
+    width: 'calc(100% + 6px)',
+    background: 'rgba(6,10,20,0.82)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    color: '#f1f5f9',
+    border: `1.5px solid ${ACCENT}`,
+    borderRadius: 6,
+    padding: '6px 10px',
     fontFamily: 'inherit',
     fontSize: 'inherit',
     fontWeight: 'inherit',
@@ -252,11 +309,9 @@ export function Editable({
     resize: 'none',
     outline: 'none',
     zIndex: 1000,
+    boxShadow: `0 0 0 3px ${GLOW}, 0 8px 32px rgba(0,0,0,0.4)`,
+    transition: 'box-shadow 0.2s',
   };
-
-  const filteredCmds = slashOpen
-    ? SLASH_COMMANDS.filter(c => c.id.startsWith(slashQuery) || c.label.toLowerCase().includes(slashQuery.toLowerCase()))
-    : [];
 
   return (
     <div
@@ -277,59 +332,75 @@ export function Editable({
         outline: (isSelected && !editing)
           ? `2px solid ${ACCENT}`
           : '2px solid transparent',
-        outlineOffset: 3,
-        borderRadius: 4,
-        transition: 'outline-color 0.12s',
+        outlineOffset: 4,
+        borderRadius: 5,
+        transition: 'outline-color 0.15s, outline-offset 0.15s',
       }}
       onMouseEnter={e => {
-        if (!isSelected && !editing)
+        if (!isSelected && !editing) {
           (e.currentTarget as HTMLElement).style.outlineColor = `${ACCENT}55`;
+          (e.currentTarget as HTMLElement).style.outlineOffset = '3px';
+        }
       }}
       onMouseLeave={e => {
-        if (!isSelected && !editing)
+        if (!isSelected && !editing) {
           (e.currentTarget as HTMLElement).style.outlineColor = 'transparent';
+          (e.currentTarget as HTMLElement).style.outlineOffset = '4px';
+        }
       }}
     >
       {/* Selection label badge */}
       {isSelected && !editing && (
         <span style={{
           position: 'absolute',
-          top: -22, left: 0,
+          top: -24, left: 0,
           fontSize: 10, fontWeight: 700,
-          color: '#fff', background: ACCENT,
-          padding: '2px 7px', borderRadius: 4,
+          color: '#fff', background: `linear-gradient(135deg, ${ACCENT}, #8b5cf6)`,
+          padding: '2px 8px', borderRadius: 5,
           pointerEvents: 'none', zIndex: 200,
           fontFamily: 'system-ui, -apple-system, sans-serif',
-          whiteSpace: 'nowrap', letterSpacing: '0.03em',
+          whiteSpace: 'nowrap', letterSpacing: '0.04em',
+          boxShadow: `0 2px 8px ${GLOW}`,
         }}>
-          {label}
+          ✎ {label}
         </span>
       )}
 
       {/* Inline editor overlay */}
       {editing && canInlineEdit && (
         <>
-          {/* Rich text formatting toolbar — rendered in portal to escape overflow:hidden */}
-          {inputRect && mounted && createPortal(
+          {/* Futuristic floating toolbar — rendered in portal */}
+          {toolbarPos && mounted && createPortal(
             <div
               style={{
                 position: 'fixed',
-                top: Math.max(4, inputRect.top - 44),
-                left: inputRect.left,
+                top: toolbarPos.top,
+                left: toolbarPos.left,
                 zIndex: 60000,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2,
-                background: '#1e293b',
-                borderRadius: 6,
-                padding: '3px 6px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                gap: 1,
+                background: 'rgba(6,10,20,0.95)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                borderRadius: 10,
+                padding: '4px 6px',
+                boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.25), 0 0 20px ${GLOW}`,
+                border: '1px solid rgba(99,102,241,0.2)',
                 pointerEvents: 'auto',
-                flexWrap: 'wrap',
-                maxWidth: 420,
+                flexWrap: 'nowrap',
+                maxWidth: toolbarWidth,
+                animation: 'toolbar-appear 0.15s cubic-bezier(0.4,0,0.2,1)',
               }}
               onMouseDown={e => e.preventDefault()}
             >
+              <style>{`
+                @keyframes toolbar-appear {
+                  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+                  to   { opacity: 1; transform: translateY(0) scale(1); }
+                }
+              `}</style>
+
               {/* Format buttons */}
               {[
                 { icon: 'B', title: 'Bold (Ctrl+B)', style: { fontWeight: 900 }, action: () => applyFormat('bold') },
@@ -340,53 +411,123 @@ export function Editable({
                   key={btn.icon}
                   title={btn.title}
                   onMouseDown={e => { e.preventDefault(); btn.action(); }}
-                  style={{ width: 24, height: 24, borderRadius: 4, border: 'none', background: 'transparent', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', ...btn.style }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.15)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                  style={{
+                    width: 26, height: 26, borderRadius: 5, border: 'none',
+                    background: 'transparent', color: '#94a3b8', fontSize: 12,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontFamily: 'system-ui',
+                    transition: 'background 0.1s, color 0.1s',
+                    ...btn.style,
+                  }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.2)';
+                    (e.currentTarget as HTMLElement).style.color = '#c7d2fe';
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLElement).style.color = '#94a3b8';
+                  }}
                 >{btn.icon}</button>
               ))}
 
               {/* Separator */}
-              <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 3px', alignSelf: 'stretch' }} />
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', margin: '3px 4px', alignSelf: 'stretch' }} />
 
-              {/* Colour swatches */}
+              {/* Colour swatches — smaller dots */}
               {COLOR_SWATCHES.map(swatch => (
                 <button
                   key={swatch.value}
-                  title={`Color: ${swatch.label}`}
+                  title={`${swatch.label}`}
                   onMouseDown={e => { e.preventDefault(); applyColor(swatch.value); }}
                   style={{
-                    width: 16, height: 16, borderRadius: '50%',
-                    border: '2px solid rgba(255,255,255,0.25)',
+                    width: 14, height: 14, borderRadius: '50%',
+                    border: '1.5px solid rgba(255,255,255,0.15)',
                     background: swatch.value,
                     cursor: 'pointer',
                     padding: 0,
                     flexShrink: 0,
-                    transition: 'transform 0.1s, border-color 0.1s',
+                    transition: 'transform 0.12s, border-color 0.12s, box-shadow 0.12s',
                   }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.3)'; (e.currentTarget as HTMLElement).style.borderColor = '#fff'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.25)'; }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as HTMLElement).style.transform = 'scale(1.4)';
+                    (e.currentTarget as HTMLElement).style.borderColor = '#fff';
+                    (e.currentTarget as HTMLElement).style.boxShadow = `0 0 6px ${swatch.value}`;
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)';
+                    (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                  }}
                 />
               ))}
 
               {/* Separator */}
-              <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 3px', alignSelf: 'stretch' }} />
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', margin: '3px 4px', alignSelf: 'stretch' }} />
 
               {/* Clear formatting */}
               <button
                 title="Clear formatting from selection"
                 onMouseDown={e => { e.preventDefault(); clearFormatting(); }}
-                style={{ width: 24, height: 24, borderRadius: 4, border: 'none', background: 'transparent', color: '#94a3b8', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.15)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+                style={{
+                  width: 26, height: 26, borderRadius: 5, border: 'none',
+                  background: 'transparent', color: '#475569', fontSize: 10,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontFamily: 'system-ui',
+                  fontWeight: 700, letterSpacing: '-0.5px',
+                  transition: 'background 0.1s, color 0.1s',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.15)';
+                  (e.currentTarget as HTMLElement).style.color = '#fca5a5';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.color = '#475569';
+                }}
               >Tx</button>
 
-              {multiline && (
-                <>
-                  <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '2px 3px', alignSelf: 'stretch' }} />
-                  <span style={{ fontSize: 9, color: '#94a3b8', alignSelf: 'center', paddingRight: 2, fontFamily: 'system-ui' }}>/ cmds</span>
-                </>
-              )}
+              {/* Confirm/Cancel */}
+              <div style={{ width: 1, background: 'rgba(255,255,255,0.1)', margin: '3px 4px', alignSelf: 'stretch' }} />
+
+              <button
+                title="Save (Enter)"
+                onMouseDown={e => { e.preventDefault(); commit(); }}
+                style={{
+                  width: 26, height: 26, borderRadius: 5, border: 'none',
+                  background: 'rgba(99,102,241,0.2)', color: '#818cf8', fontSize: 14,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.1s, color 0.1s',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.4)';
+                  (e.currentTarget as HTMLElement).style.color = '#c7d2fe';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.2)';
+                  (e.currentTarget as HTMLElement).style.color = '#818cf8';
+                }}
+              >✓</button>
+
+              <button
+                title="Cancel (Esc)"
+                onMouseDown={e => { e.preventDefault(); cancel(); }}
+                style={{
+                  width: 26, height: 26, borderRadius: 5, border: 'none',
+                  background: 'transparent', color: '#475569', fontSize: 12,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.1s, color 0.1s',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.1)';
+                  (e.currentTarget as HTMLElement).style.color = '#fca5a5';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.color = '#475569';
+                }}
+              >✕</button>
             </div>,
             document.body
           )}
@@ -395,22 +536,19 @@ export function Editable({
             <textarea
               ref={inputRef as React.RefObject<HTMLTextAreaElement>}
               value={draft}
-              rows={Math.max(3, draft.split('\n').length)}
+              rows={Math.max(2, draft.split('\n').length)}
               onChange={handleChange}
               onBlur={commit}
               onKeyDown={e => {
-                if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                handleSlashKeyDown(e);
+                if (e.key === 'Escape' && !slashOpen) { e.preventDefault(); cancel(); }
                 if (e.ctrlKey || e.metaKey) {
                   if (e.key === 'b') { e.preventDefault(); applyFormat('bold'); }
                   if (e.key === 'i') { e.preventDefault(); applyFormat('italic'); }
+                  if (e.key === 'Enter') { e.preventDefault(); commit(); }
                 }
-                if (e.key === 'Enter' && slashOpen) {
-                  e.preventDefault();
-                  if (filteredCmds.length > 0) applySlashCommand(filteredCmds[0].id);
-                }
-                if (e.key === 'Escape' && slashOpen) { e.preventDefault(); setSlashOpen(false); }
               }}
-              style={{ ...editorBaseStyle, minHeight: 60 }}
+              style={{ ...editorBaseStyle, minHeight: 48, overflowY: 'hidden' }}
             />
           ) : (
             <input
@@ -426,40 +564,49 @@ export function Editable({
                   if (e.key === 'i') { e.preventDefault(); applyFormat('italic'); }
                 }
               }}
-              style={{ ...editorBaseStyle, height: '1.5em' }}
+              style={{ ...editorBaseStyle, height: '1.6em' }}
             />
           )}
 
-          {/* Slash command menu — rendered in portal to escape overflow:hidden */}
+          {/* Slash command menu — portal, clamped to viewport */}
           {slashOpen && filteredCmds.length > 0 && inputRect && mounted && createPortal(
             <div
               style={{
                 position: 'fixed',
-                top: inputRect.bottom + 4,
-                left: inputRect.left,
-                zIndex: 60000,
-                background: '#1e293b',
-                borderRadius: 8,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                top: Math.min(inputRect.bottom + 6, window.innerHeight - 160),
+                left: Math.max(8, Math.min(inputRect.left, window.innerWidth - 220)),
+                zIndex: 60001,
+                background: 'rgba(6,10,20,0.97)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                borderRadius: 10,
+                boxShadow: `0 12px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.2)`,
+                border: '1px solid rgba(99,102,241,0.15)',
                 overflow: 'hidden',
-                minWidth: 200,
+                minWidth: 210,
                 pointerEvents: 'auto',
+                animation: 'toolbar-appear 0.12s cubic-bezier(0.4,0,0.2,1)',
               }}
               onMouseDown={e => e.preventDefault()}
             >
-              {filteredCmds.map(cmd => (
+              <div style={{ padding: '4px 8px 2px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <span style={{ fontSize: 9, color: '#475569', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'system-ui' }}>
+                  Commands
+                </span>
+              </div>
+              {filteredCmds.map((cmd, i) => (
                 <button
                   key={cmd.id}
                   onMouseDown={e => { e.preventDefault(); applySlashCommand(cmd.id); }}
+                  onMouseEnter={() => setSlashSelected(i)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 10,
                     padding: '8px 12px',
-                    background: 'transparent',
+                    background: i === slashSelected ? 'rgba(99,102,241,0.15)' : 'transparent',
                     border: 'none',
-                    color: '#fff',
+                    color: '#e2e8f0',
                     cursor: 'pointer',
                     width: '100%',
                     textAlign: 'left',
@@ -467,15 +614,19 @@ export function Editable({
                     fontFamily: 'system-ui',
                     transition: 'background 0.1s',
                   }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.1)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                 >
-                  <span style={{ width: 22, height: 22, borderRadius: 4, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                  <span style={{
+                    width: 24, height: 24, borderRadius: 6,
+                    background: i === slashSelected ? ACCENT : 'rgba(99,102,241,0.2)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    color: '#fff', transition: 'background 0.1s',
+                  }}>
                     {cmd.icon}
                   </span>
                   <div>
-                    <div style={{ fontWeight: 600 }}>{cmd.label}</div>
-                    <div style={{ fontSize: 10, color: '#94a3b8' }}>{cmd.desc}</div>
+                    <div style={{ fontWeight: 600, color: '#e2e8f0' }}>{cmd.label}</div>
+                    <div style={{ fontSize: 10, color: '#475569', marginTop: 1 }}>{cmd.desc}</div>
                   </div>
                 </button>
               ))}

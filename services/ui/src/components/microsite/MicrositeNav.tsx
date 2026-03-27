@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   PluginTokens,
   BrandConfig,
@@ -33,6 +33,20 @@ export function MicrositeNav({
   const [scrollPct, setScrollPct] = useState(0);
   const [activeId, setActiveId] = useState<string>("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Detect actual nav container width instead of relying on @media queries,
+  // so the hamburger works inside the editor's 375px preview pane.
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setIsMobileLayout(entry.contentRect.width < 640);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     const container = getScrollContainer(scrollContainerId);
@@ -170,41 +184,44 @@ export function MicrositeNav({
       </div>
 
       <nav
+        ref={navRef}
         style={{
           position: "sticky",
-          top: 2, // just below progress bar
+          top: 2,
           left: 0,
           right: 0,
           zIndex: 500,
-          padding: "0 24px",
+          padding: "0 16px",
           height: 56,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          transition:
-            "background 0.3s, backdrop-filter 0.3s, border-color 0.3s",
+          transition: "background 0.3s, backdrop-filter 0.3s, border-color 0.3s",
           background: scrolled ? `${tokens.bg}cc` : `${tokens.bg}99`,
           backdropFilter: "blur(16px)",
           borderBottom: `1px solid ${scrolled ? tokens.border : "transparent"}`,
         }}
       >
         {/* Logo / Company name */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           {brand.logoUrl ? (
             <img
               src={brand.logoUrl}
               alt={brand.companyName}
-              style={{ height: 24, objectFit: "contain" }}
+              style={{ height: 22, objectFit: "contain", maxWidth: isMobileLayout ? 80 : 140 }}
             />
           ) : (
             <span
               style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontWeight: 700,
-                fontSize: 13,
+                fontSize: isMobileLayout ? 11 : 13,
                 color: tokens.accent,
                 letterSpacing: tokens.labelTracking,
                 textTransform: "uppercase",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
               {brand.logoText || brand.companyName}
@@ -212,138 +229,143 @@ export function MicrositeNav({
           )}
         </div>
 
-        {/* Desktop nav links */}
-        <div
-          className="ms-nav-links"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: navGap,
-            flexWrap: "nowrap",
-            overflowX: "auto",
-          }}
-        >
-          {navLinks.map((s) => {
-            const isActive = activeId === s.id;
-            return (
-              <button
-                key={s.id}
-                onClick={() => scrollTo(s.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  borderBottom: isActive
-                    ? `1.5px solid ${tokens.accent}`
-                    : "1.5px solid transparent",
-                  cursor: "pointer",
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: navFontSize,
-                  fontWeight: isActive ? 700 : 500,
-                  color: isActive ? tokens.accent : tokens.textMuted,
-                  letterSpacing: "0.04em",
-                  padding: "4px 0 2px",
-                  whiteSpace: "nowrap",
-                  transition: "color 0.2s",
-                  flexShrink: 0,
-                }}
-              >
-                {navLabel(s)}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Mobile hamburger */}
-        <button
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="ms-nav-mobile-btn"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 8,
-            color: tokens.text,
-            display: "none",
-          }}
-        >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
+        {/* Desktop nav links — hidden when container is narrow */}
+        {!isMobileLayout && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: navGap,
+              flexWrap: "nowrap",
+              overflow: "hidden",
+            }}
           >
-            {mobileOpen ? (
-              <path d="M6 6l12 12M6 18L18 6" />
-            ) : (
-              <path d="M4 8h16M4 16h16" />
-            )}
-          </svg>
-        </button>
+            {navLinks.map((s) => {
+              const isActive = activeId === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => scrollTo(s.id)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    borderBottom: isActive
+                      ? `1.5px solid ${tokens.accent}`
+                      : "1.5px solid transparent",
+                    cursor: "pointer",
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: navFontSize,
+                    fontWeight: isActive ? 700 : 500,
+                    color: isActive ? tokens.accent : tokens.textMuted,
+                    letterSpacing: "0.04em",
+                    padding: "4px 0 2px",
+                    whiteSpace: "nowrap",
+                    transition: "color 0.2s",
+                    flexShrink: 0,
+                  }}
+                >
+                  {navLabel(s)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Hamburger button — shown when container is narrow */}
+        {isMobileLayout && (
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            style={{
+              background: mobileOpen ? `${tokens.accent}18` : "none",
+              border: `1px solid ${mobileOpen ? tokens.accent : "transparent"}`,
+              borderRadius: 8,
+              cursor: "pointer",
+              padding: "6px 8px",
+              color: mobileOpen ? tokens.accent : tokens.text,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              transition: "background 0.15s, border-color 0.15s",
+              flexShrink: 0,
+            }}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              {mobileOpen ? (
+                <path d="M6 6l12 12M6 18L18 6" />
+              ) : (
+                <path d="M4 8h16M4 16h16" />
+              )}
+            </svg>
+          </button>
+        )}
       </nav>
 
-      {/* Mobile bottom sheet */}
-      {mobileOpen && (
+      {/* Mobile bottom-sheet menu — anchored relative to the nav's scroll container */}
+      {mobileOpen && isMobileLayout && (
         <div
           style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 10000,
-            background: `${tokens.bg}ee`,
+            position: "sticky",
+            top: 58,
+            left: 0,
+            right: 0,
+            zIndex: 499,
+            background: `${tokens.bg}f5`,
             backdropFilter: "blur(20px)",
+            borderBottom: `1px solid ${tokens.border}`,
             display: "flex",
             flexDirection: "column",
-            justifyContent: "flex-end",
-            padding: "0 0 env(safe-area-inset-bottom, 24px)",
           }}
           onClick={() => setMobileOpen(false)}
         >
           <div
             style={{
-              background: tokens.surface,
-              borderTop: `1px solid ${tokens.border}`,
-              borderRadius: "16px 16px 0 0",
-              padding: "24px 20px",
+              padding: "8px 12px 12px",
               display: "flex",
               flexDirection: "column",
-              gap: 4,
+              gap: 2,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {sections.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => scrollTo(s.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  padding: "14px 12px",
-                  borderRadius: 8,
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: 15,
-                  fontWeight: activeId === s.id ? 700 : 500,
-                  color: activeId === s.id ? tokens.accent : tokens.text,
-                  minHeight: 44,
-                  transition: "color 0.2s",
-                }}
-              >
-                {navLabel(s)}
-              </button>
-            ))}
+            {sections.map((s) => {
+              const isActive = activeId === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => scrollTo(s.id)}
+                  style={{
+                    background: isActive ? `${tokens.accent}14` : "none",
+                    border: "none",
+                    borderLeft: isActive ? `2px solid ${tokens.accent}` : "2px solid transparent",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    padding: "10px 12px",
+                    borderRadius: "0 6px 6px 0",
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: 14,
+                    fontWeight: isActive ? 700 : 500,
+                    color: isActive ? tokens.accent : tokens.text,
+                    minHeight: 40,
+                    transition: "color 0.15s, background 0.15s",
+                    width: "100%",
+                  }}
+                >
+                  {navLabel(s)}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
-
-      {/* Responsive CSS */}
-      <style>{`
-        @media (max-width: 768px) {
-          .ms-nav-mobile-btn { display: block !important; }
-          .ms-nav-links { display: none !important; }
-        }
-      `}</style>
     </>
   );
 }

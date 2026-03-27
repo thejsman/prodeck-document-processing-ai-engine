@@ -13,6 +13,8 @@
  */
 
 import { readFile, writeFile, mkdir, readdir, stat, rm } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { env } from 'node:process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -36,6 +38,7 @@ import {
   generateDalle3Image,
   buildDallePrompt,
   resolveImageSource,
+  downloadImageToFile,
 } from '../image-routes.js';
 
 function checkNamespaceAccess(
@@ -53,10 +56,46 @@ function getAuth(req: FastifyRequest): AuthContext {
   return (req as FastifyRequest & { auth: AuthContext }).auth;
 }
 
+/**
+ * Download a remote image URL (DALL-E or Unsplash) to local disk so it
+ * never expires. Returns the persistent local URL to store in the AST.
+ * Falls back to the original remote URL if download fails.
+ */
+async function saveImagePersistently(
+  remoteUrl: string,
+  namespace: string,
+  sectionId: string,
+  workdir: string,
+): Promise<string> {
+  const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+  await mkdir(imagesDir, { recursive: true });
+  const ext = '.jpg';
+  const filename = `${sectionId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+  const destPath = path.join(imagesDir, filename);
+  const ok = await downloadImageToFile(remoteUrl, destPath);
+  if (!ok) return remoteUrl; // fallback to remote if download fails
+  const apiPort = env.API_PORT ?? '3000';
+  return `http://localhost:${apiPort}/presentation-images/${namespace}/${filename}`;
+}
+
 export function registerPresentationRoutes(
   app: FastifyInstance,
   workdir: string,
 ): void {
+
+  // GET /presentation-images/:namespace/:filename
+  // Serves locally saved images (DALL-E downloads) — no auth required since these are just background images.
+  app.get('/presentation-images/:namespace/:filename', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, filename } = req.params as { namespace: string; filename: string };
+    // Basic path traversal guard
+    if (filename.includes('..') || filename.includes('/') || namespace.includes('..')) {
+      return reply.code(400).send({ error: 'Invalid path' });
+    }
+    const filePath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
+    if (!existsSync(filePath)) return reply.code(404).send({ error: 'Not found' });
+    const stream = createReadStream(filePath);
+    return reply.type('image/jpeg').send(stream);
+  });
 
   // POST /presentations/synthesize-style
   // Runs Pass -1 only: synthesize a design system from an inspiration image (and optional text prompt).
@@ -350,14 +389,15 @@ export function registerPresentationRoutes(
             }
 
             sec.image.source = chosenSource;
+            const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
 
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
-              const url = await generateDalle3Image(prompt);
-              if (url) sec.image.url = url;
+              const remoteUrl = await generateDalle3Image(prompt);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
             } else {
-              const url = await fetchUnsplashImageUrl(query);
-              if (url) sec.image.url = url;
+              const remoteUrl = await fetchUnsplashImageUrl(query);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
             }
           }),
         );
@@ -467,15 +507,17 @@ export function registerPresentationRoutes(
               if (chosenSource !== 'gradient') {
                 const fetchPromise = (async (): Promise<string | null> => {
                   try {
-                    let url: string | null = null;
+                    let remoteUrl: string | null = null;
                     if (chosenSource === 'dalle') {
                       const prompt = buildDallePrompt(sectionType, imageQuery, accentColor);
-                      url = await generateDalle3Image(prompt);
+                      remoteUrl = await generateDalle3Image(prompt);
                     } else {
-                      url = await fetchUnsplashImageUrl(imageQuery);
+                      remoteUrl = await fetchUnsplashImageUrl(imageQuery);
                     }
-                    if (url) send({ type: 'image', sectionId, url });
-                    return url;
+                    if (!remoteUrl) return null;
+                    const localUrl = await saveImagePersistently(remoteUrl, namespace, sectionId, workdir);
+                    send({ type: 'image', sectionId, url: localUrl });
+                    return localUrl;
                   } catch { return null; }
                 })();
                 imageFetches.set(sectionId, fetchPromise);
@@ -493,9 +535,9 @@ export function registerPresentationRoutes(
           ast.sections.map(async (sec) => {
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
             if (imageFetches.has(secId)) {
-              // Await the parallel fetch that already started during streaming
-              const url = await imageFetches.get(secId)!;
-              if (url) { sec.image.url = url; sec.image.source = hasDalle ? 'dalle' : 'unsplash'; }
+              // Await the parallel fetch that already started during streaming (already saved locally)
+              const localUrl = await imageFetches.get(secId)!;
+              if (localUrl) { sec.image.url = localUrl; sec.image.source = hasDalle ? 'dalle' : 'unsplash'; }
               return;
             }
             // Section had no imageQuery at callback time — try now using AST image.query
@@ -506,11 +548,19 @@ export function registerPresentationRoutes(
             sec.image.source = chosenSource;
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
-              const url = await generateDalle3Image(prompt);
-              if (url) { sec.image.url = url; send({ type: 'image', sectionId: secId, url }); }
+              const remoteUrl = await generateDalle3Image(prompt);
+              if (remoteUrl) {
+                const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+                sec.image.url = localUrl;
+                send({ type: 'image', sectionId: secId, url: localUrl });
+              }
             } else {
-              const url = await fetchUnsplashImageUrl(query);
-              if (url) { sec.image.url = url; send({ type: 'image', sectionId: secId, url }); }
+              const remoteUrl = await fetchUnsplashImageUrl(query);
+              if (remoteUrl) {
+                const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+                sec.image.url = localUrl;
+                send({ type: 'image', sectionId: secId, url: localUrl });
+              }
             }
           }),
         );

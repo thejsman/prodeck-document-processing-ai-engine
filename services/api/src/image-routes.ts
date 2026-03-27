@@ -9,6 +9,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { env } from 'node:process';
+import { writeFile, mkdir } from 'node:fs/promises';
 
 interface DalleResponse {
   data: Array<{ url?: string; b64_json?: string }>;
@@ -117,6 +118,24 @@ export function buildDallePrompt(
   };
 
   return sectionStyle[sectionType] ?? `${imageQuery}. ${baseStyle}${colorHint}.`;
+}
+
+// ── Persistent image download ─────────────────────────────────────────────
+
+/**
+ * Download a remote image URL to a local file path.
+ * Returns true on success, false on failure (so callers can fall back to the raw URL).
+ */
+export async function downloadImageToFile(remoteUrl: string, destPath: string): Promise<boolean> {
+  try {
+    const res = await fetch(remoteUrl);
+    if (!res.ok) return false;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const { dirname } = await import('node:path');
+    await mkdir(dirname(destPath), { recursive: true });
+    await writeFile(destPath, buf);
+    return true;
+  } catch { return false; }
 }
 
 // ── Route registration ────────────────────────────────────────────────────

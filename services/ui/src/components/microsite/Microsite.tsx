@@ -118,7 +118,12 @@ function AnimatedSection({
   // No typewriter effect — content reveals with the slide-in animation (Gamma style)
 
   return (
-    <div ref={ref} id={id} data-section-id={id} style={animStyle}>
+    <div
+      ref={ref}
+      id={id}
+      data-section-id={id}
+      style={{ ...animStyle, containerType: 'inline-size' }}
+    >
       {children}
     </div>
   );
