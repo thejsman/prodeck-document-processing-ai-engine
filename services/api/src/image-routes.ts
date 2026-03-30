@@ -10,6 +10,7 @@
 import type { FastifyInstance } from 'fastify';
 import { env } from 'node:process';
 import { writeFile, mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 interface DalleResponse {
   data: Array<{ url?: string; b64_json?: string }>;
@@ -30,8 +31,8 @@ export function resolveImageSource(
   hasDalleKey: boolean,
 ): ImageSource {
   const gradientOnly = new Set(['stats', 'pricing', 'nextsteps', 'metrics', 'testing']);
-  const unsplashPrefer = new Set(['challenge', 'approach', 'timeline', 'deliverables', 'benefits', 'problem', 'whyus', 'security', 'techstack']);
-  const visualHighImpact = new Set(['hero', 'showcase', 'testimonials']);
+  const unsplashPrefer = new Set(['challenge', 'approach', 'timeline', 'deliverables', 'benefits', 'problem', 'whyus', 'security', 'techstack', 'testimonials']);
+  const visualHighImpact = new Set(['hero', 'showcase']);
 
   if (gradientOnly.has(sectionType)) return 'gradient';
 
@@ -131,7 +132,6 @@ export async function downloadImageToFile(remoteUrl: string, destPath: string): 
     const res = await fetch(remoteUrl);
     if (!res.ok) return false;
     const buf = Buffer.from(await res.arrayBuffer());
-    const { dirname } = await import('node:path');
     await mkdir(dirname(destPath), { recursive: true });
     await writeFile(destPath, buf);
     return true;
