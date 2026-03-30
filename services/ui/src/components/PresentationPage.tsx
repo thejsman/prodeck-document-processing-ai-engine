@@ -356,6 +356,7 @@ export function PresentationPage() {
   // Step 4
   const [generating, setGenerating] = useState(false);
   const [streamingTotal, setStreamingTotal] = useState(0);
+  const [planSectionTypes, setPlanSectionTypes] = useState<string[]>([]);
   // If we restored a snapshot where generation was running, track that separately
   const [wasGenerating, setWasGenerating] = useState(
     () => !!(_snap?.wasGenerating && _snap.step === "generate"),
@@ -675,9 +676,13 @@ export function PresentationPage() {
     generationStartedAtRef.current = Date.now();
     setGenerating(true);
     setError(null);
-    setProgress([]);
+    setProgress([
+      { text: "Analyzing proposal — generating hero...", done: false },
+      { text: "Planning section structure...", done: false },
+    ]);
     setStreamingSections([]);
     setStreamingTotal(0);
+    setPlanSectionTypes([]);
     setLayoutAST({
       proposalId,
       generatedAt: new Date().toISOString(),
@@ -751,19 +756,13 @@ export function PresentationPage() {
               { text: "Generating sections...", done: false },
             ]);
           } else if (event.type === "plan") {
-            const planEvent = event as { type: "plan"; totalSections: number };
+            const planEvent = event as { type: "plan"; totalSections: number; sectionTypes?: string[] };
             setStreamingTotal(planEvent.totalSections);
-            setProgress((p) =>
-              p.map((x, i) =>
-                i === p.length - 1
-                  ? {
-                      ...x,
-                      done: true,
-                      text: `Generating ${planEvent.totalSections} sections...`,
-                    }
-                  : x,
-              ),
-            );
+            if (planEvent.sectionTypes) setPlanSectionTypes(planEvent.sectionTypes);
+            setProgress([
+              { text: "Hero generated ✓", done: true },
+              { text: `Generating ${planEvent.totalSections} sections...`, done: true },
+            ]);
           } else if (event.type === "section") {
             const sec = event;
             const newSection: LayoutSection = {
@@ -781,6 +780,7 @@ export function PresentationPage() {
               version: sec.version ?? 1,
             };
             setStreamingSections((s) => [...s, sec.sectionType]);
+            setStep("preview"); // Switch to preview on first section — user sees hero within 3-5s
 
             setLayoutAST((prev) => {
               if (!prev) return prev;
@@ -938,9 +938,12 @@ export function PresentationPage() {
     return (
       <Microsite
         ast={layoutAST}
-        onBack={() => setStep("generate")}
-        onRegenerate={() => setStep("generate")}
-        onEdit={() => setShowEditor(true)}
+        generating={generating}
+        streamingTotal={generating ? streamingTotal : undefined}
+        planSectionTypes={generating ? planSectionTypes : undefined}
+        onBack={generating ? undefined : () => setStep("upload")}
+        onRegenerate={generating ? undefined : () => setStep("generate")}
+        onEdit={generating ? undefined : () => setShowEditor(true)}
       />
     );
   }
@@ -2072,124 +2075,6 @@ export function PresentationPage() {
                       ))}
                     </div>
 
-                    {/* Streaming section cards — show during generation or when restored */}
-                    {streamingSections.length > 0 && (
-                      <div>
-                        <p
-                          style={{
-                            fontSize: 11,
-                            color: "var(--color-text-muted)",
-                            marginBottom: 10,
-                            fontWeight: 600,
-                            letterSpacing: "0.06em",
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          Building sections
-                        </p>
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 6,
-                          }}
-                        >
-                          {streamingSections.map((name, i) => {
-                            const isDone = i < streamingSections.length - 1;
-                            return (
-                              <div
-                                key={i}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 10,
-                                  padding: "9px 12px",
-                                  borderRadius: "var(--radius)",
-                                  background: isDone
-                                    ? "var(--color-surface)"
-                                    : "var(--color-bg)",
-                                  border: `1px solid ${isDone ? "var(--color-border)" : "var(--color-primary)"}`,
-                                  boxShadow: isDone
-                                    ? "none"
-                                    : "0 0 0 2px #bfdbfe44",
-                                  transition: "all 0.3s",
-                                  animation:
-                                    i === streamingSections.length - 1
-                                      ? "slideInSection 0.35s ease-out"
-                                      : "none",
-                                }}
-                              >
-                                {isDone ? (
-                                  <div
-                                    style={{
-                                      width: 16,
-                                      height: 16,
-                                      borderRadius: "50%",
-                                      flexShrink: 0,
-                                      background: "var(--color-primary)",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      fontSize: 8,
-                                      color: "#fff",
-                                    }}
-                                  >
-                                    ✓
-                                  </div>
-                                ) : (
-                                  <div
-                                    style={{
-                                      width: 16,
-                                      height: 16,
-                                      borderRadius: "50%",
-                                      flexShrink: 0,
-                                      border: "1.5px solid var(--color-border)",
-                                      borderTopColor: "var(--color-primary)",
-                                      animation: "spin 0.8s linear infinite",
-                                    }}
-                                  />
-                                )}
-                                <span
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: isDone ? 400 : 600,
-                                    color: isDone
-                                      ? "var(--color-text-muted)"
-                                      : "var(--color-text)",
-                                  }}
-                                >
-                                  {name}
-                                </span>
-                                {isDone && (
-                                  <span
-                                    style={{
-                                      marginLeft: "auto",
-                                      fontSize: 10,
-                                      color: "var(--color-text-muted)",
-                                    }}
-                                  >
-                                    done
-                                  </span>
-                                )}
-                                {!isDone && (
-                                  <span
-                                    style={{
-                                      marginLeft: "auto",
-                                      fontSize: 10,
-                                      fontWeight: 600,
-                                      color: "var(--color-primary)",
-                                      letterSpacing: "0.04em",
-                                    }}
-                                  >
-                                    writing…
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
 
                     {error && (
                       <div

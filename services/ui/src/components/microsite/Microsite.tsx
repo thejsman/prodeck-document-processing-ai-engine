@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
@@ -73,24 +73,51 @@ interface Props {
   onEdit?: () => void;
   /** 'fullscreen' (default) renders as a fixed full-viewport overlay; 'embedded' renders inline for the editor canvas. */
   mode?: 'fullscreen' | 'embedded';
+  /** True while streaming is in progress — enables spring reveal animation and progress overlay. */
+  generating?: boolean;
+  /** Total expected sections from the plan event. */
+  streamingTotal?: number;
+  /** Ordered list of section types from the plan — used to show the next section name in the progress overlay. */
+  planSectionTypes?: string[];
 }
 
-/** Wraps each section with scroll-triggered visibility animation. */
+/** Wraps each section with visibility animation.
+ *  - isStreaming=true: spring reveal immediately on mount (Gamma-style, no scroll wait)
+ *  - isStreaming=false: scroll-triggered fade-up (existing behavior, tightened to 16px)
+ */
 function AnimatedSection({
   id,
   children,
   behavior,
   index,
+  isStreaming,
 }: {
   id: string;
   children: React.ReactNode;
   behavior?: LayoutAST['behavior'];
   index: number;
+  isStreaming?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(index === 0);
+
+  // Freeze isStreaming at mount — parent re-renders change the prop to false after hero arrives
+  const wasStreamingRef = useRef(isStreaming ?? false);
+  const wasStreaming = wasStreamingRef.current;
+
+  // Hero (index 0) during streaming: always start visible with zero animation styles.
+  // Any inline opacity/transform/transition on hero causes flicker when new sections trigger
+  // parent re-renders — even when the values themselves haven't changed.
+  const isHeroStreaming = wasStreaming && index === 0;
+
+  const [visible, setVisible] = useState(isHeroStreaming ? true : index === 0);
 
   useEffect(() => {
+    if (isHeroStreaming) return; // Hero: no animation, starts fully visible
+    if (wasStreaming) {
+      // Non-hero streaming sections: spring reveal on next frame
+      const raf = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(raf);
+    }
     if (index === 0) return;
     const el = ref.current;
     if (!el) return;
@@ -100,22 +127,26 @@ function AnimatedSection({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [index]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — all refs captured at mount
 
   const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
-  const delay = Math.min(index * 0.04, 0.24);
+  const delay = wasStreaming ? 0 : Math.min(index * 0.04, 0.24);
 
-  const animStyle: React.CSSProperties = effect === 'none'
+  const spring = 'cubic-bezier(0.34, 1.15, 0.64, 1)';
+
+  // Hero during streaming: zero inline styles — no transition property = no flicker risk
+  const animStyle: React.CSSProperties = (isHeroStreaming || (effect === 'none' && !wasStreaming))
     ? {}
     : {
         opacity: visible ? 1 : 0,
-        transform: visible ? 'none' : 'translateY(32px)',
+        transform: visible ? 'none' : wasStreaming
+          ? 'translateY(14px) scale(0.97)'
+          : 'translateY(16px)',
         transition: visible
-          ? `opacity 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.6s cubic-bezier(0.4,0,0.2,1) ${delay}s`
+          ? `opacity 0.52s ${spring} ${delay}s, transform 0.52s ${spring} ${delay}s`
           : 'none',
       };
-
-  // No typewriter effect — content reveals with the slide-in animation (Gamma style)
 
   return (
     <div
@@ -231,6 +262,20 @@ function renderSection(
   return inner;
 }
 
+// ── Shimmer skeleton placeholder (shown while sections are still generating) ──
+
+function SkeletonSection({ tokens }: { tokens: PluginTokens }) {
+  return (
+    <div style={{
+      minHeight: 480,
+      background: `linear-gradient(90deg, ${tokens.surface ?? tokens.bg} 25%, ${tokens.surfaceAlt ?? tokens.surface ?? tokens.bg} 50%, ${tokens.surface ?? tokens.bg} 75%)`,
+      backgroundSize: '200% 100%',
+      animation: 'ms-shimmer 1.6s ease-in-out infinite',
+      margin: '2px 0',
+    }} />
+  );
+}
+
 // ── Section overlay wrapper (editor-only) ────────────────────────────────────
 
 function SectionWithOverlay({
@@ -242,6 +287,7 @@ function SectionWithOverlay({
   allSections,
   brief,
   behavior,
+  isStreaming,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -251,6 +297,7 @@ function SectionWithOverlay({
   allSections: LayoutAST['sections'];
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
+  isStreaming?: boolean;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
@@ -308,7 +355,7 @@ function SectionWithOverlay({
 
   return (
     <div>
-      <AnimatedSection id={section.id} behavior={behavior} index={index}>
+      <AnimatedSection id={section.id} behavior={behavior} index={index} isStreaming={isStreaming}>
         <SectionIdProvider id={section.id}>
           {editCtx ? (
             <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
@@ -320,6 +367,29 @@ function SectionWithOverlay({
     </div>
   );
 }
+
+/**
+ * Memoized SectionWithOverlay — prevents hero re-renders when only `total` or
+ * `allSections` grow during streaming. Without this, every new section arrival
+ * triggers a re-render of all existing sections, including hero. HeroSection
+ * defines inline helper components (R, E) whose function references change on
+ * every render → React unmounts/remounts Reveal children → visibility state
+ * resets → fade-in animations replay → visible flicker.
+ *
+ * The comparator intentionally excludes `total` and `allSections` — these grow
+ * during streaming but hero doesn't need to re-render when only the count grows.
+ */
+const StableSectionWithOverlay = React.memo(SectionWithOverlay, (prev, next) => {
+  return (
+    prev.section === next.section &&
+    prev.index === next.index &&
+    prev.tokens === next.tokens &&
+    prev.brand === next.brand &&
+    prev.brief === next.brief &&
+    prev.behavior === next.behavior &&
+    prev.isStreaming === next.isStreaming
+  );
+});
 
 /** Convert a YouTube/Loom/iframe URL into an embeddable src */
 function getEmbedSrc(url: string): string | null {
@@ -362,49 +432,59 @@ function isColorDark(hex: string): boolean {
   } catch { return false; }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
-  const mergedTokens = ast.customTokens
-    ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
-    : undefined;
   const brand = ast.brand;
-  // When extractedCssVariables is present, skip brandPrimaryColor so applyBrandOverride
-  // does NOT taint tokens with the brand's primaryColor (#C8A96E etc.) before the override.
-  const hasCssOverride = !!(brand?.extractedCssVariables && Object.keys(brand.extractedCssVariables).length > 0);
-  let tokens = resolveTokens(ast.plugin, hasCssOverride ? '' : ast.brand.primaryColor, mergedTokens);
 
-  // ── Override tokens from extractedCssVariables when overrideTheme is set ──
-  // Sections use tokens.* directly (JS object fields), not CSS var() references,
-  // so we must override the tokens object itself — injecting CSS variables on
-  // the root div alone has no effect on section rendering.
-  if (hasCssOverride) {
-    const vars = brand.extractedCssVariables!;
-    const bgOverride = vars['--ms-bg'] ?? tokens.bg;
-    const accentOverride = vars['--ms-accent'] ?? vars['--ms-hero-accent'] ?? tokens.accent;
-    const textOverride = vars['--ms-text'] ?? tokens.text;
-    const isDark = isColorDark(bgOverride);
-    tokens = {
-      ...tokens,
-      accent:       accentOverride,
-      accentDim:    vars['--ms-accent2'] ?? tokens.accentDim,
-      bg:           bgOverride,
-      surface:      vars['--ms-bg2']     ?? tokens.surface,
-      surfaceAlt:   vars['--ms-bg3']     ?? tokens.surfaceAlt,
-      surfaceCard:  vars['--ms-surface'] ?? tokens.surfaceCard,
-      text:         textOverride,
-      textMuted:    vars['--ms-text2']   ?? tokens.textMuted,
-      textSubtle:   vars['--ms-text3']   ?? tokens.textSubtle,
-      border:       vars['--ms-border']  ?? tokens.border,
-      heroFont:     extractFontName(vars['--ms-font-heading']) ?? tokens.heroFont,
-      bodyFont:     extractFontName(vars['--ms-font-body'])    ?? tokens.bodyFont,
-      borderRadius: vars['--ms-r-card']        ?? tokens.borderRadius,
-      cardShadow:      vars['--ms-shadow']       ?? tokens.cardShadow,
-      cardShadowHover: vars['--ms-shadow-hover'] ?? tokens.cardShadowHover,
-      dark: isDark,
-    };
-  }
+  // Memoize mergedTokens — ast.customTokens/customDesignSystem don't change during
+  // streaming (only ast.sections grows), so this reference stays stable.
+  const mergedTokens = useMemo(
+    () => ast.customTokens
+      ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
+      : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ast.customTokens, ast.customDesignSystem],
+  );
+
+  // Memoize tokens — resolveTokens() returns a new object every call, which would
+  // break React.memo on SectionWithOverlay (prev.tokens !== next.tokens always).
+  // Stable token reference = hero section won't re-render when new sections arrive.
+  const tokens = useMemo(() => {
+    // When extractedCssVariables is present, skip brandPrimaryColor so applyBrandOverride
+    // does NOT taint tokens with the brand's primaryColor before the override.
+    const hasCssOverride = !!(brand?.extractedCssVariables && Object.keys(brand.extractedCssVariables).length > 0);
+    let t = resolveTokens(ast.plugin, hasCssOverride ? '' : brand.primaryColor, mergedTokens);
+    if (hasCssOverride) {
+      const vars = brand.extractedCssVariables!;
+      const bgOverride = vars['--ms-bg'] ?? t.bg;
+      const accentOverride = vars['--ms-accent'] ?? vars['--ms-hero-accent'] ?? t.accent;
+      const textOverride = vars['--ms-text'] ?? t.text;
+      const isDark = isColorDark(bgOverride);
+      t = {
+        ...t,
+        accent:          accentOverride,
+        accentDim:       vars['--ms-accent2']      ?? t.accentDim,
+        bg:              bgOverride,
+        surface:         vars['--ms-bg2']           ?? t.surface,
+        surfaceAlt:      vars['--ms-bg3']           ?? t.surfaceAlt,
+        surfaceCard:     vars['--ms-surface']       ?? t.surfaceCard,
+        text:            textOverride,
+        textMuted:       vars['--ms-text2']         ?? t.textMuted,
+        textSubtle:      vars['--ms-text3']         ?? t.textSubtle,
+        border:          vars['--ms-border']        ?? t.border,
+        heroFont:        extractFontName(vars['--ms-font-heading']) ?? t.heroFont,
+        bodyFont:        extractFontName(vars['--ms-font-body'])    ?? t.bodyFont,
+        borderRadius:    vars['--ms-r-card']        ?? t.borderRadius,
+        cardShadow:      vars['--ms-shadow']        ?? t.cardShadow,
+        cardShadowHover: vars['--ms-shadow-hover']  ?? t.cardShadowHover,
+        dark: isDark,
+      };
+    }
+    return t;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ast.plugin, brand, mergedTokens]);
 
   console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| overrideTheme:', !!brand?.overrideTheme, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| accent:', tokens.accent, '| heroFont:', tokens.heroFont);
 
@@ -417,6 +497,44 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
+
+  // Track which section IDs have been seen to identify newly streamed sections (for spring reveal)
+  const seenSectionIds = useRef<Set<string>>(new Set());
+  const allSections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
+
+  // During streaming: show hero at top but freeze the allSections reference passed to each
+  // section component. Without freezing, every new section arrival grows allSections → hero
+  // re-renders with a new sections prop → visible flicker/layout shift.
+  const frozenSectionsRef = useRef<typeof allSections>([]);
+  if (generating && allSections.length > 0 && frozenSectionsRef.current.length === 0) {
+    // Lock when first section (hero) arrives — keeps hero stable throughout generation
+    frozenSectionsRef.current = allSections;
+  } else if (!generating) {
+    frozenSectionsRef.current = []; // Reset after generation so next run starts fresh
+  }
+  // What to pass as allSections prop to SectionWithOverlay components
+  const sectionsForComponents = (generating && frozenSectionsRef.current.length > 0)
+    ? frozenSectionsRef.current
+    : allSections;
+
+  // What to render in the map — show hero + growing sections during streaming
+  const sections = allSections;
+
+  const newSectionIds = new Set<string>();
+  if (generating) {
+    sections.forEach(s => {
+      if (!seenSectionIds.current.has(s.id)) newSectionIds.add(s.id);
+    });
+    sections.forEach(s => seenSectionIds.current.add(s.id));
+  }
+
+  // Progress overlay values — use allSections (includes hero) for accurate count
+  const generatedCount = allSections.length;
+  const totalCount = streamingTotal ?? 0;
+  const nextSectionType = planSectionTypes?.[generatedCount];
+  const nextSectionLabel = nextSectionType
+    ? nextSectionType.charAt(0).toUpperCase() + nextSectionType.slice(1).replace(/([A-Z])/g, ' $1')
+    : null;
 
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
@@ -665,6 +783,12 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
           .ms-stats-row { flex-direction: column !important; border-radius: 12px !important; }
           section { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
         }
+
+        @keyframes ms-shimmer {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -680,30 +804,72 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         {/* Insert-before-first button */}
         {editCtx && <AddSectionButton afterIndex={-1} />}
 
-        {(() => {
-          const sections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
-          return (
-            <>
-              {sections.map((section, i) => (
-                <React.Fragment key={section.id}>
-                  <div ref={el => { if (el) sectionRefs.current.set(section.id, el); else sectionRefs.current.delete(section.id); }}>
-                    <SectionWithOverlay
-                      section={section}
-                      index={i}
-                      total={sections.length}
-                      tokens={tokens}
-                      brand={ast.brand}
-                      allSections={sections}
-                      brief={ast.brief}
-                      behavior={ast.behavior}
-                    />
+        <>
+          {sections.map((section, i) => (
+            <React.Fragment key={section.id}>
+              <div ref={el => { if (el) sectionRefs.current.set(section.id, el); else sectionRefs.current.delete(section.id); }}>
+                <StableSectionWithOverlay
+                  section={section}
+                  index={i}
+                  total={sections.length}
+                  tokens={tokens}
+                  brand={ast.brand}
+                  allSections={sectionsForComponents}
+                  brief={ast.brief}
+                  behavior={ast.behavior}
+                  isStreaming={newSectionIds.has(section.id)}
+                />
+              </div>
+              {editCtx && <AddSectionButton afterIndex={i} />}
+            </React.Fragment>
+          ))}
+          {/* Generating progress overlay — fixed pill bottom-right */}
+          {generating && mounted && createPortal(
+            <div style={{
+              position: 'fixed',
+              bottom: 28,
+              right: 28,
+              zIndex: 10001,
+              background: 'rgba(10,10,10,0.88)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              color: '#fff',
+              borderRadius: 12,
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontSize: 13,
+              lineHeight: 1.4,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+              minWidth: 220,
+            }}>
+              <div style={{
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.25)',
+                borderTopColor: '#fff',
+                animation: 'spin 0.75s linear infinite',
+                flexShrink: 0,
+              }} />
+              <div>
+                <div style={{ fontWeight: 600, color: '#fff' }}>
+                  {totalCount > 0
+                    ? `Section ${generatedCount} of ${totalCount}`
+                    : 'Generating sections...'}
+                </div>
+                {nextSectionLabel && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
+                    Next: {nextSectionLabel}
                   </div>
-                  {editCtx && <AddSectionButton afterIndex={i} />}
-                </React.Fragment>
-              ))}
-            </>
-          );
-        })()}
+                )}
+              </div>
+            </div>,
+            document.body,
+          )}
+        </>
 
         <footer
           style={{
@@ -790,24 +956,26 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
               ✏ Edit
             </button>
           )}
-          <button
-            onClick={downloadPdf}
-            disabled={downloadingPdf}
-            style={{
-              padding: '9px 18px',
-              borderRadius: 100,
-              border: 'none',
-              background: tokens.accent,
-              color: tokens.dark ? tokens.bg : '#fff',
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              cursor: downloadingPdf ? 'wait' : 'pointer',
-              boxShadow: `0 4px 16px ${tokens.glowColor}`,
-            }}
-          >
-            {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
-          </button>
+          {!generating && (
+            <button
+              onClick={downloadPdf}
+              disabled={downloadingPdf}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 100,
+                border: 'none',
+                background: tokens.accent,
+                color: tokens.dark ? tokens.bg : '#fff',
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: downloadingPdf ? 'wait' : 'pointer',
+                boxShadow: `0 4px 16px ${tokens.glowColor}`,
+              }}
+            >
+              {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
+            </button>
+          )}
         </div>,
         document.body
       )}

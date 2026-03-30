@@ -1,6 +1,6 @@
 {
   "proposalId": "km-digital",
-  "generatedAt": "2026-03-26T08:39:48.993Z",
+  "generatedAt": "2026-03-30T09:37:25.707Z",
   "generationMode": "full-design-prompt-override",
   "fullDesignPromptUsed": true,
   "meta": {
@@ -12,25 +12,25 @@
   "brief": {
     "clientName": "KM Digital",
     "clientIndustry": "IT",
-    "clientChallenge": "Developing an API-first portal that integrates white-label and ERP capabilities.",
+    "clientChallenge": "Developing an API-first portal that seamlessly integrates white-label and ERP capabilities while adhering to stringent data residency requirements.",
     "proposingCompany": "km-digital",
-    "proposingStrength": "The proposed technical approach combines full Infrastructure as Code (IaC) practices using Terraform.",
-    "engagementSummary": "The project includes developing a Minimum Viable Product (MVP) within six months, followed by platform expansion. A dedicated team structure will ensure focused expertise on KM Digital's specific needs.",
+    "proposingStrength": "Our proposed technical approach combines full Infrastructure as Code (IaC) practices using Terraform, enabling rapid, repeatable deployments and efficient management of resources.",
+    "engagementSummary": "The engagement focuses on delivering a Minimum Viable Product (MVP) within six months, followed by comprehensive platform expansion phases. The project will enhance KM Digital's API-first portal design with efficient ERP embedding capabilities.",
     "keyOutcomes": [
-      "API-first portal with ERP capabilities",
-      "Improved observability and monitoring",
-      "Automated integration with external services",
-      "Scalable architecture accommodating increased user loads"
+      "Seamless integration of white-label and ERP capabilities",
+      "Implementation of a robust observability stack",
+      "Delivery of an intuitive self-service interface",
+      "Automated mechanisms for failure event detection"
     ],
     "totalValue": "$40,000.00",
     "duration": "10 weeks",
     "primaryTone": "Professional and technical",
-    "heroNarrative": "Deliver a robust API-first portal for KM Digital.",
+    "heroNarrative": "API-first solution enhances KM Digital's operational capabilities.",
     "industryKeywords": [
-      "API integration",
-      "cloud computing",
-      "ERP systems",
-      "data residency",
+      "API",
+      "cloud-native",
+      "microservices",
+      "ERP",
       "observability"
     ]
   },
@@ -39,8 +39,8 @@
     "tagline": "Strategy & Design Consultancy",
     "logoUrl": null,
     "logoText": "km-digital",
-    "primaryColor": "#C8A96E",
-    "secondaryColor": "#1A1612",
+    "primaryColor": "#00a080",
+    "secondaryColor": "#e04040",
     "overrideTheme": true,
     "extractedCssVariables": {
       "--ms-bg": "#e0f2fe",
@@ -111,14 +111,14 @@
     "borderRadiusStyle": "rounded",
     "themeClass": "theme-custom-prompt theme-br-rounded anim-bounce"
   },
-  "plugin": "none",
-  "customCharacter": "A cheerful design meets playful function for young explorers.",
+  "plugin": "ivory",
+  "customCharacter": "A joyful digital playground meets vibrant storytelling.",
   "customTokens": {
-    "visualStyle": "A vibrant and playful theme that delights children through colors and shapes.",
-    "density": "spacious",
+    "visualStyle": "Playful, colorful, child-friendly with vibrant accents and friendly shapes.",
+    "density": "comfortable",
     "typography": {
       "style": "humanist",
-      "headingWeight": "800",
+      "headingWeight": "700",
       "scale": "moderate"
     },
     "colorStrategy": {
@@ -142,17 +142,17 @@
       "parallax": false,
       "scrollEffects": "slide-up"
     },
-    "customCharacter": "A cheerful design meets playful function for young explorers.",
-    "bg": "#C8A96E",
-    "text": "#000000",
-    "accent": "#C8A96E",
+    "customCharacter": "A joyful digital playground meets vibrant storytelling.",
+    "bg": "#00a080",
+    "text": "#ffffff",
+    "accent": "#ffab00",
     "heroFont": "Nunito",
     "bodyFont": "Poppins",
-    "heroWeight": 800,
+    "heroWeight": 700,
     "heroStyle": "normal",
     "labelTracking": "0.15em",
     "dark": false,
-    "noiseOpacity": 0.025,
+    "noiseOpacity": 0.02,
     "borderRadius": "16px",
     "buttonStyle": "pill",
     "layoutPatterns": {
@@ -175,7 +175,7 @@
           "backgroundImage",
           "cta1"
         ],
-        "ctaTarget": "nextsteps",
+        "ctaTarget": "pricing",
         "ctaSecondaryTarget": null,
         "alignment": "centered",
         "ctaCount": 1
@@ -217,11 +217,11 @@
     }
   ],
   "customDesignSystem": {
-    "visualStyle": "A vibrant and playful theme that delights children through colors and shapes.",
-    "density": "spacious",
+    "visualStyle": "Playful, colorful, child-friendly with vibrant accents and friendly shapes.",
+    "density": "comfortable",
     "typography": {
       "style": "humanist",
-      "headingWeight": "800",
+      "headingWeight": "700",
       "scale": "moderate"
     },
     "colorStrategy": {
@@ -265,7 +265,7 @@
           "backgroundImage",
           "cta1"
         ],
-        "ctaTarget": "nextsteps",
+        "ctaTarget": "pricing",
         "ctaSecondaryTarget": null,
         "alignment": "centered",
         "ctaCount": 1
@@ -304,281 +304,24 @@
   "sections": [
     {
       "id": "hero",
-      "heading": "hero",
+      "heading": "Hero",
       "sectionType": "hero",
       "content": {
-        "eyebrow": "Welcome to a World of Fun!",
-        "headline": "Discover the Joy of Our API-First Portal",
-        "subheadline": "Creating colorful, cloud-based solutions just for you!",
-        "body": "Join us at km-digital as we design a playful, engaging, and powerful API-first portal for KM Digital. Experience vibrant integration features tailored for young explorers of technology!",
-        "ctaPrimary": "Let's Explore!",
-        "ctaSecondary": "See More",
-        "imageQuery": "colorful playful children learning illustration",
-        "diagram": null,
-        "variant": "split"
-      },
-      "diagramMeta": {
-        "typeId": "trend-chart",
-        "typeLabel": "Trend Chart",
-        "category": "metric",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "dalle",
-        "query": "colorful playful children learning illustration",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-dnfLFWoWls2rwi9mDdIGk5Ub.png?st=2026-03-26T07%3A40%3A20Z&se=2026-03-26T09%3A40%3A20Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A35%3A47Z&ske=2026-03-27T02%3A35%3A47Z&sks=b&skv=2026-02-06&sig=zrh8wt7dwgwspR50eFJqNq%2BLz7x0QxzR7ODz%2BdUUIl4%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "benefits",
-      "heading": "benefits",
-      "sectionType": "benefits",
-      "content": {
-        "eyebrow": "Exciting Digital Adventures",
-        "headline": "Explore the New API-First Portal with km-digital!",
-        "imageQuery": "children playful technology fun",
-        "items": [
-          {
-            "iconHint": "playful cloud icon",
-            "title": "API Integration",
-            "description": "Our new portal will seamlessly integrate APIs, ensuring a smooth experience for users."
-          },
-          {
-            "iconHint": "colorful data icon",
-            "title": "Improved Observability",
-            "description": "With enhanced monitoring, you can gain insightful visibility into your digital operations."
-          },
-          {
-            "iconHint": "automated gear icon",
-            "title": "Automated Integration",
-            "description": "Enjoy automation that smartly integrates external services for a streamlined workflow."
-          },
-          {
-            "iconHint": "scalable tower icon",
-            "title": "Scalable Architecture",
-            "description": "Designed to grow with your needs, our architecture accommodates increased user loads effortlessly."
-          }
-        ],
-        "diagram": "user-journey\\n  journey\\n    title User Journey to API-First Portal\\n    section Discover the Need\\n      User realizes need for integrated services: 5: User\\n    section Research Solutions\\n      User researches options for API-first portals: 4: User\\n    section Choose km-digital\\n      User selects km-digital for its expertise: 5: User\\n    section Experience Development\\n      User engages with km-digital during development: 4: User\\n    section Use the New Portal\\n      User explores the new features and capabilities: 5: User",
-        "variant": "editorial"
-      },
-      "diagramMeta": {
-        "typeId": "user-journey",
-        "typeLabel": "User Journey",
-        "category": "specialized",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "children playful technology fun",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-CPBrZL8dTa2tyoEarfpzaxjC.png?st=2026-03-26T07%3A39%3A40Z&se=2026-03-26T09%3A39%3A40Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T20%3A21%3A03Z&ske=2026-03-26T20%3A21%3A03Z&sks=b&skv=2026-02-06&sig=igwRdvcYxZ7Cus7wOAKuT8%2B/bMWagmjr4DzUtey6MJ0%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "showcase",
-      "heading": "showcase",
-      "sectionType": "showcase",
-      "content": {
-        "eyebrow": "A Playful Digital Adventure",
-        "headline": "Transforming KM Digital with a Joyful API-First Portal",
-        "subheadline": "Let us create an engaging portal that excites and empowers users! We’ve got a vibrant plan just for you.",
-        "body": "At km-digital, we understand the needs of KM Digital in developing an API-first portal that not only integrates white-label and ERP capabilities, but does so in a fun and colorful way. Our dedicated team is ready to turn your vision into a delightful reality in just six months!",
-        "highlights": [
-          "Colorful designs for kid-friendly experiences",
-          "API integration with a joyful touch",
-          "Enhanced user engagement and interactivity",
-          "Optimized for seamless performance",
-          "Scalable architecture built with fun in mind"
-        ],
-        "imageQuery": "colorful digital design for kids",
-        "diagram": null,
-        "variant": "card-grid"
-      },
-      "diagramMeta": {
-        "typeId": "system-architecture",
-        "typeLabel": "System Architecture",
-        "category": "architecture",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "dalle",
-        "query": "colorful digital design for kids",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-mBEa5EKA8ggxAWFMWuvUTx1z.png?st=2026-03-26T07%3A40%3A12Z&se=2026-03-26T09%3A40%3A12Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A21%3A22Z&ske=2026-03-27T02%3A21%3A22Z&sks=b&skv=2026-02-06&sig=bRscJTtstYDng6LI5V43oQDf9m5xfyGMxuASP67DuYQ%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "testimonials",
-      "heading": "testimonials",
-      "sectionType": "testimonials",
-      "content": {
-        "eyebrow": "What Our Happy Clients Say",
-        "headline": "Bright Experiences, Amazing Outcomes with KM Digital!",
-        "imageQuery": "joyful children playing with technology",
-        "items": [
-          {
-            "quote": "KM Digital transformed our vision into a vibrant reality! Their expertise made everything so easy and fun.",
-            "name": "Sophie Johnson",
-            "title": "Project Manager",
-            "company": "Playful Tech Inc."
-          },
-          {
-            "quote": "The API-first portal they developed has changed the way we operate. The team was truly amazing to work with!",
-            "name": "James Smith",
-            "title": "Lead Developer",
-            "company": "Happy Apps Co."
-          },
-          {
-            "quote": "Each interaction was delightful and engaging. KM Digital exceeded our expectations at every step!",
-            "name": "Emily Nguyen",
-            "title": "Chief Operations Officer",
-            "company": "Fun Innovations LLC"
-          }
-        ],
-        "diagram": null,
+        "eyebrow": "Proposal for KM Digital",
+        "headline": "Building a Playful Digital Future",
+        "subheadline": "Crafting joyful experiences through strategic design.",
+        "body": "KM Digital's ambitious MVP project combines innovative technology with engaging design. Our team is dedicated to building a seamless API-first portal that brings joy to users while meeting all technical requirements.",
+        "ctaPrimary": "Let's Play Together",
+        "ctaSecondary": "Discover Our Vision",
+        "imageQuery": "colorful playground fun",
+        "theme": "light",
         "variant": "split"
       },
       "diagramMeta": null,
       "image": {
         "source": "dalle",
-        "query": "joyful children playing with technology",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-juxMeuIW9Jw6OjmnsRnzQRyX.png?st=2026-03-26T07%3A40%3A22Z&se=2026-03-26T09%3A40%3A22Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A15%3A08Z&ske=2026-03-27T03%3A15%3A08Z&sks=b&skv=2026-02-06&sig=/m8XkDn3PvXEd3K5/8qbwazK2PsHlFy5I42qfIJCwKY%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "problem",
-      "heading": "problem",
-      "sectionType": "problem",
-      "content": {
-        "eyebrow": "Engaging Digital Experiences for Kids",
-        "headline": "Creating a Playful Microsite for KM Digital's API Portal",
-        "body": "km-digital is excited to design an API-first microsite that delights children with its joyful and colorful aesthetics. Our approach blends playful storytelling with intuitive design for an unforgettable online adventure.",
-        "painPoints": [
-          "Need for a child-friendly digital experience",
-          "Lack of engagement in traditional interfaces",
-          "Challenges in readability for young users",
-          "Importance of fun and vibrant design elements",
-          "Desire for interactive learning and exploration"
-        ],
-        "imageQuery": "colorful playful children website",
-        "diagram": null,
-        "variant": "editorial"
-      },
-      "diagramMeta": {
-        "typeId": "quadrant-matrix",
-        "typeLabel": "Priority Matrix",
-        "category": "metric",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "colorful playful children website",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-XlgUkMdnjClmOPEeNqv0hwCT.png?st=2026-03-26T07%3A39%3A40Z&se=2026-03-26T09%3A39%3A40Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T04%3A10%3A05Z&ske=2026-03-27T04%3A10%3A05Z&sks=b&skv=2026-02-06&sig=fH6xLKX4e66HGVDtr/hnRtDx/aw3%2BAaHTasNv5NwluU%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "challenge",
-      "heading": "challenge",
-      "sectionType": "challenge",
-      "content": {
-        "eyebrow": "Exciting New API Portal",
-        "headline": "Let km-digital Transform KM Digital's Digital Experience!",
-        "body": "We are thrilled to present a colorful and playful design for KM Digital's API-first portal. Our team will ensure a joyful and engaging user experience while seamlessly integrating ERP capabilities. Get ready to embark on an adventure in digital innovation!",
-        "pullquote": "Together, we'll create a delightful and engaging digital playground for kids!",
-        "imageQuery": "colorful playful children digital experience",
-        "diagram": null,
-        "variant": "minimal"
-      },
-      "diagramMeta": {
-        "typeId": "decision-tree",
-        "typeLabel": "Decision Tree",
-        "category": "flow",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "colorful playful children digital experience",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-TnrN0r9eLsOoCF5Yr5BK8aUM.png?st=2026-03-26T07%3A39%3A42Z&se=2026-03-26T09%3A39%3A42Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A45%3A15Z&ske=2026-03-27T02%3A45%3A15Z&sks=b&skv=2026-02-06&sig=RynWCx/M5bGWj0uRAGIehB8Ctw6URhk0npxxLaXlX7g%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "approach",
-      "heading": "approach",
-      "sectionType": "approach",
-      "content": {
-        "eyebrow": "Creating Playful Digital Experiences",
-        "headline": "A Joyful Microsite Design for KM Digital",
-        "subheadline": "Delivering a vibrant, child-friendly journey that engages and excites. Explore the potential of our colorful proposal for distinct digital storytelling.",
-        "pillars": [
-          {
-            "iconHint": "playful character icon",
-            "name": "Cheerful Aesthetic",
-            "description": "Bright colors and friendly shapes come together to make a visually rich experience. Kids will find joy in every interaction, nurturing their curiosity and engagement."
-          },
-          {
-            "iconHint": "interactive game icon",
-            "name": "Engaging Storytelling",
-            "description": "Each section invites children on a journey filled with colorful narratives and playful elements. Visual storytelling keeps young audiences connected and interested throughout their experience."
-          },
-          {
-            "iconHint": "optimized layout icon",
-            "name": "Responsive Design",
-            "description": "Our microsite adapts seamlessly across devices, ensuring every child enjoys an engaging experience. The playful layout remains structured yet vibrant, catering to desktop, tablet, and mobile users."
-          },
-          {
-            "iconHint": "interactive animations icon",
-            "name": "Delightful Interactions",
-            "description": "Smooth animations and micro-interactions bring an element of fun to the user journey. Children will be enchanted by interactive delights as they explore every clickable moment."
-          }
-        ],
-        "imageQuery": "playful digital design for children",
-        "variant": "card-grid"
-      },
-      "diagramMeta": {
-        "typeId": "process-flow",
-        "typeLabel": "Process Flow",
-        "category": "flow",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "playful digital design for children",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-hxt4RjIvW5iGTL5smjBP3Wzz.png?st=2026-03-26T07%3A39%3A40Z&se=2026-03-26T09%3A39%3A40Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T01%3A32%3A58Z&ske=2026-03-27T01%3A32%3A58Z&sks=b&skv=2026-02-06&sig=q/%2BcN7a%2BVHb7FZ1UKa2UYoeRZ517HZhd1htzKtX0JnI%3D",
+        "query": "colorful playground fun",
+        "url": "http://localhost:3000/presentation-images/km-digital/hero-2bac6052.jpg",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -589,37 +332,37 @@
       "heading": "timeline",
       "sectionType": "timeline",
       "content": {
-        "eyebrow": "Exciting Digital Adventure Awaits!",
-        "headline": "Join KM Digital's Journey to API Innovation!",
-        "subheadline": "We’re developing a robust API-first portal just for you. Let’s explore how together we can achieve your digital dreams!",
+        "eyebrow": "Exciting API-First Adventure",
+        "headline": "Unlock the Magic of Seamless Integration!",
+        "subheadline": "Join us on a journey to enhance KM Digital's operational capabilities with our playful API-first solution. Each step will bring you closer to a vibrant digital experience!",
         "phases": [
           {
             "label": "Phase 1",
-            "duration": "Weeks 1-2",
-            "name": "Discovery & Planning",
-            "description": "Identify key requirements and outline project scope."
+            "duration": "2 weeks",
+            "name": "Discovery Stage",
+            "description": "We dive deep to understand your needs and shape the vision."
           },
           {
             "label": "Phase 2",
-            "duration": "Weeks 3-5",
-            "name": "Development",
-            "description": "Build the Minimum Viable Product (MVP) using Infrastructure as Code practices."
+            "duration": "3 weeks",
+            "name": "Development Sprint",
+            "description": "Our talented team crafts the core features of the MVP."
           },
           {
             "label": "Phase 3",
-            "duration": "Weeks 6-8",
-            "name": "Testing & Refinement",
-            "description": "Conduct thorough testing and refine the portal based on feedback."
+            "duration": "2 weeks",
+            "name": "Testing & Feedback",
+            "description": "We ensure everything works perfectly, gaining insights for improvements."
           },
           {
             "label": "Phase 4",
-            "duration": "Weeks 9-10",
-            "name": "Launch & Expansion",
-            "description": "Deploy the API-first portal and plan for future enhancements."
+            "duration": "3 weeks",
+            "name": "Final Touches",
+            "description": "We polish the MVP and prepare for the exciting launch!"
           }
         ],
-        "imageQuery": "colorful playful children digital adventure",
-        "diagram": "timeline\n    title KM Digital Project Timeline\\n    section Phase 1\\n      Discover & Plan : 1: a1, 2023-10-01, 2w\\n    section Phase 2\\n      Develop MVP : 2: a2, after a1, 3w\\n    section Phase 3\\n      Test & Refine : 3: a3, after a2, 3w\\n    section Phase 4\\n      Launch & Expand : 4: a4, after a3, 2w",
+        "imageQuery": "children digital playful colorful",
+        "diagram": null,
         "variant": "asymmetric"
       },
       "diagramMeta": {
@@ -633,8 +376,264 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playful children digital adventure",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-n2ueaiPBLEbBoDeCheAlCPhI.png?st=2026-03-26T07%3A39%3A48Z&se=2026-03-26T09%3A39%3A48Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T23%3A15%3A02Z&ske=2026-03-26T23%3A15%3A02Z&sks=b&skv=2026-02-06&sig=UsVrfhz9YX%2ByxfB%2Ba0vlqf0nYvKPaOn/TtxVogufU5s%3D",
+        "query": "children digital playful colorful",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-Lmp29SiLqPNFyATmM9ZVNWPL.png?st=2026-03-30T08%3A37%3A15Z&se=2026-03-30T10%3A37%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A04%3A52Z&ske=2026-03-31T07%3A04%3A52Z&sks=b&skv=2026-02-06&sig=/Ewkama6qeDPa4FUGs7foiaHntxuvDSG6NmRonUL8Yc%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
+      "content": {
+        "eyebrow": "Exciting API Solutions",
+        "headline": "Boost Your Business with Our API-First Portal",
+        "imageQuery": "colorful digital technology, children playful",
+        "items": [
+          {
+            "iconHint": "api",
+            "title": "Seamless Integration",
+            "description": "Integrates white-label and ERP capabilities effortlessly, enhancing operational flexibility."
+          },
+          {
+            "iconHint": "automation",
+            "title": "Efficient Management",
+            "description": "Utilizes Infrastructure as Code with Terraform for rapid deployments."
+          },
+          {
+            "iconHint": "user-friendly",
+            "title": "Intuitive Interface",
+            "description": "Creates a self-service experience for users, making interactions enjoyable."
+          },
+          {
+            "iconHint": "monitoring",
+            "title": "Robust Observability",
+            "description": "Implements automated failure detection for enhanced reliability."
+          }
+        ],
+        "diagram": null
+      },
+      "diagramMeta": {
+        "typeId": "user-journey",
+        "typeLabel": "User Journey",
+        "category": "specialized",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "colorful digital technology, children playful",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-mW9G9GcvT7gTLTtuyfhBR1oY.png?st=2026-03-30T08%3A37%3A14Z&se=2026-03-30T10%3A37%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A15%3A20Z&ske=2026-03-31T09%3A15%3A20Z&sks=b&skv=2026-02-06&sig=rH%2B/qHI9xkfwsgrbJWVfhA01t74CIB453SbrA6gUEkE%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "testimonials",
+      "heading": "testimonials",
+      "sectionType": "testimonials",
+      "content": {
+        "eyebrow": "What Our Clients Say",
+        "headline": "Bright Smiles from KM Digital's Partners",
+        "imageQuery": "children playing joyfully outdoors",
+        "items": [
+          {
+            "quote": "The playful design made our project come to life!",
+            "name": "Alice Bright",
+            "title": "Product Manager",
+            "company": "Fantasy Tech"
+          },
+          {
+            "quote": "Our kids loved the colorful interface. It truly engages!",
+            "name": "Tommy Green",
+            "title": "Director of Fun",
+            "company": "Happy Place"
+          },
+          {
+            "quote": "Working with km-digital was a delightful experience!",
+            "name": "Sarah Joyful",
+            "title": "Chief Creative Officer",
+            "company": "WonderWorks"
+          }
+        ],
+        "diagram": null
+      },
+      "diagramMeta": null,
+      "image": {
+        "source": "dalle",
+        "query": "children playing joyfully outdoors",
+        "url": "http://localhost:3000/presentation-images/km-digital/testimonials-aff63b42.jpg",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "problem",
+      "heading": "problem",
+      "sectionType": "problem",
+      "content": {
+        "eyebrow": "Transforming Digital Experiences for Kids!",
+        "headline": "Creating a Playful and Engaging API-First Portal",
+        "body": "At km-digital, we understand the importance of integrating fun and ease into digital interfaces, especially for children. Our design proposal aims to deliver an enchanting microsite that captivates and delights young audiences while meeting KM Digital's needs for API-first development.",
+        "painPoints": [
+          "Striking a balance between fun and functionality",
+          "Ensuring strong readability for young users",
+          "Creating an engaging storytelling experience",
+          "Designing with data residency in mind",
+          "Optimizing for various device layouts"
+        ],
+        "imageQuery": "playful colorful children digital design"
+      },
+      "diagramMeta": {
+        "typeId": "quadrant-matrix",
+        "typeLabel": "Priority Matrix",
+        "category": "metric",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "playful colorful children digital design",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-WjjHcSIImTEYm2aXu49LlJJM.png?st=2026-03-30T08%3A37%3A25Z&se=2026-03-30T10%3A37%3A25Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A00%3A56Z&ske=2026-03-31T07%3A00%3A56Z&sks=b&skv=2026-02-06&sig=ZCZcjdLyX%2BW7M%2BvGRYST2zkvtYGLMxNJMLeeadR/BzI%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "challenge",
+      "heading": "challenge",
+      "sectionType": "challenge",
+      "content": {
+        "eyebrow": "Creating Magical Digital Experiences",
+        "headline": "Building a Joyful API-First Portal for KM Digital",
+        "body": "km-digital is excited to enhance KM Digital's operational capabilities through our innovative API-first solution. Our engaging platform design integrates white-label features and ERP capabilities while meeting stringent data residency requirements. Join us on this colorful journey!",
+        "pullquote": "Our playful design approach brings joy to tech interactions!",
+        "imageQuery": "children playing technology colorful fun",
+        "diagram": null
+      },
+      "diagramMeta": {
+        "typeId": "decision-tree",
+        "typeLabel": "Decision Tree",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "children playing technology colorful fun",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-jXKFU52fI5s86jTRElEFTGeQ.png?st=2026-03-30T08%3A37%3A17Z&se=2026-03-30T10%3A37%3A17Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A54%3A20Z&ske=2026-03-31T06%3A54%3A20Z&sks=b&skv=2026-02-06&sig=yvZ9D9M%2BAHnPE0wAUPYv2HuRMI3JqxuxXlZDsviIZdU%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "approach",
+      "heading": "approach",
+      "sectionType": "approach",
+      "content": {
+        "eyebrow": "Welcome to a World of Fun!",
+        "headline": "Explore a Colorful Digital Adventure with km-digital!",
+        "subheadline": "Join us in a playful journey filled with joy and learning. Let’s create delightful digital experiences together!",
+        "pillars": [
+          {
+            "iconHint": "smiling cartoon character",
+            "name": "Playful Adventures",
+            "description": "Dive into colorful adventures that spark imagination. Our engaging experiences are designed to bring joy and learning to every child."
+          },
+          {
+            "iconHint": "colorful building blocks",
+            "name": "Creative Learning",
+            "description": "Foster creativity with interactive storytelling and vibrant visuals. We make learning fun through bright and playful designs."
+          },
+          {
+            "iconHint": "team of friends",
+            "name": "Joyful Collaboration",
+            "description": "We believe in teamwork that fuels imagination. Together, we can create delightful and engaging digital spaces."
+          },
+          {
+            "iconHint": "happy kids using tablets",
+            "name": "Engaging Technology",
+            "description": "Our tech is built to be friendly, colorful, and easy to use. We prioritize creating joyful experiences for young audiences."
+          }
+        ],
+        "imageQuery": "children playing with colorful digital devices",
+        "diagram": null
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "children playing with colorful digital devices",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zFKFzg4KZHTTzt1gRiDwCB74.png?st=2026-03-30T08%3A37%3A15Z&se=2026-03-30T10%3A37%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A07%3A15Z&ske=2026-03-31T07%3A07%3A15Z&sks=b&skv=2026-02-06&sig=hUmAzsL1GRa8TiNpf6HKb2PMwAL9U8bYWZq5G7wa6zA%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "deliverables",
+      "heading": "deliverables",
+      "sectionType": "deliverables",
+      "content": {
+        "eyebrow": "Let's Create Joyful Experiences!",
+        "headline": "Brightening Digital Spaces for Little Explorers",
+        "items": [
+          {
+            "iconHint": "friendly mascot icon",
+            "name": "Engaging Storytelling",
+            "detail": "Crafting playful narratives that captivate young minds."
+          },
+          {
+            "iconHint": "colorful playful shapes",
+            "name": "Interactive Features",
+            "detail": "Building an active platform filled with fun activities."
+          },
+          {
+            "iconHint": "fun colorful cards",
+            "name": "Responsive Design",
+            "detail": "Optimizing joyful experiences for all devices."
+          },
+          {
+            "iconHint": "vibrant growth graph",
+            "name": "Exciting Outcomes",
+            "detail": "Delivering measurable engagement and delight!"
+          }
+        ],
+        "imageQuery": "colorful child-friendly designs",
+        "diagram": null
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "colorful child-friendly designs",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-4gCYIjNwn4mqT4OgisynIfPo.png?st=2026-03-30T08%3A37%3A14Z&se=2026-03-30T10%3A37%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A01%3A38Z&ske=2026-03-31T09%3A01%3A38Z&sks=b&skv=2026-02-06&sig=MTrIQtid3ZSVpQwnAtTPGLHhKY0Y6Hzg03G3xigeWD4%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -645,14 +644,10 @@
       "heading": "pricing",
       "sectionType": "pricing",
       "content": {
-        "eyebrow": "Exciting Pricing Options",
-        "headline": "Affordable Packages for Every Adventure",
-        "subheadline": "Explore our cheerful pricing plans designed for young explorers!",
+        "eyebrow": "Exciting Digital Playground",
+        "headline": "Explore a Colorful World of Fun!",
+        "subheadline": "Join us for delightful adventures and learning!",
         "rows": [
-          [
-            "Item",
-            "Value"
-          ],
           [
             "Team Size",
             "4"
@@ -675,11 +670,11 @@
           ]
         ],
         "totalLabel": "Total Estimated Cost",
-        "footnote": "Rates are based on standard business hours.",
+        "footnote": "Payment terms: Net-30 from invoice date, billed monthly in arrears.",
         "cta": "Join the Fun!",
-        "imageQuery": "colorful playground",
+        "imageQuery": "colorful children playground",
         "diagram": null,
-        "variant": "card-grid"
+        "variant": "minimal"
       },
       "diagramMeta": {
         "typeId": "gantt-chart",
@@ -705,8 +700,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playground",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-CRxI8v6s59WHcJer4fAAhYDe.png?st=2026-03-26T07%3A39%3A40Z&se=2026-03-26T09%3A39%3A40Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T03%3A11%3A52Z&ske=2026-03-27T03%3A11%3A52Z&sks=b&skv=2026-02-06&sig=8J1vmqVxLkzOrmc75ReuP3Vi7NhiMXqjs8mPw1EEu4Q%3D",
+        "query": "colorful children playground",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-KJR1CYESYTBpw3EtEpGRwBcj.png?st=2026-03-30T08%3A37%3A14Z&se=2026-03-30T10%3A37%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A02%3A06Z&ske=2026-03-31T07%3A02%3A06Z&sks=b&skv=2026-02-06&sig=Js/Ug2plhCORfdPSjbu2mnEUo9GG2RBcn0pn/DKLXQ4%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -717,28 +712,27 @@
       "heading": "stats",
       "sectionType": "stats",
       "content": {
-        "eyebrow": "Exciting Digital Adventures Await!",
-        "headline": "Join KM Digital in a Playful Learning Journey",
-        "imageQuery": "colorful playful children exploring",
+        "eyebrow": "Join the Adventure!",
+        "headline": "Discover a World of Fun with km-digital!",
+        "imageQuery": "colorful children playing joyfully",
         "stats": [
           {
             "number": "$40,000.00",
             "label": "Total Project Value",
-            "context": "This investment will power our API-first portal for KM Digital."
+            "context": "This investment will bring a vibrant API-first portal to life."
           },
           {
             "number": "10 weeks",
             "label": "Project Duration",
-            "context": "A focused timeline to create a Minimum Viable Product."
+            "context": "The timeline for bringing this exciting project to fruition."
           },
           {
             "number": "6 months",
-            "label": "Platform Expansion",
-            "context": "Followed by a structured rollout of new features."
+            "label": "MVP Delivery Time",
+            "context": "Our goal is to launch an MVP within half a year."
           }
         ],
-        "diagram": null,
-        "variant": "card-grid"
+        "diagram": null
       },
       "diagramMeta": {
         "typeId": "pie-chart",
@@ -751,8 +745,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playful children exploring",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zkq8L9rK173JjLEaTQI4JkEB.png?st=2026-03-26T07%3A39%3A41Z&se=2026-03-26T09%3A39%3A41Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T02%3A11%3A49Z&ske=2026-03-27T02%3A11%3A49Z&sks=b&skv=2026-02-06&sig=PutDaE7Vylo1vjTRwjxrnQJCASK3OmiUXQKQvo5t/es%3D",
+        "query": "colorful children playing joyfully",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-sSKqxLBdZ0qbaDuTEFL1mlJv.png?st=2026-03-30T08%3A37%3A24Z&se=2026-03-30T10%3A37%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A56%3A42Z&ske=2026-03-31T06%3A56%3A42Z&sks=b&skv=2026-02-06&sig=VuquHl1p/86vnctLzi7BsbfJlDvZiNgrZMQ0a5wXq%2Bc%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -763,29 +757,23 @@
       "heading": "whyus",
       "sectionType": "whyus",
       "content": {
-        "eyebrow": "Crafting Joyful Digital Experiences",
-        "headline": "Let km-digital Bring Playfulness to Your Portal!",
-        "body": "At km-digital, we specialize in creating vibrant and engaging digital experiences that capture the imagination of children. Our dedicated team brings a blend of creativity and technical expertise to develop an API-first portal that meets your needs—ensuring it's not only functional but also fun!",
+        "eyebrow": "Why Choose Us?",
+        "headline": "Elevate Your Digital Experience with km-digital!",
+        "body": "At km-digital, we specialize in creating exciting and playful digital experiences for children. Our unique approach ensures that every interaction is not just functional but also filled with joy and wonder!",
         "stats": [
           {
-            "number": "$40,000.00",
-            "label": "Total Project Value",
-            "context": "This investment will return a joyful and effective digital experience."
+            "number": "40,000",
+            "label": "Project Value",
+            "context": "This is our commitment to delivering value over the course of our engagement."
           },
           {
-            "number": "10 weeks",
-            "label": "Delivery Timeline",
-            "context": "Experience a quick and efficient development phase."
-          },
-          {
-            "number": "6 months",
-            "label": "MVP Development",
-            "context": "We'll deliver a Minimum Viable Product that your users will love!"
+            "number": "10",
+            "label": "Weeks Duration",
+            "context": "Our team is set to deliver the MVP in a swift and efficient timeline."
           }
         ],
-        "imageQuery": "colorful cheerful playful digital children",
-        "diagram": null,
-        "variant": "editorial"
+        "imageQuery": "colorful playful children's illustrations",
+        "diagram": null
       },
       "diagramMeta": {
         "typeId": "org-chart",
@@ -798,8 +786,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful cheerful playful digital children",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-QVVk3GwuHyqI3U8pIqQzFd1Z.png?st=2026-03-26T07%3A39%3A48Z&se=2026-03-26T09%3A39%3A48Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T07%3A51%3A48Z&ske=2026-03-27T07%3A51%3A48Z&sks=b&skv=2026-02-06&sig=KSZ6jSiiUeUzDAL//qKwomckSOOv6HwVM82GqNP%2B%2Byw%3D",
+        "query": "colorful playful children's illustrations",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-k6a3BebgZHE5fZB9EdQSDXAc.png?st=2026-03-30T08%3A37%3A15Z&se=2026-03-30T10%3A37%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A57%3A53Z&ske=2026-03-31T06%3A57%3A53Z&sks=b&skv=2026-02-06&sig=kPEcmmQSXwTWa49Z6p6eVvtJK1mbfcZI4Zv%2Bssm%2ByOM%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -810,15 +798,14 @@
       "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "Exciting New Adventures Awaits!",
-        "headline": "Join us on a Colorful Journey of Fun and Learning!",
-        "body": "At km-digital, we're creating a joyful, child-friendly experience that bursts with color and enthusiasm. Our playful microsite invites children to explore and enjoy exciting features designed just for them.",
+        "eyebrow": "Welcome to a Colorful Adventure!",
+        "headline": "Discover the Joyful World of Playful Learning!",
+        "body": "Join us at km-digital where vibrant designs and engaging stories come to life! Our delightful microsite is crafted to spark joy and curiosity in young explorers, making every click a joyful journey!",
         "ctaPrimary": "Let's Explore!",
         "ctaSecondary": "See More",
         "urgencyNote": null,
-        "imageQuery": "colorful playful children digital experience",
-        "diagram": null,
-        "variant": "centered"
+        "imageQuery": "colorful playful children digital fun",
+        "diagram": null
       },
       "diagramMeta": {
         "typeId": "process-flow",
@@ -831,8 +818,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playful children digital experience",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-DlOLgfCOx9OMk9NKiEoKWIr8.png?st=2026-03-26T07%3A39%3A48Z&se=2026-03-26T09%3A39%3A48Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-25T12%3A43%3A21Z&ske=2026-03-26T12%3A43%3A21Z&sks=b&skv=2026-02-06&sig=nHvIAODvJBm2p9IhlvMvNPYwz39GxmWTBziyanS7i74%3D",
+        "query": "colorful playful children digital fun",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-RUagbfe3laMHm57x9g8fPZga.png?st=2026-03-30T08%3A37%3A18Z&se=2026-03-30T10%3A37%3A18Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A01%3A05Z&ske=2026-03-31T07%3A01%3A05Z&sks=b&skv=2026-02-06&sig=wk8b2RqHUOKXV0O/9BG3PhRRvHDZFoknQWvBxAdWRcc%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,

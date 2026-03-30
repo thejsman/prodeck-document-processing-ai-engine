@@ -397,6 +397,35 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences.
 }`;
 }
 
+// ── Fast hero prompt (speculative — no brief/plan dependency) ────────────────
+
+function buildFastHeroPrompt(
+  planningMarkdown: string,
+  companyName: string | undefined,
+  tagline: string | undefined,
+  customInstructions: string,
+): string {
+  return `You are generating the HERO section for a proposal microsite.
+Company: ${companyName ?? 'the proposing company'}
+Tagline: ${tagline ?? ''}
+${customInstructions ? `\nStyle notes: ${customInstructions.slice(0, 300)}` : ''}
+
+PROPOSAL (first 3000 chars):
+${planningMarkdown.slice(0, 3000)}
+
+Return ONLY valid JSON matching this exact schema — no markdown, no explanation:
+{
+  "eyebrow": "short label above headline (e.g. 'Proposal for Acme Corp')",
+  "headline": "bold punchy main headline (max 8 words)",
+  "subheadline": "one supporting sentence (max 20 words)",
+  "body": "2-3 sentence value proposition",
+  "ctaPrimary": "primary button label (e.g. 'Let's Get Started')",
+  "ctaSecondary": "secondary button label (e.g. 'View Details')",
+  "imageQuery": "Unsplash search query for hero background (3-5 words)",
+  "theme": "light"
+}`;
+}
+
 // ── Brief extraction prompt ──────────────────────────────────────────────────
 
 function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string): string {
@@ -2277,6 +2306,40 @@ export class MicrositeGeneratorAgent implements Agent {
       // Pass 0 planning markdown — 2000 chars per section (enough to identify structure)
       const planningMarkdown = sourceSections.map(s => `## ${s.name}\n${s.content.slice(0, 2000)}`).join('\n\n');
 
+      // Define streaming callbacks early — hero .then() fires before Promise.all resolves
+      const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
+      const onPlanReady = meta.onPlanReady as ((data: Record<string, unknown>) => void) | undefined;
+
+      // Section results array declared here so hero .then() can push into it immediately
+      const sectionResults: Array<{ id: string; heading: string; type: string; content: Record<string, unknown>; diagramMeta: unknown }> = [];
+      let heroAlreadyStreamed = false;
+
+      // Start hero generation BEFORE the warm-up — streams SSE as soon as it resolves (~3-5s)
+      // Key: NOT inside Promise.all — that would block until the slowest member (~15s Pass -1)
+      const heroPromise = generateTool.run({
+        query: buildFastHeroPrompt(
+          planningMarkdown,
+          metaBrand.companyName as string | undefined,
+          metaBrand.tagline as string | undefined,
+          rawInstructions,
+        ),
+        content: '',
+      }).then(result => {
+        if (!result?.text || !onSectionComplete) return result;
+        try {
+          const heroContent = safeParseJSON(result.text) ?? {};
+          const hc = heroContent as Record<string, unknown>;
+          if (hc.headline || hc.eyebrow) {
+            if (hc.diagram) hc.diagram = normalizeDiagram(hc.diagram);
+            onSectionComplete({ id: 'hero', heading: 'Hero', sectionType: 'hero', content: hc, index: 0 });
+            sectionResults.push({ id: 'hero', heading: 'Hero', type: 'hero', content: hc, diagramMeta: null });
+            heroAlreadyStreamed = true;
+            console.log('[microsite-agent] Speculative hero streamed immediately ✓');
+          }
+        } catch { /* ignore — Pass 2 will generate hero normally */ }
+        return result;
+      }).catch(() => null);
+
       const [designSystemRaw, cmdRaw, briefResult, planResult] = await Promise.all([
         // Pass -1: Design system synthesis
         (async () => {
@@ -2319,6 +2382,9 @@ export class MicrositeGeneratorAgent implements Agent {
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
         ]).catch(() => null),
       ]);
+
+      // Await hero — it started before the warm-up so it's almost certainly already done
+      await heroPromise;
 
       // Resolve design system result
       let designSystemResult: { customCharacter: string; rawTokens: Record<string, unknown> } | null = null;
@@ -2629,10 +2695,6 @@ export class MicrositeGeneratorAgent implements Agent {
           customInstructions,
         );
 
-        // Optional streaming callbacks
-        const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
-        const onPlanReady = meta.onPlanReady as ((data: Record<string, unknown>) => void) | undefined;
-
         const seenSlugs = new Map<string, number>();
         // Filter out sections hidden by the parsed command; preserve original index for preassigned variant lookup
         const sectionsToHide = parsedCommand.contentOverrides.sectionsToHide ?? [];
@@ -2648,16 +2710,22 @@ export class MicrositeGeneratorAgent implements Agent {
           sectionTypes: pass2Sections.map(s => s.type),
         });
 
-        // Process sections in batches of 3 to avoid OpenAI rate limiting
-        // Sections stream progressively (Gamma-style): first 3 appear in ~10-15s
-        const BATCH_SIZE = 2;
-        const sectionResults: Array<{ id: string; heading: string; type: string; content: Record<string, unknown>; diagramMeta: unknown }> = [];
+        // Skip hero in Pass 2 if already streamed by speculative call (heroAlreadyStreamed set in .then() above)
+        const pass2SectionsFiltered = heroAlreadyStreamed
+          ? pass2Sections.filter(s => s.type !== 'hero')
+          : pass2Sections;
 
-        for (let batchStart = 0; batchStart < pass2Sections.length; batchStart += BATCH_SIZE) {
-          const batch = pass2Sections.slice(batchStart, batchStart + BATCH_SIZE);
+        // Process sections in batches of 3 for faster progressive streaming
+        const BATCH_SIZE = 3;
+
+        for (let batchStart = 0; batchStart < pass2SectionsFiltered.length; batchStart += BATCH_SIZE) {
+          const batch = pass2SectionsFiltered.slice(batchStart, batchStart + BATCH_SIZE);
           const batchOutputs = await Promise.all(
             batch.map(async (s, batchIdx) => {
-              const idx = batchStart + batchIdx;
+              // Offset by 1 when hero is already at position 0 — prevents non-hero sections
+              // from getting index:0 and displacing the hero to position 2 or 3
+              const heroOffset = heroAlreadyStreamed ? 1 : 0;
+              const idx = (batchStart + batchIdx) + heroOffset;
               const baseSlug = slugify(s.heading);
               const count = seenSlugs.get(baseSlug) ?? 0;
               seenSlugs.set(baseSlug, count + 1);
