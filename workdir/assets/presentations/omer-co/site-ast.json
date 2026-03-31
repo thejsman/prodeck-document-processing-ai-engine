@@ -113,11 +113,12 @@
       "image": {
         "source": "gradient",
         "query": "DALL-E 3 prompt: dark cyberpunk office scene with flickering screens, data visualization on monitors, dramatic lighting, high tension, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-NgaL36xAK7tdTQdf0KlV0F42.png?st=2026-03-27T10%3A42%3A05Z&se=2026-03-27T12%3A42%3A05Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-26T23%3A10%3A23Z&ske=2026-03-27T23%3A10%3A23Z&sks=b&skv=2026-02-06&sig=tFkRluxLIA9q463r4yF3xKjYBRwcecF58HFkeOLOiJw%3D",
+        "url": null,
         "fallback": "gradient-mesh"
       },
       "editable": true,
-      "version": 1
+      "version": 1,
+      "bgColor": "#042f2e"
     },
     {
       "id": "proposed-architecture",
@@ -737,6 +738,42 @@
         "source": "dalle",
         "query": "business team meeting data discussion",
         "url": "http://localhost:3000/presentation-images/omer-co/testimonials-7744bbc9.jpg",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "section-1774871115467-wvikx",
+      "heading": "FAQ",
+      "sectionType": "faq",
+      "content": {
+        "eyebrow": "_[c=#ec4899]FAQ[/c]_",
+        "headline": "Frequently Asked Questions",
+        "subheadline": "Everything you need to know before getting started.",
+        "items": [
+          {
+            "question": "How long does the process take?",
+            "answer": "Most projects are completed within 4–6 weeks depending on scope and complexity."
+          },
+          {
+            "question": "What is included in the price?",
+            "answer": "Everything is included — design, development, testing, and launch support."
+          },
+          {
+            "question": "Do you offer ongoing support?",
+            "answer": "Yes, we offer flexible retainer and support packages post-launch."
+          },
+          {
+            "question": "How do we get started?",
+            "answer": "Simply reach out via the contact form and we will schedule an intro call within 24 hours."
+          }
+        ]
+      },
+      "image": {
+        "source": "gradient",
+        "query": "faq",
+        "url": null,
         "fallback": "gradient-mesh"
       },
       "editable": true,
