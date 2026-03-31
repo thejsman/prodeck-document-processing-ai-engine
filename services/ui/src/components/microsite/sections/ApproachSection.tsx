@@ -1,5 +1,6 @@
 "use client";
 
+import { useContext } from "react";
 import type { PluginTokens, ApproachContent } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
@@ -10,6 +11,8 @@ import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 import { InlineIconEdit } from "../editor/InlineIconEdit";
 import { ProcessSteps } from "../shared/ProcessSteps";
+import { TypewriterStateContext } from "../TypewriterSection";
+import { TypingCursor } from "../TypingCursor";
 
 interface Props {
   content: ApproachContent;
@@ -21,6 +24,7 @@ interface Props {
 
 export function ApproachSection({ content, tokens, index }: Props) {
   const pillars = content.pillars ?? [];
+  const twCtx = useContext(TypewriterStateContext);
 
   return (
     <section
@@ -40,6 +44,7 @@ export function ApproachSection({ content, tokens, index }: Props) {
           <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ""}>
             <Label tokens={tokens} style={{ display: "block", marginBottom: 16 }}>
               {content.eyebrow}
+              <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
             </Label>
           </InlineEditable>
         </Reveal>
@@ -48,6 +53,7 @@ export function ApproachSection({ content, tokens, index }: Props) {
           <InlineEditable field="headline" label="Headline" value={content.headline ?? ""}>
             <Headline tokens={tokens} style={{ marginBottom: 12 }}>
               {content.headline}
+              <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
             </Headline>
           </InlineEditable>
         </Reveal>
@@ -57,6 +63,7 @@ export function ApproachSection({ content, tokens, index }: Props) {
             <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ""} multiline>
               <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
                 {content.subheadline}
+                <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
               </Body>
             </InlineEditable>
           </Reveal>

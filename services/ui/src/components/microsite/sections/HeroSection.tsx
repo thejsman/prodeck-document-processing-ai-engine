@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useContext } from 'react';
 import type { PluginTokens, HeroContent, BrandConfig, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -8,6 +8,8 @@ import { Display, Body, Label } from '../shared/Typography';
 import { CTAButton } from '../shared/CTAButton';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { Editable } from '../editor/Editable';
+import { TypewriterStateContext } from '../TypewriterSection';
+import { TypingCursor } from '../TypingCursor';
 
 interface HeroUI {
   showCTA?: boolean;
@@ -58,6 +60,9 @@ export function HeroSection({
 }: Props) {
   console.log('HERO PROPS →', { variant, ui, behavior, content });
 
+  // Typewriter context — present only during active streaming animation
+  const twCtx = useContext(TypewriterStateContext);
+
   // Track image URL with error fallback — DALL-E URLs expire after 2h, drop them gracefully
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
   useEffect(() => { setActiveImageUrl(imageUrl); }, [imageUrl]);
@@ -66,7 +71,9 @@ export function HeroSection({
   const showCTA = ui?.showCTA !== false && !!(content.ctaPrimary?.trim() || content.ctaSecondary?.trim());
   const mediaPos = ui?.mediaPosition ?? 'right';
   const animation = behavior?.animation;
-  const noAnimation = animation === 'none';
+  // During typewriter animation, disable Reveal to prevent its IntersectionObserver
+  // from resetting visible state on every character update (causing flicker).
+  const noAnimation = animation === 'none' || !!twCtx?.showCursor;
   const revealVariant = resolveRevealVariant(animation);
 
   const pillRadius = tokens.buttonStyle === 'sharp' ? 4 : tokens.buttonStyle === 'pill' ? 100 : 50;
@@ -132,6 +139,7 @@ export function HeroSection({
       <E field="eyebrow" label="Eyebrow">
         <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
           {content.eyebrow}
+          <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
         </Label>
       </E>
     </R>
@@ -142,6 +150,7 @@ export function HeroSection({
       <E field="headline" label="Headline">
         <Display tokens={tokens} gradient style={{ marginBottom: 18 }}>
           {content.headline}
+          <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
         </Display>
       </E>
     </R>
@@ -154,6 +163,7 @@ export function HeroSection({
           <E field="subheadline" label="Subheadline">
             <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7 }}>
               {content.subheadline}
+              <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
             </Body>
           </E>
         </R>
@@ -163,6 +173,7 @@ export function HeroSection({
           <E field="body" label="Body">
             <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28 }}>
               {content.body}
+              <TypingCursor visible={twCtx?.activeField === 'body' && (twCtx?.showCursor ?? false)} />
             </Body>
           </E>
         </R>

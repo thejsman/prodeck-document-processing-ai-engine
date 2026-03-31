@@ -35,6 +35,7 @@ import { SectionIdProvider } from './editor/SectionIdContext';
 import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
+import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
 
 import type {
   HeroContent,
@@ -104,20 +105,12 @@ function AnimatedSection({
   const wasStreamingRef = useRef(isStreaming ?? false);
   const wasStreaming = wasStreamingRef.current;
 
-  // Hero (index 0) during streaming: always start visible with zero animation styles.
-  // Any inline opacity/transform/transition on hero causes flicker when new sections trigger
-  // parent re-renders — even when the values themselves haven't changed.
-  const isHeroStreaming = wasStreaming && index === 0;
-
-  const [visible, setVisible] = useState(isHeroStreaming ? true : index === 0);
+  const [visible, setVisible] = useState(wasStreaming ? true : index === 0);
 
   useEffect(() => {
-    if (isHeroStreaming) return; // Hero: no animation, starts fully visible
-    if (wasStreaming) {
-      // Non-hero streaming sections: spring reveal on next frame
-      const raf = requestAnimationFrame(() => setVisible(true));
-      return () => cancelAnimationFrame(raf);
-    }
+    // During streaming: sections appear instantly — the auto-scroll provides the
+    // natural reveal effect without jarring slide/fade animations (ChatGPT/Claude style).
+    if (wasStreaming) return;
     if (index === 0) return;
     const el = ref.current;
     if (!el) return;
@@ -131,18 +124,17 @@ function AnimatedSection({
   }, []); // intentionally empty — all refs captured at mount
 
   const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
-  const delay = wasStreaming ? 0 : Math.min(index * 0.04, 0.24);
+  const delay = Math.min(index * 0.04, 0.24);
 
   const spring = 'cubic-bezier(0.34, 1.15, 0.64, 1)';
 
-  // Hero during streaming: zero inline styles — no transition property = no flicker risk
-  const animStyle: React.CSSProperties = (isHeroStreaming || (effect === 'none' && !wasStreaming))
+  // Streaming sections: no inline animation styles at all — prevents any flicker
+  // and lets the typewriter + auto-scroll do the visual storytelling.
+  const animStyle: React.CSSProperties = (wasStreaming || (effect === 'none' && !wasStreaming))
     ? {}
     : {
         opacity: visible ? 1 : 0,
-        transform: visible ? 'none' : wasStreaming
-          ? 'translateY(14px) scale(0.97)'
-          : 'translateY(16px)',
+        transform: visible ? 'none' : 'translateY(16px)',
         transition: visible
           ? `opacity 0.52s ${spring} ${delay}s, transform 0.52s ${spring} ${delay}s`
           : 'none',
@@ -517,7 +509,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
     ? frozenSectionsRef.current
     : allSections;
 
-  // What to render in the map — show hero + growing sections during streaming
+  // Full list — used for progress counting and seenSectionIds tracking
   const sections = allSections;
 
   const newSectionIds = new Set<string>();
@@ -539,7 +531,90 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // typingIndex: which section is currently being typed. null = no typing active.
+  const [typingIndex, setTypingIndex] = useState<number | null>(null);
+
+  // During generation: only render sections 0..typingIndex — sections not yet typed
+  // stay hidden so they don't flash full content then get retyped when their turn comes.
+  // When typingIndex is still null (effect hasn't fired yet), limit to at most 1 section
+  // to prevent the race-condition where multiple sections arrive before the first effect
+  // runs, causing them all to flash simultaneously then "jump" away when typingIndex=0.
+  const visibleSections = generating
+    ? sections.slice(0, typingIndex !== null ? typingIndex + 1 : 1)
+    : sections;
+
+  // Track previous sections length to detect new arrivals during streaming
+  const prevSectionsLengthRef = useRef<number>(0);
+  // Track which typing completions are pending (next section not yet arrived)
+  const typingCompletePendingRef = useRef(false);
+
 useEffect(() => setMounted(true), []);
+
+  // Drive typingIndex: start typing first section when streaming begins,
+  // advance to next when a new section arrives and the previous is done.
+  useEffect(() => {
+    const currentLen = sections.length;
+    if (!generating) {
+      // Stream ended — clear typing state
+      setTypingIndex(null);
+      typingCompletePendingRef.current = false;
+      prevSectionsLengthRef.current = 0;
+      return;
+    }
+    if (currentLen === 0) return;
+
+    const prev = prevSectionsLengthRef.current;
+
+    if (prev === 0 && currentLen > 0) {
+      // First section arrived: start typing it
+      setTypingIndex(0);
+      prevSectionsLengthRef.current = currentLen;
+      return;
+    }
+
+    if (currentLen > prev) {
+      // New section(s) arrived
+      prevSectionsLengthRef.current = currentLen;
+      if (typingCompletePendingRef.current) {
+        // Previous section finished typing while waiting for next — advance now
+        typingCompletePendingRef.current = false;
+        setTypingIndex(currentLen - 1);
+      }
+      // If current section not yet done typing, it will advance in onComplete
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections.length, generating]);
+
+  // Track if the user has scrolled up (so we don't force-scroll them back down)
+  const userScrolledUpRef = useRef(false);
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      userScrolledUpRef.current = (scrollHeight - scrollTop - clientHeight) > 180;
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Scroll in sync with content growth: ResizeObserver fires exactly when the
+  // content div gets taller (a new typed character rendered), so we scroll
+  // immediately — no timer lag, no periodic snap, no jerk.
+  useEffect(() => {
+    if (!generating) return;
+    const container = scrollRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (userScrolledUpRef.current) return;
+      container.scrollTop = container.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generating]);
 
   useEffect(() => {
     const fonts = ast.customFonts?.length ? ast.customFonts : plugin.fonts;
@@ -789,6 +864,23 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
           100% { background-position: -200% 0; }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* During streaming, suppress ALL Reveal slide/fade animations.
+           Uses !important to override the inline styles that Reveal sets. */
+        .ms-generating [data-reveal="1"] {
+          opacity: 1 !important;
+          transform: none !important;
+          transition: none !important;
+        }
+
+        @keyframes tw-cursor-blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        @keyframes tw-item-pop {
+          from { opacity: 0; transform: translateY(6px) scale(0.97); }
+          to   { opacity: 1; transform: none; }
+        }
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -800,30 +892,49 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       />
 
       {/* Sections */}
-      <div ref={contentRef} className="ms-content-root" style={{ containerType: 'inline-size' }}>
+      <div ref={contentRef} className={`ms-content-root${generating ? ' ms-generating' : ''}`} style={{ containerType: 'inline-size' }}>
         {/* Insert-before-first button */}
         {editCtx && <AddSectionButton afterIndex={-1} />}
 
-        <>
-          {sections.map((section, i) => (
+        {/* SectionStreamingContext=true disables Reveal slide animations inside sections during generation */}
+        <SectionStreamingContext.Provider value={!!generating}>
+          {visibleSections.map((section, i) => (
             <React.Fragment key={section.id}>
               <div ref={el => { if (el) sectionRefs.current.set(section.id, el); else sectionRefs.current.delete(section.id); }}>
-                <StableSectionWithOverlay
+                <TypewriterSection
                   section={section}
-                  index={i}
-                  total={sections.length}
-                  tokens={tokens}
-                  brand={ast.brand}
-                  allSections={sectionsForComponents}
-                  brief={ast.brief}
-                  behavior={ast.behavior}
-                  isStreaming={newSectionIds.has(section.id)}
-                />
+                  isActiveTyping={generating === true && typingIndex === i}
+                  isStreamingMode={generating === true}
+                  onComplete={() => {
+                    // Advance to the next section if it has already arrived,
+                    // otherwise mark as pending so the arrival effect picks it up.
+                    const nextIdx = i + 1;
+                    if (nextIdx < sections.length) {
+                      setTypingIndex(nextIdx);
+                    } else {
+                      // Next section not yet in the list — wait for it
+                      typingCompletePendingRef.current = true;
+                    }
+                  }}
+                >
+                  {(animatedSection) => (
+                    <StableSectionWithOverlay
+                      section={animatedSection}
+                      index={i}
+                      total={sections.length}
+                      tokens={tokens}
+                      brand={ast.brand}
+                      allSections={sectionsForComponents}
+                      brief={ast.brief}
+                      behavior={ast.behavior}
+                      isStreaming={newSectionIds.has(section.id)}
+                    />
+                  )}
+                </TypewriterSection>
               </div>
               {editCtx && <AddSectionButton afterIndex={i} />}
             </React.Fragment>
           ))}
-          {/* Generating progress overlay — fixed pill bottom-right */}
           {generating && mounted && createPortal(
             <div style={{
               position: 'fixed',
@@ -869,7 +980,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
             </div>,
             document.body,
           )}
-        </>
+        </SectionStreamingContext.Provider>
 
         <footer
           style={{

@@ -1,8 +1,8 @@
 {
   "proposalId": "km-digital",
-  "generatedAt": "2026-03-30T09:37:25.707Z",
-  "generationMode": "full-design-prompt-override",
-  "fullDesignPromptUsed": true,
+  "generatedAt": "2026-03-30T19:57:30.494Z",
+  "generationMode": "default",
+  "fullDesignPromptUsed": false,
   "meta": {
     "title": "Proposal for KM Digital",
     "client": "KM Digital",
@@ -14,24 +14,25 @@
     "clientIndustry": "IT",
     "clientChallenge": "Developing an API-first portal that seamlessly integrates white-label and ERP capabilities while adhering to stringent data residency requirements.",
     "proposingCompany": "km-digital",
-    "proposingStrength": "Our proposed technical approach combines full Infrastructure as Code (IaC) practices using Terraform, enabling rapid, repeatable deployments and efficient management of resources.",
-    "engagementSummary": "The engagement focuses on delivering a Minimum Viable Product (MVP) within six months, followed by comprehensive platform expansion phases. The project will enhance KM Digital's API-first portal design with efficient ERP embedding capabilities.",
+    "proposingStrength": "Expertise in API design and a dedicated team structure ensuring focused technical delivery.",
+    "engagementSummary": "Building an API-first portal with embedded ERP capabilities using Terraform for Infrastructure as Code and FastAPI for backend development. This will enhance system observability and achieve compliance with data residency regulations.",
     "keyOutcomes": [
-      "Seamless integration of white-label and ERP capabilities",
-      "Implementation of a robust observability stack",
-      "Delivery of an intuitive self-service interface",
-      "Automated mechanisms for failure event detection"
+      "Delivery of Minimum Viable Product (MVP) by September 30, 2026",
+      "Capability to scale from 50 to 500 concurrent users within the first year",
+      "Achieving a 99.9% uptime SLA for the ingestion pipeline and customer portal",
+      "Handling a minimum sustained throughput capacity of 5,000 messages per second",
+      "Establishing observability with Prometheus and Grafana for real-time system health monitoring"
     ],
-    "totalValue": "$40,000.00",
-    "duration": "10 weeks",
-    "primaryTone": "Professional and technical",
-    "heroNarrative": "API-first solution enhances KM Digital's operational capabilities.",
+    "totalValue": "$40,000",
+    "duration": "6 months",
+    "primaryTone": "authoritative",
+    "heroNarrative": "Transforming digital experiences with seamless integration and compliance",
     "industryKeywords": [
-      "API",
-      "cloud-native",
-      "microservices",
-      "ERP",
-      "observability"
+      "IT",
+      "API-first Portal",
+      "Observability",
+      "Data Compliance",
+      "Innovation"
     ]
   },
   "brand": {
@@ -40,266 +41,13 @@
     "logoUrl": null,
     "logoText": "km-digital",
     "primaryColor": "#00a080",
-    "secondaryColor": "#e04040",
-    "overrideTheme": true,
-    "extractedCssVariables": {
-      "--ms-bg": "#e0f2fe",
-      "--ms-bg2": "#bae6fd",
-      "--ms-bg3": "#fef9c3",
-      "--ms-surface": "#ffffff",
-      "--ms-text": "#1a1a1a",
-      "--ms-text2": "#4a4a4a",
-      "--ms-text3": "#8a8a8a",
-      "--ms-border": "rgba(0,0,0,0.10)",
-      "--ms-accent": "#3b82f6",
-      "--ms-accent2": "#f97316",
-      "--ms-accent3": "#8b5cf6",
-      "--ms-accent4": "#14b8a6",
-      "--ms-accent5": "#22c55e",
-      "--ms-hero-bg": "#e0f2fe",
-      "--ms-stats-bg": "#bae6fd",
-      "--ms-challenge-bg": "#fef9c3",
-      "--ms-approach-bg": "#fce7f3",
-      "--ms-timeline-bg": "#d1fae5",
-      "--ms-pricing-bg": "#e0f2fe",
-      "--ms-whyus-bg": "#bae6fd",
-      "--ms-benefits-bg": "#fef9c3",
-      "--ms-problem-bg": "#fce7f3",
-      "--ms-nextsteps-bg": "#d1fae5",
-      "--ms-showcase-bg": "#e0f2fe",
-      "--ms-deliverables-bg": "#bae6fd",
-      "--ms-generic-bg": "#fef9c3",
-      "--ms-metrics-bg": "#fce7f3",
-      "--ms-hero-accent": "#3b82f6",
-      "--ms-stats-accent": "#f97316",
-      "--ms-challenge-accent": "#8b5cf6",
-      "--ms-approach-accent": "#3b82f6",
-      "--ms-timeline-accent": "#14b8a6",
-      "--ms-pricing-accent": "#f97316",
-      "--ms-whyus-accent": "#8b5cf6",
-      "--ms-benefits-accent": "#22c55e",
-      "--ms-problem-accent": "#14b8a6",
-      "--ms-nextsteps-accent": "#3b82f6",
-      "--ms-showcase-accent": "#8b5cf6",
-      "--ms-deliverables-accent": "#14b8a6",
-      "--ms-generic-accent": "#3b82f6",
-      "--ms-metrics-accent": "#22c55e",
-      "--ms-font-heading": "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
-      "--ms-font-body": "'Poppins', -apple-system, BlinkMacSystemFont, sans-serif",
-      "--ms-h1": "clamp(38px,6vw,72px)",
-      "--ms-h2": "clamp(30px,4.5vw,52px)",
-      "--ms-h1-weight": "800",
-      "--ms-body": "17px",
-      "--ms-body-line-height": "1.8",
-      "--ms-section-pad": "clamp(80px,10vw,120px)",
-      "--ms-container-pad": "clamp(20px,5vw,80px)",
-      "--ms-card-pad": "32px",
-      "--ms-r": "16px",
-      "--ms-r-card": "20px",
-      "--ms-r-btn": "14px",
-      "--ms-shadow": "0 1px 3px rgba(0,0,0,0.06)",
-      "--ms-shadow-hover": "0 4px 12px rgba(0,0,0,0.10)",
-      "--ms-transition": "all 0.3s cubic-bezier(0.34,1.56,0.64,1)",
-      "--ms-gradients-enabled": "1",
-      "--ms-decorative-enabled": "1"
-    },
-    "googleFontsUrl": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&family=Baloo+2:wght@400;600;700;800&display=swap",
-    "fontFaceDeclarations": ":root { --ms-font-heading: 'Poppins', -apple-system, sans-serif; --ms-font-body: 'Poppins', -apple-system, sans-serif; }",
-    "animationStyle": "bounce",
-    "gradientsEnabled": true,
-    "decorativeEnabled": true,
-    "borderRadiusStyle": "rounded",
-    "themeClass": "theme-custom-prompt theme-br-rounded anim-bounce"
+    "secondaryColor": "#e04040"
   },
-  "plugin": "ivory",
-  "customCharacter": "A joyful digital playground meets vibrant storytelling.",
-  "customTokens": {
-    "visualStyle": "Playful, colorful, child-friendly with vibrant accents and friendly shapes.",
-    "density": "comfortable",
-    "typography": {
-      "style": "humanist",
-      "headingWeight": "700",
-      "scale": "moderate"
-    },
-    "colorStrategy": {
-      "type": "vibrant",
-      "contrast": "high",
-      "accentUsage": "dominant"
-    },
-    "layoutStyle": {
-      "alignment": "centered",
-      "heroStyle": "full-bleed",
-      "sectionFlow": "card-grid"
-    },
-    "componentStyle": {
-      "button": "pill",
-      "card": "elevated",
-      "borderRadius": "16px",
-      "shadow": "subtle"
-    },
-    "behavior": {
-      "motion": "expressive",
-      "parallax": false,
-      "scrollEffects": "slide-up"
-    },
-    "customCharacter": "A joyful digital playground meets vibrant storytelling.",
-    "bg": "#00a080",
-    "text": "#ffffff",
-    "accent": "#ffab00",
-    "heroFont": "Nunito",
-    "bodyFont": "Poppins",
-    "heroWeight": 700,
-    "heroStyle": "normal",
-    "labelTracking": "0.15em",
-    "dark": false,
-    "noiseOpacity": 0.02,
-    "borderRadius": "16px",
-    "buttonStyle": "pill",
-    "layoutPatterns": {
-      "heroLayout": "full-bleed",
-      "sectionLayouts": [
-        "card-grid",
-        "editorial",
-        "split",
-        "centered"
-      ],
-      "spacingStyle": "generous",
-      "visualHierarchy": "image-first"
-    },
-    "sectionRules": {
-      "hero": {
-        "fields": [
-          "eyebrow",
-          "heading",
-          "subheading",
-          "backgroundImage",
-          "cta1"
-        ],
-        "ctaTarget": "pricing",
-        "ctaSecondaryTarget": null,
-        "alignment": "centered",
-        "ctaCount": 1
-      },
-      "nextsteps": {
-        "fields": [
-          "heading",
-          "subheading",
-          "body",
-          "cta1",
-          "cta2"
-        ],
-        "ctaTarget": null,
-        "ctaSecondaryTarget": null,
-        "alignment": "centered",
-        "ctaCount": 2
-      }
-    },
-    "colorOverrides": {
-      "bg": null,
-      "text": null,
-      "accent": null
-    },
-    "tokenOverrides": {
-      "borderRadius": null,
-      "heroFontSize": null,
-      "bodyFontSize": null,
-      "sectionPadding": null
-    }
-  },
-  "customFonts": [
-    {
-      "family": "Nunito",
-      "url": "https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&display=swap"
-    },
-    {
-      "family": "Poppins",
-      "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
-    }
-  ],
-  "customDesignSystem": {
-    "visualStyle": "Playful, colorful, child-friendly with vibrant accents and friendly shapes.",
-    "density": "comfortable",
-    "typography": {
-      "style": "humanist",
-      "headingWeight": "700",
-      "scale": "moderate"
-    },
-    "colorStrategy": {
-      "type": "vibrant",
-      "contrast": "high",
-      "accentUsage": "dominant"
-    },
-    "layoutStyle": {
-      "alignment": "centered",
-      "heroStyle": "full-bleed",
-      "sectionFlow": "card-grid"
-    },
-    "componentStyle": {
-      "button": "pill",
-      "card": "elevated",
-      "borderRadius": "16px",
-      "shadow": "subtle"
-    },
-    "behavior": {
-      "motion": "expressive",
-      "parallax": false,
-      "scrollEffects": "slide-up"
-    },
-    "layoutPatterns": {
-      "heroLayout": "full-bleed",
-      "sectionLayouts": [
-        "card-grid",
-        "editorial",
-        "split",
-        "centered"
-      ],
-      "spacingStyle": "generous",
-      "visualHierarchy": "image-first"
-    },
-    "sectionRules": {
-      "hero": {
-        "fields": [
-          "eyebrow",
-          "heading",
-          "subheading",
-          "backgroundImage",
-          "cta1"
-        ],
-        "ctaTarget": "pricing",
-        "ctaSecondaryTarget": null,
-        "alignment": "centered",
-        "ctaCount": 1
-      },
-      "nextsteps": {
-        "fields": [
-          "heading",
-          "subheading",
-          "body",
-          "cta1",
-          "cta2"
-        ],
-        "ctaTarget": null,
-        "ctaSecondaryTarget": null,
-        "alignment": "centered",
-        "ctaCount": 2
-      }
-    },
-    "colorOverrides": {
-      "bg": null,
-      "text": null,
-      "accent": null
-    },
-    "tokenOverrides": {
-      "borderRadius": null,
-      "heroFontSize": null,
-      "bodyFontSize": null,
-      "sectionPadding": null
-    }
-  },
+  "plugin": "crimson",
   "behavior": {
-    "motion": "expressive",
+    "motion": "deliberate",
     "parallax": false,
-    "scrollEffects": "slide-up"
+    "scrollEffects": "none"
   },
   "sections": [
     {
@@ -308,20 +56,182 @@
       "sectionType": "hero",
       "content": {
         "eyebrow": "Proposal for KM Digital",
-        "headline": "Building a Playful Digital Future",
-        "subheadline": "Crafting joyful experiences through strategic design.",
-        "body": "KM Digital's ambitious MVP project combines innovative technology with engaging design. Our team is dedicated to building a seamless API-first portal that brings joy to users while meeting all technical requirements.",
-        "ctaPrimary": "Let's Play Together",
-        "ctaSecondary": "Discover Our Vision",
-        "imageQuery": "colorful playground fun",
-        "theme": "light",
-        "variant": "split"
+        "headline": "Revolutionizing Your API-First Experience",
+        "subheadline": "Seamless integration of ERP and design capabilities.",
+        "body": "At KM Digital, we understand the urgency of delivering an API-first portal that meets strict data residency requirements. Our approach combines cutting-edge technology with expert integration to ensure reliable performance and scalability from day one.",
+        "ctaPrimary": "Start Your Transformation",
+        "ctaSecondary": "Explore Our Strategy",
+        "imageQuery": "technology integration design",
+        "theme": "light"
       },
       "diagramMeta": null,
       "image": {
         "source": "dalle",
-        "query": "colorful playground fun",
-        "url": "http://localhost:3000/presentation-images/km-digital/hero-2bac6052.jpg",
+        "query": "technology integration design",
+        "url": "http://localhost:3000/presentation-images/km-digital/hero-d6ab2d1b.jpg",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "current-state-technical-gaps",
+      "heading": "Current State & Technical Gaps",
+      "sectionType": "problem",
+      "content": {
+        "eyebrow": "The Real Cost of Ignoring Gaps",
+        "headline": "Inaction Risks Total System Failure Before September 2026 Deadline",
+        "body": "Delays in addressing critical architectural gaps risk catastrophic outages that will disrupt services and erode customer trust. The current single point of failure could lead to a complete service shutdown, jeopardizing compliance and competitive positioning in the IT industry.",
+        "painPoints": [
+          "Experience outages due to single points of failure",
+          "Fail to support future data growth effectively",
+          "Worsen response times to operational incidents",
+          "Risk data privacy breaches across client projects",
+          "Lack actionable insights during system failures"
+        ],
+        "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
+        "diagram": "graph TB\nA[Frontend] --> B[Backend]\nB --> C[Database]\nB --> D[Queue System]\nC --> E[Time-Series Data Handling]\nB --> F[Feature Store]\nF --> G[Automated Alerts]\nH[Multi-Tenant Architecture] --> E\nH --> A\nB --> I[Observability Stack]",
+        "variant": "asymmetric"
+      },
+      "diagramMeta": {
+        "typeId": "system-architecture",
+        "typeLabel": "System Architecture",
+        "category": "architecture",
+        "confidence": "high",
+        "matchedKeywords": [
+          "architecture",
+          "system",
+          "service",
+          "stack",
+          "cluster"
+        ],
+        "score": 13,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-fiuk0JNbIQSXfhnCa5GTCqcG.png?st=2026-03-30T18%3A57%3A23Z&se=2026-03-30T20%3A57%3A23Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A25%3A45Z&ske=2026-03-31T09%3A25%3A45Z&sks=b&skv=2026-02-06&sig=idr939JP5%2B1203%2BVogCg0HIFgBvY5MlWIBcvcgDt3YM%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "proposed-architecture",
+      "heading": "Proposed Architecture",
+      "sectionType": "approach",
+      "content": {
+        "eyebrow": "Technical Approach Overview",
+        "headline": "Foundational Elements of API-First Portal Development",
+        "subheadline": "Strategic pillars guide the design and execution phases of the project.",
+        "pillars": [
+          {
+            "iconHint": "strategy",
+            "name": "Infrastructure as Code",
+            "description": "Utilizing Terraform ensures rapid and repeatable deployments. This approach facilitates efficient resource management throughout the system lifecycle."
+          },
+          {
+            "iconHint": "digital",
+            "name": "Observability Stack",
+            "description": "Employing Prometheus, Grafana, and Jaeger addresses existing gaps in monitoring. This setup allows for proactive diagnostics, minimizing operational blind spots."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Embedded Collaboration Model",
+            "description": "A structured pairing approach fosters knowledge transfer and capability scaling. Engaging dedicated resources enhances alignment with KM Digital's unique needs."
+          },
+          {
+            "iconHint": "content",
+            "name": "Multi-Tenant Architecture",
+            "description": "Developing a flexible architecture mitigates risks associated with single points of failure. Enhanced reliability is achieved through the implementation of high-availability clusters."
+          }
+        ],
+        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene of a collaborative strategy meeting, warm ambient lighting, professionals discussing project details with digital screens in the background, professional photography, 4K",
+        "diagram": "graph TB\nA[Frontend] --> B[Backend]\nB --> C[API Gateway]\nC --> D[Database]\nC --> E[Monitoring Stack]\nE --> F[Alerting System]\nF --> G[User Interface]\nD --> H[Time-Series DB]\nH --> I[Feature Store]\nC --> J[High-Availability Cluster]",
+        "variant": "card-grid"
+      },
+      "diagramMeta": {
+        "typeId": "system-architecture",
+        "typeLabel": "System Architecture",
+        "category": "architecture",
+        "confidence": "high",
+        "matchedKeywords": [
+          "architecture"
+        ],
+        "score": 10,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "DALL-E 3 prompt: cinematic photorealistic scene of a collaborative strategy meeting, warm ambient lighting, professionals discussing project details with digital screens in the background, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-qtW1dHZj958hhsXWyJlBk5f5.png?st=2026-03-30T18%3A57%3A27Z&se=2026-03-30T20%3A57%3A27Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A23%3A21Z&ske=2026-03-31T09%3A23%3A21Z&sks=b&skv=2026-02-06&sig=1tKPKtq11F7FY7ogPPCb4b2xEAtyn2LLPEhodPqik04%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "deliverables",
+      "heading": "deliverables",
+      "sectionType": "deliverables",
+      "content": {
+        "eyebrow": "Deliverables Overview",
+        "headline": "Key Deliverables for KM Digital Project",
+        "items": [
+          {
+            "iconHint": "strategy",
+            "name": "API Design Documentation",
+            "detail": "Defines the API contracts to ensure seamless integration."
+          },
+          {
+            "iconHint": "identity",
+            "name": "MVP Development",
+            "detail": "Delivers a Minimum Viable Product by September 30, 2026."
+          },
+          {
+            "iconHint": "document",
+            "name": "Testing Reports",
+            "detail": "Provides comprehensive coverage metrics and QA results."
+          },
+          {
+            "iconHint": "website",
+            "name": "Customer Portal",
+            "detail": "Develops an intuitive interface for user interactions."
+          },
+          {
+            "iconHint": "document",
+            "name": "Observability Setup",
+            "detail": "Establishes monitoring frameworks with Prometheus and Grafana."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Scalability Plan",
+            "detail": "Outlines strategies for handling increased load and user growth."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Security Framework",
+            "detail": "Implements comprehensive security and compliance protocols."
+          }
+        ],
+        "imageQuery": "DALL-E 3 prompt: a collaborative technology team meeting in a modern office, soft lighting, focused discussions around a digital whiteboard, professional photography, 4K",
+        "diagram": "graph TD\nA[Frontend] --> B[API Gateway]\nB --> C[Microservices]\nC --> D[Database]\nC --> E[Observability Stack]\nC --> F[Notification Service]\nC --> G[Reporting Service]",
+        "variant": "minimal"
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "DALL-E 3 prompt: a collaborative technology team meeting in a modern office, soft lighting, focused discussions around a digital whiteboard, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-don0lCkTdxX7y2XunSA1Jkdn.png?st=2026-03-30T18%3A57%3A30Z&se=2026-03-30T20%3A57%3A30Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A22%3A09Z&ske=2026-03-31T09%3A22%3A09Z&sks=b&skv=2026-02-06&sig=klOcCRub3An7mSEv%2Bt6uu3aMn1oq0Rcznf8bLxJNAr8%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -332,38 +242,44 @@
       "heading": "timeline",
       "sectionType": "timeline",
       "content": {
-        "eyebrow": "Exciting API-First Adventure",
-        "headline": "Unlock the Magic of Seamless Integration!",
-        "subheadline": "Join us on a journey to enhance KM Digital's operational capabilities with our playful API-first solution. Each step will bring you closer to a vibrant digital experience!",
+        "eyebrow": "Phased Technical Delivery Plan",
+        "headline": "Timelines for API-First Portal Development",
+        "subheadline": "A structured approach to achieving KM Digital's MVP goals.",
         "phases": [
           {
-            "label": "Phase 1",
-            "duration": "2 weeks",
-            "name": "Discovery Stage",
-            "description": "We dive deep to understand your needs and shape the vision."
+            "label": "Sprint 1: Requirements & API Design",
+            "duration": "February 2026",
+            "name": "API Design",
+            "description": "Define API contracts and complete reference architecture to align on technical standards."
           },
           {
-            "label": "Phase 2",
-            "duration": "3 weeks",
-            "name": "Development Sprint",
-            "description": "Our talented team crafts the core features of the MVP."
+            "label": "Sprint 2: Core Service Development",
+            "duration": "March 2026",
+            "name": "Service Deployment",
+            "description": "Deploy core service to staging and establish secure ingestion pipelines for data processing."
           },
           {
-            "label": "Phase 3",
-            "duration": "2 weeks",
-            "name": "Testing & Feedback",
-            "description": "We ensure everything works perfectly, gaining insights for improvements."
+            "label": "Sprint 3: User Interface Development",
+            "duration": "April 2026",
+            "name": "Frontend Development",
+            "description": "Develop and review the customer portal using React/TypeScript for intuitive user experience."
           },
           {
-            "label": "Phase 4",
-            "duration": "3 weeks",
-            "name": "Final Touches",
-            "description": "We polish the MVP and prepare for the exciting launch!"
+            "label": "Sprint 4: Observability & Monitoring",
+            "duration": "May 2026",
+            "name": "Monitoring Setup",
+            "description": "Implement observability stack with Prometheus and Grafana to ensure real-time performance tracking."
+          },
+          {
+            "label": "Sprint 5: Load Testing & Iteration",
+            "duration": "June 2026",
+            "name": "Load Testing",
+            "description": "Conduct performance tests and gather feedback to refine the system before final delivery."
           }
         ],
-        "imageQuery": "children digital playful colorful",
-        "diagram": null,
-        "variant": "asymmetric"
+        "imageQuery": "A modern tech workspace with engineers collaborating over technical documents, soft warm lighting creating an atmosphere of focused determination, high-resolution photography, 4K",
+        "diagram": "gantt\\nA[API Design]\\nB[Service Deployment]\\nC[Frontend Development]\\nD[Monitoring Setup]\\nE[Load Testing]",
+        "variant": "split"
       },
       "diagramMeta": {
         "typeId": "gantt-chart",
@@ -376,49 +292,50 @@
       },
       "image": {
         "source": "gradient",
-        "query": "children digital playful colorful",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-Lmp29SiLqPNFyATmM9ZVNWPL.png?st=2026-03-30T08%3A37%3A15Z&se=2026-03-30T10%3A37%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A04%3A52Z&ske=2026-03-31T07%3A04%3A52Z&sks=b&skv=2026-02-06&sig=/Ewkama6qeDPa4FUGs7foiaHntxuvDSG6NmRonUL8Yc%3D",
+        "query": "A modern tech workspace with engineers collaborating over technical documents, soft warm lighting creating an atmosphere of focused determination, high-resolution photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-D1J8gYIbnyI3ZyZQLQk5yVrw.png?st=2026-03-30T18%3A57%3A23Z&se=2026-03-30T20%3A57%3A23Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A59%3A27Z&ske=2026-03-31T06%3A59%3A27Z&sks=b&skv=2026-02-06&sig=ziuADlMK3l6oy3gxOoscPDsgN8xE5u91%2BF21RkpCjjw%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "benefits",
-      "heading": "benefits",
-      "sectionType": "benefits",
+      "id": "security",
+      "heading": "security",
+      "sectionType": "security",
       "content": {
-        "eyebrow": "Exciting API Solutions",
-        "headline": "Boost Your Business with Our API-First Portal",
-        "imageQuery": "colorful digital technology, children playful",
+        "eyebrow": "Built for Compliance",
+        "headline": "Maintaining Integrity with Strenuous Security Measures",
+        "imageQuery": "Data compliance security technology",
         "items": [
           {
-            "iconHint": "api",
-            "title": "Seamless Integration",
-            "description": "Integrates white-label and ERP capabilities effortlessly, enhancing operational flexibility."
+            "iconHint": "identity",
+            "name": "Data Encryption",
+            "description": "Encrypts sensitive data at rest and in transit. This protects against unauthorized access and data breaches."
           },
           {
-            "iconHint": "automation",
-            "title": "Efficient Management",
-            "description": "Utilizes Infrastructure as Code with Terraform for rapid deployments."
+            "iconHint": "digital",
+            "name": "Access Controls",
+            "description": "Defines user permissions and role-based access to critical systems. This safeguards against internal threats and ensures data privacy."
           },
           {
-            "iconHint": "user-friendly",
-            "title": "Intuitive Interface",
-            "description": "Creates a self-service experience for users, making interactions enjoyable."
+            "iconHint": "strategy",
+            "name": "Audit Logging",
+            "description": "Maintains comprehensive logs of all system activity. This allows for real-time monitoring and retrospective analysis of security incidents."
           },
           {
-            "iconHint": "monitoring",
-            "title": "Robust Observability",
-            "description": "Implements automated failure detection for enhanced reliability."
+            "iconHint": "research",
+            "name": "Compliance Framework Adherence",
+            "description": "Follows industry-standard compliance frameworks. This mitigates risks related to regulatory penalties and reputational damage."
           }
         ],
-        "diagram": null
+        "diagram": "graph TB\\nA[Data Encryption] --> B[Access Controls]\\nB --> C[Audit Logging]\\nC --> D[Compliance Framework Adherence]",
+        "variant": "asymmetric"
       },
       "diagramMeta": {
-        "typeId": "user-journey",
-        "typeLabel": "User Journey",
-        "category": "specialized",
+        "typeId": "network-topology",
+        "typeLabel": "Network Topology",
+        "category": "architecture",
         "confidence": "high",
         "matchedKeywords": [],
         "score": 5,
@@ -426,214 +343,132 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful digital technology, children playful",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-mW9G9GcvT7gTLTtuyfhBR1oY.png?st=2026-03-30T08%3A37%3A14Z&se=2026-03-30T10%3A37%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A15%3A20Z&ske=2026-03-31T09%3A15%3A20Z&sks=b&skv=2026-02-06&sig=rH%2B/qHI9xkfwsgrbJWVfhA01t74CIB453SbrA6gUEkE%3D",
+        "query": "Data compliance security technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-wulMpWCk9nRgHDQps25PcJbZ.png?st=2026-03-30T18%3A57%3A23Z&se=2026-03-30T20%3A57%3A23Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A56%3A42Z&ske=2026-03-31T06%3A56%3A42Z&sks=b&skv=2026-02-06&sig=Axjfp88GTSBHhewpxhQ0xRrzgomAeLT4nnOLwVb1TJU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "testimonials",
-      "heading": "testimonials",
-      "sectionType": "testimonials",
+      "id": "techstack",
+      "heading": "techstack",
+      "sectionType": "techstack",
       "content": {
-        "eyebrow": "What Our Clients Say",
-        "headline": "Bright Smiles from KM Digital's Partners",
-        "imageQuery": "children playing joyfully outdoors",
-        "items": [
+        "eyebrow": "Built on Modern Foundations",
+        "headline": "API-First Architecture for Enhanced Digital Integration",
+        "imageQuery": "technology integration digital modern",
+        "categories": [
           {
-            "quote": "The playful design made our project come to life!",
-            "name": "Alice Bright",
-            "title": "Product Manager",
-            "company": "Fantasy Tech"
+            "iconHint": "digital",
+            "name": "Frontend",
+            "items": [
+              "React",
+              "Vue.js",
+              "Angular"
+            ]
           },
           {
-            "quote": "Our kids loved the colorful interface. It truly engages!",
-            "name": "Tommy Green",
-            "title": "Director of Fun",
-            "company": "Happy Place"
+            "iconHint": "digital",
+            "name": "Backend",
+            "items": [
+              "FastAPI",
+              "Node.js",
+              "Django"
+            ]
           },
           {
-            "quote": "Working with km-digital was a delightful experience!",
-            "name": "Sarah Joyful",
-            "title": "Chief Creative Officer",
-            "company": "WonderWorks"
+            "iconHint": "document",
+            "name": "Infrastructure",
+            "items": [
+              "Terraform",
+              "AWS",
+              "Docker"
+            ]
+          },
+          {
+            "iconHint": "content",
+            "name": "Database",
+            "items": [
+              "PostgreSQL",
+              "MongoDB",
+              "Redis"
+            ]
           }
         ],
-        "diagram": null
+        "diagram": "graph LR\\nA[Frontend] --> B[Backend]\\nB --> C[Database]\\nB --> D[Infrastructure]\\nC --> E[Monitoring]\\nD --> F[Deployment]\\nE --> G[Observability]\\nG --> H[Health Metrics]",
+        "variant": "editorial"
+      },
+      "diagramMeta": {
+        "typeId": "data-flow",
+        "typeLabel": "Data Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "technology integration digital modern",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-yjdKz8jrIPd02XAHI8rfmfhX.png?st=2026-03-30T18%3A57%3A20Z&se=2026-03-30T20%3A57%3A20Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-29T23%3A58%3A16Z&ske=2026-03-30T23%3A58%3A16Z&sks=b&skv=2026-02-06&sig=2Jcmdmd7MvHtk0ruWwcklhOG9mE5bQXnWcPvR5iCFWc%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "testing",
+      "heading": "testing",
+      "sectionType": "testing",
+      "content": {
+        "eyebrow": "Quality Built In",
+        "headline": "Rigorous Testing Framework for Uncompromised Reliability",
+        "imageQuery": "testing software development",
+        "layers": [
+          {
+            "level": 1,
+            "name": "Unit Tests",
+            "coverage": "90%",
+            "description": "This layer validates individual components for expected functionality."
+          },
+          {
+            "level": 2,
+            "name": "Integration Tests",
+            "coverage": "85%",
+            "description": "This layer ensures that combined components work together as intended."
+          },
+          {
+            "level": 3,
+            "name": "End-to-End Tests",
+            "coverage": "80%",
+            "description": "This layer tests the complete workflow from start to finish."
+          },
+          {
+            "level": 4,
+            "name": "Performance Tests",
+            "coverage": "75%",
+            "description": "This layer assesses the system's performance under load conditions."
+          }
+        ],
+        "additionalInfo": [
+          {
+            "heading": "Continuous Monitoring",
+            "body": "Testing will be supplemented by continuous performance monitoring to quickly address any anomalies."
+          },
+          {
+            "heading": "Compliance Assurance",
+            "body": "Testing protocols ensure adherence to data residency and regulatory compliance requirements."
+          }
+        ],
+        "diagram": "graph LR\n  A[Unit Tests] --> B[Integration Tests]\n  B --> C[End-to-End Tests]\n  C --> D[Performance Tests]",
+        "variant": "minimal"
       },
       "diagramMeta": null,
       "image": {
-        "source": "dalle",
-        "query": "children playing joyfully outdoors",
-        "url": "http://localhost:3000/presentation-images/km-digital/testimonials-aff63b42.jpg",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "problem",
-      "heading": "problem",
-      "sectionType": "problem",
-      "content": {
-        "eyebrow": "Transforming Digital Experiences for Kids!",
-        "headline": "Creating a Playful and Engaging API-First Portal",
-        "body": "At km-digital, we understand the importance of integrating fun and ease into digital interfaces, especially for children. Our design proposal aims to deliver an enchanting microsite that captivates and delights young audiences while meeting KM Digital's needs for API-first development.",
-        "painPoints": [
-          "Striking a balance between fun and functionality",
-          "Ensuring strong readability for young users",
-          "Creating an engaging storytelling experience",
-          "Designing with data residency in mind",
-          "Optimizing for various device layouts"
-        ],
-        "imageQuery": "playful colorful children digital design"
-      },
-      "diagramMeta": {
-        "typeId": "quadrant-matrix",
-        "typeLabel": "Priority Matrix",
-        "category": "metric",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
         "source": "gradient",
-        "query": "playful colorful children digital design",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-WjjHcSIImTEYm2aXu49LlJJM.png?st=2026-03-30T08%3A37%3A25Z&se=2026-03-30T10%3A37%3A25Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A00%3A56Z&ske=2026-03-31T07%3A00%3A56Z&sks=b&skv=2026-02-06&sig=ZCZcjdLyX%2BW7M%2BvGRYST2zkvtYGLMxNJMLeeadR/BzI%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "challenge",
-      "heading": "challenge",
-      "sectionType": "challenge",
-      "content": {
-        "eyebrow": "Creating Magical Digital Experiences",
-        "headline": "Building a Joyful API-First Portal for KM Digital",
-        "body": "km-digital is excited to enhance KM Digital's operational capabilities through our innovative API-first solution. Our engaging platform design integrates white-label features and ERP capabilities while meeting stringent data residency requirements. Join us on this colorful journey!",
-        "pullquote": "Our playful design approach brings joy to tech interactions!",
-        "imageQuery": "children playing technology colorful fun",
-        "diagram": null
-      },
-      "diagramMeta": {
-        "typeId": "decision-tree",
-        "typeLabel": "Decision Tree",
-        "category": "flow",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "children playing technology colorful fun",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-jXKFU52fI5s86jTRElEFTGeQ.png?st=2026-03-30T08%3A37%3A17Z&se=2026-03-30T10%3A37%3A17Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A54%3A20Z&ske=2026-03-31T06%3A54%3A20Z&sks=b&skv=2026-02-06&sig=yvZ9D9M%2BAHnPE0wAUPYv2HuRMI3JqxuxXlZDsviIZdU%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "approach",
-      "heading": "approach",
-      "sectionType": "approach",
-      "content": {
-        "eyebrow": "Welcome to a World of Fun!",
-        "headline": "Explore a Colorful Digital Adventure with km-digital!",
-        "subheadline": "Join us in a playful journey filled with joy and learning. Let’s create delightful digital experiences together!",
-        "pillars": [
-          {
-            "iconHint": "smiling cartoon character",
-            "name": "Playful Adventures",
-            "description": "Dive into colorful adventures that spark imagination. Our engaging experiences are designed to bring joy and learning to every child."
-          },
-          {
-            "iconHint": "colorful building blocks",
-            "name": "Creative Learning",
-            "description": "Foster creativity with interactive storytelling and vibrant visuals. We make learning fun through bright and playful designs."
-          },
-          {
-            "iconHint": "team of friends",
-            "name": "Joyful Collaboration",
-            "description": "We believe in teamwork that fuels imagination. Together, we can create delightful and engaging digital spaces."
-          },
-          {
-            "iconHint": "happy kids using tablets",
-            "name": "Engaging Technology",
-            "description": "Our tech is built to be friendly, colorful, and easy to use. We prioritize creating joyful experiences for young audiences."
-          }
-        ],
-        "imageQuery": "children playing with colorful digital devices",
-        "diagram": null
-      },
-      "diagramMeta": {
-        "typeId": "process-flow",
-        "typeLabel": "Process Flow",
-        "category": "flow",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "children playing with colorful digital devices",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zFKFzg4KZHTTzt1gRiDwCB74.png?st=2026-03-30T08%3A37%3A15Z&se=2026-03-30T10%3A37%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A07%3A15Z&ske=2026-03-31T07%3A07%3A15Z&sks=b&skv=2026-02-06&sig=hUmAzsL1GRa8TiNpf6HKb2PMwAL9U8bYWZq5G7wa6zA%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "deliverables",
-      "heading": "deliverables",
-      "sectionType": "deliverables",
-      "content": {
-        "eyebrow": "Let's Create Joyful Experiences!",
-        "headline": "Brightening Digital Spaces for Little Explorers",
-        "items": [
-          {
-            "iconHint": "friendly mascot icon",
-            "name": "Engaging Storytelling",
-            "detail": "Crafting playful narratives that captivate young minds."
-          },
-          {
-            "iconHint": "colorful playful shapes",
-            "name": "Interactive Features",
-            "detail": "Building an active platform filled with fun activities."
-          },
-          {
-            "iconHint": "fun colorful cards",
-            "name": "Responsive Design",
-            "detail": "Optimizing joyful experiences for all devices."
-          },
-          {
-            "iconHint": "vibrant growth graph",
-            "name": "Exciting Outcomes",
-            "detail": "Delivering measurable engagement and delight!"
-          }
-        ],
-        "imageQuery": "colorful child-friendly designs",
-        "diagram": null
-      },
-      "diagramMeta": {
-        "typeId": "process-flow",
-        "typeLabel": "Process Flow",
-        "category": "flow",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "colorful child-friendly designs",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-4gCYIjNwn4mqT4OgisynIfPo.png?st=2026-03-30T08%3A37%3A14Z&se=2026-03-30T10%3A37%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T09%3A01%3A38Z&ske=2026-03-31T09%3A01%3A38Z&sks=b&skv=2026-02-06&sig=MTrIQtid3ZSVpQwnAtTPGLHhKY0Y6Hzg03G3xigeWD4%3D",
+        "query": "testing software development",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-4Wt7QcrANrWAep0UDTbxpRNh.png?st=2026-03-30T18%3A57%3A24Z&se=2026-03-30T20%3A57%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A00%3A27Z&ske=2026-03-31T07%3A00%3A27Z&sks=b&skv=2026-02-06&sig=JMZhhpTaqG%2BppHOkG9OrUekuk5DW0F1zYrvZ8M8QvLw%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -644,13 +479,13 @@
       "heading": "pricing",
       "sectionType": "pricing",
       "content": {
-        "eyebrow": "Exciting Digital Playground",
-        "headline": "Explore a Colorful World of Fun!",
-        "subheadline": "Join us for delightful adventures and learning!",
+        "eyebrow": "Investment Overview",
+        "headline": "Unlocking Seamless Integration and Compliance",
+        "subheadline": "This investment enhances your digital capabilities and ensures operational excellence.",
         "rows": [
           [
             "Team Size",
-            "4"
+            "$4,000.00/week"
           ],
           [
             "Duration",
@@ -669,12 +504,11 @@
             "$40,000.00"
           ]
         ],
-        "totalLabel": "Total Estimated Cost",
+        "totalLabel": "Total: $40,000.00",
         "footnote": "Payment terms: Net-30 from invoice date, billed monthly in arrears.",
-        "cta": "Join the Fun!",
-        "imageQuery": "colorful children playground",
-        "diagram": null,
-        "variant": "minimal"
+        "cta": "Get Started Today",
+        "imageQuery": "Cinematic photorealistic scene of a modern office environment with soft directional lighting, team collaborating over technology screens, professional photography, 4K",
+        "variant": "centered"
       },
       "diagramMeta": {
         "typeId": "gantt-chart",
@@ -700,8 +534,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful children playground",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-KJR1CYESYTBpw3EtEpGRwBcj.png?st=2026-03-30T08%3A37%3A14Z&se=2026-03-30T10%3A37%3A14Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A02%3A06Z&ske=2026-03-31T07%3A02%3A06Z&sks=b&skv=2026-02-06&sig=Js/Ug2plhCORfdPSjbu2mnEUo9GG2RBcn0pn/DKLXQ4%3D",
+        "query": "Cinematic photorealistic scene of a modern office environment with soft directional lighting, team collaborating over technology screens, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-jUJ6HkqohfC4YnMimuCiqLw9.png?st=2026-03-30T18%3A57%3A24Z&se=2026-03-30T20%3A57%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-29T22%3A10%3A38Z&ske=2026-03-30T22%3A10%3A38Z&sks=b&skv=2026-02-06&sig=6bRYWtnkqwVpxG6BIxfpf9nhrQjXo67OPh02/x711%2B4%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -712,27 +546,33 @@
       "heading": "stats",
       "sectionType": "stats",
       "content": {
-        "eyebrow": "Join the Adventure!",
-        "headline": "Discover a World of Fun with km-digital!",
-        "imageQuery": "colorful children playing joyfully",
+        "eyebrow": "By The Numbers",
+        "headline": "Significant Metrics Illustrating Project Scope and Impact",
+        "imageQuery": "technology integration API statistics",
         "stats": [
           {
-            "number": "$40,000.00",
-            "label": "Total Project Value",
-            "context": "This investment will bring a vibrant API-first portal to life."
+            "number": "99.9%",
+            "label": "Uptime SLA",
+            "context": "This ensures reliability and continuous accessibility for users."
           },
           {
-            "number": "10 weeks",
-            "label": "Project Duration",
-            "context": "The timeline for bringing this exciting project to fruition."
+            "number": "5,000",
+            "label": "Messages per second",
+            "context": "Demonstrating the system's capacity to handle high throughput needs."
           },
           {
-            "number": "6 months",
-            "label": "MVP Delivery Time",
-            "context": "Our goal is to launch an MVP within half a year."
+            "number": "6",
+            "label": "Months for MVP",
+            "context": "Providing a structured timeline to deliver essential features."
+          },
+          {
+            "number": "500",
+            "label": "Concurrent users",
+            "context": "Scalability ability forecasted for the first year of operation."
           }
         ],
-        "diagram": null
+        "diagram": "pie\\nUptime SLA\\nMessages per second\\nMonths for MVP\\nConcurrent users\\nCustomer satisfaction\\nOperational efficiency",
+        "variant": "editorial"
       },
       "diagramMeta": {
         "typeId": "pie-chart",
@@ -745,8 +585,74 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful children playing joyfully",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-sSKqxLBdZ0qbaDuTEFL1mlJv.png?st=2026-03-30T08%3A37%3A24Z&se=2026-03-30T10%3A37%3A24Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A56%3A42Z&ske=2026-03-31T06%3A56%3A42Z&sks=b&skv=2026-02-06&sig=VuquHl1p/86vnctLzi7BsbfJlDvZiNgrZMQ0a5wXq%2Bc%3D",
+        "query": "technology integration API statistics",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-Vv9DFjubjxvJgt3BKUtuOQiX.png?st=2026-03-30T18%3A57%3A22Z&se=2026-03-30T20%3A57%3A22Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A59%3A33Z&ske=2026-03-31T06%3A59%3A33Z&sks=b&skv=2026-02-06&sig=eXTI1/NlcyvD7x6W/VZJTyGBpAYwKRjVxyjU8PVhBaE%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
+      "content": {
+        "eyebrow": "What You Gain",
+        "headline": "Unlock Efficiency and Compliance with KM Digital",
+        "imageQuery": "technology integration compliance efficiency",
+        "items": [
+          {
+            "iconHint": "identity",
+            "title": "Enhanced Data Compliance",
+            "description": "All customer data remains securely within the AWS ap-south-1 region to meet local regulations, amplifying trust and transparency."
+          },
+          {
+            "iconHint": "digital",
+            "title": "Seamless API Integration",
+            "description": "An API-first portal enables easy integration of white-label and ERP capabilities, enhancing operational agility and flexibility."
+          },
+          {
+            "iconHint": "strategy",
+            "title": "Scalable Infrastructure",
+            "description": "Capable of scaling from 50 to 500 concurrent users in the first year, ensuring robust performance under increased demand."
+          },
+          {
+            "iconHint": "research",
+            "title": "Proactive Monitoring",
+            "description": "Advanced observability with Prometheus and Grafana provides real-time system health insights, reducing downtime and improving customer confidence."
+          },
+          {
+            "iconHint": "launch",
+            "title": "Rapid MVP Delivery",
+            "description": "Delivery of a Minimum Viable Product by September 30, 2026, supports timely market entry and iterative enhancements based on user feedback."
+          },
+          {
+            "iconHint": "content",
+            "title": "High Uptime Guarantee",
+            "description": "99.9% uptime SLA for the ingestion pipeline and customer portal ensures reliable access and service availability at all times."
+          },
+          {
+            "iconHint": "document",
+            "title": "Comprehensive Security Measures",
+            "description": "Commitment to industry-standard security practices safeguards data integrity and reinforces compliance with regulations like GDPR and HIPAA."
+          }
+        ],
+        "diagram": "journey\\nA[User Interaction] -> A[API Gateway] -> A[Microservices] -> A[Data Processing Service] -> A[Observability Stack] -> A[Frontend] -> A[Customer Portal]",
+        "variant": "split"
+      },
+      "diagramMeta": {
+        "typeId": "user-journey",
+        "typeLabel": "User Journey",
+        "category": "specialized",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "technology integration compliance efficiency",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-bRTtdaKeee5P8EHgKP0RJffS.png?st=2026-03-30T18%3A57%3A22Z&se=2026-03-30T20%3A57%3A22Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A55%3A38Z&ske=2026-03-31T06%3A55%3A38Z&sks=b&skv=2026-02-06&sig=Lv6oqRoxDa267KeEg87/ahdEtzES8ca8evrIuV36cXA%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -757,23 +663,29 @@
       "heading": "whyus",
       "sectionType": "whyus",
       "content": {
-        "eyebrow": "Why Choose Us?",
-        "headline": "Elevate Your Digital Experience with km-digital!",
-        "body": "At km-digital, we specialize in creating exciting and playful digital experiences for children. Our unique approach ensures that every interaction is not just functional but also filled with joy and wonder!",
+        "eyebrow": "Our Unique Value Proposition",
+        "headline": "Expertise in API-First Solutions for Seamless Integration",
+        "body": "km-digital excels in delivering API-first approaches that cater to complex needs, ensuring compliance with stringent data regulations. Our dedicated team focuses on observability and efficiency, fostering long-term partnerships built on trust and technical excellence.",
         "stats": [
           {
-            "number": "40,000",
-            "label": "Project Value",
-            "context": "This is our commitment to delivering value over the course of our engagement."
+            "number": "99.9%",
+            "label": "Uptime SLA",
+            "context": "for ingestion pipeline and customer portal."
           },
           {
-            "number": "10",
-            "label": "Weeks Duration",
-            "context": "Our team is set to deliver the MVP in a swift and efficient timeline."
+            "number": "5,000",
+            "label": "Messages per second",
+            "context": "minimum sustained throughput capacity."
+          },
+          {
+            "number": "6 months",
+            "label": "MVP Delivery",
+            "context": "completion timeline for project."
           }
         ],
-        "imageQuery": "colorful playful children's illustrations",
-        "diagram": null
+        "imageQuery": "DALL-E 3 prompt: a high-tech team brainstorming around a sleek conference table, soft ambient lighting, focused atmosphere, professional photography, 4K",
+        "diagram": "graph TD\\nA[Frontend] --> B[API Gateway]\\nB --> C[Microservices]\\nC --> D[Database]\\nC --> E[Observers]\\nC --> F[CI/CD Pipeline]\\nF --> G[Monitoring Tools]\\nG --> H[External Integrations]",
+        "variant": "centered"
       },
       "diagramMeta": {
         "typeId": "org-chart",
@@ -786,8 +698,49 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playful children's illustrations",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-k6a3BebgZHE5fZB9EdQSDXAc.png?st=2026-03-30T08%3A37%3A15Z&se=2026-03-30T10%3A37%3A15Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T06%3A57%3A53Z&ske=2026-03-31T06%3A57%3A53Z&sks=b&skv=2026-02-06&sig=kPEcmmQSXwTWa49Z6p6eVvtJK1mbfcZI4Zv%2Bssm%2ByOM%3D",
+        "query": "DALL-E 3 prompt: a high-tech team brainstorming around a sleek conference table, soft ambient lighting, focused atmosphere, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-SVTOvgRaG5XyUjqbi9X4iD5h.png?st=2026-03-30T18%3A57%3A26Z&se=2026-03-30T20%3A57%3A26Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A21%3A13Z&ske=2026-03-31T07%3A21%3A13Z&sks=b&skv=2026-02-06&sig=lonY7yp0gyO8scJSgDbcPGjWCFdZJ4X2MoMFfBnYBNg%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "testimonials",
+      "heading": "testimonials",
+      "sectionType": "testimonials",
+      "content": {
+        "eyebrow": "Client Voices",
+        "headline": "What Our Clients Are Saying About km-digital",
+        "imageQuery": "business meeting collaboration technology",
+        "diagram": null,
+        "items": [
+          {
+            "quote": "km-digital's clear understanding of our data residency needs was crucial. Their expertise in API design ensured we met compliance without sacrificing performance.",
+            "name": "Sofia Chen",
+            "title": "Chief Technology Officer",
+            "company": "Innovative IT Solutions"
+          },
+          {
+            "quote": "The integration of ERP capabilities into our portal was smooth. Thanks to km-digital, we scaled from 50 to 500 users seamlessly within the first year.",
+            "name": "Raj Patel",
+            "title": "Head of Operations",
+            "company": "Fortress Enterprises"
+          },
+          {
+            "quote": "What impressed us most was km-digital’s proactive approach in addressing our technical gaps. Their solutions were tailored precisely to our needs.",
+            "name": "Emily Wong",
+            "title": "Product Director",
+            "company": "Synergy Software Group"
+          }
+        ],
+        "variant": "card-grid"
+      },
+      "diagramMeta": null,
+      "image": {
+        "source": "dalle",
+        "query": "business meeting collaboration technology",
+        "url": "http://localhost:3000/presentation-images/km-digital/testimonials-4efd24fc.jpg",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -798,14 +751,15 @@
       "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "Welcome to a Colorful Adventure!",
-        "headline": "Discover the Joyful World of Playful Learning!",
-        "body": "Join us at km-digital where vibrant designs and engaging stories come to life! Our delightful microsite is crafted to spark joy and curiosity in young explorers, making every click a joyful journey!",
-        "ctaPrimary": "Let's Explore!",
-        "ctaSecondary": "See More",
+        "eyebrow": "Next Steps in Our Journey",
+        "headline": "Delivering Excellence for KM Digital's Future",
+        "body": "The next steps focus on executing the outlined technical delivery plan to achieve the MVP by September 30, 2026. Collaboration with KM Digital will be crucial to ensuring that we meet performance and compliance objectives throughout the development phases.",
+        "ctaPrimary": "Initiate the Project",
+        "ctaSecondary": "Schedule a Meeting",
         "urgencyNote": null,
-        "imageQuery": "colorful playful children digital fun",
-        "diagram": null
+        "imageQuery": "DALL-E 3 prompt: a high-tech, modern workspace with teams collaborating over digital blueprints, bright and energetic atmosphere, soft lighting highlighting innovative designs.",
+        "diagram": "graph TD\n A[Frontend] --> B[API Gateway]\n A --> C[Microservices]\n C --> D[Database]\n C --> E[Observability Stack]\n B --> F[External Integrations]\n E --> G[Monitoring Tools]",
+        "variant": "centered"
       },
       "diagramMeta": {
         "typeId": "process-flow",
@@ -818,8 +772,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "colorful playful children digital fun",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-RUagbfe3laMHm57x9g8fPZga.png?st=2026-03-30T08%3A37%3A18Z&se=2026-03-30T10%3A37%3A18Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T07%3A01%3A05Z&ske=2026-03-31T07%3A01%3A05Z&sks=b&skv=2026-02-06&sig=wk8b2RqHUOKXV0O/9BG3PhRRvHDZFoknQWvBxAdWRcc%3D",
+        "query": "DALL-E 3 prompt: a high-tech, modern workspace with teams collaborating over digital blueprints, bright and energetic atmosphere, soft lighting highlighting innovative designs.",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-JhlspUCm24j6mpANusVDYZxk.png?st=2026-03-30T18%3A57%3A23Z&se=2026-03-30T20%3A57%3A23Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T08%3A08%3A16Z&ske=2026-03-31T08%3A08%3A16Z&sks=b&skv=2026-02-06&sig=DVgPE5QZyaFIyYiKvpXgWp4ugt5AcQxlChNb%2BxiZFY4%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
