@@ -18,9 +18,9 @@ interface Props {
 
 /**
  * ClickableDiagram — renders ThemedMermaid with an edit overlay during inline editing.
- * Clicking the diagram opens the DiagramModal directly.
- * A "Remove" button lets users strip the diagram without deleting the section.
- * Outside edit mode it behaves identically to ThemedMermaid.
+ * Hovering shows "Edit Diagram" (opens DiagramModal with code editor + live preview)
+ * and "Remove" (strips diagram, keeps section).
+ * Outside edit mode renders identically to ThemedMermaid.
  */
 export function ClickableDiagram({ diagram, tokens, delay, caption, typeId, wrapperStyle }: Props) {
   const sectionId = useSectionId();
@@ -28,13 +28,12 @@ export function ClickableDiagram({ diagram, tokens, delay, caption, typeId, wrap
   const [hovered, setHovered] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
-  // Not in editor — render plain diagram (or nothing if empty)
+  // Not in editor
   if (!ctx || !sectionId) {
     if (!diagram) return null;
     return <ThemedMermaid diagram={diagram} tokens={tokens} delay={delay} caption={caption} typeId={typeId} />;
   }
 
-  // No diagram in edit mode — nothing to show here; toolbar button handles adding one
   if (!diagram) return null;
 
   const section = ctx.ast.sections.find(s => s.id === sectionId);
@@ -77,7 +76,6 @@ export function ClickableDiagram({ diagram, tokens, delay, caption, typeId, wrap
                 cursor: 'pointer',
                 fontFamily: 'system-ui, -apple-system, sans-serif',
                 boxShadow: '0 2px 14px rgba(99,102,241,0.45)',
-                transition: 'opacity 0.1s',
               }}
             >
               ✏ Edit Diagram

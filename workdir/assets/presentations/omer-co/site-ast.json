@@ -63,7 +63,7 @@
         "ctaSecondary": "View Details",
         "imageQuery": "data technology transformation",
         "theme": "light",
-        "variant": "centered"
+        "variant": "split"
       },
       "diagramMeta": null,
       "image": {
@@ -85,7 +85,7 @@
         "body": "Acme Corporation's reliance on outdated data infrastructure compromises agility and decision-making. Traditional SQL databases and legacy ETL tools create silos and increase operational risks. Without a significant transformation, the organization will continue to grapple with inefficiencies and data inaccuracies.",
         "pullquote": "Operational failures loom as legacy systems falter under pressure.",
         "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene of a dimly lit server room with outdated technology, shadowy and ominous atmosphere, professional photography, 4K",
-        "diagram": "graph TD\nA[Outdated Data Infrastructure]\nB[Legacy SQL Databases]\nC[Manual ETL Processes]\nD[Data Silos]\nE[Operational Risks]\nF[Slow Decision-Making]\nA-->B\nA-->C\nB-->D\nC-->E\nD-->F\nE-->F",
+        "diagram": "__CUSTOM_SVG__{\"type\":\"orbital\",\"center\":{\"title\":\"Outdated systems hinde\",\"subtitle\":\"challenge\"},\"satellites\":[{\"title\":\"Feature A\",\"description\":\"Key capability\",\"position\":\"top-left\"},{\"title\":\"Feature B\",\"description\":\"Key capability\",\"position\":\"top-right\"},{\"title\":\"Feature C\",\"description\":\"Key capability\",\"position\":\"bottom-left\"},{\"title\":\"Feature D\",\"description\":\"Key capability\",\"position\":\"bottom-right\"}]}",
         "variant": "split"
       },
       "diagramMeta": {
@@ -133,7 +133,7 @@
         ],
         "imageQuery": "DALL-E 3 prompt: Futuristic data center with dramatic lighting, showcasing advanced server technologies, high-resolution images, 4K",
         "diagram": "graph TB\nA[Frontend] --> B[Event-Driven Ingestion]\nB --> C[Centralized Lakehouse]\nC --> D[Processing Engine]\nD --> E[Governance Framework]",
-        "variant": "card-grid"
+        "variant": "grid"
       },
       "diagramMeta": {
         "typeId": "system-architecture",
@@ -459,7 +459,7 @@
           }
         ],
         "imageQuery": "Cinematic photorealistic scene of a project team in a modern glass conference room, engaged in a dynamic discussion over architecture diagrams, soft directional lighting, professional photography, 4K",
-        "diagram": "gantt\\nA[Project Kickoff and Initial Analysis]: 2026-03-21, 2w\\nB[Design and Architecture Definition]: after A, 3w\\nC[Development of Core Components]: after B, 4w\\nD[Integration and Data Processing]: after C, 4w\\nE[Testing and Quality Assurance]: after D, 3w\\nF[Final Review and Production Deployment]: after E, 3w\\nG[Post-Deployment Support and Optimization]: after F, 2w\\n",
+        "diagram": "__CUSTOM_SVG__{\"type\":\"orbital\",\"center\":{\"title\":\"Phased Approach to Dat\",\"subtitle\":\"timeline\"},\"satellites\":[{\"title\":\"Feature A\",\"description\":\"Key capability\",\"position\":\"top-left\"},{\"title\":\"Feature B\",\"description\":\"Key capability\",\"position\":\"top-right\"},{\"title\":\"Feature C\",\"description\":\"Key capability\",\"position\":\"bottom-left\"},{\"title\":\"Feature D\",\"description\":\"Key capability\",\"position\":\"bottom-right\"}]}",
         "variant": "asymmetric"
       },
       "diagramMeta": {
