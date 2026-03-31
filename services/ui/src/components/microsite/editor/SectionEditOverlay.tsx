@@ -20,8 +20,11 @@ const BG_PRESETS = [
   { label: 'Accent tint', value: 'rgba(var(--ms-accent-rgb,99,102,241),0.08)' },
 ];
 
-// ── Sections that do NOT support diagrams ────────────────────────────────────
-const NO_DIAGRAM_SECTION_TYPES = new Set(['pricing', 'testimonials']);
+// ── Sections that DO support diagrams ────────────────────────────────────────
+const DIAGRAM_SECTION_TYPES = new Set([
+  'approach', 'challenge', 'generic', 'security',
+  'techstack', 'testing', 'timeline', 'whyus',
+]);
 
 // ── Context-aware diagram template builders ───────────────────────────────────
 
@@ -427,7 +430,7 @@ function PuzzleForm({ data, onChange }: { data: PuzzleDiagramData; onChange: (d:
 
 // ── Diagram editor modal ──────────────────────────────────────────────────────
 
-function DiagramModal({
+export function DiagramModal({
   section,
   diagram,
   onClose,
@@ -961,16 +964,62 @@ function BackgroundPanel({
   );
 }
 
-// ── Section layout variant picker ─────────────────────────────────────────────
+// ── Section layout variant definitions ───────────────────────────────────────
 
-const HERO_VARIANTS = [
-  { id: 'centered',    label: 'Centered',     icon: '⊡' },
-  { id: 'split',       label: 'Split',        icon: '⊞' },
-  { id: 'asymmetric',  label: 'Asymmetric',   icon: '⊟' },
-  { id: 'editorial',   label: 'Editorial',    icon: '⊠' },
-  { id: 'card-grid',   label: 'Card Grid',    icon: '⊟' },
-  { id: 'type-forward',label: 'Type Forward', icon: '⊞' },
-];
+const SECTION_VARIANTS: Record<string, { id: string; label: string; icon: string; desc: string }[]> = {
+  hero: [
+    { id: 'centered',     label: 'Centered',     icon: '⊡', desc: 'Centered headline + CTA' },
+    { id: 'split',        label: 'Split',        icon: '⊞', desc: 'Text left, visual right' },
+    { id: 'asymmetric',   label: 'Asymmetric',   icon: '⊟', desc: 'Bold headline + aside' },
+    { id: 'editorial',    label: 'Editorial',    icon: '⊠', desc: 'Magazine-style layout' },
+    { id: 'card-grid',    label: 'Card Grid',    icon: '▦', desc: 'Full-width card grid' },
+    { id: 'type-forward', label: 'Type Forward', icon: '⊞', desc: 'Typography-first hero' },
+  ],
+  approach: [
+    { id: 'grid', label: 'Grid',  icon: '▦', desc: 'Cards in a responsive grid' },
+    { id: 'list', label: 'List',  icon: '☰', desc: 'Rows with icon + text side-by-side' },
+  ],
+  benefits: [
+    { id: 'grid', label: 'Grid', icon: '▦', desc: 'Cards in a responsive grid' },
+    { id: 'list', label: 'List', icon: '☰', desc: 'Full-width rows' },
+  ],
+  deliverables: [
+    { id: 'grid', label: 'Grid', icon: '▦', desc: 'Cards in a responsive grid' },
+    { id: 'list', label: 'List', icon: '☰', desc: 'Full-width rows' },
+  ],
+  security: [
+    { id: 'grid', label: 'Grid', icon: '▦', desc: 'Items in a responsive grid' },
+    { id: 'list', label: 'List', icon: '☰', desc: 'Rows with large icon + text' },
+  ],
+  team: [
+    { id: 'grid', label: 'Grid', icon: '▦', desc: 'Centered profile cards' },
+    { id: 'list', label: 'List', icon: '☰', desc: 'Avatar left, bio right' },
+  ],
+  timeline: [
+    { id: 'vertical',   label: 'Vertical',   icon: '⬇', desc: 'Spine on left, cards right' },
+    { id: 'horizontal', label: 'Horizontal', icon: '⮕', desc: 'Phases in a row' },
+  ],
+  faq: [
+    { id: 'accordion',  label: 'Accordion',  icon: '⊟', desc: 'Collapsible Q&A rows' },
+    { id: 'two-column', label: 'Two Column', icon: '⊞', desc: 'All items always visible' },
+  ],
+  problem: [
+    { id: 'list', label: 'List', icon: '☰', desc: 'Stacked pain point rows' },
+    { id: 'grid', label: 'Grid', icon: '▦', desc: '2-column pain point cards' },
+  ],
+};
+
+const VARIANT_DEFAULTS: Record<string, string> = {
+  hero: 'centered',
+  approach: 'grid',
+  benefits: 'grid',
+  deliverables: 'grid',
+  security: 'grid',
+  team: 'grid',
+  timeline: 'vertical',
+  faq: 'accordion',
+  problem: 'list',
+};
 
 function LayoutVariantPanel({
   section,
@@ -980,22 +1029,12 @@ function LayoutVariantPanel({
   onClose: () => void;
 }) {
   const ctx = useEditContext()!;
-  const content = section.content as unknown as Record<string, unknown>;
-  const current = (content.variant as string) ?? 'centered';
+  const variants = SECTION_VARIANTS[section.sectionType];
 
-  if (section.sectionType !== 'hero') {
-    return (
-      <div style={{
-        position: 'absolute', top: '100%', left: 8, zIndex: 25000,
-        background: '#fff', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-        border: '1px solid #e2e8f0', padding: 14, fontFamily: 'system-ui', width: 220,
-      }}>
-        <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-          Layout variants only available for Hero sections
-        </p>
-      </div>
-    );
-  }
+  if (!variants) return null;
+
+  const content = section.content as unknown as Record<string, unknown>;
+  const current = (content.variant as string) ?? VARIANT_DEFAULTS[section.sectionType] ?? variants[0].id;
 
   return (
     <div style={{
@@ -1005,11 +1044,14 @@ function LayoutVariantPanel({
     }}>
       <div style={{ padding: '10px 12px', borderBottom: '1px solid #e2e8f0' }}>
         <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Layout Variant
+          Layout
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: 10, color: '#94a3b8' }}>
+          {section.sectionType} section
         </p>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {HERO_VARIANTS.map(v => (
+        {variants.map(v => (
           <button
             key={v.id}
             onClick={() => { ctx.updateField(section.id, 'variant', v.id); onClose(); }}
@@ -1029,9 +1071,14 @@ function LayoutVariantPanel({
               transition: 'background 0.1s',
             }}
           >
-            <span style={{ fontSize: 16 }}>{v.icon}</span>
-            {v.label}
-            {current === v.id && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#6366f1' }}>✓</span>}
+            <span style={{ fontSize: 15 }}>{v.icon}</span>
+            <span style={{ flex: 1 }}>
+              {v.label}
+              <span style={{ display: 'block', fontSize: 10, color: current === v.id ? '#818cf8' : '#94a3b8', fontWeight: 400 }}>
+                {v.desc}
+              </span>
+            </span>
+            {current === v.id && <span style={{ fontSize: 10, color: '#6366f1' }}>✓</span>}
           </button>
         ))}
       </div>
@@ -1272,7 +1319,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
           </div>
 
           {/* Diagram button — only for sections that support diagrams */}
-          {!NO_DIAGRAM_SECTION_TYPES.has(section.sectionType) && (
+          {DIAGRAM_SECTION_TYPES.has(section.sectionType) && (
             <div style={{ position: 'relative' }}>
               {toolbarBtn(
                 hasDiagram ? '◈ Diagram' : '+ Diagram',
@@ -1290,8 +1337,8 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             )}
           </div>
 
-          {/* Layout variant (hero only) */}
-          {section.sectionType === 'hero' && (
+          {/* Layout variant — available for all sections that define variants */}
+          {SECTION_VARIANTS[section.sectionType] && (
             <div style={{ position: 'relative' }}>
               {toolbarBtn('⊞ Layout', 'layout')}
               {activePanel === 'layout' && (

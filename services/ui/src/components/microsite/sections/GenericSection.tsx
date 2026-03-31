@@ -5,7 +5,7 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ClickableDiagram } from '../editor/ClickableDiagram';
 
 interface Props {
   content: GenericContent;
@@ -58,7 +58,7 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
 
           {content.diagram ? (
             <div style={{ order: isEven ? 1 : 0 }}>
-              <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={200} caption="" />
+              <ClickableDiagram diagram={content.diagram} tokens={tokens} delay={200} caption="" />
             </div>
           ) : imageUrl ? (
             <Reveal delay={200} style={{ order: isEven ? 1 : 0 }}>

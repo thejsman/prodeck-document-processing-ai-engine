@@ -4,7 +4,7 @@ import type { PluginTokens, TimelineContent } from '../../../types/presentation'
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -18,6 +18,7 @@ interface Props {
 
 export function TimelineSection({ content, tokens }: Props) {
   const phases = content.phases ?? [];
+  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'vertical';
 
   return (
     <section
@@ -58,101 +59,107 @@ export function TimelineSection({ content, tokens }: Props) {
           </Reveal>
         )}
 
-        {content.diagram && (
-          <ThemedMermaid
-            diagram={content.diagram}
-            tokens={tokens}
-            delay={240}
-            caption="Project schedule"
-          />
-        )}
+        <ClickableDiagram
+          diagram={content.diagram ?? ''}
+          tokens={tokens}
+          delay={240}
+          caption="Project schedule"
+        />
 
         {/* Timeline track */}
-        <div style={{ position: 'relative', paddingLeft: 40 }}>
-          {/* Vertical line */}
-          <div
-            style={{
-              position: 'absolute',
-              left: 11,
-              top: 0,
-              bottom: 0,
-              width: 2,
+        {variant === 'horizontal' ? (
+          <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 0, minWidth: `${phases.length * 220}px`, position: 'relative' }}>
+              {/* Horizontal connector line */}
+              <div style={{
+                position: 'absolute',
+                top: 18,
+                left: 24,
+                right: 24,
+                height: 2,
+                background: `linear-gradient(to right, ${tokens.accent}, ${tokens.border})`,
+                zIndex: 0,
+              }} />
+              {phases.map((phase, pi) => (
+                <Reveal key={pi} delay={240 + pi * 80} style={{ flex: 1, minWidth: 200 }}>
+                  <InlineArrayItem arrayPath="phases" index={pi} total={phases.length}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px' }}>
+                      {/* Dot */}
+                      <div style={{
+                        width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                        background: tokens.bg, border: `2px solid ${tokens.accent}`,
+                        zIndex: 2, marginBottom: 16, position: 'relative',
+                      }}>
+                        <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
+                      </div>
+                      <div style={{ padding: '16px 18px', borderRadius: 8, border: `1px solid ${tokens.border}`, background: tokens.surfaceCard, width: '100%' }}>
+                        <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
+                          <span style={{
+                            fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.72rem', fontWeight: 600,
+                            color: tokens.accent, padding: '2px 8px', borderRadius: 20,
+                            background: `${tokens.accent}15`, border: `1px solid ${tokens.accent}30`,
+                            display: 'inline-block', marginBottom: 8,
+                          }}>{phase.duration}</span>
+                        </InlineEditable>
+                        <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
+                          <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.95rem', color: tokens.text, margin: '0 0 6px' }}>
+                            {phase.name}
+                          </h4>
+                        </InlineEditable>
+                        <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
+                          <Body tokens={tokens} style={{ fontSize: '0.82rem' }}>{phase.description}</Body>
+                        </InlineEditable>
+                      </div>
+                    </div>
+                  </InlineArrayItem>
+                </Reveal>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ position: 'relative', paddingLeft: 40 }}>
+            {/* Vertical line */}
+            <div style={{
+              position: 'absolute', left: 11, top: 0, bottom: 0, width: 2,
               background: `linear-gradient(to bottom, ${tokens.accent}, ${tokens.border})`,
-            }}
-          />
-
-          {phases.map((phase, pi) => (
-            <Reveal key={pi} delay={240 + pi * 80}>
-              <InlineArrayItem arrayPath="phases" index={pi} total={phases.length}>
-                <div style={{ position: 'relative', paddingBottom: pi < phases.length - 1 ? 40 : 0 }}>
-                  {/* Dot */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: -40 + 3,
-                      top: 4,
-                      width: 18,
-                      height: 18,
-                      borderRadius: '50%',
-                      background: tokens.bg,
-                      border: `2px solid ${tokens.accent}`,
-                      zIndex: 2,
-                    }}
-                  >
-                    <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
-                  </div>
-
-                  {/* Phase card */}
-                  <div
-                    style={{
-                      padding: '20px 24px',
-                      borderRadius: 8,
-                      border: `1px solid ${tokens.border}`,
-                      background: tokens.surfaceCard,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-                      <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
-                        <h4
-                          style={{
-                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontWeight: 600,
-                            fontSize: '1rem',
-                            color: tokens.text,
-                            margin: 0,
-                          }}
-                        >
-                          {phase.name}
-                        </h4>
-                      </InlineEditable>
-                      <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
-                        <span
-                          style={{
-                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.75rem',
-                            fontWeight: 600,
-                            color: tokens.accent,
-                            padding: '2px 10px',
-                            borderRadius: 20,
-                            background: `${tokens.accent}15`,
-                            border: `1px solid ${tokens.accent}30`,
-                          }}
-                        >
-                          {phase.duration}
-                        </span>
+            }} />
+            {phases.map((phase, pi) => (
+              <Reveal key={pi} delay={240 + pi * 80}>
+                <InlineArrayItem arrayPath="phases" index={pi} total={phases.length}>
+                  <div style={{ position: 'relative', paddingBottom: pi < phases.length - 1 ? 40 : 0 }}>
+                    {/* Dot */}
+                    <div style={{
+                      position: 'absolute', left: -40 + 3, top: 4,
+                      width: 18, height: 18, borderRadius: '50%',
+                      background: tokens.bg, border: `2px solid ${tokens.accent}`, zIndex: 2,
+                    }}>
+                      <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
+                    </div>
+                    <div style={{ padding: '20px 24px', borderRadius: 8, border: `1px solid ${tokens.border}`, background: tokens.surfaceCard }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+                        <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
+                          <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1rem', color: tokens.text, margin: 0 }}>
+                            {phase.name}
+                          </h4>
+                        </InlineEditable>
+                        <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
+                          <span style={{
+                            fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.75rem', fontWeight: 600,
+                            color: tokens.accent, padding: '2px 10px', borderRadius: 20,
+                            background: `${tokens.accent}15`, border: `1px solid ${tokens.accent}30`,
+                          }}>{phase.duration}</span>
+                        </InlineEditable>
+                      </div>
+                      <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
+                        <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{phase.description}</Body>
                       </InlineEditable>
                     </div>
-                    <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
-                        {phase.description}
-                      </Body>
-                    </InlineEditable>
                   </div>
-                </div>
-              </InlineArrayItem>
-            </Reveal>
-          ))}
-        </div>
+                </InlineArrayItem>
+              </Reveal>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
           <InlineAddItem

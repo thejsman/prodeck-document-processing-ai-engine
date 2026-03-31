@@ -5,7 +5,7 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
@@ -81,7 +81,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
           </div>
 
           {content.diagram ? (
-            <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={200} caption="Impact chain" />
+            <ClickableDiagram diagram={content.diagram} tokens={tokens} delay={200} caption="Impact chain" />
           ) : imageUrl ? (
             <Reveal delay={200}>
               <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${tokens.border}` }}>

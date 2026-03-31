@@ -20,6 +20,7 @@ interface Props {
 export function TeamSection({ content, tokens }: Props) {
   const members = content.members ?? [];
   const cols = Math.min(members.length, 4);
+  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'grid';
 
   return (
     <section
@@ -60,8 +61,10 @@ export function TeamSection({ content, tokens }: Props) {
         )}
 
         <div
-          className="ms-grid-3"
-          style={{
+          className={variant === 'list' ? undefined : 'ms-grid-3'}
+          style={variant === 'list' ? {
+            display: 'flex', flexDirection: 'column', gap: 'clamp(0.75rem, 2vw, 1rem)',
+          } : {
             display: 'grid',
             gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
             gap: 'clamp(1rem, 2.5vw, 2rem)',
@@ -70,42 +73,66 @@ export function TeamSection({ content, tokens }: Props) {
           {members.map((member, i) => (
             <Reveal key={i} delay={160 + i * 80}>
               <InlineArrayItem arrayPath="members" index={i} total={members.length}>
-                <GlassCard tokens={tokens} style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-                  {/* Avatar with icon */}
-                  <InlineIconEdit
-                    fieldPath={`members.${i}.iconHint`}
-                    hint={member.iconHint}
-                    color={tokens.accent}
-                    size={28}
-                    containerStyle={{
-                      width: 72, height: 72, borderRadius: '50%',
-                      background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
-                      border: `2px solid ${tokens.accent}50`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  />
-
-                  <div style={{ flex: 1, width: '100%' }}>
-                    <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
-                      <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>
-                        {member.name}
-                      </SubHeadline>
-                    </InlineEditable>
-
-                    <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
-                      <Label tokens={tokens} style={{ fontWeight: 500, fontSize: '0.8rem', letterSpacing: '0.06em', marginBottom: 12, display: 'block' }}>
-                        {member.role}
-                      </Label>
-                    </InlineEditable>
-
-                    <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.875rem', lineHeight: 1.65 }}>
-                        {member.bio}
-                      </Body>
-                    </InlineEditable>
+                {variant === 'list' ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 20,
+                    padding: '18px 24px',
+                    borderRadius: parseInt(tokens.borderRadius ?? '12') || 12,
+                    border: `1px solid ${tokens.border}`,
+                    background: tokens.surfaceCard,
+                  }}>
+                    <InlineIconEdit
+                      fieldPath={`members.${i}.iconHint`}
+                      hint={member.iconHint}
+                      color={tokens.accent}
+                      size={28}
+                      containerStyle={{
+                        width: 60, height: 60, borderRadius: '50%', flexShrink: 0,
+                        background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
+                        border: `2px solid ${tokens.accent}50`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
+                        <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 2 }}>{member.name}</SubHeadline>
+                      </InlineEditable>
+                      <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
+                        <Label tokens={tokens} style={{ fontWeight: 500, fontSize: '0.8rem', letterSpacing: '0.06em', marginBottom: 8, display: 'block' }}>{member.role}</Label>
+                      </InlineEditable>
+                      <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline>
+                        <Body tokens={tokens} style={{ fontSize: '0.875rem', lineHeight: 1.65 }}>{member.bio}</Body>
+                      </InlineEditable>
+                    </div>
                   </div>
-                </GlassCard>
+                ) : (
+                  <GlassCard tokens={tokens} style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                    <InlineIconEdit
+                      fieldPath={`members.${i}.iconHint`}
+                      hint={member.iconHint}
+                      color={tokens.accent}
+                      size={28}
+                      containerStyle={{
+                        width: 72, height: 72, borderRadius: '50%',
+                        background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
+                        border: `2px solid ${tokens.accent}50`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1, width: '100%' }}>
+                      <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
+                        <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>{member.name}</SubHeadline>
+                      </InlineEditable>
+                      <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
+                        <Label tokens={tokens} style={{ fontWeight: 500, fontSize: '0.8rem', letterSpacing: '0.06em', marginBottom: 12, display: 'block' }}>{member.role}</Label>
+                      </InlineEditable>
+                      <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline>
+                        <Body tokens={tokens} style={{ fontSize: '0.875rem', lineHeight: 1.65 }}>{member.bio}</Body>
+                      </InlineEditable>
+                    </div>
+                  </GlassCard>
+                )}
               </InlineArrayItem>
             </Reveal>
           ))}

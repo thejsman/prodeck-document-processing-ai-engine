@@ -19,6 +19,7 @@ interface Props {
 export function FaqSection({ content, tokens }: Props) {
   const items = content.items ?? [];
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'accordion';
 
   return (
     <section
@@ -58,80 +59,81 @@ export function FaqSection({ content, tokens }: Props) {
           </Reveal>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {items.map((item, i) => {
-            const isOpen = openIndex === i;
-            return (
+        {variant === 'two-column' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 'clamp(1rem, 2vw, 1.5rem)' }}>
+            {items.map((item, i) => (
               <Reveal key={i} delay={160 + i * 60}>
                 <InlineArrayItem arrayPath="items" index={i} total={items.length}>
-                  <div
-                    style={{
+                  <div style={{
+                    padding: '24px',
+                    borderRadius: tokens.borderRadius ?? '12px',
+                    border: `1px solid ${tokens.border}`,
+                    background: tokens.surfaceCard,
+                  }}>
+                    <InlineEditable field={`items.${i}.question`} label="Question" value={item.question ?? ''}>
+                      <div style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700,
+                        fontSize: '0.975rem', color: tokens.text, marginBottom: 12, lineHeight: 1.4,
+                      }}>{item.question}</div>
+                    </InlineEditable>
+                    <div style={{ width: 32, height: 2, background: tokens.accent, borderRadius: 2, marginBottom: 12 }} />
+                    <InlineEditable field={`items.${i}.answer`} label="Answer" value={item.answer ?? ''} multiline>
+                      <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>{item.answer}</Body>
+                    </InlineEditable>
+                  </div>
+                </InlineArrayItem>
+              </Reveal>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.map((item, i) => {
+              const isOpen = openIndex === i;
+              return (
+                <Reveal key={i} delay={160 + i * 60}>
+                  <InlineArrayItem arrayPath="items" index={i} total={items.length}>
+                    <div style={{
                       border: `1px solid ${isOpen ? tokens.accent + '60' : tokens.border}`,
                       borderRadius: tokens.borderRadius ?? '12px',
                       overflow: 'hidden',
                       background: isOpen ? `${tokens.accent}08` : tokens.surfaceCard,
                       transition: 'border-color 0.2s, background 0.2s',
-                    }}
-                  >
-                    {/* Question row */}
-                    <button
-                      onClick={() => setOpenIndex(isOpen ? null : i)}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '20px 24px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        gap: 16,
-                        textAlign: 'left',
-                      }}
-                    >
-                      <InlineEditable field={`items.${i}.question`} label="Question" value={item.question ?? ''}>
-                        <span style={{
-                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                          fontWeight: 600,
-                          fontSize: '1rem',
-                          color: tokens.text,
-                          flex: 1,
-                        }}>
-                          {item.question}
-                        </span>
-                      </InlineEditable>
-                      {/* Chevron */}
-                      <span style={{
-                        flexShrink: 0,
-                        width: 28, height: 28,
-                        borderRadius: '50%',
-                        background: isOpen ? tokens.accent : `${tokens.accent}20`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'transform 0.25s, background 0.2s',
-                        transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                      }}>
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M2 4l4 4 4-4" stroke={isOpen ? tokens.bg : tokens.accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </span>
-                    </button>
-
-                    {/* Answer */}
-                    {isOpen && (
-                      <div style={{ padding: '0 24px 24px', borderTop: `1px solid ${tokens.border}` }}>
-                        <InlineEditable field={`items.${i}.answer`} label="Answer" value={item.answer ?? ''} multiline>
-                          <Body tokens={tokens} style={{ paddingTop: 16, lineHeight: 1.75 }}>
-                            {item.answer}
-                          </Body>
+                    }}>
+                      <button
+                        onClick={() => setOpenIndex(isOpen ? null : i)}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', background: 'none', border: 'none', cursor: 'pointer', gap: 16, textAlign: 'left' }}
+                      >
+                        <InlineEditable field={`items.${i}.question`} label="Question" value={item.question ?? ''}>
+                          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1rem', color: tokens.text, flex: 1 }}>
+                            {item.question}
+                          </span>
                         </InlineEditable>
-                      </div>
-                    )}
-                  </div>
-                </InlineArrayItem>
-              </Reveal>
-            );
-          })}
-        </div>
+                        <span style={{
+                          flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
+                          background: isOpen ? tokens.accent : `${tokens.accent}20`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'transform 0.25s, background 0.2s',
+                          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                        }}>
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 4l4 4 4-4" stroke={isOpen ? tokens.bg : tokens.accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </span>
+                      </button>
+                      {isOpen && (
+                        <div style={{ padding: '0 24px 24px', borderTop: `1px solid ${tokens.border}` }}>
+                          <InlineEditable field={`items.${i}.answer`} label="Answer" value={item.answer ?? ''} multiline>
+                            <Body tokens={tokens} style={{ paddingTop: 16, lineHeight: 1.75 }}>{item.answer}</Body>
+                          </InlineEditable>
+                        </div>
+                      )}
+                    </div>
+                  </InlineArrayItem>
+                </Reveal>
+              );
+            })}
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
           <InlineAddItem
