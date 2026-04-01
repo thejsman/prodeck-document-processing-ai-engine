@@ -25,6 +25,7 @@ import { toolRegistry } from '@ai-engine/core';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
+import { extractRequirementsFromKnowledge } from '../ingestion/extract-proposal-inputs.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
@@ -111,6 +112,31 @@ function buildRequirementPrompt(missing: RequiredField[]): string {
     ...missing.map((m) => `• ${m}`),
     '',
     `Let's start — ${REQUIREMENT_QUESTIONS[first]}`,
+  ].join('\n');
+}
+
+/**
+ * Ask the user to confirm an auto-extracted value before accepting it.
+ * Mentions remaining missing fields so the user understands what comes next.
+ */
+function buildConfirmationPrompt(
+  field: RequiredField,
+  value: string,
+  allMissing: RequiredField[],
+): string {
+  const fieldLabels: Record<RequiredField, string> = {
+    industry: 'industry',
+    timeline: 'timeline',
+    budget: 'budget',
+  };
+  const otherMissing = allMissing.filter((f) => f !== field);
+  const suffix = otherMissing.length > 0
+    ? `\n\nI'll also need: ${otherMissing.join(', ')}.`
+    : '';
+  return [
+    `I found that the **${fieldLabels[field]}** is **${value}** based on your documents. Should I use this?${suffix}`,
+    '',
+    'Reply **yes** to confirm, **no** to skip, or type a different value.',
   ].join('\n');
 }
 
@@ -255,16 +281,66 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 /**
  * Gate proposal generation until all required fields are collected.
  *
- * Flow:
- *   1. On every turn the orchestrator has already extracted any requirement
- *      signals from the incoming message into instance.context.proposalRequirements.
- *   2. If all REQUIRED_FIELDS are present → signal READY to advance.
- *   3. Otherwise → build a focused prompt asking for the next missing field
- *      and return without a stateSignal (stay in collecting_inputs).
+ * Flow (STEPS 1–8):
+ *   1. On first entry, run extractRequirementsFromKnowledge against the
+ *      namespace vector store and cache results in context.extractedRequirements.
+ *   2. If a confirmation is pending (awaitingConfirmation), process the user's
+ *      response:
+ *        "yes"      → accept the extracted value into proposalRequirements
+ *        "no"       → mark as declined; will fall back to manual asking
+ *        other text → treat as a custom override value
+ *   3. If all REQUIRED_FIELDS are now satisfied → signal READY.
+ *   4. For each remaining missing field:
+ *        - If an extracted value exists and has not been declined → ask for
+ *          confirmation (set awaitingConfirmation).
+ *        - Otherwise → ask manually via buildRequirementPrompt (fallback).
  */
 export async function handleCollectingInputs(ctx: HandlerContext): Promise<HandlerResult> {
-  const { instance } = ctx;
+  const { workdir, namespace, instance, incomingMessage } = ctx;
 
+  // ── STEP 7: Run extraction once, on first entry ───────────────
+  if (!instance.context.extractionDone) {
+    try {
+      instance.context.extractedRequirements = await extractRequirementsFromKnowledge(
+        workdir,
+        namespace,
+      );
+    } catch {
+      instance.context.extractedRequirements = {};
+    }
+    instance.context.extractionDone = true;
+  }
+
+  const extracted = (instance.context.extractedRequirements ?? {}) as Record<string, string>;
+  const declined = (instance.context.declinedFields ?? []) as string[];
+
+  // ── STEP 5: Process pending confirmation response ─────────────
+  const pending = instance.context.awaitingConfirmation as
+    | { field: string; value: string }
+    | undefined;
+
+  if (pending) {
+    instance.context.awaitingConfirmation = undefined;
+    const lower = incomingMessage.toLowerCase().trim();
+    const isYes = lower === 'yes' || lower === 'y' || lower.startsWith('yes,') || lower.startsWith('yes ');
+    const isNo = lower === 'no' || lower === 'n' || lower.startsWith('no,') || lower.startsWith('no ');
+
+    if (isYes) {
+      // Accept the extracted value
+      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
+      (instance.context.proposalRequirements as Record<string, string>)[pending.field] = pending.value;
+    } else if (isNo) {
+      // Decline — will ask manually for this field
+      instance.context.declinedFields = [...declined, pending.field];
+    } else {
+      // Custom override — use the message text as the value
+      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
+      (instance.context.proposalRequirements as Record<string, string>)[pending.field] =
+        incomingMessage.trim();
+    }
+  }
+
+  // ── STEP 3: Check if all fields are satisfied ─────────────────
   if (isReadyForGeneration(instance.context)) {
     return {
       message: "Great — I have everything I need. I'll now recommend a template for your proposal.",
@@ -272,7 +348,21 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     };
   }
 
+  // ── STEPS 4 & 6: Confirm extracted values or ask manually ─────
   const missing = getMissingFields(instance.context);
+  const nextField = missing[0];
+  const updatedDeclined = (instance.context.declinedFields ?? []) as string[];
+
+  const extractedValue = extracted[nextField];
+  if (extractedValue && !updatedDeclined.includes(nextField)) {
+    // STEP 4 — auto-extracted value found: ask for confirmation
+    instance.context.awaitingConfirmation = { field: nextField, value: extractedValue };
+    return {
+      message: buildConfirmationPrompt(nextField, extractedValue, missing),
+    };
+  }
+
+  // STEP 6 — no extracted value (or declined): ask manually
   return {
     message: buildRequirementPrompt(missing),
   };
