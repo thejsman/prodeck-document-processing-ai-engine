@@ -53,6 +53,9 @@ export function CircularProgress({ value, label, description, labelNode, descrip
   return (
     <div
       ref={ref}
+      data-progress-value={value}
+      data-progress-size={size}
+      data-progress-strokewidth={strokeWidth}
       style={{
         display: 'flex',
         flexDirection: 'column',

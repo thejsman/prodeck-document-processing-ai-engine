@@ -10,7 +10,6 @@
     "clean": "rm -rf .next out"
   },
   "dependencies": {
-    "mermaid": "^11.13.0",
     "@tiptap/core": "^3.20.1",
     "@tiptap/extension-placeholder": "^3.20.1",
     "@tiptap/extension-table": "^3.20.1",
@@ -21,6 +20,9 @@
     "@tiptap/react": "^3.20.1",
     "@tiptap/starter-kit": "^3.20.1",
     "@tiptap/suggestion": "^3.20.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "mermaid": "^11.13.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

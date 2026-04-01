@@ -164,7 +164,7 @@ export function registerPresentationRoutes(
     const filePath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
     if (!existsSync(filePath)) return reply.code(404).send({ error: 'Not found' });
     const stream = createReadStream(filePath);
-    return reply.type('image/jpeg').send(stream);
+    return reply.header('Access-Control-Allow-Origin', '*').type('image/jpeg').send(stream);
   });
 
   // POST /presentations/synthesize-style
