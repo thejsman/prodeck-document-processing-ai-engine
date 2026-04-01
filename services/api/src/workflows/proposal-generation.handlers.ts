@@ -720,40 +720,184 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
 }
 
 // ---------------------------------------------------------------------------
-// generating_sections handler
+// generating_sections handler — cross-section coherence
 // ---------------------------------------------------------------------------
 
 /**
+ * Accumulated state built up as each section is generated.
+ * Passed into the next section's prompt so the LLM stays coherent.
+ */
+interface ProposalState {
+  /** Concrete facts / claims established in prior sections. */
+  keyPoints: string[];
+  /** Timeline value set by an earlier section (locked — STEP 5 safety rule). */
+  timeline: string | null;
+  /** Pricing/budget value set by an earlier section (locked). */
+  pricing: string | null;
+  /** Writing tone established by the first section that set one. */
+  tone: string | null;
+}
+
+/**
+ * Merge a newly extracted section summary into the running ProposalState.
+ * STEP 5 safety rule: existing timeline/pricing are never overridden.
+ */
+function mergeSectionSummary(
+  state: ProposalState,
+  summary: Partial<ProposalState>,
+): ProposalState {
+  const existingNormalized = new Set(
+    state.keyPoints.map((p) => p.toLowerCase().trim()),
+  );
+  const newPoints = (summary.keyPoints ?? []).filter(
+    (p) => !existingNormalized.has(p.toLowerCase().trim()),
+  );
+  return {
+    keyPoints: [...state.keyPoints, ...newPoints],
+    timeline: state.timeline ?? summary.timeline ?? null,   // prefer existing
+    pricing:  state.pricing  ?? summary.pricing  ?? null,   // prefer existing
+    tone:     state.tone     ?? summary.tone     ?? null,   // first wins
+  };
+}
+
+/**
+ * Call the LLM to extract a structured summary from a completed section.
+ * Non-fatal — returns empty summary on any failure.
+ */
+async function extractSectionSummary(
+  sectionName: string,
+  content: string,
+): Promise<Partial<ProposalState>> {
+  const prompt = [
+    `You just read the "${sectionName}" section of a proposal.`,
+    'Extract a structured summary for use in subsequent sections to maintain coherence.',
+    '',
+    'Return JSON with:',
+    '- keyPoints: array of 1–3 key concrete facts or claims stated in this section',
+    '- timeline: the timeline value if explicitly stated, or null',
+    '- pricing: the pricing/budget value if explicitly stated, or null',
+    '- tone: one word describing the writing tone (e.g. "confident", "consultative"), or null',
+    '',
+    'Rules:',
+    '- Only include values explicitly stated — do NOT infer',
+    '- keyPoints must be specific facts, not vague summaries',
+    '- Output ONLY raw JSON — no markdown fences, no commentary',
+    '',
+    `Section content:\n${content.slice(0, 2000)}`,
+  ].join('\n');
+
+  try {
+    const raw = await llmGenerateFn(prompt);
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim();
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    return {
+      keyPoints: Array.isArray(parsed.keyPoints)
+        ? (parsed.keyPoints as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
+      timeline: typeof parsed.timeline === 'string' ? parsed.timeline : null,
+      pricing:  typeof parsed.pricing  === 'string' ? parsed.pricing  : null,
+      tone:     typeof parsed.tone     === 'string' ? parsed.tone     : null,
+    };
+  } catch {
+    return { keyPoints: [] };
+  }
+}
+
+/**
+ * When keyPoints exceeds 10 entries, ask the LLM to compress them into 3–5
+ * bullets so the coherence context block stays concise (STEP 6).
+ */
+async function compressKeyPoints(keyPoints: string[]): Promise<string[]> {
+  const prompt = [
+    'The following is a list of key points from a proposal being written.',
+    'Summarize them into 3–5 concise, non-redundant bullets that preserve all important facts.',
+    'Output ONLY the bullet items — one per line, no leading dashes or bullets.',
+    '',
+    keyPoints.map((p) => `- ${p}`).join('\n'),
+  ].join('\n');
+
+  try {
+    const raw = await llmGenerateFn(prompt);
+    const compressed = raw
+      .split('\n')
+      .map((l) => l.replace(/^[-•*]\s*/, '').trim())
+      .filter((l) => l.length > 0)
+      .slice(0, 5);
+    return compressed.length > 0 ? compressed : keyPoints.slice(0, 5);
+  } catch {
+    return keyPoints.slice(0, 5);
+  }
+}
+
+/**
  * Build a focused prompt for a single proposal section.
- * Includes confirmed requirements and the full outline for context continuity.
+ * Injects coherence context from previously generated sections (STEP 4).
  */
 function buildSectionPrompt(
   section: string,
   allSections: string[],
   requirements: Record<string, string>,
   outline: string,
+  proposalState: ProposalState,
 ): string {
   const reqLines = REQUIRED_FIELDS
     .filter((f) => requirements[f])
     .map((f) => `- ${f}: ${requirements[f]}`)
     .join('\n');
 
-  return [
+  const parts = [
     `You are a professional proposal writer writing the **${section}** section.`,
     '',
     'Confirmed proposal inputs:',
     reqLines || '(none specified)',
     '',
     'Full section list for context:',
-    ...allSections.map((s, i) => `${i + 1}. ${s === section ? `**${s}** ← you are writing this` : s}`),
+    ...allSections.map((s, i) =>
+      `${i + 1}. ${s === section ? `**${s}** ← you are writing this` : s}`),
     '',
-    outline ? `Proposal outline:\n${outline}\n` : '',
-    'Rules:',
+  ];
+
+  if (outline) {
+    parts.push(`Proposal outline:\n${outline}\n`, '');
+  }
+
+  // Coherence block — only injected once there are prior sections
+  const hasPriorContext = proposalState.keyPoints.length > 0
+    || proposalState.timeline
+    || proposalState.pricing
+    || proposalState.tone;
+
+  if (hasPriorContext) {
+    parts.push('Context from previous sections:');
+    if (proposalState.timeline) parts.push(`- Timeline: ${proposalState.timeline}`);
+    if (proposalState.pricing)  parts.push(`- Pricing:  ${proposalState.pricing}`);
+    if (proposalState.tone)     parts.push(`- Tone:     ${proposalState.tone}`);
+    if (proposalState.keyPoints.length > 0) {
+      parts.push('- Key points already established:');
+      proposalState.keyPoints.forEach((p) => parts.push(`  • ${p}`));
+    }
+    parts.push(
+      '',
+      'Coherence rules:',
+      '- Do NOT contradict the timeline, pricing, or key points above',
+      '- Do NOT repeat these points verbatim — reference them only if adding new value',
+      '- Maintain the established tone',
+      '',
+    );
+  }
+
+  parts.push(
+    'Writing rules:',
     '- Write this section in full — no placeholders or "[TBD]"',
     '- Be specific, actionable, and persuasive',
     '- Output ONLY the section body — the heading will be added automatically',
     '- 2–4 focused paragraphs, professional tone',
-  ].join('\n');
+  );
+
+  return parts.join('\n');
 }
 
 /**
@@ -786,18 +930,41 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
 
   const requirements = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
   const outline = (instance.context.outline as string | undefined) ?? '';
+
+  // Seed proposalState from confirmed requirements so the first section
+  // already has timeline and pricing locked (STEP 5 safety rule).
+  let proposalState: ProposalState = {
+    keyPoints: [],
+    timeline: requirements.timeline ?? null,
+    pricing:  requirements.budget   ?? null,
+    tone:     null,
+  };
+
   let proposalMarkdown = '';
 
   for (const section of sections) {
     onPhase(`Writing: ${section}`);
 
-    const sectionPrompt = buildSectionPrompt(section, sections, requirements, outline);
+    const sectionPrompt = buildSectionPrompt(
+      section, sections, requirements, outline, proposalState,
+    );
 
     try {
       const content = await llmGenerateFn(sectionPrompt);
       const formatted = `## ${section}\n\n${content.trim()}\n\n`;
       onChunk(formatted);
       proposalMarkdown += formatted;
+
+      // Extract summary from the completed section and update proposalState
+      const summary = await extractSectionSummary(section, content);
+      let merged = mergeSectionSummary(proposalState, summary);
+
+      // STEP 6: Compress keyPoints when they exceed 10 entries
+      if (merged.keyPoints.length > 10) {
+        merged = { ...merged, keyPoints: await compressKeyPoints(merged.keyPoints) };
+      }
+
+      proposalState = merged;
     } catch {
       // Non-fatal — include a placeholder and continue with remaining sections
       const placeholder = `## ${section}\n\n_(Section generation failed — please edit manually)_\n\n`;
@@ -805,6 +972,9 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
       proposalMarkdown += placeholder;
     }
   }
+
+  // Persist final proposalState so it's available for inspection / future edits
+  instance.context.proposalState = proposalState;
 
   // Persist the artifact
   const timestamp = Date.now();
