@@ -23,6 +23,8 @@ import path from 'node:path';
 import type { ToolOutput } from '@ai-engine/core';
 import { toolRegistry } from '@ai-engine/core';
 import type { WorkflowInstance } from './workflow-instance.service.js';
+import type { LLMContext } from '../chat/context-builder.js';
+import { formatConversationForContext } from '../chat/context-builder.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
@@ -69,6 +71,12 @@ export interface HandlerContext {
    * Optional — no-op if not provided (e.g. non-streaming paths).
    */
   onToolEvent?: (event: ToolTraceEvent) => void;
+  /**
+   * Full LLM context built by the context builder for this turn.
+   * Includes conversation window, system prompt, requirement status, and task instruction.
+   * Injected by the orchestrator before handler dispatch.
+   */
+  conversationContext?: LLMContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +338,10 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
     prompt,
     namespace,
     tools: PROPOSAL_TOOLS,
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
   })) {
     if (event.type === 'token') {
       onChunk(event.text);
@@ -456,6 +468,10 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
     prompt,
     namespace,
     tools: PROPOSAL_TOOLS,
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
   })) {
     if (event.type === 'token') {
       onChunk(event.text);
@@ -530,6 +546,10 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     prompt,
     namespace,
     tools: PROPOSAL_TOOLS,
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
   })) {
     if (event.type === 'token') {
       onChunk(event.text);

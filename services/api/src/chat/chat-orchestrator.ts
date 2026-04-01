@@ -19,6 +19,14 @@ import type { ProviderPolicyConfig } from '../provider-policy.js';
 import { routeIntent } from './intent-router.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
+import {
+  buildLLMContext,
+  extractRequirementsFromMessage,
+  detectInterrupt,
+  formatConversationForContext,
+} from './context-builder.js';
+import { appendChatTurn } from './chat-history.service.js';
+import { llmGenerateFn } from '../agent-routes.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
 import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
@@ -186,6 +194,62 @@ export class ChatOrchestrator {
       return { message: `Workflow "${instance.workflowId}" is no longer registered.` };
     }
 
+    // ── STEP 7 — Extract requirements from incoming message ───────
+    // Merge any newly detected signals into the session requirements store.
+    if (!instance.context.proposalRequirements) {
+      instance.context.proposalRequirements = {};
+    }
+    const extractedRequirements = extractRequirementsFromMessage(message);
+    Object.assign(
+      instance.context.proposalRequirements as Record<string, string>,
+      extractedRequirements,
+    );
+
+    // ── STEPS 1–6, 8 — Build full LLM context ────────────────────
+    const conversationContext = await buildLLMContext(
+      this.workdir,
+      namespace,
+      chatSessionId,
+      instance.state,
+      (instance.context.proposalRequirements as Record<string, string>),
+      llmGenerateFn,
+    );
+
+    // ── STEP 9 — Interrupt handling ───────────────────────────────
+    // If the user asks a question while the workflow is paused in an input
+    // state, answer with the LLM then return without changing workflow state.
+    const currentStateDef = workflow.states[instance.state];
+    if (currentStateDef?.kind === 'input' && detectInterrupt(message)) {
+      const conversationLines = formatConversationForContext(
+        conversationContext.conversationWindow,
+      );
+
+      const interruptPrompt = [
+        conversationContext.systemPrompt,
+        '',
+        conversationLines.length > 0
+          ? `## Recent Conversation\n${conversationLines.join('\n')}`
+          : '',
+        '',
+        '## User Question',
+        message,
+        '',
+        'Answer the user\'s question clearly and concisely using your knowledge.',
+        'After answering, remind them of the current workflow step so they can continue.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      try {
+        const answer = await llmGenerateFn(interruptPrompt);
+        // Persist this Q&A turn and return without advancing workflow state.
+        void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
+        return { message: answer };
+      } catch {
+        // If LLM call fails, fall through to normal workflow dispatch
+      }
+    }
+
     // ── STEP 4 — Namespace intelligence scan ──────────────────────
     // Run on every turn so the client always has fresh suggestions.
     // Fire-and-forget pattern: scan failure must not block the workflow.
@@ -247,6 +311,7 @@ export class ChatOrchestrator {
         onPhase,
         onChunk,
         onToolEvent,
+        conversationContext,
       };
 
       const result = await handler(ctx);
@@ -286,6 +351,13 @@ export class ChatOrchestrator {
       }
 
       // agent / tool states: continue executing in this same turn
+    }
+
+    // ── Persist chat turn ─────────────────────────────────────────
+    // Done here (not in routes) so interrupt answers and normal workflow
+    // turns are both captured in a single place.
+    if (lastResult?.message) {
+      void appendChatTurn(this.workdir, namespace, chatSessionId, message, lastResult.message);
     }
 
     // ── Build final response ──────────────────────────────────────

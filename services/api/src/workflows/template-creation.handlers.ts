@@ -18,6 +18,7 @@
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
+import { formatConversationForContext } from '../chat/context-builder.js';
 import {
   extractRfpRequirements,
   formatRequirementMatrix,
@@ -259,7 +260,15 @@ export async function handleAnalyzingRfp(ctx: HandlerContext): Promise<HandlerRe
   const executor = new AgentExecutor(llmGenerateFn);
   let rawOutput = '';
 
-  for await (const event of executor.runStreaming({ prompt, namespace, tools: [] })) {
+  for await (const event of executor.runStreaming({
+    prompt,
+    namespace,
+    tools: [],
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
+  })) {
     if (event.type === 'token') {
       onChunk(event.text);
       rawOutput += event.text;
@@ -360,7 +369,15 @@ export async function handleGeneratingTemplate(ctx: HandlerContext): Promise<Han
   const executor = new AgentExecutor(llmGenerateFn);
   let rawOutput = '';
 
-  for await (const event of executor.runStreaming({ prompt, namespace, tools: [] })) {
+  for await (const event of executor.runStreaming({
+    prompt,
+    namespace,
+    tools: [],
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
+  })) {
     if (event.type === 'token') {
       onChunk(event.text);
       rawOutput += event.text;

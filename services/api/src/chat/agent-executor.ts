@@ -73,8 +73,14 @@ export interface AgentExecutorInput {
   /** Tools the LLM may call during this execution. */
   tools: ToolDescriptor[];
   /**
-   * Optional prior context (e.g. earlier tool results) to seed the conversation.
-   * Each entry is a raw string segment appended before the task prompt.
+   * Optional system-level instructions prepended before all other content.
+   * Use this to inject the workflow-aware system prompt from the context builder.
+   */
+  systemPrompt?: string;
+  /**
+   * Optional prior context (e.g. earlier tool results or conversation history)
+   * to seed the conversation. Each entry is a raw string segment appended
+   * before the task prompt.
    */
   priorContext?: string[];
 }
@@ -165,6 +171,11 @@ function buildFullPrompt(
   conversationHistory: string[],
 ): string {
   const parts: string[] = [];
+
+  if (input.systemPrompt) {
+    parts.push(input.systemPrompt);
+    parts.push('');
+  }
 
   if (input.tools.length > 0) {
     parts.push(buildToolsSection(input.tools));

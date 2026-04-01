@@ -29,7 +29,7 @@ import {
   chatSessionBus,
   type ChatSessionEvent,
 } from './chat/chat-session-bus.js';
-import { loadHistory, appendChatTurn } from './chat/chat-history.service.js';
+import { loadHistory } from './chat/chat-history.service.js';
 import { scanNamespace } from './namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions, type TemplateInsight } from './namespace/insight-rules.js';
 import { recommendTemplate } from './templates/template-recommendation.service.js';
@@ -104,11 +104,6 @@ export function registerChatRoutes(
           },
         });
 
-        // Persist turn to chat history (fire-and-forget — must not block the response)
-        if (result.message) {
-          void appendChatTurn(workdir, namespace, chatSessionId, message, result.message);
-        }
-
         // STEP 7 — final done event with message + actions
         reply.raw.write(
           `event: done\ndata: ${JSON.stringify({
@@ -135,9 +130,6 @@ export function registerChatRoutes(
         namespace,
         chatSessionId,
       });
-      if (result.message) {
-        void appendChatTurn(workdir, namespace, chatSessionId, message, result.message);
-      }
       return reply.send(result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);

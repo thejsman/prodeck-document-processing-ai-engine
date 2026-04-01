@@ -16,6 +16,7 @@ import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { toolRegistry } from '@ai-engine/core';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
+import { formatConversationForContext } from '../chat/context-builder.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import {
   extractRfpRequirements,
@@ -201,6 +202,10 @@ export async function handleGapAnalysis(ctx: HandlerContext): Promise<HandlerRes
     prompt,
     namespace,
     tools: RFP_AGENT_TOOLS,
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
   })) {
     if (event.type === 'token') {
       onChunk(event.text);
@@ -268,6 +273,10 @@ export async function handleGoNoGo(ctx: HandlerContext): Promise<HandlerResult> 
     prompt,
     namespace,
     tools: RFP_AGENT_TOOLS,
+    systemPrompt: ctx.conversationContext?.systemPrompt,
+    priorContext: ctx.conversationContext
+      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
+      : undefined,
   })) {
     if (event.type === 'token') {
       onChunk(event.text);
