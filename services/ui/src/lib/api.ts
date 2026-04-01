@@ -277,7 +277,7 @@ export async function fetchNamespaceFiles(apiKey: string, namespace: string): Pr
 export async function deleteNamespaceFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}/files/${encodeURIComponent(fileName)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: { Authorization: `Bearer ${apiKey}` },
   });
   await handleResponse<{ ok: boolean }>(res);
 }

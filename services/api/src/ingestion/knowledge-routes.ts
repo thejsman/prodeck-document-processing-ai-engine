@@ -10,6 +10,8 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { ConfigResolver } from '@ai-engine/core';
+import { createNodeConfigLoader, getStorageProvider } from '@ai-engine/runtime';
 import { type AuthContext, isWildcard } from '../auth.js';
 import {
   loadFilesIndex,
@@ -112,7 +114,13 @@ export function registerKnowledgeRoutes(
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    // Save files to uploads directory
+    // Resolve namespace config to determine storage backend
+    const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
+    const configResolver = new ConfigResolver(configLoader);
+    const config = await configResolver.resolve({ namespace });
+    const useS3 = (config.storage as { type?: string } | undefined)?.type === 's3';
+
+    // Save files to local uploads directory (always — ingestion buffer path reads from here)
     const uploadsDir = path.join(workdir, 'namespaces', namespace, 'uploads');
     await mkdir(uploadsDir, { recursive: true });
 
@@ -127,12 +135,20 @@ export function registerKnowledgeRoutes(
       }
       await writeFile(dest, file.buffer);
 
+      // If S3 is configured for this namespace, mirror the file to S3
+      let uri: string | undefined;
+      if (useS3) {
+        const provider = getStorageProvider({ namespace, config, workdir });
+        uri = await provider.writeFile(`uploads/${file.fileName}`, file.buffer);
+      }
+
       // Add/update entry in files.json with status 'uploaded'
       const entry: IngestionFile = {
         fileName: file.fileName,
         size: file.size,
         uploadedAt: now,
         status: 'uploaded',
+        ...(uri ? { uri } : {}),
       };
       await upsertFile(workdir, namespace, entry);
 
