@@ -107,16 +107,33 @@ const REQUIREMENT_QUESTIONS: Record<RequiredField, string> = {
   budget: 'Do you have a budget range in mind?',
 };
 
-function buildRequirementPrompt(missing: RequiredField[]): string {
-  const first = missing[0];
-  return [
-    "I'm almost ready to generate your proposal.",
-    '',
-    'I still need:',
-    ...missing.map((m) => `• ${m}`),
-    '',
-    `Let's start — ${REQUIREMENT_QUESTIONS[first]}`,
-  ].join('\n');
+/**
+ * Build the requirement-asking message.
+ * Acknowledges already-confirmed fields so the user feels heard and the
+ * conversation feels continuous rather than starting from scratch each turn.
+ */
+function buildRequirementPrompt(
+  missing: RequiredField[],
+  confirmed: Record<string, string>,
+): string {
+  const confirmedEntries = REQUIRED_FIELDS
+    .filter((f) => confirmed[f])
+    .map((f) => `• **${f}**: ${confirmed[f]}`);
+
+  const parts: string[] = [];
+
+  if (confirmedEntries.length > 0) {
+    parts.push('I already have:');
+    parts.push(...confirmedEntries);
+    parts.push('');
+  }
+
+  parts.push('I still need:');
+  parts.push(...missing.map((m) => `• ${m}`));
+  parts.push('');
+  parts.push(REQUIREMENT_QUESTIONS[missing[0]]);
+
+  return parts.join('\n');
 }
 
 /**
@@ -136,26 +153,42 @@ function resolveField(field: ExtractedField): FieldDecision {
 
 /**
  * Ask the user to confirm a medium-confidence extracted value.
- * Shows the supporting evidence so the user can make an informed decision.
+ * Acknowledges already-confirmed fields and shows the supporting evidence.
  */
 function buildConfirmationPrompt(
   field: RequiredField,
   extracted: ExtractedField,
   allMissing: RequiredField[],
+  confirmed: Record<string, string>,
 ): string {
   const { value, evidence } = extracted;
+  const confirmedEntries = REQUIRED_FIELDS
+    .filter((f) => confirmed[f])
+    .map((f) => `• **${f}**: ${confirmed[f]}`);
+
+  const parts: string[] = [];
+
+  if (confirmedEntries.length > 0) {
+    parts.push('I already have:');
+    parts.push(...confirmedEntries);
+    parts.push('');
+  }
+
+  const evidenceLine = evidence ? `\n\n> "${evidence}"` : '';
   const otherMissing = allMissing.filter((f) => f !== field);
   const suffix = otherMissing.length > 0
     ? `\n\nI'll also need: ${otherMissing.join(', ')}.`
     : '';
-  const evidenceLine = evidence ? `\n\n> "${evidence}"` : '';
-  return [
+
+  parts.push(
     `I found that the **${field}** is **${value}** based on your documents.${evidenceLine}`,
     '',
     `Should I use this?${suffix}`,
     '',
     'Reply **yes** to confirm, **no** to skip, or type a different value.',
-  ].join('\n');
+  );
+
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -385,16 +418,18 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
     : '';
 
+  const confirmed = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
+
   if (nextEntry && !updatedDeclined.includes(nextField) && resolveField(nextEntry) === 'confirm') {
     instance.context.awaitingConfirmation = { field: nextField, value: nextEntry.value };
     return {
-      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry, missing),
+      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry, missing, confirmed),
     };
   }
 
   // No usable extraction — ask manually
   return {
-    message: autoFillPrefix + buildRequirementPrompt(missing),
+    message: autoFillPrefix + buildRequirementPrompt(missing, confirmed),
   };
 }
 
@@ -689,67 +724,85 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
 // ---------------------------------------------------------------------------
 
 /**
- * Expand the outline into a full proposal draft and persist the artifact.
- *
- * Uses AgentExecutor so the LLM can call search-documents to pull in
- * supporting evidence, benchmarks, or existing proposal language while
- * writing each section.
+ * Build a focused prompt for a single proposal section.
+ * Includes confirmed requirements and the full outline for context continuity.
+ */
+function buildSectionPrompt(
+  section: string,
+  allSections: string[],
+  requirements: Record<string, string>,
+  outline: string,
+): string {
+  const reqLines = REQUIRED_FIELDS
+    .filter((f) => requirements[f])
+    .map((f) => `- ${f}: ${requirements[f]}`)
+    .join('\n');
+
+  return [
+    `You are a professional proposal writer writing the **${section}** section.`,
+    '',
+    'Confirmed proposal inputs:',
+    reqLines || '(none specified)',
+    '',
+    'Full section list for context:',
+    ...allSections.map((s, i) => `${i + 1}. ${s === section ? `**${s}** ← you are writing this` : s}`),
+    '',
+    outline ? `Proposal outline:\n${outline}\n` : '',
+    'Rules:',
+    '- Write this section in full — no placeholders or "[TBD]"',
+    '- Be specific, actionable, and persuasive',
+    '- Output ONLY the section body — the heading will be added automatically',
+    '- 2–4 focused paragraphs, professional tone',
+  ].join('\n');
+}
+
+/**
+ * Expand the outline into a full proposal draft, generating one section at a
+ * time so the client receives progressive phase events and structured output.
  *
  * Flow:
- *   1. Emit phase "Writing proposal draft".
- *   2. Run AgentExecutor tool-request loop:
- *        - LLM may call tools to enrich individual sections
- *        - Token chunks forwarded to onChunk
- *        - Tool events forwarded to onToolEvent
- *   3. Save draft as {namespace}/proposals/chat-draft-{timestamp}.md.
- *   4. Set context.proposalArtifactId to the saved file name.
- *   5. Signal DONE.
+ *   1. Resolve section list from selectedTemplate (or default).
+ *   2. For each section:
+ *        a. Emit phase "Writing: <section name>".
+ *        b. Call LLM with a focused per-section prompt.
+ *        c. Emit the formatted section content via onChunk.
+ *   3. Save the assembled draft.
+ *   4. Signal DONE.
  */
 export async function handleGeneratingSections(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
+  const { workdir, namespace, instance, onPhase, onChunk } = ctx;
 
-  onPhase('Writing proposal draft');
+  const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
+  const sections = selectedTemplate?.structure ?? [
+    'Executive Summary',
+    'Problem Statement',
+    'Proposed Solution',
+    'Technical Approach',
+    'Timeline & Milestones',
+    'Team & Credentials',
+    'Budget Estimate',
+    'Next Steps',
+  ];
 
-  const prompt = [
-    'You are a professional proposal writer. Using the outline below, write a complete, detailed proposal document.',
-    '',
-    'Requirements:',
-    '- Write every section in full — no placeholders or "[TBD]"',
-    '- Use clear, professional language',
-    '- Format as clean markdown with headings',
-    '- Be specific, actionable, and persuasive',
-    '',
-    `Outline:\n${(instance.context.outline as string | undefined) ?? '(no outline provided)'}`,
-    '',
-    'You may use the search-documents tool to find supporting evidence, metrics, or prior work in the knowledge base.',
-  ].join('\n');
-
-  const executor = new AgentExecutor(llmGenerateFn);
+  const requirements = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
+  const outline = (instance.context.outline as string | undefined) ?? '';
   let proposalMarkdown = '';
 
-  for await (const event of executor.runStreaming({
-    prompt,
-    namespace,
-    tools: PROPOSAL_TOOLS,
-    systemPrompt: ctx.conversationContext?.systemPrompt,
-    priorContext: ctx.conversationContext
-      ? formatConversationForContext(ctx.conversationContext.conversationWindow)
-      : undefined,
-  })) {
-    if (event.type === 'token') {
-      onChunk(event.text);
-      proposalMarkdown += event.text;
-    } else if (event.type === 'phase') {
-      onPhase(event.name);
-    } else if (event.type === 'tool_request') {
-      onPhase(`Using tool: ${event.tool}`);
-      const toolOutput = await runTool(event.tool, event.input, namespace, onToolEvent);
-      executor.resumeWithToolResult(toolOutput);
-    } else if (event.type === 'final') {
-      if (!proposalMarkdown) proposalMarkdown = event.result.text;
-      if (event.result.maxIterationsReached) {
-        onPhase('Tool iteration limit reached — proceeding with available information.');
-      }
+  for (const section of sections) {
+    onPhase(`Writing: ${section}`);
+
+    const sectionPrompt = buildSectionPrompt(section, sections, requirements, outline);
+
+    try {
+      const content = await llmGenerateFn(sectionPrompt);
+      const formatted = `## ${section}\n\n${content.trim()}\n\n`;
+      onChunk(formatted);
+      proposalMarkdown += formatted;
+    } catch {
+      // Non-fatal — include a placeholder and continue with remaining sections
+      const placeholder = `## ${section}\n\n_(Section generation failed — please edit manually)_\n\n`;
+      onChunk(placeholder);
+      proposalMarkdown += placeholder;
     }
   }
 
