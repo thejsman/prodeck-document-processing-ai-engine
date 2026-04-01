@@ -62,6 +62,7 @@ function IconPickerField({
       onChange(dataUrl);
       setOpen(false);
     };
+    reader.onerror = () => setOpen(false);
     reader.readAsDataURL(file);
   }
 

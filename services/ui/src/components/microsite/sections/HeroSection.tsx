@@ -289,6 +289,12 @@ export function HeroSection({
     margin: '0 auto',
   };
 
+  // Hidden probe image — fires onError when the URL is expired or broken (e.g. DALL-E SAS token),
+  // clearing the broken background across ALL variants, not just centered.
+  const imageProbeFallback = activeImageUrl
+    ? <img src={activeImageUrl} onError={() => setActiveImageUrl(null)} style={{ display: 'none' }} aria-hidden alt="" />
+    : null;
+
   // ════════════════════════════════════════════════════════════════════════════
   // SPLIT — text left, image right (or reversed by mediaPos)
   // ════════════════════════════════════════════════════════════════════════════
@@ -296,6 +302,7 @@ export function HeroSection({
     const imgLeft = mediaPos === 'left';
     return (
       <section style={sectionStyle}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={container}>
@@ -327,6 +334,7 @@ export function HeroSection({
   if (resolvedVariant === 'asymmetric') {
     return (
       <section style={sectionStyle}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Left accent bar matching other sections */}
@@ -367,6 +375,7 @@ export function HeroSection({
   if (resolvedVariant === 'editorial') {
     return (
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg, borderBottom: `1px solid ${tokens.border}` }}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={Math.min(tokens.noiseOpacity, 0.015)} />
         {/* Top accent rule */}
@@ -428,6 +437,7 @@ export function HeroSection({
 
     return (
       <section style={sectionStyle}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Dot texture — same as other card-heavy sections */}
@@ -498,6 +508,7 @@ export function HeroSection({
   if (resolvedVariant === 'type-forward') {
     return (
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg }}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={{ ...container, maxWidth: 800 }}>
@@ -530,8 +541,7 @@ export function HeroSection({
   // ════════════════════════════════════════════════════════════════════════════
   return (
     <section style={sectionStyle}>
-      {/* Hidden probe image — fires onError when URL expires (e.g. DALL-E SAS token), clearing the broken bg */}
-      {activeImageUrl && <img src={activeImageUrl} onError={() => setActiveImageUrl(null)} style={{ display: 'none' }} aria-hidden alt="" />}
+      {imageProbeFallback}
       {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
       <NoiseOverlay opacity={tokens.noiseOpacity} />
       <div style={container}>

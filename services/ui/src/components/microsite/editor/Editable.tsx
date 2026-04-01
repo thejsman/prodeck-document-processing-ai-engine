@@ -111,6 +111,8 @@ export function Editable({
   const [mounted, setMounted] = useState(false);
   const [inputRect, setInputRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+  const filteredCmdsRef = useRef<typeof SLASH_COMMANDS>([]);
+  const applySlashCommandRef = useRef<(cmdId: string) => void>(() => {});
   const toolbarWidth = 380; // estimated toolbar width for clamping
 
   useEffect(() => setMounted(true), []);
@@ -152,17 +154,19 @@ export function Editable({
     };
   }, [editing]);
 
-  // Keyboard navigation for slash menu
+  // Keyboard navigation for slash menu — uses refs to avoid stale closures over
+  // filteredCmds and applySlashCommand, which are computed later in the render.
   const handleSlashKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!slashOpen) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSlashSelected(s => Math.min(s + 1, filteredCmds.length - 1)); }
+    const cmds = filteredCmdsRef.current;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSlashSelected(s => Math.min(s + 1, cmds.length - 1)); }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSlashSelected(s => Math.max(s - 1, 0)); }
     if (e.key === 'Escape') { e.preventDefault(); setSlashOpen(false); }
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (filteredCmds[slashSelected]) applySlashCommand(filteredCmds[slashSelected].id);
+      const cmd = cmds[slashSelected];
+      if (cmd) applySlashCommandRef.current(cmd.id);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slashOpen, slashSelected]);
 
   // Outside editor — render children as-is
@@ -223,11 +227,12 @@ export function Editable({
     const pos = el.selectionStart ?? draft.length;
     const textBefore = draft.slice(0, pos);
     const slashIdx = textBefore.lastIndexOf('/');
+    if (slashIdx === -1) { setSlashOpen(false); return; }
     const before = draft.slice(0, slashIdx);
     const after = draft.slice(pos);
     setDraft(before + cmd.apply('') + after);
     setSlashOpen(false);
-    setTimeout(() => el.focus(), 0);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const applyFormat = (type: 'bold' | 'italic' | 'bullet') => {
@@ -242,9 +247,10 @@ export function Editable({
     if (type === 'bullet') { newVal = prefixLines(el, '•'); cursorOffset = 2; }
     setDraft(newVal);
     setTimeout(() => {
-      el.focus();
+      if (!inputRef.current) return;
+      inputRef.current.focus();
       const newPos = start === end ? start + cursorOffset : end + cursorOffset * 2;
-      el.setSelectionRange(newPos, newPos);
+      inputRef.current.setSelectionRange(newPos, newPos);
     }, 0);
   };
 
@@ -253,7 +259,7 @@ export function Editable({
     if (!el) return;
     const newVal = wrapSelection(el, `[c=${color}]`, '[/c]', 'text');
     setDraft(newVal);
-    setTimeout(() => el.focus(), 0);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const clearFormatting = () => {
@@ -265,11 +271,11 @@ export function Editable({
     if (!selected) return;
     const stripped = selected
       .replace(/\[c=#?[a-zA-Z0-9]+\](.*?)\[\/c\]/gs, '$1')
-      .replace(/\*\*(.+?)\*\*/gs, '$1')
+      .replace(/\*\*(.*?)\*\*/gs, '$1')
       .replace(/_(.+?)_/gs, '$1');
     const newVal = el.value.slice(0, start) + stripped + el.value.slice(end);
     setDraft(newVal);
-    setTimeout(() => { el.focus(); el.setSelectionRange(start, start + stripped.length); }, 0);
+    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(start, start + stripped.length); }, 0);
   };
 
   const filteredCmds = slashOpen
@@ -278,6 +284,9 @@ export function Editable({
         c.label.toLowerCase().includes(slashQuery.toLowerCase())
       )
     : [];
+  // Keep refs in sync so the memoized handleSlashKeyDown always sees current values
+  filteredCmdsRef.current = filteredCmds;
+  applySlashCommandRef.current = applySlashCommand;
 
   // Compute clamped toolbar position
   const toolbarPos = inputRect

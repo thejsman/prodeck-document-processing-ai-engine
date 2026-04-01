@@ -290,19 +290,18 @@ function DiagramPreview({ code }: { code: string }) {
 
   useEffect(() => {
     if (!code.trim()) { setSvg(''); setError(''); return; }
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         const mermaid = (await import('mermaid')).default;
         mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
         const { svg: rendered } = await mermaid.render(idRef.current, code);
-        setSvg(rendered);
-        setError('');
+        if (!cancelled) { setSvg(rendered); setError(''); }
       } catch {
-        setError('Invalid syntax — check your diagram code');
-        setSvg('');
+        if (!cancelled) { setError('Invalid syntax — check your diagram code'); setSvg(''); }
       }
     }, 500);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [code]);
 
   if (!code.trim()) {
@@ -781,6 +780,7 @@ function BackgroundPanel({
       ctx.updateField(section.id, '__imageSource', 'custom');
       onClose();
     };
+    reader.onerror = () => onClose();
     reader.readAsDataURL(file);
   }
 

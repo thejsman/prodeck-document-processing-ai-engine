@@ -49,6 +49,16 @@ export function useEditContext(): EditContextValue | null {
   return useContext(EditContext);
 }
 
+// ── Deep-get helper ──────────────────────────────────────────────────────────
+
+function getDeep(obj: unknown, path: string): unknown {
+  const dot = path.indexOf('.');
+  if (dot === -1) return (obj as Record<string, unknown>)?.[path];
+  const key = path.slice(0, dot);
+  const rest = path.slice(dot + 1);
+  return getDeep((obj as Record<string, unknown>)?.[key], rest);
+}
+
 // ── Deep-set helper ───────────────────────────────────────────────────────────
 
 function setDeep(
@@ -121,41 +131,40 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     if (onChange) setTimeout(() => onChange(next), 0);
   }, [onChange]);
 
-  /** Push current AST onto undo stack before a mutation */
-  function snapshot(current: LayoutAST) {
+  /** Push current AST onto undo stack before a mutation (pure ref mutation — no setState). */
+  function snapshotRefs(current: LayoutAST) {
     undoStack.current = [...undoStack.current.slice(-(MAX_HISTORY - 1)), JSON.parse(JSON.stringify(current)) as LayoutAST];
-    redoStack.current = []; // new action clears redo
-    setHistoryVersion(v => v + 1);
+    redoStack.current = [];
   }
 
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
+    const prev = undoStack.current[undoStack.current.length - 1];
+    undoStack.current = undoStack.current.slice(0, -1);
     setAst(current => {
-      const prev = undoStack.current[undoStack.current.length - 1];
-      undoStack.current = undoStack.current.slice(0, -1);
       redoStack.current = [JSON.parse(JSON.stringify(current)) as LayoutAST, ...redoStack.current].slice(0, MAX_HISTORY);
-      setHistoryVersion(v => v + 1);
       notify(prev);
       return prev;
     });
+    setHistoryVersion(v => v + 1);
   }, [notify]);
 
   const redo = useCallback(() => {
     if (redoStack.current.length === 0) return;
+    const next = redoStack.current[0];
+    redoStack.current = redoStack.current.slice(1);
     setAst(current => {
-      const next = redoStack.current[0];
-      redoStack.current = redoStack.current.slice(1);
       undoStack.current = [...undoStack.current, JSON.parse(JSON.stringify(current)) as LayoutAST].slice(-MAX_HISTORY);
-      setHistoryVersion(v => v + 1);
       notify(next);
       return next;
     });
+    setHistoryVersion(v => v + 1);
   }, [notify]);
 
   const updateField = useCallback(
     (sectionId: string, fieldPath: string, value: unknown) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
           if (fieldPath === '__imageUrl') return { ...sec, image: { ...sec.image, url: value as string | null } };
@@ -172,26 +181,29 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );
 
   const replaceAst = useCallback((newAst: LayoutAST) => {
     setAst(prev => {
-      snapshot(prev);
+      snapshotRefs(prev);
       notify(newAst);
       return newAst;
     });
+    setHistoryVersion(v => v + 1);
   }, [notify]);
 
   const addArrayItem = useCallback(
     (sectionId: string, arrayPath: string, template: unknown) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
           const content = sec.content as unknown as Record<string, unknown>;
-          const arr = (content[arrayPath] as unknown[]) ?? [];
+          // Use getDeep to navigate nested paths (e.g. "categories.0.items")
+          const arr = (getDeep(content, arrayPath) as unknown[]) ?? [];
           const updated = setDeep(content, arrayPath, [...arr, template]);
           return { ...sec, content: updated as unknown as typeof sec.content };
         }) as typeof prev.sections;
@@ -199,6 +211,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );
@@ -206,11 +219,12 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const removeArrayItem = useCallback(
     (sectionId: string, arrayPath: string, index: number) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
           const content = sec.content as unknown as Record<string, unknown>;
-          const arr = [...((content[arrayPath] as unknown[]) ?? [])];
+          // Use getDeep to navigate nested paths (e.g. "categories.0.items")
+          const arr = [...((getDeep(content, arrayPath) as unknown[]) ?? [])];
           arr.splice(index, 1);
           const updated = setDeep(content, arrayPath, arr);
           return { ...sec, content: updated as unknown as typeof sec.content };
@@ -219,6 +233,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );
@@ -226,7 +241,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const moveArrayItem = useCallback(
     (sectionId: string, arrayPath: string, from: number, to: number) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         if (sectionId === '__sections__' && arrayPath === '__sections__') {
           const arr = [...prev.sections];
           const [item] = arr.splice(from, 1);
@@ -238,7 +253,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         const sections = prev.sections.map(sec => {
           if (sec.id !== sectionId) return sec;
           const content = sec.content as unknown as Record<string, unknown>;
-          const arr = [...((content[arrayPath] as unknown[]) ?? [])];
+          // Use getDeep to navigate nested paths
+          const arr = [...((getDeep(content, arrayPath) as unknown[]) ?? [])];
           const [item] = arr.splice(from, 1);
           arr.splice(to, 0, item);
           const updated = setDeep(content, arrayPath, arr);
@@ -248,6 +264,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );
@@ -255,7 +272,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const updateSection = useCallback(
     (sectionId: string, newContent: unknown) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         const sections = prev.sections.map(sec =>
           sec.id === sectionId
             ? { ...sec, content: newContent as typeof sec.content }
@@ -265,6 +282,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );
@@ -272,13 +290,14 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const addSection = useCallback(
     (afterIndex: number, newSection: LayoutAST['sections'][number]) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         const sections = [...prev.sections];
         sections.splice(afterIndex + 1, 0, newSection);
         const next: LayoutAST = { ...prev, sections: sections as typeof prev.sections };
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );
@@ -286,12 +305,13 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const removeSection = useCallback(
     (sectionId: string) => {
       setAst(prev => {
-        snapshot(prev);
+        snapshotRefs(prev);
         const sections = prev.sections.filter(sec => sec.id !== sectionId) as typeof prev.sections;
         const next: LayoutAST = { ...prev, sections };
         notify(next);
         return next;
       });
+      setHistoryVersion(v => v + 1);
     },
     [notify],
   );

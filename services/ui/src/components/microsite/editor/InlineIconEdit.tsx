@@ -82,7 +82,8 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
   }
 
   function apply(value: string) {
-    ctx!.updateField(sectionId!, fieldPath, value);
+    if (!ctx || !sectionId) return;
+    ctx.updateField(sectionId, fieldPath, value);
     setOpen(false);
   }
 
@@ -91,6 +92,7 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
     if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => apply(ev.target?.result as string);
+    reader.onerror = () => setOpen(false);
     reader.readAsDataURL(file);
   }
 

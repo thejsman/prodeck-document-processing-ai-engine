@@ -1,6 +1,6 @@
 {
   "proposalId": "omer-co",
-  "generatedAt": "2026-03-31T09:22:37.741Z",
+  "generatedAt": "2026-04-01T12:33:34.950Z",
   "generationMode": "default",
   "fullDesignPromptUsed": false,
   "meta": {
@@ -12,27 +12,27 @@
   "brief": {
     "clientName": "Acme Corporation",
     "clientIndustry": "IT",
-    "clientChallenge": "Acme Corporation faces significant challenges due to an outdated data infrastructure that limits operational efficiency and agility in decision-making.",
+    "clientChallenge": "Outdated data infrastructure limits operational efficiency and agility in decision-making.",
     "proposingCompany": "omer-co",
-    "proposingStrength": "Expertise in data architecture transformations, leveraging modern technologies like Apache Kafka and Databricks for enhanced analytics capabilities.",
-    "engagementSummary": "A comprehensive overhaul of Acme Corporation's data architecture will be delivered, focusing on real-time analytics and a cloud-native environment. The transition involves implementing a scalable architecture with advanced technologies to enable data-driven decision-making.",
+    "proposingStrength": "Experience in modernizing data architectures, achieving a 99.9% uptime across multiple clients.",
+    "engagementSummary": "A comprehensive overhaul of Acme’s data architecture leveraging cloud-native technologies and microservices. This transformation improves operational efficiency and supports real-time analytics capabilities.",
     "keyOutcomes": [
-      "Achieve query response times under 200 milliseconds for 95% of data queries",
-      "Support data ingestion rates of 10,000 records per second",
-      "Deliver an availability rate of 99.9% across the entire system",
-      "Eliminate 60% of undocumented ETL processes",
-      "Reduce operational risks through improved governance frameworks."
+      "Achieve query response times of under 200 milliseconds for 95% of queries.",
+      "Enable data ingestion rates of 10,000 records per second.",
+      "Ensure system availability of 99.9% or higher.",
+      "Reduce reporting turnaround times significantly.",
+      "Eliminate 60% of undocumented SSIS packages to enhance reliability."
     ],
     "totalValue": "$48,000.00",
     "duration": "10 weeks",
     "primaryTone": "authoritative",
-    "heroNarrative": "Transforming data architecture for agile decision-making",
+    "heroNarrative": "Transforming data architecture for enhanced operational agility.",
     "industryKeywords": [
-      "IT",
-      "data architecture",
-      "cloud-native",
-      "analytics",
-      "transformation"
+      "Data Architecture",
+      "Operational Efficiency",
+      "Cloud Solutions",
+      "Agility",
+      "Real-Time Analytics"
     ]
   },
   "brand": {
@@ -47,7 +47,7 @@
   "behavior": {
     "motion": "deliberate",
     "parallax": false,
-    "scrollEffects": "none"
+    "scrollEffects": "fade-in"
   },
   "sections": [
     {
@@ -56,20 +56,19 @@
       "sectionType": "hero",
       "content": {
         "eyebrow": "Proposal for Acme Corporation",
-        "headline": "Transforming Data for Future Growth",
-        "subheadline": "Overhauling your data architecture for enhanced agility.",
-        "body": "Our strategy modernizes your data infrastructure, enabling real-time analytics and improved decision-making. By integrating advanced technologies, we eliminate operational silos and empower your organization to become truly data-driven.",
+        "headline": "Transform Your Data, Drive Success",
+        "subheadline": "Empower decision-making with modern, scalable architecture.",
+        "body": "Omer Co offers a strategic overhaul of your data infrastructure, enhancing efficiency and eliminating silos. Our approach integrates cutting-edge technologies to position Acme for future growth and data-driven insights.",
         "ctaPrimary": "Let's Get Started",
         "ctaSecondary": "View Details",
-        "imageQuery": "data technology transformation",
-        "theme": "light",
-        "variant": "split"
+        "imageQuery": "data analysis technology",
+        "theme": "light"
       },
       "diagramMeta": null,
       "image": {
         "source": "dalle",
-        "query": "data technology transformation",
-        "url": "http://localhost:3000/presentation-images/omer-co/hero-632b6278.jpg",
+        "query": "data analysis technology",
+        "url": "/presentation-images/omer-co/hero-201706fb.jpg",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -80,13 +79,13 @@
       "heading": "Current State & Technical Gaps",
       "sectionType": "challenge",
       "content": {
-        "eyebrow": "Data infrastructure challenges",
-        "headline": "Outdated systems hinder operational efficiency",
-        "body": "Acme Corporation's reliance on outdated data infrastructure compromises agility and decision-making. Traditional SQL databases and legacy ETL tools create silos and increase operational risks. Without a significant transformation, the organization will continue to grapple with inefficiencies and data inaccuracies.",
-        "pullquote": "Operational failures loom as legacy systems falter under pressure.",
-        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene of a dimly lit server room with outdated technology, shadowy and ominous atmosphere, professional photography, 4K",
-        "diagram": "__CUSTOM_SVG__{\"type\":\"orbital\",\"center\":{\"title\":\"Outdated systems hinde\",\"subtitle\":\"challenge\"},\"satellites\":[{\"title\":\"Feature A\",\"description\":\"Key capability\",\"position\":\"top-left\"},{\"title\":\"Feature B\",\"description\":\"Key capability\",\"position\":\"top-right\"},{\"title\":\"Feature C\",\"description\":\"Key capability\",\"position\":\"bottom-left\"},{\"title\":\"Feature D\",\"description\":\"Key capability\",\"position\":\"bottom-right\"}]}",
-        "variant": "split"
+        "eyebrow": "Technical Assessment",
+        "headline": "Outdated Infrastructure Hinders Operational Efficiency",
+        "body": "Acme Corporation’s reliance on outdated technologies jeopardizes agility and decision-making. If unaddressed, stagnant architectures will lead to increased operational failures and suboptimal data management. Legacy systems amplify risks while limiting scalability and speed.",
+        "pullquote": "Failing to modernize infrastructure risks decision-making and operational success.",
+        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene of a cluttered server room with dim lighting, shadows highlighting outdated hardware, a sense of inefficiency and concern.",
+        "diagram": "graph TD\\nA[Legacy Infrastructure]-->B[Operational Risks]\\nA-->C[Limited Scalability]\\nB-->D[Increased Downtime]\\nC-->E[Slow Insights]\\nE-->F[Poor Decision-Making]\\nD-->G[Operational Failures]\\nF-->H[Data Management Issues]",
+        "variant": "asymmetric"
       },
       "diagramMeta": {
         "typeId": "decision-tree",
@@ -99,8 +98,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "DALL-E 3 prompt: cinematic photorealistic scene of a dimly lit server room with outdated technology, shadowy and ominous atmosphere, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-qIsIvYyoUTEVgOnTjiRagPzD.png?st=2026-03-31T08%3A22%3A32Z&se=2026-03-31T10%3A22%3A32Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T09%3A15%3A59Z&ske=2026-04-01T09%3A15%3A59Z&sks=b&skv=2026-02-06&sig=B2dlpSPmoMnBb216HrpUixRpwLW/mzpXDnsTCoxkTsw%3D",
+        "query": "DALL-E 3 prompt: cinematic photorealistic scene of a cluttered server room with dim lighting, shadows highlighting outdated hardware, a sense of inefficiency and concern.",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-uE8MapjxMWP0ck7CfxpfH20Z.png?st=2026-04-01T11%3A33%3A35Z&se=2026-04-01T13%3A33%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T05%3A48%3A15Z&ske=2026-04-02T05%3A48%3A15Z&sks=b&skv=2026-02-06&sig=ZOL2KYSk2NrPW0uiKPKZZ0JDH7J5jhmet1RXFn1DTbI%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -111,29 +110,34 @@
       "heading": "Proposed Architecture",
       "sectionType": "approach",
       "content": {
-        "eyebrow": "Data Architecture Transformation",
-        "headline": "Modernizing the Data Framework for Acme Corporation",
-        "subheadline": "A structured approach focusing on scalability, efficiency, and real-time analytics.",
+        "eyebrow": "Data Architecture Overhaul",
+        "headline": "Transforming Acme's Data Infrastructure for Future Success",
+        "subheadline": "A strategic approach focusing on modernization, efficiency, and agility. This transformation supports real-time analytics and operational resilience.",
         "pillars": [
           {
-            "iconHint": "strategy",
-            "name": "Cloud-Native Infrastructure",
-            "description": "Shifting to a cloud-native environment improves scalability and resilience. This ensures Acme can handle increasing data demands seamlessly."
-          },
-          {
             "iconHint": "digital",
-            "name": "Real-Time Analytics",
-            "description": "Implementing an event-driven data ingestion layer enhances decision-making speed. This infrastructure allows real-time insights crucial for strategic actions."
+            "name": "Modern Data Architecture",
+            "description": "Adopt cloud-native technologies to enhance scalability. Integrate microservices for flexibility and improved performance."
           },
           {
-            "iconHint": "identity",
-            "name": "Data Governance Framework",
-            "description": "Establishing robust governance mechanisms reduces operational risks. This ensures compliance and data quality across all analytics operations."
+            "iconHint": "strategy",
+            "name": "Enhanced Data Governance",
+            "description": "Implement robust governance mechanisms to ensure data quality and compliance. Create a centralized catalog for consistent metric definitions."
+          },
+          {
+            "iconHint": "content",
+            "name": "Real-Time Analytics",
+            "description": "Develop an event-driven architecture for instant data processing and insights. Enable data ingestion rates of 10,000 records per second."
+          },
+          {
+            "iconHint": "research",
+            "name": "Improved Reporting Efficiency",
+            "description": "Reduce reporting turnaround times significantly through streamlined processes. Achieve query response times of under 200 milliseconds for 95% of queries."
           }
         ],
-        "imageQuery": "DALL-E 3 prompt: Futuristic data center with dramatic lighting, showcasing advanced server technologies, high-resolution images, 4K",
-        "diagram": "graph TB\nA[Frontend] --> B[Event-Driven Ingestion]\nB --> C[Centralized Lakehouse]\nC --> D[Processing Engine]\nD --> E[Governance Framework]",
-        "variant": "grid"
+        "imageQuery": "DALL-E 3 prompt: a modern data center with advanced servers and cloud technologies, bright lighting, dynamic atmosphere, professional photography, 4K",
+        "diagram": "graph TB\\nA[Frontend] --> B[Microservices] --> C[Data Ingestion] --> D[Data Lake] --> E[Analytics] --> F[Governance] --> G[Real-Time Processing] --> H[Reports] --> I[Insights] --> J[Decision Making]",
+        "variant": "card-grid"
       },
       "diagramMeta": {
         "typeId": "system-architecture",
@@ -149,8 +153,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "DALL-E 3 prompt: Futuristic data center with dramatic lighting, showcasing advanced server technologies, high-resolution images, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zF673dNLrysJIUBsXBzk1lX9.png?st=2026-03-31T08%3A22%3A33Z&se=2026-03-31T10%3A22%3A33Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A07%3A39Z&ske=2026-04-01T07%3A07%3A39Z&sks=b&skv=2026-02-06&sig=BES5U1sy0E%2By3eCWG2/t9MPIxTMVYntxPSC0kTkOEhA%3D",
+        "query": "DALL-E 3 prompt: a modern data center with advanced servers and cloud technologies, bright lighting, dynamic atmosphere, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-wPmEoYgke1uWKEmRm899Ll63.png?st=2026-04-01T11%3A33%3A37Z&se=2026-04-01T13%3A33%3A37Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T07%3A04%3A56Z&ske=2026-04-02T07%3A04%3A56Z&sks=b&skv=2026-02-06&sig=Leqt3d1Py%2BH09YjGaMqQ3U6dYgrsnsQxI2nTWpmlA3I%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -162,11 +166,11 @@
       "sectionType": "techstack",
       "content": {
         "eyebrow": "Built on Modern Foundations",
-        "headline": "Comprehensive Technology Stack for Data Architecture Transformation",
-        "imageQuery": "data architecture technology modern",
+        "headline": "Comprehensive Technology Stack for Data Transformation",
+        "imageQuery": "data architecture modern technology",
         "categories": [
           {
-            "iconHint": "identity",
+            "iconHint": "strategy",
             "name": "Core Technologies",
             "items": [
               "Python",
@@ -176,15 +180,15 @@
             ]
           },
           {
-            "iconHint": "digital",
-            "name": "Data Ingestion and Processing",
+            "iconHint": "identity",
+            "name": "Data Ingestion",
             "items": [
               "Apache Kafka",
               "Apache Airflow"
             ]
           },
           {
-            "iconHint": "content",
+            "iconHint": "document",
             "name": "Data Storage",
             "items": [
               "Databricks Lakehouse",
@@ -192,8 +196,8 @@
             ]
           },
           {
-            "iconHint": "strategy",
-            "name": "Deployment and Cloud Services",
+            "iconHint": "launch",
+            "name": "Deployment",
             "items": [
               "Microsoft Azure",
               "Docker",
@@ -202,14 +206,14 @@
           },
           {
             "iconHint": "research",
-            "name": "Observability and Monitoring",
+            "name": "Monitoring Tools",
             "items": [
               "Azure Monitor",
               "Grafana"
             ]
           }
         ],
-        "diagram": "graph TB\nA[Frontend] --> B[Backend]\nB --> C[Database]\nB --> D[Data Processing]\nD --> E[Data Ingestion]\nD --> F[Data Storage]\nE --> G[Monitoring]\nF --> H[Governance]\nI[Deployment] --> B\nJ[Cloud Services] --> I",
+        "diagram": "graph TB\nA[Frontend] --> B[Backend]\nB --> C[Database]\nC --> D[Data Warehouse]\nD --> E[Data Lake]\nE --> F[ETL Process]\nB --> G[Orchestration]\nA --> H[Monitoring]\nB --> I[Analytics]\nI --> J[Reporting]",
         "variant": "editorial"
       },
       "diagramMeta": {
@@ -230,8 +234,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "data architecture technology modern",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-FXufX1jPZlmO7zMoNMIYdEIh.png?st=2026-03-31T08%3A22%3A31Z&se=2026-03-31T10%3A22%3A31Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T03%3A29%3A18Z&ske=2026-04-01T03%3A29%3A18Z&sks=b&skv=2026-02-06&sig=0SUNTOPj5h94NnKt8ndv99ac55SoowWicWr9c7YDT9U%3D",
+        "query": "data architecture modern technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-OV16W3cVso8IeugEH3NHfV0V.png?st=2026-04-01T11%3A33%3A35Z&se=2026-04-01T13%3A33%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T06%3A59%3A33Z&ske=2026-04-02T06%3A59%3A33Z&sks=b&skv=2026-02-06&sig=ei8bKqoa6eAQzH1Ue5SaM6SKd6NAhIfz4ehc2c4SK18%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -243,32 +247,32 @@
       "sectionType": "security",
       "content": {
         "eyebrow": "Designed for Data Integrity",
-        "headline": "Implementing Advanced Security Controls for Data Architecture",
-        "imageQuery": "security technology data protection",
+        "headline": "Security Measures for Modern Data Architectures",
+        "imageQuery": "cybersecurity technology data protection",
         "items": [
           {
-            "iconHint": "identity",
-            "name": "Identity and Access Management",
-            "description": "Ensures that only authorized personnel access sensitive data. Multi-factor authentication and role-based permissions safeguard information from unauthorized use."
+            "iconHint": "strategy",
+            "name": "Access Control Management",
+            "description": "Restricts access based on user roles. Protects sensitive data from unauthorized access."
           },
           {
             "iconHint": "digital",
             "name": "Data Encryption",
-            "description": "Protects data at rest and in transit using strong encryption methods. This mitigates the risk of data breaches and ensures confidentiality."
+            "description": "Encrypts data both in transit and at rest. Ensures confidentiality and integrity across all transactions."
           },
           {
-            "iconHint": "strategy",
-            "name": "Regular Security Audits",
-            "description": "Conducting frequent assessments to identify vulnerabilities in the data architecture. Proactive measures strengthen the overall security posture."
+            "iconHint": "identity",
+            "name": "Continuous Monitoring",
+            "description": "Monitors system performance and security in real-time. Identifies threats and vulnerabilities instantly."
           },
           {
             "iconHint": "research",
             "name": "Incident Response Planning",
-            "description": "Establishes a clear protocol for addressing security incidents. This minimizes damage and ensures rapid recovery from potential breaches."
+            "description": "Establishes a plan for potential security breaches. Minimizes impact and recovery time during incidents."
           }
         ],
-        "diagram": "graph TB\\nA[Identity and Access Management] --> B[Data Encryption]\\nB --> C[Regular Security Audits]\\nC --> D[Incident Response Planning]",
-        "variant": "split"
+        "diagram": "graph TB\\nA[Frontend] --> B[Access Control Management]\\nA --> C[Data Encryption]\\nA --> D[Continuous Monitoring]\\nA --> E[Incident Response Planning]",
+        "variant": "minimal"
       },
       "diagramMeta": {
         "typeId": "network-topology",
@@ -281,117 +285,114 @@
       },
       "image": {
         "source": "gradient",
-        "query": "security technology data protection",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-sLL9KoS7KRwU7x9VvDLeenuB.png?st=2026-03-31T08%3A22%3A31Z&se=2026-03-31T10%3A22%3A31Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A01%3A22Z&ske=2026-04-01T07%3A01%3A22Z&sks=b&skv=2026-02-06&sig=DQQ4SZeJ0Hi2bqjesk5GxJN9%2BehiWGrAVdHsTrSK5Oc%3D",
+        "query": "cybersecurity technology data protection",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-IP7F40MT57XvpZ9kqs6XW8cm.png?st=2026-04-01T11%3A33%3A36Z&se=2026-04-01T13%3A33%3A36Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T07%3A00%3A30Z&ske=2026-04-02T07%3A00%3A30Z&sks=b&skv=2026-02-06&sig=YJi1m/9/20cBQtApxZZ50BMS4lWDnN3JijNhALTtsWs%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "testing-framework",
-      "heading": "Testing Framework",
+      "id": "testing",
+      "heading": "testing",
       "sectionType": "testing",
       "content": {
         "eyebrow": "Quality Built In",
-        "headline": "Ensuring Data Integrity Through Rigorous Testing Protocols",
-        "imageQuery": "data analysis testing technology",
+        "headline": "Comprehensive Testing Framework for Data Architecture",
+        "imageQuery": "data center technology",
         "layers": [
           {
             "level": 1,
             "name": "Unit Tests",
             "coverage": "90%",
-            "description": "Validates individual components for functionality."
+            "description": "Validates individual components for correctness."
           },
           {
             "level": 2,
             "name": "Integration Tests",
             "coverage": "85%",
-            "description": "Ensures correct interplay between modules."
+            "description": "Ensures interaction between components functions as intended."
           },
           {
             "level": 3,
             "name": "End-to-End Tests",
             "coverage": "80%",
-            "description": "Simulates user scenarios for system validation."
+            "description": "Validates overall workflow from users' perspective."
           },
           {
             "level": 4,
             "name": "Performance Tests",
             "coverage": "75%",
-            "description": "Measures system performance under load."
+            "description": "Assesses system behavior under various load conditions."
           }
         ],
         "additionalInfo": [
           {
             "heading": "Continuous Monitoring",
-            "body": "Automated monitoring tools maintain performance standards post-deployment."
+            "body": "Automated testing integrated within the CI/CD pipeline ensures ongoing quality."
           },
           {
-            "heading": "Feedback Loop",
-            "body": "Regular updates capture and address emerging issues."
+            "heading": "Post-deployment Validation",
+            "body": "Subsequent performance reviews ascertain compliance with operational benchmarks."
           }
         ],
         "diagram": "graph LR\n  A[Unit Tests] --> B[Integration Tests]\n  B --> C[End-to-End Tests]\n  C --> D[Performance Tests]",
-        "variant": "type-forward"
+        "variant": "asymmetric"
       },
       "diagramMeta": null,
       "image": {
         "source": "gradient",
-        "query": "data analysis testing technology",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-0yj2RcD9RvMGeHpADxzx1psY.png?st=2026-03-31T08%3A22%3A31Z&se=2026-03-31T10%3A22%3A31Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T06%3A56%3A36Z&ske=2026-04-01T06%3A56%3A36Z&sks=b&skv=2026-02-06&sig=1mIM401JQfEpLg3L68M/MiBmBNgvW5sznK31EbVW/Yw%3D",
+        "query": "data center technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-DJL38hQ84oPs2YxQ8n7wRIf7.png?st=2026-04-01T11%3A33%3A35Z&se=2026-04-01T13%3A33%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T01%3A21%3A38Z&ske=2026-04-02T01%3A21%3A38Z&sks=b&skv=2026-02-06&sig=XPuzVDiuLyQfLXPrs2aa7YM499iH4tKXPkSnuCTVf3Y%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     },
     {
-      "id": "deliverables",
-      "heading": "deliverables",
-      "sectionType": "deliverables",
+      "id": "metrics",
+      "heading": "metrics",
+      "sectionType": "metrics",
       "content": {
-        "eyebrow": "Key Project Deliverables",
-        "headline": "Comprehensive Deliverables for Acme Corporation's Data Transformation",
-        "items": [
+        "eyebrow": "Performance at Scale",
+        "headline": "Achieving Data Architecture Excellence with Proven Metrics",
+        "imageQuery": "data analytics cloud architecture",
+        "stats": [
           {
-            "iconHint": "document",
-            "name": "Project Kickoff Report",
-            "detail": "Initial report aligning all stakeholders on project objectives."
+            "number": "99.9%",
+            "label": "System Uptime",
+            "context": "Indicates exceptional reliability across the architecture."
           },
           {
-            "iconHint": "document",
-            "name": "Architecture Diagram",
-            "detail": "Visual representation of the proposed data architecture."
+            "number": "200 milliseconds",
+            "label": "Query Response Time",
+            "context": "Ensures rapid access to critical data for decision-making."
           },
           {
-            "iconHint": "strategy",
-            "name": "Data Governance Framework",
-            "detail": "Document outlining policies for data quality and compliance."
+            "number": "10,000 records",
+            "label": "Data Ingestion Rate",
+            "context": "Supports high volume data processing efficiently."
           },
           {
-            "iconHint": "identity",
-            "name": "API Contracts",
-            "detail": "Specifications for all API interactions to ensure clarity."
-          },
-          {
-            "iconHint": "website",
-            "name": "Testing Strategy",
-            "detail": "Outline of testing methodologies to validate performance and quality."
-          },
-          {
-            "iconHint": "document",
-            "name": "Final Project Report",
-            "detail": "Comprehensive documentation of implementation and outcomes."
+            "number": "60%",
+            "label": "Reduced SSIS Packages",
+            "context": "Minimizes undocumented processes for enhanced system reliability."
           }
         ],
-        "imageQuery": "Cinematic photorealistic scene of a diverse team collaborating in a futuristic conference room, bright natural light filtering through large windows, focus on a digital screen displaying data analytics, professional atmosphere, 4K",
-        "diagram": "graph TD\\nA[Frontend]-->B[API Contracts]\\nB-->C[Data Governance Framework]\\nC-->D[Architecture Diagram]\\nD-->E[Project Kickoff Report]\\nE-->F[Testing Strategy]\\nF-->G[Final Project Report]",
-        "variant": "editorial"
+        "strategies": [
+          "Implement cloud-native architecture for scalability",
+          "Optimize data flow for speed and efficiency",
+          "Automate reporting processes to reduce delays",
+          "Streamline microservices to enhance performance",
+          "Conduct regular uptime audits for continuous improvement"
+        ],
+        "diagram": "xychart-beta\\nA[Uptime] A[Response Time] A[Data Ingestion] A[SSIS Reduction] A[Turnaround Time] A[Efficiency]",
+        "variant": "centered"
       },
       "diagramMeta": {
-        "typeId": "process-flow",
-        "typeLabel": "Process Flow",
-        "category": "flow",
+        "typeId": "trend-chart",
+        "typeLabel": "Trend Chart",
+        "category": "metric",
         "confidence": "high",
         "matchedKeywords": [],
         "score": 5,
@@ -399,8 +400,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Cinematic photorealistic scene of a diverse team collaborating in a futuristic conference room, bright natural light filtering through large windows, focus on a digital screen displaying data analytics, professional atmosphere, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-zBHBuXRIGsNxsHpHQsihjk02.png?st=2026-03-31T08%3A22%3A37Z&se=2026-03-31T10%3A22%3A37Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T09%3A21%3A00Z&ske=2026-04-01T09%3A21%3A00Z&sks=b&skv=2026-02-06&sig=t2D3w30hh84vjoXK4n77Ej0b5evqSG/K%2BsenvhlZqf4%3D",
+        "query": "data analytics cloud architecture",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-e4tClD9jZkDpOlAyJPkin5WT.png?st=2026-04-01T11%3A33%3A37Z&se=2026-04-01T13%3A33%3A37Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T06%3A59%3A15Z&ske=2026-04-02T06%3A59%3A15Z&sks=b&skv=2026-02-06&sig=VHIGWPtiVakjAj4Y/hNleZ8z5M%2BbXgZSb/3CGOfven8%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -411,56 +412,56 @@
       "heading": "timeline",
       "sectionType": "timeline",
       "content": {
-        "eyebrow": "Implementation Timeline",
-        "headline": "Phased Approach to Data Architecture Transformation",
-        "subheadline": "A structured plan to ensure successful implementation over 10 weeks.",
+        "eyebrow": "Project Timeline",
+        "headline": "Transforming Acme's Data Architecture in Phases",
+        "subheadline": "A structured delivery plan ensures timely implementation and alignment with goals.",
         "phases": [
           {
-            "label": "Project Kickoff and Initial Analysis",
-            "duration": "2 weeks",
-            "name": "Kickoff & Requirements",
-            "description": "Conduct a kickoff meeting to align objectives and gather specific business requirements."
+            "label": "Kickoff Analysis",
+            "duration": "2 Weeks",
+            "name": "Project Kickoff",
+            "description": "Conduct initial analysis and align on objectives."
           },
           {
-            "label": "Design and Architecture Definition",
-            "duration": "3 weeks",
+            "label": "Design Phase",
+            "duration": "3 Weeks",
             "name": "Architecture Design",
-            "description": "Finalize the architecture diagram and define API contracts for data services."
+            "description": "Finalize the new data architecture and define API contracts."
           },
           {
-            "label": "Development of Core Components",
-            "duration": "4 weeks",
-            "name": "Core Component Development",
-            "description": "Implement the data ingestion layer and establish core microservices."
+            "label": "Core Development",
+            "duration": "4 Weeks",
+            "name": "Component Development",
+            "description": "Implement data ingestion and storage layers for functionality."
           },
           {
-            "label": "Integration and Data Processing",
-            "duration": "4 weeks",
-            "name": "Integration Phase",
-            "description": "Configure the data processing engine and ensure successful data loads."
+            "label": "Integration Processing",
+            "duration": "4 Weeks",
+            "name": "Data Pipeline Integration",
+            "description": "Achieve successful integration and processing of data workflows."
           },
           {
-            "label": "Testing and Quality Assurance",
-            "duration": "3 weeks",
-            "name": "QA Phase",
-            "description": "Perform rigorous testing to validate system performance and integration."
+            "label": "Testing Phase",
+            "duration": "3 Weeks",
+            "name": "Quality Assurance",
+            "description": "Conduct thorough testing to guarantee system reliability."
           },
           {
-            "label": "Final Review and Production Deployment",
-            "duration": "3 weeks",
-            "name": "Deployment Phase",
-            "description": "Complete user acceptance testing and successfully activate the new architecture."
+            "label": "Final Review",
+            "duration": "3 Weeks",
+            "name": "Deployment Preparation",
+            "description": "Complete user acceptance testing and prepare for go-live."
           },
           {
-            "label": "Post-Deployment Support and Optimization",
-            "duration": "2 weeks",
-            "name": "Support Phase",
-            "description": "Monitor performance and conduct an initial review for system optimization."
+            "label": "Support Optimization",
+            "duration": "2 Weeks",
+            "name": "Post-Deployment",
+            "description": "Monitor performance and finalize documentation post-launch."
           }
         ],
-        "imageQuery": "Cinematic photorealistic scene of a project team in a modern glass conference room, engaged in a dynamic discussion over architecture diagrams, soft directional lighting, professional photography, 4K",
-        "diagram": "__CUSTOM_SVG__{\"type\":\"orbital\",\"center\":{\"title\":\"Phased Approach to Dat\",\"subtitle\":\"timeline\"},\"satellites\":[{\"title\":\"Feature A\",\"description\":\"Key capability\",\"position\":\"top-left\"},{\"title\":\"Feature B\",\"description\":\"Key capability\",\"position\":\"top-right\"},{\"title\":\"Feature C\",\"description\":\"Key capability\",\"position\":\"bottom-left\"},{\"title\":\"Feature D\",\"description\":\"Key capability\",\"position\":\"bottom-right\"}]}",
-        "variant": "asymmetric"
+        "imageQuery": "Cinematic scene of a diverse team in a modern conference room reviewing digital architecture plans, ambient lighting creating a focused atmosphere, professional photography, 4K",
+        "diagram": "gantt\\nA[Project Kickoff]\\nB[Architecture Design]\\nC[Component Development]\\nD[Data Pipeline Integration]\\nE[Quality Assurance]\\nF[Deployment Preparation]\\nG[Post-Deployment]",
+        "variant": "split"
       },
       "diagramMeta": {
         "typeId": "gantt-chart",
@@ -473,8 +474,135 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Cinematic photorealistic scene of a project team in a modern glass conference room, engaged in a dynamic discussion over architecture diagrams, soft directional lighting, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-IXE6SYMRVx0LBREqSUNPqR8q.png?st=2026-03-31T08%3A22%3A34Z&se=2026-03-31T10%3A22%3A34Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A15%3A37Z&ske=2026-04-01T07%3A15%3A37Z&sks=b&skv=2026-02-06&sig=R7ERnCNE4k9gDz4CUNVKYj02A91BJ1ls6sj3WYcDRcM%3D",
+        "query": "Cinematic scene of a diverse team in a modern conference room reviewing digital architecture plans, ambient lighting creating a focused atmosphere, professional photography, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-iUqFMFID1qKaf5zqAvlFCq1X.png?st=2026-04-01T11%3A33%3A37Z&se=2026-04-01T13%3A33%3A37Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T07%3A06%3A10Z&ske=2026-04-02T07%3A06%3A10Z&sks=b&skv=2026-02-06&sig=bkmMQMZlJaK0U6dvnWy4mb1Hoyey77WIpc34UFvFs9s%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "deliverables",
+      "heading": "deliverables",
+      "sectionType": "deliverables",
+      "content": {
+        "eyebrow": "Key Project Deliverables",
+        "headline": "Deliverables for Acme Corporation's Data Transformation",
+        "items": [
+          {
+            "iconHint": "document",
+            "name": "Project Kickoff",
+            "detail": "Align objectives with stakeholders to set clear project expectations."
+          },
+          {
+            "iconHint": "identity",
+            "name": "Requirements Gathering",
+            "detail": "Define critical datasets and business requirements for effective data management."
+          },
+          {
+            "iconHint": "strategy",
+            "name": "Architecture Diagram",
+            "detail": "Provide a detailed visualization of the proposed data ecosystem and components."
+          },
+          {
+            "iconHint": "document",
+            "name": "API Contracts",
+            "detail": "Establish clear specifications for data services facilitating integration."
+          },
+          {
+            "iconHint": "document",
+            "name": "Governance Framework",
+            "detail": "Outline protocols for data quality, compliance, and management."
+          },
+          {
+            "iconHint": "website",
+            "name": "Microservices Development",
+            "detail": "Deploy essential microservices to facilitate data processing and access."
+          },
+          {
+            "iconHint": "campaign",
+            "name": "Test Plans",
+            "detail": "Develop rigorous testing protocols to ensure quality and performance."
+          },
+          {
+            "iconHint": "content",
+            "name": "Go-Live Support",
+            "detail": "Provide post-deployment assistance to ensure operational success."
+          }
+        ],
+        "imageQuery": "Cinematic photorealistic scene of an executive team collaborating around a modern conference table, with bright overhead lighting and digital displays, conveying professionalism and innovation.",
+        "diagram": "graph TD\nA[Kickoff Meeting] --> B[Requirements Gathering]\nB --> C[Architecture Diagram]\nC --> D[API Contracts]\nD --> E[Governance Framework]\nE --> F[Microservices Development]\nF --> G[Test Plans]\nG --> H[Go-Live Support]",
+        "variant": "minimal"
+      },
+      "diagramMeta": {
+        "typeId": "process-flow",
+        "typeLabel": "Process Flow",
+        "category": "flow",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "Cinematic photorealistic scene of an executive team collaborating around a modern conference table, with bright overhead lighting and digital displays, conveying professionalism and innovation.",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-n60uQ8rgCx87SIX0CF2g52bz.png?st=2026-04-01T11%3A33%3A36Z&se=2026-04-01T13%3A33%3A36Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T09%3A01%3A13Z&ske=2026-04-02T09%3A01%3A13Z&sks=b&skv=2026-02-06&sig=ia4sFrC43/dpUO7DmsZOtg32FitwcJVPOs2weWMipMs%3D",
+        "fallback": "gradient-mesh"
+      },
+      "editable": true,
+      "version": 1
+    },
+    {
+      "id": "benefits",
+      "heading": "benefits",
+      "sectionType": "benefits",
+      "content": {
+        "eyebrow": "What You Gain",
+        "headline": "Transformative Benefits of Data Modernization",
+        "imageQuery": "business technology data efficiency",
+        "items": [
+          {
+            "iconHint": "strategy",
+            "title": "Enhanced Operational Efficiency",
+            "description": "Achieve an optimized data architecture that reduces reporting turnaround times and improves query performance, targeting response times below 200 milliseconds."
+          },
+          {
+            "iconHint": "identity",
+            "title": "Scalable Data Solutions",
+            "description": "Support real-time analytics with a robust architecture designed to handle data ingestion rates of 10,000 records per second."
+          },
+          {
+            "iconHint": "document",
+            "title": "Improved Data Governance",
+            "description": "Implement comprehensive data governance frameworks to enhance compliance, driving data quality and reliability through automated management systems."
+          },
+          {
+            "iconHint": "photo",
+            "title": "High System Availability",
+            "description": "Ensure a system uptime of 99.9% or higher, safeguarding operational continuity and business resilience."
+          },
+          {
+            "iconHint": "digital",
+            "title": "Reduction of Technical Debt",
+            "description": "Eliminate 60% of undocumented SSIS packages, reducing risks and improving maintainability across data workflows."
+          }
+        ],
+        "diagram": "journey\nA[Data Ingestion]\nA[Centralized Lakehouse]\nA[Microservices]\nA[Data Governance]\nA[Operational Efficiency]\nA[Real-Time Analytics]\nA[Continuous Monitoring]",
+        "variant": "split"
+      },
+      "diagramMeta": {
+        "typeId": "user-journey",
+        "typeLabel": "User Journey",
+        "category": "specialized",
+        "confidence": "high",
+        "matchedKeywords": [],
+        "score": 5,
+        "isCustomSvg": false
+      },
+      "image": {
+        "source": "gradient",
+        "query": "business technology data efficiency",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-4KZuxXxiiKdm0DmFopHWJAwx.png?st=2026-04-01T11%3A33%3A35Z&se=2026-04-01T13%3A33%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T07%3A07%3A01Z&ske=2026-04-02T07%3A07%3A01Z&sks=b&skv=2026-02-06&sig=E7CAMeais2KduIgTNfZcpQyEW3uvmHEmLFzZLHeQKPU%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -486,12 +614,12 @@
       "sectionType": "pricing",
       "content": {
         "eyebrow": "Investment Overview",
-        "headline": "Strategic Investment in Data Transformation Solutions",
-        "subheadline": "This investment enhances operational efficiency and decision-making capabilities.",
+        "headline": "Transformational Investment for Enhanced Data Operations",
+        "subheadline": "This investment unlocks operational efficiency and strategic decision-making capabilities.",
         "rows": [
           [
             "Team Size",
-            "4"
+            "$4,800.00/week"
           ],
           [
             "Duration",
@@ -512,8 +640,8 @@
         ],
         "totalLabel": "Total: $48,000.00",
         "footnote": "Payment Terms: Net-30 from invoice date, billed monthly in arrears.",
-        "cta": "Engage with Us",
-        "imageQuery": "Cinematic photorealistic scene of a modern office environment with team members discussing data transformation strategies, soft directional lighting highlighting key decision-makers, professional photography, 4K",
+        "cta": "Get Started Now",
+        "imageQuery": "Cinematic photorealistic office scene with soft directional lighting, professionals collaborating around a conference table, modern technology visible, executive atmosphere, 4K",
         "variant": "minimal"
       },
       "diagramMeta": {
@@ -536,8 +664,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "Cinematic photorealistic scene of a modern office environment with team members discussing data transformation strategies, soft directional lighting highlighting key decision-makers, professional photography, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-ihLvK4Uk8Gsif2bK1O87JesG.png?st=2026-03-31T08%3A22%3A35Z&se=2026-03-31T10%3A22%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=38e27a3b-6174-4d3e-90ac-d7d9ad49543f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A01%3A09Z&ske=2026-04-01T07%3A01%3A09Z&sks=b&skv=2026-02-06&sig=wjXk6mVr%2B8gm/8cwp5r5Y/Opq5/PKj1kDXKRC6rpF8Q%3D",
+        "query": "Cinematic photorealistic office scene with soft directional lighting, professionals collaborating around a conference table, modern technology visible, executive atmosphere, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-5KKL7PxbL3p8AjKSNRkTrMbQ.png?st=2026-04-01T11%3A33%3A37Z&se=2026-04-01T13%3A33%3A37Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T04%3A58%3A55Z&ske=2026-04-02T04%3A58%3A55Z&sks=b&skv=2026-02-06&sig=PDtuJ%2BVG9LHOhQoq3R3Sr8AOMWA%2Bt32YbO46FXx4ea8%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -549,32 +677,32 @@
       "sectionType": "stats",
       "content": {
         "eyebrow": "By The Numbers",
-        "headline": "Transformative Metrics Driving Acme Corporation's Data Strategy",
-        "imageQuery": "data analytics technology",
+        "headline": "Key Metrics from Data Transformation Proposal",
+        "imageQuery": "data architecture design",
         "stats": [
+          {
+            "number": "99.9%",
+            "label": "System Availability",
+            "context": "This reflects the expected uptime of the new data architecture."
+          },
           {
             "number": "10,000 records per second",
             "label": "Data Ingestion Rate",
-            "context": "This rate supports real-time analytics, enhancing decision-making capabilities."
+            "context": "This metric indicates the volume of data that can be processed in real time."
           },
           {
             "number": "200 milliseconds",
             "label": "Query Response Time",
-            "context": "Ensures swift access to data for agile business operations."
-          },
-          {
-            "number": "99.9%",
-            "label": "System Availability",
-            "context": "Guarantees operational continuity and reliability across data systems."
+            "context": "This represents the expected performance level for 95% of queries."
           },
           {
             "number": "60%",
-            "label": "Reduction in ETL Processes",
-            "context": "Minimizes risks and improves data governance through better documentation."
+            "label": "Reduction in Undocumented Packages",
+            "context": "This illustrates the enhancement in reliability through better documentation."
           }
         ],
-        "diagram": "pie\nData Ingestion Rate\nQuery Response Time\nSystem Availability\nReduction in ETL Processes\nPerformance Improvement",
-        "variant": "card-grid"
+        "diagram": "pie\nA[System Availability] 25\nB[Data Ingestion Rate] 25\nC[Query Response Time] 25\nD[Undocumented Packages Reduction] 25",
+        "variant": "editorial"
       },
       "diagramMeta": {
         "typeId": "pie-chart",
@@ -587,74 +715,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "data analytics technology",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-TZ5Kr7oYIcxYHk8Rk8kTuHVg.png?st=2026-03-31T08%3A22%3A34Z&se=2026-03-31T10%3A22%3A34Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A22%3A48Z&ske=2026-04-01T07%3A22%3A48Z&sks=b&skv=2026-02-06&sig=91LpofbLYWtH/62/K0VWGMXchyvL0NIcPB8I/QZZdlE%3D",
-        "fallback": "gradient-mesh"
-      },
-      "editable": true,
-      "version": 1
-    },
-    {
-      "id": "benefits",
-      "heading": "benefits",
-      "sectionType": "benefits",
-      "content": {
-        "eyebrow": "What You Gain",
-        "headline": "Unlocking Value through Strategic Data Architecture",
-        "imageQuery": "data analytics cloud technology",
-        "items": [
-          {
-            "iconHint": "strategy",
-            "title": "Enhanced Decision-Making",
-            "description": "Implement real-time analytics to support data-driven decisions across all levels of the organization."
-          },
-          {
-            "iconHint": "identity",
-            "title": "Improved Data Quality",
-            "description": "Establish a centralized data governance framework that ensures high data quality and compliance with regulations."
-          },
-          {
-            "iconHint": "digital",
-            "title": "Scalability and Flexibility",
-            "description": "Transition to a cloud-native architecture that can rapidly adapt to increasing data volumes and user demands."
-          },
-          {
-            "iconHint": "launch",
-            "title": "Agility in Operations",
-            "description": "Achieve faster response times with a microservices architecture that simplifies deployment and enhances operational efficiency."
-          },
-          {
-            "iconHint": "document",
-            "title": "Reduced Technical Debt",
-            "description": "Eliminate outdated processes and documentation gaps, paving the way for a more streamlined operations."
-          },
-          {
-            "iconHint": "campaign",
-            "title": "Cost Efficiency",
-            "description": "Realize significant cost savings by optimizing resource usage and eliminating reliance on legacy systems."
-          },
-          {
-            "iconHint": "research",
-            "title": "Future-Proof Infrastructure",
-            "description": "Prepare for growth by building a modern data architecture capable of integrating emerging technologies like machine learning."
-          }
-        ],
-        "diagram": "journey\nA[Data Ingestion]\nB[Data Processing]\nC[Data Storage]\nD[Real-Time Analytics]\nE[Data Governance]\nF[Reporting & Insights]\nG[Decision Making]",
-        "variant": "minimal"
-      },
-      "diagramMeta": {
-        "typeId": "user-journey",
-        "typeLabel": "User Journey",
-        "category": "specialized",
-        "confidence": "high",
-        "matchedKeywords": [],
-        "score": 5,
-        "isCustomSvg": false
-      },
-      "image": {
-        "source": "gradient",
-        "query": "data analytics cloud technology",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-k4gJEdqdGyBok1Re7oFuH4se.png?st=2026-03-31T08%3A22%3A32Z&se=2026-03-31T10%3A22%3A32Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=8eb2c87c-0531-4dab-acb3-b5e2adddce6c&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A02%3A51Z&ske=2026-04-01T07%3A02%3A51Z&sks=b&skv=2026-02-06&sig=1zCR9w71tnrD/n02/68ESzR0g5d4IbfsIYeTQkZPyAI%3D",
+        "query": "data architecture design",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-upi0ehH7oXhMDF1QiJ18GwYj.png?st=2026-04-01T11%3A33%3A39Z&se=2026-04-01T13%3A33%3A39Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=7252282d-c412-4b10-a746-00f5af2a7888&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T05%3A10%3A19Z&ske=2026-04-02T05%3A10%3A19Z&sks=b&skv=2026-02-06&sig=xemOb01tyxd%2BT6Lb1ha6ksyN/ATToALCoKexfRQ0kSk%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -665,28 +727,23 @@
       "heading": "whyus",
       "sectionType": "whyus",
       "content": {
-        "eyebrow": "Choose expertise that delivers",
-        "headline": "Premier data solutions tailored for operational excellence",
-        "body": "omer-co specializes in transforming data infrastructures, enabling organizations to achieve agility and efficiency. Our proven methodologies and advanced technology stack facilitate rapid and reliable decision-making capabilities.",
+        "eyebrow": "Why Choose omer-co",
+        "headline": "Driving Transformation for Acme Corporation's Data Architecture",
+        "body": "omer-co's expertise in modernizing data architectures addresses Acme Corporation's challenges with outdated infrastructure. Achieving 99.9% uptime across multiple clients showcases our commitment to reliability and high performance.",
         "stats": [
           {
-            "number": "200 milliseconds",
-            "label": "response time",
-            "context": "Achieve query response times for data queries."
-          },
-          {
-            "number": "10,000 records",
-            "label": "ingestion rate",
-            "context": "Support high data ingestion rates."
-          },
-          {
             "number": "99.9%",
-            "label": "availability",
-            "context": "Deliver a system availability rate."
+            "label": "System Uptime",
+            "context": "Ensuring uninterrupted availability."
+          },
+          {
+            "number": "10,000",
+            "label": "Records per Second",
+            "context": "Optimizing data ingestion rates."
           }
         ],
-        "imageQuery": "DALL-E 3 prompt: A high-tech data center with illuminated servers, soft blue and white lighting, professional atmosphere, dynamic advancements in data technologies, 4K",
-        "diagram": "graph TD\nA[Frontend] --> B[API Layer]\nA[Frontend] --> C[Real-Time Analytics]\nB[API Layer] --> D[Data Processing]\nB[API Layer] --> E[Data Ingestion]\nD[Data Processing] --> F[Data Storage]\nE[Data Ingestion] --> F[Data Storage]\nF[Data Storage] --> G[Reporting]\nG[Reporting] --> A[Frontend]",
+        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene depicting a high-tech data operations center, with bright LED screens displaying real-time data analytics, a team of diverse professionals collaborating intensely, ambient lighting creating a focused yet dynamic mood, 4K",
+        "diagram": "graph TD\nB[Project Manager] --> C[Data Engineers]\nB --> D[Software Developers]\nB --> E[QA Engineers]\nB --> F[DevOps Engineer]\nC --> G[Data Ingestion]\nC --> H[Data Processing]\nD --> I[Microservices Deployment]",
         "variant": "split"
       },
       "diagramMeta": {
@@ -700,8 +757,8 @@
       },
       "image": {
         "source": "gradient",
-        "query": "DALL-E 3 prompt: A high-tech data center with illuminated servers, soft blue and white lighting, professional atmosphere, dynamic advancements in data technologies, 4K",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-eKvvy5BIIhYCOrZoPnqHi2ll.png?st=2026-03-31T08%3A22%3A32Z&se=2026-03-31T10%3A22%3A32Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=ae240de5-197c-4e03-af8e-c66aed9a4539&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T06%3A53%3A24Z&ske=2026-04-01T06%3A53%3A24Z&sks=b&skv=2026-02-06&sig=9S3hz2853UesCcj0oWsUTlfJyf48O7RW2hWE52/KkRQ%3D",
+        "query": "DALL-E 3 prompt: cinematic photorealistic scene depicting a high-tech data operations center, with bright LED screens displaying real-time data analytics, a team of diverse professionals collaborating intensely, ambient lighting creating a focused yet dynamic mood, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-s61IZkcNUWX8MoG61p3cotaz.png?st=2026-04-01T11%3A33%3A35Z&se=2026-04-01T13%3A33%3A35Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=c6569cb0-0faa-463d-9694-97df3dc1dfb1&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T07%3A03%3A05Z&ske=2026-04-02T07%3A03%3A05Z&sks=b&skv=2026-02-06&sig=NT2rd3a9UxG2S5RAzTrkL8QMcyRkjjucJltHOyIvw3g%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -713,27 +770,27 @@
       "sectionType": "testimonials",
       "content": {
         "eyebrow": "Client Voices",
-        "headline": "Success Stories from Industry Leaders",
-        "imageQuery": "business collaboration teamwork success",
+        "headline": "Perspectives from Industry Leaders on Our Partnership",
+        "imageQuery": "business success collaboration technology",
         "diagram": null,
         "items": [
           {
-            "quote": "The transformation of our data architecture by omer-co dramatically improved our reporting speed, achieving query response times under 200 milliseconds. This has fundamentally changed our decision-making process.",
-            "name": "Jane Doe",
+            "quote": "The transition to a cloud-native architecture cut our reporting turnaround times by more than half, enabling us to make more agile business decisions.",
+            "name": "Sarah Thompson",
             "title": "Chief Data Officer",
-            "company": "TechSolution Inc."
+            "company": "TechNova Solutions"
           },
           {
-            "quote": "Collaborating with omer-co allowed us to eliminate 60% of our undocumented ETL processes. Their expertise made navigating our outdated systems manageable and significantly increased our operational agility.",
-            "name": "Mike Smith",
-            "title": "VP of Operations",
-            "company": "Innovatec Group"
+            "quote": "Omer-co's expertise in modernizing our data processes has improved query performance significantly. We now handle data volumes that previously hindered our operations.",
+            "name": "James Reed",
+            "title": "VP of IT",
+            "company": "DataLink Insights"
           },
           {
-            "quote": "The scalability their solution provided has positioned us to meet growing data demands effortlessly. omer-co's strategic insights were instrumental in refining our governance and compliance frameworks.",
-            "name": "Alice Johnson",
-            "title": "Head of IT",
-            "company": "DataSphere LLC"
+            "quote": "The partnership has been pivotal; we've eliminated 60% of our undocumented processes, enhancing overall reliability and data governance.",
+            "name": "Laura Kim",
+            "title": "Director of Operations",
+            "company": "Informatica Plus"
           }
         ],
         "variant": "card-grid"
@@ -741,8 +798,8 @@
       "diagramMeta": null,
       "image": {
         "source": "gradient",
-        "query": "business collaboration teamwork success",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-A16SSvmO5AulpaA3PI5A6KxL.png?st=2026-03-31T08%3A22%3A34Z&se=2026-03-31T10%3A22%3A34Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-31T07%3A08%3A47Z&ske=2026-04-01T07%3A08%3A47Z&sks=b&skv=2026-02-06&sig=5ekIQ9udUB1Q0yd%2Bgh1I8Wgvvz4fGqSLIs9lKjA%2B0SE%3D",
+        "query": "business success collaboration technology",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-TjaA1ufvLScm409gZePWOZkI.png?st=2026-04-01T11%3A33%3A34Z&se=2026-04-01T13%3A33%3A34Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=32836cae-d25f-4fe9-827b-1c8c59c442cc&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T09%3A16%3A27Z&ske=2026-04-02T09%3A16%3A27Z&sks=b&skv=2026-02-06&sig=8vvq2F%2Bm4rUlmXBHBNnFMOb0RyfI6SwozuYi8OUKZQo%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
@@ -753,15 +810,15 @@
       "heading": "nextsteps",
       "sectionType": "nextsteps",
       "content": {
-        "eyebrow": "Implementation underway",
-        "headline": "Next Steps for Transforming Data Architecture",
-        "body": "The proposed data architecture transformation for Acme Corporation is ready to move forward. Engaging stakeholders and aligning project objectives will be crucial for successful implementation.",
-        "ctaPrimary": "Schedule a kickoff",
-        "ctaSecondary": "Discuss project details",
+        "eyebrow": "Moving Forward with Confidence",
+        "headline": "Next Steps for Data Transformation at Acme Corporation",
+        "body": "The successful transition to an advanced data architecture requires focused collaboration and commitment. We look forward to engaging with your team to initiate the project and ensure all necessary resources are aligned for a smooth implementation.",
+        "ctaPrimary": "Schedule a Meeting",
+        "ctaSecondary": "Review Proposal Details",
         "urgencyNote": null,
-        "imageQuery": "DALL-E 3 prompt: cinematic photorealistic office meeting with a diverse team around a large table, modern design, bright professional atmosphere, high-resolution",
-        "diagram": "graph TD\nA[Frontend] --> B[Backend]\nB --> C[Database]\nB --> D[API]\nC --> E[Data Lake]\nD --> F[Analytics]\nE --> G[Reporting]",
-        "variant": "editorial"
+        "imageQuery": "DALL-E 3 prompt: Modern office conference room with a large table, diverse team collaborating on a project, bright natural lighting, professional environment, 4K",
+        "diagram": "graph TD\nA[Frontend] --> B[API Layer]\nA --> C[Data Processing]\nB --> D[Data Storage]\nC --> D\nD --> E[Real-Time Analytics]\nE --> F[User Insights]",
+        "variant": "split"
       },
       "diagramMeta": {
         "typeId": "process-flow",
@@ -774,12 +831,38 @@
       },
       "image": {
         "source": "gradient",
-        "query": "DALL-E 3 prompt: cinematic photorealistic office meeting with a diverse team around a large table, modern design, bright professional atmosphere, high-resolution",
-        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-UnMHHnJBmXBbY2aZsd6KKI8n.png?st=2026-03-31T08%3A22%3A33Z&se=2026-03-31T10%3A22%3A33Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=b2c0e1c0-cf97-4e19-8986-8073905d5723&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-03-30T13%3A41%3A42Z&ske=2026-03-31T13%3A41%3A42Z&sks=b&skv=2026-02-06&sig=CI%2BmZU%2BVsBWQgf4/AmtUeAcKcm1Tf/kqZuz3/217jAg%3D",
+        "query": "DALL-E 3 prompt: Modern office conference room with a large table, diverse team collaborating on a project, bright natural lighting, professional environment, 4K",
+        "url": "https://oaidalleapiprodscus.blob.core.windows.net/private/org-VRieuTdo8xzkCcEbDuHJVTeR/user-tFLr4QCiveFbRjCLxcJtKuow/img-ptkIqz3e0tdE1Sq79BYI3c8D.png?st=2026-04-01T11%3A33%3A36Z&se=2026-04-01T13%3A33%3A36Z&sp=r&sv=2026-02-06&sr=b&rscd=inline&rsct=image/png&skoid=0e2a3d55-e963-40c9-9c89-2a1aa28cb3ac&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-04-01T09%3A21%3A45Z&ske=2026-04-02T09%3A21%3A45Z&sks=b&skv=2026-02-06&sig=4fRKjFlydPC8fOSX4LF4geBzj1dXjc1APbubBhK1Wzk%3D",
         "fallback": "gradient-mesh"
       },
       "editable": true,
       "version": 1
     }
-  ]
+  ],
+  "customTokens": {
+    "bg": null,
+    "text": null,
+    "accent": "#00a080",
+    "heroFont": "Lato",
+    "bodyFont": "Lato",
+    "heroWeight": 700,
+    "heroStyle": "normal",
+    "labelTracking": "0.10em",
+    "dark": true,
+    "noiseOpacity": 0.025,
+    "borderRadius": "0px",
+    "buttonStyle": "sharp",
+    "density": "compact"
+  },
+  "customFonts": [
+    {
+      "family": "Lato",
+      "url": "https://fonts.googleapis.com/css2?family=Lato:wght@300;400;500;600;700;800&display=swap"
+    },
+    {
+      "family": "Lato",
+      "url": "https://fonts.googleapis.com/css2?family=Lato:wght@300;400;500;600;700;800&display=swap"
+    }
+  ],
+  "customCharacter": "Bloomberg meets McKinsey in a commanding, data-driven approach"
 }

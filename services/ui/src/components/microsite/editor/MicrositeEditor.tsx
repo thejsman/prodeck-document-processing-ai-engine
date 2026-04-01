@@ -223,12 +223,17 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
   const currentTheme = THEME_REGISTRY.find(t => t.id === ctx.ast.plugin);
 
+  // Use a ref so the stable handleKeyDown callback always calls the latest ctx
+  // without re-attaching the listener on every render.
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+
   // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!(e.ctrlKey || e.metaKey)) return;
-    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); ctx.undo(); }
-    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); ctx.redo(); }
-  }, [ctx]);
+    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); ctxRef.current.undo(); }
+    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); ctxRef.current.redo(); }
+  }, []);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);

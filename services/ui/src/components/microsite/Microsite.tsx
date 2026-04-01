@@ -160,7 +160,12 @@ function renderSection(
   allSections: LayoutAST['sections'],
   brief?: LayoutAST['brief'],
 ) {
-  const imageUrl = section.image.url;
+  // Root-relative paths (/presentation-images/...) are served by the API.
+  // Rewrite them through the Next.js /api proxy so they work in the UI.
+  const rawUrl = section.image.url;
+  const imageUrl = rawUrl?.startsWith('/presentation-images/')
+    ? `/api${rawUrl}`
+    : rawUrl;
   const sid = section.id;
 
   let inner: React.ReactNode;
@@ -626,7 +631,10 @@ useEffect(() => setMounted(true), []);
         document.head.appendChild(link);
       }
     });
-  }, [plugin, ast.customFonts]);
+  // plugin is derived from ast.plugin (a string) — using the string avoids a new
+  // object reference every render that would re-run this effect unnecessarily.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ast.plugin, ast.customFonts]);
 
   // Load Google Fonts from extractedDesignTokens when overrideTheme is active
   useEffect(() => {

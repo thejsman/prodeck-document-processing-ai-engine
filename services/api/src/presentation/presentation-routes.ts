@@ -73,9 +73,79 @@ async function saveImagePersistently(
   const filename = `${sectionId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
   const destPath = path.join(imagesDir, filename);
   const ok = await downloadImageToFile(remoteUrl, destPath);
-  if (!ok) return remoteUrl; // fallback to remote if download fails
-  const apiPort = env.API_PORT ?? '3000';
-  return `http://localhost:${apiPort}/presentation-images/${namespace}/${filename}`;
+  // Store as a root-relative path — works regardless of port or server restart.
+  // Falls back to the remote URL only if the download failed.
+  if (!ok) return remoteUrl;
+  return `/presentation-images/${namespace}/${filename}`;
+}
+
+/**
+ * Resolve a stored image URL to an absolute URL for serving.
+ * Root-relative paths (/presentation-images/...) get the API base prepended.
+ * Remote URLs (http/https) are returned as-is.
+ */
+function resolveImageUrl(storedUrl: string): string {
+  if (storedUrl.startsWith('/')) {
+    const apiPort = env.API_PORT ?? '3000';
+    return `http://localhost:${apiPort}${storedUrl}`;
+  }
+  return storedUrl;
+}
+
+/**
+ * Convert all image URLs in the AST to base64 data URIs so the exported HTML
+ * is fully self-contained and never makes external requests.
+ */
+async function embedImagesAsBase64(
+  ast: Record<string, unknown>,
+  workdir: string,
+  namespace: string,
+): Promise<Record<string, unknown>> {
+  const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+  if (!sections) return ast;
+
+  await Promise.all(sections.map(async (sec) => {
+    const image = sec.image as { url?: string | null; source?: string } | undefined;
+    if (!image?.url) return;
+
+    let localPath: string | null = null;
+
+    if (image.url.startsWith('/presentation-images/')) {
+      // Root-relative path saved by saveImagePersistently
+      const parts = image.url.replace('/presentation-images/', '').split('/');
+      if (parts.length === 2) {
+        localPath = path.join(workdir, 'assets', 'presentations', parts[0], 'images', parts[1]);
+      }
+    } else if (image.url.startsWith(`http://localhost`)) {
+      // Legacy absolute localhost URL — extract the file path
+      try {
+        const u = new URL(image.url);
+        const parts = u.pathname.replace('/presentation-images/', '').split('/');
+        if (parts.length === 2) {
+          localPath = path.join(workdir, 'assets', 'presentations', parts[0], 'images', parts[1]);
+        }
+      } catch { /* ignore malformed */ }
+    }
+
+    if (localPath && existsSync(localPath)) {
+      try {
+        const buf = await readFile(localPath);
+        image.url = `data:image/jpeg;base64,${buf.toString('base64')}`;
+      } catch { /* leave URL as-is on read error */ }
+    } else if (image.url.startsWith('http') && !image.url.startsWith('http://localhost')) {
+      // Remote URL (unsplash fallback) — download and embed
+      try {
+        const res = await fetch(image.url);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          const mime = res.headers.get('content-type') ?? 'image/jpeg';
+          image.url = `data:${mime};base64,${buf.toString('base64')}`;
+        }
+      } catch { /* leave URL as-is on fetch error */ }
+    }
+  }));
+
+  return ast;
 }
 
 export function registerPresentationRoutes(
@@ -687,7 +757,10 @@ export function registerPresentationRoutes(
     }
 
     try {
-      const html = renderMicrositeToHtml(ast as Parameters<typeof renderMicrositeToHtml>[0]);
+      // Embed all images as base64 data URIs so the exported HTML is fully
+      // self-contained — no external requests, no localhost dependencies.
+      const astWithImages = await embedImagesAsBase64(ast, workdir, namespace);
+      const html = renderMicrositeToHtml(astWithImages as Parameters<typeof renderMicrositeToHtml>[0]);
       const exportsDir = path.join(workdir, 'exports', namespace);
       await mkdir(exportsDir, { recursive: true });
       const fileName = `${proposalId}.html`;
