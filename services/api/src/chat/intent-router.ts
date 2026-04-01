@@ -38,10 +38,11 @@ const RFP_ANALYSIS_TRIGGERS = [
 ];
 
 /**
- * Patterns that signal the user wants version control operations.
+ * Patterns that signal the user wants version control or inline editing operations.
  * Checked before proposal triggers — more specific intent.
  */
 const VERSION_CONTROL_TRIGGERS = [
+  // History / rollback
   'rollback',
   'roll back',
   'revert',
@@ -56,6 +57,28 @@ const VERSION_CONTROL_TRIGGERS = [
   'proposal history',
   'list versions',
   'proposal versions',
+  // Inline section editing
+  'update the summary',
+  'update the timeline',
+  'update the budget',
+  'update the team',
+  'update the solution',
+  'update the approach',
+  'update section',
+  'edit section',
+  'edit the summary',
+  'edit the timeline',
+  'change the tone',
+  'change the summary',
+  'change the timeline',
+  'change the budget',
+  'rewrite the summary',
+  'rewrite the timeline',
+  'rewrite section',
+  'make it more',
+  'make the tone',
+  'make the summary',
+  'make the proposal',
 ];
 
 /**
