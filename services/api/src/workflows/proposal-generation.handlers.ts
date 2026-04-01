@@ -80,6 +80,41 @@ export interface HandlerContext {
 }
 
 // ---------------------------------------------------------------------------
+// Generation guard — STEPS 1–5
+// ---------------------------------------------------------------------------
+
+const REQUIRED_FIELDS = ['industry', 'timeline', 'budget'] as const;
+type RequiredField = typeof REQUIRED_FIELDS[number];
+
+function isReadyForGeneration(context: WorkflowInstance['context']): boolean {
+  const reqs = context.proposalRequirements as Record<string, string> | undefined;
+  return REQUIRED_FIELDS.every((field) => Boolean(reqs?.[field]));
+}
+
+function getMissingFields(context: WorkflowInstance['context']): RequiredField[] {
+  const reqs = context.proposalRequirements as Record<string, string> | undefined;
+  return REQUIRED_FIELDS.filter((field) => !reqs?.[field]);
+}
+
+const REQUIREMENT_QUESTIONS: Record<RequiredField, string> = {
+  industry: 'What industry is this proposal for?',
+  timeline: 'What timeline are you targeting?',
+  budget: 'Do you have a budget range in mind?',
+};
+
+function buildRequirementPrompt(missing: RequiredField[]): string {
+  const first = missing[0];
+  return [
+    "I'm almost ready to generate your proposal.",
+    '',
+    'I still need:',
+    ...missing.map((m) => `• ${m}`),
+    '',
+    `Let's start — ${REQUIREMENT_QUESTIONS[first]}`,
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Tool descriptors available to proposal generation handlers
 // ---------------------------------------------------------------------------
 
@@ -210,6 +245,36 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
       '',
       'Which document is the RFP? Reply with the number or file name, or upload a new file.',
     ].join('\n'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// collecting_inputs handler — STEPS 6–8
+// ---------------------------------------------------------------------------
+
+/**
+ * Gate proposal generation until all required fields are collected.
+ *
+ * Flow:
+ *   1. On every turn the orchestrator has already extracted any requirement
+ *      signals from the incoming message into instance.context.proposalRequirements.
+ *   2. If all REQUIRED_FIELDS are present → signal READY to advance.
+ *   3. Otherwise → build a focused prompt asking for the next missing field
+ *      and return without a stateSignal (stay in collecting_inputs).
+ */
+export async function handleCollectingInputs(ctx: HandlerContext): Promise<HandlerResult> {
+  const { instance } = ctx;
+
+  if (isReadyForGeneration(instance.context)) {
+    return {
+      message: "Great — I have everything I need. I'll now recommend a template for your proposal.",
+      stateSignal: 'READY',
+    };
+  }
+
+  const missing = getMissingFields(instance.context);
+  return {
+    message: buildRequirementPrompt(missing),
   };
 }
 

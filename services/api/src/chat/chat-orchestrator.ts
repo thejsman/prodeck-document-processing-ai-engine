@@ -44,6 +44,7 @@ import {
 import { emitChatSessionEvent } from './chat-session-bus.js';
 import {
   handleCollectingRfp,
+  handleCollectingInputs,
   handleRecommendTemplate,
   handleGeneratingOutline,
   handleGeneratingSections,
@@ -110,6 +111,7 @@ type HandlerFn = (ctx: HandlerContext) => Promise<HandlerResult>;
 const STATE_HANDLERS: Record<string, HandlerFn> = {
   // proposal_generation
   collecting_rfp: handleCollectingRfp,
+  collecting_inputs: handleCollectingInputs,
   recommend_template: handleRecommendTemplate,
   generating_outline: handleGeneratingOutline,
   generating_sections: handleGeneratingSections,

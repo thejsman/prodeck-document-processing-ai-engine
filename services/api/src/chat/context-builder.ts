@@ -261,7 +261,7 @@ function buildSystemPrompt(
 // ---------------------------------------------------------------------------
 
 const COLLECTING_STATES = new Set([
-  'collecting_rfp', 'await_rfp_upload', 'checking_rfp',
+  'collecting_rfp', 'collecting_inputs', 'await_rfp_upload', 'checking_rfp',
 ]);
 
 const GENERATING_STATES = new Set([

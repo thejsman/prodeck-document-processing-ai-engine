@@ -7,6 +7,7 @@
  *
  * States:
  *   collecting_rfp        — wait for user to upload RFP document (input)
+ *   collecting_inputs     — gather required fields: industry, timeline, budget (input)
  *   recommend_template    — analyse RFP context and recommend a template (agent)
  *   generating_outline    — LLM generates structured outline from RFP (agent)
  *   generating_sections   — LLM expands outline into full proposal draft (tool)
@@ -34,6 +35,11 @@ export const ProposalWorkflow: WorkflowDefinition = {
   states: {
 
     collecting_rfp: {
+      kind: 'input',
+      transitions: { READY: 'collecting_inputs' },
+    },
+
+    collecting_inputs: {
       kind: 'input',
       transitions: { READY: 'recommend_template' },
     },
