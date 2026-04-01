@@ -135,7 +135,7 @@ export function ProposalForm({
 
       <NamespaceSelector value={namespace} onChange={setNamespace} />
 
-      <TemplateSelector value={template} onChange={setTemplate} />
+      <TemplateSelector value={template} onChange={setTemplate} namespace={namespace} />
 
       <fieldset className="fieldset">
         <legend>Deterministic Pricing (optional)</legend>

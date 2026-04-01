@@ -142,7 +142,7 @@ async function runTool(
  * so a second message after the user has uploaded will automatically proceed.
  */
 export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance } = ctx;
+  const { workdir, namespace, instance, incomingMessage } = ctx;
 
   if (instance.context.rfpUri) {
     // Already have an RFP — transition immediately
@@ -160,13 +160,48 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
     };
   }
 
-  // Use the most recently uploaded file as the RFP source
-  const rfpFile = available[0];
-  instance.context.rfpUri = `uploads/${rfpFile.fileName}`;
+  // If user is confirming a previously listed file selection, pick the file
+  if (instance.context.awaitingRfpConfirmation) {
+    const lower = incomingMessage.toLowerCase();
+
+    // Try to match by filename fragment in the user's message
+    const matched = available.find((f) => lower.includes(f.fileName.toLowerCase()));
+    const rfpFile = matched ?? available[0];
+
+    instance.context.rfpUri = `uploads/${rfpFile.fileName}`;
+    instance.context.awaitingRfpConfirmation = undefined;
+
+    return {
+      message: `Using "${rfpFile.fileName}" as the RFP document. Analysing and recommending a template…`,
+      stateSignal: 'READY',
+    };
+  }
+
+  // First time: list available files and ask the user to confirm
+  instance.context.awaitingRfpConfirmation = true;
+
+  const fileList = available.map((f, i) => `${i + 1}. **${f.fileName}**`).join('\n');
+
+  if (available.length === 1) {
+    return {
+      message: [
+        'I found the following document in your namespace:',
+        '',
+        fileList,
+        '',
+        'Reply **yes** to use this as the RFP document, or upload a different file.',
+      ].join('\n'),
+    };
+  }
 
   return {
-    message: `Found RFP document: "${rfpFile.fileName}". Proceeding to generate the proposal outline.`,
-    stateSignal: 'READY',
+    message: [
+      'I found the following documents in your namespace:',
+      '',
+      fileList,
+      '',
+      'Which document is the RFP? Reply with the number or file name, or upload a new file.',
+    ].join('\n'),
   };
 }
 
@@ -188,7 +223,25 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
  *   8. Signal DONE to proceed to outline generation.
  */
 export async function handleRecommendTemplate(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
+  const { workdir, namespace, instance, incomingMessage, onPhase, onChunk, onToolEvent } = ctx;
+
+  // If a template recommendation was already shown, the user is now confirming
+  if (instance.context.awaitingTemplateConfirmation) {
+    const lower = incomingMessage.toLowerCase();
+    const isRejection = lower.includes('no') || lower.includes('change') || lower.includes('different') || lower.includes('another');
+
+    if (isRejection) {
+      // Let the user pick again — reset and re-run analysis
+      instance.context.awaitingTemplateConfirmation = undefined;
+      instance.context.templateRecommendation = undefined;
+      instance.context.selectedTemplate = undefined;
+      // Fall through to re-run the analysis below
+    } else {
+      // User confirmed — proceed to outline generation
+      instance.context.awaitingTemplateConfirmation = undefined;
+      return { message: 'Great! Proceeding to outline generation.', stateSignal: 'DONE' };
+    }
+  }
 
   // ── Phase 1: Analyze proposal patterns ──────────────────────
   onPhase('Analyzing proposal patterns');
@@ -238,16 +291,16 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
       '**Sections:**',
       ...recommendation.template.structure.map((s, i) => `${i + 1}. ${s}`),
       '',
-      'I will use this template to generate your proposal. Proceeding to outline generation.',
+      'Reply **yes** to use this template, or **no** to generate a custom structure from the RFP.',
     ].join('\n');
 
     // Stream the recommendation to the client
     onChunk(message);
 
-    return {
-      message,
-      stateSignal: 'DONE',
-    };
+    // Pause — wait for user to confirm the template before proceeding
+    instance.context.awaitingTemplateConfirmation = true;
+
+    return { message };
   }
 
   // ── Fallback: generate a custom template structure ──────────
@@ -324,13 +377,13 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
       (s: string, i: number) => `${i + 1}. ${s}`,
     ),
     '',
-    'Proceeding to outline generation with this structure.',
+    'Reply **yes** to proceed with this structure, or **no** to try again.',
   ].join('\n');
 
-  return {
-    message,
-    stateSignal: 'DONE',
-  };
+  // Pause — wait for user to confirm the custom structure before proceeding
+  instance.context.awaitingTemplateConfirmation = true;
+
+  return { message };
 }
 
 // ---------------------------------------------------------------------------

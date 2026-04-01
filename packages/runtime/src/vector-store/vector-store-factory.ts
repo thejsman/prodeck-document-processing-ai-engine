@@ -21,6 +21,7 @@
 
 import type { VectorStoreProvider } from '@ai-engine/core';
 import { FaissVectorStoreProvider } from './faiss-provider.js';
+import { QdrantVectorStoreProvider } from './qdrant-provider.js';
 
 export interface VectorStoreProviderOptions {
   namespace: string;
@@ -32,15 +33,21 @@ export interface VectorStoreProviderOptions {
 export function getVectorStoreProvider(
   options: VectorStoreProviderOptions,
 ): VectorStoreProvider {
-  const vsConfig = options.config as { vectorStore?: { type?: string } };
+  const vsConfig = options.config as {
+    vectorStore?: { type?: string; url?: string };
+  };
   const type = vsConfig?.vectorStore?.type ?? 'faiss';
 
   if (type === 'faiss') {
     return new FaissVectorStoreProvider(options.workdir);
   }
 
+  if (type === 'qdrant') {
+    const url = vsConfig.vectorStore?.url ?? process.env['QDRANT_URL'] ?? 'http://localhost:6333';
+    return new QdrantVectorStoreProvider(options.workdir, url);
+  }
+
   throw new Error(
-    `Unknown vector store type: "${type}". ` +
-      `Supported: faiss. Planned: qdrant, pinecone, pgvector.`,
+    `Unknown vector store type: "${type}". Supported: faiss, qdrant.`,
   );
 }

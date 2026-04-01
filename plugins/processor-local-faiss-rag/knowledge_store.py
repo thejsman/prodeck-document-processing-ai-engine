@@ -15,9 +15,32 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
 
 from providers import create_provider
 from vector_store import FaissVectorStore
+from qdrant_vector_store import QdrantVectorStore
 
 CHUNK_SIZE = 500
 TOP_K = 5
+
+
+def create_vector_store(vector_store_config, storage_dir, namespace):
+    """Factory: return the correct VectorStore implementation.
+
+    Args:
+        vector_store_config: Dict with at least {"type": "faiss"|"qdrant"}.
+                             For Qdrant, may also include {"url": "http://..."}.
+        storage_dir:         Filesystem path (used by FAISS only).
+        namespace:           Namespace name (used as Qdrant collection name).
+
+    Returns:
+        A VectorStore instance (FaissVectorStore or QdrantVectorStore).
+    """
+    store_type = (vector_store_config or {}).get("type", "faiss")
+
+    if store_type == "qdrant":
+        url = (vector_store_config or {}).get("url", "http://localhost:6333")
+        return QdrantVectorStore(url=url, namespace=namespace)
+
+    # Default: FAISS
+    return FaissVectorStore(storage_dir)
 
 
 def split_chunks(text, chunk_size):
@@ -35,19 +58,25 @@ def embed_texts(texts, provider):
     return [provider.embed(text) for text in texts]
 
 
-def ingest_documents(documents, storage_dir, provider):
-    """Ingest multiple documents into the FAISS index.
+def ingest_documents(documents, storage_dir, provider, store=None):
+    """Ingest multiple documents into the vector store.
 
     Args:
-        documents: List of dicts with 'fileName' and 'content' keys.
-        storage_dir: Directory for index.faiss and chunks.json.
-        provider: An LLMProvider instance for computing embeddings.
+        documents:   List of dicts with 'fileName' and 'content' keys.
+        storage_dir: Directory for FAISS files (ignored by Qdrant).
+        provider:    An LLMProvider instance for computing embeddings.
+        store:       Optional pre-created VectorStore. When None a
+                     FaissVectorStore is created from storage_dir
+                     (backward-compatible default).
 
     Returns:
         Dict with 'documents' count and 'chunks' count.
     """
     os.makedirs(storage_dir, exist_ok=True)
-    store = FaissVectorStore(storage_dir)
+
+    if store is None:
+        store = FaissVectorStore(storage_dir)
+
     store.load()
 
     total_chunks = 0
@@ -68,23 +97,24 @@ def ingest_documents(documents, storage_dir, provider):
     }
 
 
-def search_chunks(question, storage_dir, provider, namespace="default", top_k=5):
-    """Search the FAISS index and return raw chunks with similarity scores.
+def search_chunks(question, storage_dir, provider, namespace="default", top_k=5, store=None):
+    """Search the vector store and return raw chunks with similarity scores.
 
-    Unlike query_index, this function does NOT invoke an LLM to generate an
-    answer.  It returns the top-k most similar chunks so that the Node.js
-    VectorStoreProvider abstraction layer can return structured results.
+    Unlike query_index, this function does NOT invoke an LLM.  It returns the
+    top-k most similar chunks so the Node.js layer can decide how to use them.
 
     Returns an empty list when the namespace has not been indexed yet.
+
+    Args:
+        store: Optional pre-created VectorStore. Defaults to FaissVectorStore.
     """
-    index_path = os.path.join(storage_dir, "index.faiss")
-    chunks_path = os.path.join(storage_dir, "chunks.json")
-
-    if not os.path.isfile(index_path) or not os.path.isfile(chunks_path):
-        return []
-
-    store = FaissVectorStore(storage_dir)
-    store.load()
+    if store is None:
+        index_path = os.path.join(storage_dir, "index.faiss")
+        chunks_path = os.path.join(storage_dir, "chunks.json")
+        if not os.path.isfile(index_path) or not os.path.isfile(chunks_path):
+            return []
+        store = FaissVectorStore(storage_dir)
+        store.load()
 
     query_embedding = provider.embed(question)
     return store.search_with_scores(query_embedding, top_k)
@@ -93,34 +123,34 @@ def search_chunks(question, storage_dir, provider, namespace="default", top_k=5)
 STREAM_SENTINEL = "\n<<<RESULT_JSON>>>\n"
 
 
-def query_index(question, storage_dir, provider, namespace="default", stream=False):
-    """Query the FAISS index and generate an answer.
+def query_index(question, storage_dir, provider, namespace="default", stream=False, store=None):
+    """Query the vector store and generate an LLM answer.
 
     When stream=True and the provider supports generate_stream(), tokens are
     written to stdout immediately as they arrive.  The caller must write the
     STREAM_SENTINEL followed by the result JSON after this function returns.
 
     Args:
-        question: The question string.
-        storage_dir: Directory containing index.faiss and chunks.json.
-        provider: An LLMProvider instance for embeddings and generation.
-        namespace: Namespace name (used in error messages).
-        stream: If True, stream tokens to stdout via provider.generate_stream().
+        question:    The question string.
+        storage_dir: Directory containing index.faiss/chunks.json (FAISS only).
+        provider:    An LLMProvider instance for embeddings and generation.
+        namespace:   Namespace name (used in error messages).
+        stream:      If True, stream tokens to stdout.
+        store:       Optional pre-created VectorStore. Defaults to FaissVectorStore.
 
     Returns:
         The complete answer string.
     """
-    index_path = os.path.join(storage_dir, "index.faiss")
-    chunks_path = os.path.join(storage_dir, "chunks.json")
-
-    if not os.path.isfile(index_path) or not os.path.isfile(chunks_path):
-        raise FileNotFoundError(
-            f"No FAISS index found for namespace '{namespace}'. "
-            f"Run 'ai-engine ingest <path> --namespace {namespace}' first."
-        )
-
-    store = FaissVectorStore(storage_dir)
-    store.load()
+    if store is None:
+        index_path = os.path.join(storage_dir, "index.faiss")
+        chunks_path = os.path.join(storage_dir, "chunks.json")
+        if not os.path.isfile(index_path) or not os.path.isfile(chunks_path):
+            raise FileNotFoundError(
+                f"No index found for namespace '{namespace}'. "
+                f"Run 'ai-engine ingest <path> --namespace {namespace}' first."
+            )
+        store = FaissVectorStore(storage_dir)
+        store.load()
 
     query_embedding = provider.embed(question)
     retrieved = store.search(query_embedding, TOP_K)
@@ -153,14 +183,18 @@ def main():
         operation = input_data.get("operation")
         storage_dir = input_data.get("storageDir", ".")
         namespace = input_data.get("namespace", "default")
+        vector_store_config = input_data.get("vectorStore", None)
 
         provider = create_provider()
+
+        # Build the vector store once and pass it to all operations.
+        store = create_vector_store(vector_store_config, storage_dir, namespace)
 
         if operation == "ingest":
             documents = input_data.get("documents", [])
             if not documents:
                 raise ValueError("No documents provided for ingestion")
-            result = ingest_documents(documents, storage_dir, provider)
+            result = ingest_documents(documents, storage_dir, provider, store=store)
             # Annotate which provider/model embedded the documents.
             provider_name = os.environ.get("LLM_PROVIDER", "ollama").lower()
             if provider_name == "openai":
@@ -171,7 +205,8 @@ def main():
                 embed_model = os.environ.get(
                     "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"
                 )
-            result["provider"] = f"{provider_name} ({embed_model})"
+            vs_type = (vector_store_config or {}).get("type", "faiss")
+            result["provider"] = f"{provider_name} ({embed_model}) / {vs_type}"
             json.dump({"result": result}, sys.stdout)
             sys.stdout.flush()
 
@@ -181,7 +216,8 @@ def main():
                 raise ValueError("No question provided for query")
             stream = input_data.get("stream", False)
             answer = query_index(
-                question, storage_dir, provider, namespace=namespace, stream=stream
+                question, storage_dir, provider, namespace=namespace,
+                stream=stream, store=store,
             )
             if answer is not None:
                 if stream:
@@ -197,8 +233,21 @@ def main():
             if not question:
                 raise ValueError("No question provided for search")
             top_k = int(input_data.get("topK", 5))
-            chunks = search_chunks(question, storage_dir, provider, namespace, top_k)
+            chunks = search_chunks(
+                question, storage_dir, provider, namespace, top_k, store=store
+            )
             json.dump({"result": {"chunks": chunks}}, sys.stdout)
+            sys.stdout.flush()
+
+        elif operation == "delete_namespace":
+            if hasattr(store, "delete_collection"):
+                store.delete_collection()
+            json.dump({"result": {"deleted": namespace}}, sys.stdout)
+            sys.stdout.flush()
+
+        elif operation == "namespace_stats":
+            count = store.size
+            json.dump({"result": {"vectorCount": count}}, sys.stdout)
             sys.stdout.flush()
 
         else:

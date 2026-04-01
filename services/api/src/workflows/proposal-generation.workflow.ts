@@ -39,7 +39,7 @@ export const ProposalWorkflow: WorkflowDefinition = {
     },
 
     recommend_template: {
-      kind: 'agent',
+      kind: 'input',
       transitions: {
         DONE: 'generating_outline',
         /** User chose to pick a different template — re-enter as input. */

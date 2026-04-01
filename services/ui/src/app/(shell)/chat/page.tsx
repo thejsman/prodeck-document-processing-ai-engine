@@ -85,7 +85,7 @@ export default function ChatPage() {
   const rafRef = useRef<number | null>(null);
   const revealedLenRef = useRef(0);
 
-  const { chunks, isStreaming, error, startStream, reset } = useSSE(apiKey, '/api/query');
+  const { chunks, phase, isStreaming, error, startStream, reset } = useSSE(apiKey, '/api/chat/message');
 
   const fetchInsights = useCallback((ns: string) => {
     fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
@@ -102,19 +102,25 @@ export default function ChatPage() {
     const sessionId = getOrCreateSessionId(ns);
     chatSessionIdRef.current = sessionId;
 
+    // Clear current chat state immediately so the old namespace's messages
+    // and insights don't linger while the new namespace's data loads.
+    setMessages([]);
+    setInsights([]);
+    reset();
+    setDisplayed('');
+    revealedLenRef.current = 0;
+
     fetch(`/api/chat/session/${sessionId}/history?namespace=${encodeURIComponent(ns)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
       .then((res) => (res.ok ? res.json() : { messages: [] }))
       .then((data: { messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }> }) => {
-        if (data.messages.length > 0) {
-          setMessages(data.messages);
-        }
+        setMessages(data.messages);
       })
       .catch(() => { /* history unavailable — start fresh */ });
 
     fetchInsights(ns);
-  }, [namespace, apiKey, fetchInsights]);
+  }, [namespace, apiKey, fetchInsights, reset]);
 
   // Refresh insights after each query completes (isStreaming: true → false)
   const wasStreamingRef = useRef(false);
@@ -199,7 +205,7 @@ export default function ChatPage() {
         ]);
         return;
       }
-      startStream({ question: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
+      startStream({ message: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     });
   }, [input, isStreaming, chunks, namespace, apiKey, reset, startStream]);
 
@@ -314,16 +320,27 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {/* Thinking indicator — streaming started but no chunks yet */}
+                {/* Thinking / phase indicator — streaming started but no chunks yet */}
                 {isStreaming && !chunks && (
                   <div className="chat-v2-message chat-v2-message--assistant">
                     <div className="chat-v2-avatar">AI</div>
                     <div className="chat-v2-bubble chat-v2-bubble--thinking">
-                      <span className="chat-thinking-dot" />
-                      <span className="chat-thinking-dot" />
-                      <span className="chat-thinking-dot" />
+                      {phase ? (
+                        <span className="chat-phase-label">{phase}…</span>
+                      ) : (
+                        <>
+                          <span className="chat-thinking-dot" />
+                          <span className="chat-thinking-dot" />
+                          <span className="chat-thinking-dot" />
+                        </>
+                      )}
                     </div>
                   </div>
+                )}
+
+                {/* Phase label while tokens are already streaming */}
+                {isStreaming && chunks && phase && (
+                  <div className="chat-phase-strip">{phase}…</div>
                 )}
 
                 {error && <div className="chat-v2-error">{error}</div>}

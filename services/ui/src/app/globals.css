@@ -2647,6 +2647,22 @@ body {
 
 .chat-stream-text { white-space: pre-wrap; }
 
+.chat-phase-label {
+  font-size: 12px;
+  color: var(--muted, #888);
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+.chat-phase-strip {
+  font-size: 11px;
+  color: var(--muted, #888);
+  font-style: italic;
+  text-align: center;
+  padding: 2px 0 6px;
+  letter-spacing: 0.01em;
+}
+
 .chat-cursor {
   display: inline-block;
   width: 2px;
@@ -5243,4 +5259,62 @@ body {
 .kb-loading-text {
   text-align: center;
   padding: 48px 0;
+}
+
+/* ── Template Selector Recommendation ───────────────────────────────────── */
+
+.ts-scanning {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  margin-left: 8px;
+}
+
+.ts-rec-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.ts-rec-banner--active {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.ts-rec-banner--passive {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.ts-rec-banner--fallback {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.ts-rec-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ts-rec-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-rec-title {
+  font-weight: 600;
+  margin: 0 0 3px;
+  color: var(--color-text);
+}
+
+.ts-rec-reason {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
 }

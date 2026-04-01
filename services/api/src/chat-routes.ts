@@ -29,9 +29,11 @@ import {
   chatSessionBus,
   type ChatSessionEvent,
 } from './chat/chat-session-bus.js';
-import { loadHistory } from './chat/chat-history.service.js';
+import { loadHistory, appendChatTurn } from './chat/chat-history.service.js';
 import { scanNamespace } from './namespace/namespace-intelligence.service.js';
-import { deriveInsightSuggestions } from './namespace/insight-rules.js';
+import { deriveInsightSuggestions, type TemplateInsight } from './namespace/insight-rules.js';
+import { recommendTemplate } from './templates/template-recommendation.service.js';
+import { extractRfpRequirements } from './ingestion/extract-rfp-requirements.js';
 import type { ProviderPolicyConfig } from './provider-policy.js';
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,11 @@ export function registerChatRoutes(
           },
         });
 
+        // Persist turn to chat history (fire-and-forget — must not block the response)
+        if (result.message) {
+          void appendChatTurn(workdir, namespace, chatSessionId, message, result.message);
+        }
+
         // STEP 7 — final done event with message + actions
         reply.raw.write(
           `event: done\ndata: ${JSON.stringify({
@@ -128,6 +135,9 @@ export function registerChatRoutes(
         namespace,
         chatSessionId,
       });
+      if (result.message) {
+        void appendChatTurn(workdir, namespace, chatSessionId, message, result.message);
+      }
       return reply.send(result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -151,11 +161,30 @@ export function registerChatRoutes(
       }
 
       try {
-        const insights = await scanNamespace(workdir, namespace.trim());
-        const suggestions = deriveInsightSuggestions(insights);
-        return reply.send({ suggestions, insights });
+        const ns = namespace.trim();
+        const insights = await scanNamespace(workdir, ns);
+
+        // Fetch template recommendation only when an RFP is present — avoids
+        // unnecessary vector store queries when the namespace is empty.
+        let templateInsight: TemplateInsight | null = null;
+        if (insights.hasRfp && insights.ingestionPendingCount === 0) {
+          try {
+            const requirementMatrix = await extractRfpRequirements(workdir, ns);
+            const rec = await recommendTemplate({ requirementMatrix, namespace: ns }, workdir);
+            templateInsight = {
+              templateName: rec.template?.name,
+              confidence: rec.confidence,
+              fallbackGenerate: rec.fallbackGenerate,
+            };
+          } catch {
+            // Template recommendation is best-effort — don't fail the whole response
+          }
+        }
+
+        const suggestions = deriveInsightSuggestions(insights, templateInsight);
+        return reply.send({ suggestions, insights, templateInsight });
       } catch {
-        return reply.send({ suggestions: [], insights: null });
+        return reply.send({ suggestions: [], insights: null, templateInsight: null });
       }
     },
   );
