@@ -3,7 +3,8 @@
  *
  * Queries the namespace vector store with three targeted prompts to surface
  * chunks relevant to industry, timeline, and budget.  A single LLM pass then
- * parses those chunks into a structured JSON object.
+ * parses those chunks into a structured JSON object with per-field confidence
+ * scores and supporting evidence.
  *
  * The result is cached in instance.context.extractedRequirements so the vector
  * store and LLM are only called once per workflow session.
@@ -21,17 +22,35 @@ import { llmGenerateFn } from '../agent-routes.js';
 // Types
 // ---------------------------------------------------------------------------
 
+/** A single extracted proposal input with confidence and traceability. */
+export interface ExtractedField {
+  /** The extracted value (e.g. "fintech", "8–10 weeks", "$150,000"). */
+  value: string;
+  /**
+   * Model confidence that the value is correct and explicitly stated: 0–1.
+   * 0.85+ → auto-fill silently.
+   * 0.60–0.84 → ask user to confirm.
+   * <0.60 → discard and ask manually.
+   */
+  confidence: number;
+  /** Exact phrase or sentence from the document that supports this value. */
+  evidence?: string;
+}
+
 export interface ExtractedProposalInputs {
-  industry?: string;
-  timeline?: string;
-  budget?: string;
+  industry?: ExtractedField;
+  timeline?: ExtractedField;
+  budget?: ExtractedField;
 }
 
 // ---------------------------------------------------------------------------
 // Targeted queries — one per required field
 // ---------------------------------------------------------------------------
 
-const EXTRACTION_QUERIES: Array<{ field: keyof ExtractedProposalInputs; query: string }> = [
+const EXTRACTION_QUERIES: Array<{
+  field: keyof ExtractedProposalInputs;
+  query: string;
+}> = [
   {
     field: 'industry',
     query: 'industry domain sector business vertical type company market',
@@ -52,9 +71,9 @@ const EXTRACTION_QUERIES: Array<{ field: keyof ExtractedProposalInputs; query: s
 
 /**
  * Extract proposal inputs (industry, timeline, budget) from the namespace
- * vector store.
+ * vector store, each annotated with a confidence score and supporting evidence.
  *
- * @returns Partial record — only fields that were clearly found in the documents.
+ * @returns Partial record — only fields that were found with confidence ≥ 0.6.
  *          Returns {} if the knowledge base is unavailable or nothing relevant
  *          was found.
  */
@@ -92,12 +111,23 @@ export async function extractRequirementsFromKnowledge(
     '- timeline: the project duration or deadline (e.g. "8–10 weeks", "Q3 2025", "6 months")',
     '- budget: the budget or cost range (e.g. "$150,000", "$50k–$100k")',
     '',
+    'For each field found, return an object with:',
+    '  - value: the extracted value as a short string',
+    '  - confidence: a number from 0.0 to 1.0 representing how explicitly and clearly',
+    '    this value is stated in the text (1.0 = verbatim, 0.5 = implied, 0.0 = not found)',
+    '  - evidence: the exact phrase or sentence from the text that supports this value',
+    '',
     'Rules:',
-    '- Only include a field if it is clearly and explicitly stated in the text',
-    '- Do NOT infer or guess values that are not stated in the documents',
-    '- Return a JSON object containing only the fields that were found',
-    '- If nothing is found, return: {}',
+    '- Only include a field if it appears in the text with confidence >= 0.6',
+    '- Do NOT infer or fabricate values not present in the documents',
+    '- If nothing relevant is found, return: {}',
     '- Output ONLY the raw JSON — no explanation, no markdown fences',
+    '',
+    'Example output:',
+    '{',
+    '  "timeline": { "value": "8–10 weeks", "confidence": 0.92, "evidence": "The project must be completed within 8 to 10 weeks of contract signing." },',
+    '  "industry": { "value": "fintech", "confidence": 0.85, "evidence": "Our platform serves financial technology companies." }',
+    '}',
     '',
     'Document excerpts:',
     contextBlock,
@@ -113,15 +143,22 @@ export async function extractRequirementsFromKnowledge(
     const parsed = JSON.parse(cleaned) as Record<string, unknown>;
 
     const result: ExtractedProposalInputs = {};
-    if (typeof parsed.industry === 'string' && parsed.industry.trim()) {
-      result.industry = parsed.industry.trim();
+
+    for (const field of ['industry', 'timeline', 'budget'] as const) {
+      const raw = parsed[field];
+      if (!raw || typeof raw !== 'object') continue;
+      const entry = raw as Record<string, unknown>;
+
+      const value = typeof entry.value === 'string' ? entry.value.trim() : '';
+      const confidence = typeof entry.confidence === 'number' ? entry.confidence : 0;
+      const evidence = typeof entry.evidence === 'string' ? entry.evidence.trim() : undefined;
+
+      // Discard low-confidence extractions — handler will ask manually instead
+      if (!value || confidence < 0.6) continue;
+
+      result[field] = { value, confidence, evidence };
     }
-    if (typeof parsed.timeline === 'string' && parsed.timeline.trim()) {
-      result.timeline = parsed.timeline.trim();
-    }
-    if (typeof parsed.budget === 'string' && parsed.budget.trim()) {
-      result.budget = parsed.budget.trim();
-    }
+
     return result;
   } catch {
     // Non-fatal — JSON parse failure means no structured data was found

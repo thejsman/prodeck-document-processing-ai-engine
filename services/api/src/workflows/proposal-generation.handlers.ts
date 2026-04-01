@@ -25,7 +25,11 @@ import { toolRegistry } from '@ai-engine/core';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
-import { extractRequirementsFromKnowledge } from '../ingestion/extract-proposal-inputs.js';
+import {
+  extractRequirementsFromKnowledge,
+  type ExtractedField,
+  type ExtractedProposalInputs,
+} from '../ingestion/extract-proposal-inputs.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
@@ -116,25 +120,39 @@ function buildRequirementPrompt(missing: RequiredField[]): string {
 }
 
 /**
- * Ask the user to confirm an auto-extracted value before accepting it.
- * Mentions remaining missing fields so the user understands what comes next.
+ * Decide how to handle an extracted field based on its confidence score.
+ *
+ *   ≥ 0.85  →  auto_fill  (silently populate, briefly inform user)
+ *   ≥ 0.60  →  confirm    (ask user to confirm before accepting)
+ *   < 0.60  →  ask        (discard extraction, ask manually — already filtered at extraction time)
+ */
+type FieldDecision = 'auto_fill' | 'confirm' | 'ask';
+
+function resolveField(field: ExtractedField): FieldDecision {
+  if (field.confidence >= 0.85) return 'auto_fill';
+  if (field.confidence >= 0.6) return 'confirm';
+  return 'ask';
+}
+
+/**
+ * Ask the user to confirm a medium-confidence extracted value.
+ * Shows the supporting evidence so the user can make an informed decision.
  */
 function buildConfirmationPrompt(
   field: RequiredField,
-  value: string,
+  extracted: ExtractedField,
   allMissing: RequiredField[],
 ): string {
-  const fieldLabels: Record<RequiredField, string> = {
-    industry: 'industry',
-    timeline: 'timeline',
-    budget: 'budget',
-  };
+  const { value, evidence } = extracted;
   const otherMissing = allMissing.filter((f) => f !== field);
   const suffix = otherMissing.length > 0
     ? `\n\nI'll also need: ${otherMissing.join(', ')}.`
     : '';
+  const evidenceLine = evidence ? `\n\n> "${evidence}"` : '';
   return [
-    `I found that the **${fieldLabels[field]}** is **${value}** based on your documents. Should I use this?${suffix}`,
+    `I found that the **${field}** is **${value}** based on your documents.${evidenceLine}`,
+    '',
+    `Should I use this?${suffix}`,
     '',
     'Reply **yes** to confirm, **no** to skip, or type a different value.',
   ].join('\n');
@@ -275,30 +293,26 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 }
 
 // ---------------------------------------------------------------------------
-// collecting_inputs handler — STEPS 6–8
+// collecting_inputs handler
 // ---------------------------------------------------------------------------
 
 /**
  * Gate proposal generation until all required fields are collected.
  *
- * Flow (STEPS 1–8):
- *   1. On first entry, run extractRequirementsFromKnowledge against the
- *      namespace vector store and cache results in context.extractedRequirements.
- *   2. If a confirmation is pending (awaitingConfirmation), process the user's
- *      response:
- *        "yes"      → accept the extracted value into proposalRequirements
- *        "no"       → mark as declined; will fall back to manual asking
- *        other text → treat as a custom override value
- *   3. If all REQUIRED_FIELDS are now satisfied → signal READY.
- *   4. For each remaining missing field:
- *        - If an extracted value exists and has not been declined → ask for
- *          confirmation (set awaitingConfirmation).
- *        - Otherwise → ask manually via buildRequirementPrompt (fallback).
+ * Confidence-aware flow:
+ *   1. On first entry, run extractRequirementsFromKnowledge and cache results.
+ *   2. Process any pending confirmation response (yes / no / custom value).
+ *   3. Auto-fill all high-confidence fields (≥ 0.85) not yet processed,
+ *      collecting their names for a brief summary message.
+ *   4. If all REQUIRED_FIELDS are satisfied → signal READY.
+ *   5. For the next missing field:
+ *        - Medium confidence (0.60–0.84) → ask for confirmation with evidence.
+ *        - No extraction or declined     → ask manually (fallback).
  */
 export async function handleCollectingInputs(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, incomingMessage } = ctx;
 
-  // ── STEP 7: Run extraction once, on first entry ───────────────
+  // ── Run extraction once on first entry ───────────────────────
   if (!instance.context.extractionDone) {
     try {
       instance.context.extractedRequirements = await extractRequirementsFromKnowledge(
@@ -311,10 +325,10 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     instance.context.extractionDone = true;
   }
 
-  const extracted = (instance.context.extractedRequirements ?? {}) as Record<string, string>;
+  const extracted = (instance.context.extractedRequirements ?? {}) as ExtractedProposalInputs;
   const declined = (instance.context.declinedFields ?? []) as string[];
 
-  // ── STEP 5: Process pending confirmation response ─────────────
+  // ── Process pending confirmation response ────────────────────
   const pending = instance.context.awaitingConfirmation as
     | { field: string; value: string }
     | undefined;
@@ -326,45 +340,61 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     const isNo = lower === 'no' || lower === 'n' || lower.startsWith('no,') || lower.startsWith('no ');
 
     if (isYes) {
-      // Accept the extracted value
       if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
       (instance.context.proposalRequirements as Record<string, string>)[pending.field] = pending.value;
     } else if (isNo) {
-      // Decline — will ask manually for this field
       instance.context.declinedFields = [...declined, pending.field];
     } else {
-      // Custom override — use the message text as the value
+      // Custom override — treat the full message as the value
       if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
       (instance.context.proposalRequirements as Record<string, string>)[pending.field] =
         incomingMessage.trim();
     }
   }
 
-  // ── STEP 3: Check if all fields are satisfied ─────────────────
+  // ── Auto-fill all high-confidence fields (≥ 0.85) ────────────
+  const autoFilled: string[] = [];
+  const updatedDeclined = (instance.context.declinedFields ?? []) as string[];
+
+  for (const field of getMissingFields(instance.context)) {
+    const entry = extracted[field];
+    if (!entry || updatedDeclined.includes(field)) continue;
+    if (resolveField(entry) === 'auto_fill') {
+      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
+      (instance.context.proposalRequirements as Record<string, string>)[field] = entry.value;
+      autoFilled.push(`**${field}**: ${entry.value}`);
+    }
+  }
+
+  // ── Ready check ───────────────────────────────────────────────
   if (isReadyForGeneration(instance.context)) {
+    const autoFillNote = autoFilled.length > 0
+      ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
+      : '';
     return {
-      message: "Great — I have everything I need. I'll now recommend a template for your proposal.",
+      message: `${autoFillNote}Great — I have everything I need. I'll now recommend a template for your proposal.`,
       stateSignal: 'READY',
     };
   }
 
-  // ── STEPS 4 & 6: Confirm extracted values or ask manually ─────
+  // ── Next missing field: confirm or ask ────────────────────────
   const missing = getMissingFields(instance.context);
   const nextField = missing[0];
-  const updatedDeclined = (instance.context.declinedFields ?? []) as string[];
+  const nextEntry = extracted[nextField];
+  const autoFillPrefix = autoFilled.length > 0
+    ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
+    : '';
 
-  const extractedValue = extracted[nextField];
-  if (extractedValue && !updatedDeclined.includes(nextField)) {
-    // STEP 4 — auto-extracted value found: ask for confirmation
-    instance.context.awaitingConfirmation = { field: nextField, value: extractedValue };
+  if (nextEntry && !updatedDeclined.includes(nextField) && resolveField(nextEntry) === 'confirm') {
+    instance.context.awaitingConfirmation = { field: nextField, value: nextEntry.value };
     return {
-      message: buildConfirmationPrompt(nextField, extractedValue, missing),
+      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry, missing),
     };
   }
 
-  // STEP 6 — no extracted value (or declined): ask manually
+  // No usable extraction — ask manually
   return {
-    message: buildRequirementPrompt(missing),
+    message: autoFillPrefix + buildRequirementPrompt(missing),
   };
 }
 
