@@ -8,3 +8,4 @@ export * from './execution/index.js';
 export * from './agents/index.js';
 export * from './usage/index.js';
 export * from './tools/index.js';
+export * from './vector-store/index.js';

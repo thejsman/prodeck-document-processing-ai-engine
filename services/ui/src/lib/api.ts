@@ -16,6 +16,9 @@ export interface TemplateSection {
 }
 
 export interface TemplateInfo {
+  /** Filename slug — used for API routing (GET/POST /templates/:id). */
+  id: string;
+  /** Human-readable display name from the YAML `name:` field. */
   name: string;
   version: string;
   description: string;
@@ -274,7 +277,7 @@ export async function fetchNamespaceFiles(apiKey: string, namespace: string): Pr
 export async function deleteNamespaceFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}/files/${encodeURIComponent(fileName)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: { Authorization: `Bearer ${apiKey}` },
   });
   await handleResponse<{ ok: boolean }>(res);
 }
@@ -785,13 +788,19 @@ export async function generateSectionImage(
   sectionTitle: string,
   style: string,
   keywords: string[],
+  namespace?: string,
+  sectionId?: string,
 ): Promise<string> {
   const res = await fetch('/api/images/generate', {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ sectionTitle, style, keywords }),
+    body: JSON.stringify({ sectionTitle, style, keywords, namespace, sectionId }),
   });
   const data = await handleResponse<{ url: string }>(res);
+  // Rewrite root-relative local paths through the Next.js proxy
+  if (data.url.startsWith('/presentation-images/')) {
+    return `/api${data.url}`;
+  }
   return data.url;
 }
 
@@ -807,4 +816,35 @@ export async function fetchProposalDiff(apiKey: string, fileA: string, fileB: st
   });
   const data = await handleResponse<{ diffs: SectionDiff[] }>(res);
   return data.diffs;
+}
+
+// ---------------------------------------------------------------------------
+// Proposal section editing (chat inline)
+// ---------------------------------------------------------------------------
+
+export interface ProposalSectionEditRequest {
+  namespace: string;
+  artifactId: string;
+  section: string;
+  /** Instruction-based rewrite via LLM. */
+  instruction?: string;
+  /** Verbatim replacement (direct user edit). */
+  newContent?: string;
+}
+
+export interface ProposalSectionEditResult {
+  content: string;
+  versionLabel: string;
+}
+
+export async function editProposalSection(
+  apiKey: string,
+  req: ProposalSectionEditRequest,
+): Promise<ProposalSectionEditResult> {
+  const res = await fetch('/api/chat/proposal/section/edit', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(req),
+  });
+  return handleResponse<ProposalSectionEditResult>(res);
 }

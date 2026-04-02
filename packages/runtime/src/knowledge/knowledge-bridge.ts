@@ -16,10 +16,18 @@ import path from 'node:path';
 // Public types
 // ---------------------------------------------------------------------------
 
+export interface VectorStoreConfig {
+  type: 'faiss' | 'qdrant';
+  /** Qdrant base URL (e.g. "http://localhost:6333"). Required when type=qdrant. */
+  url?: string;
+}
+
 export interface IngestParams {
   readonly documents: ReadonlyArray<{ fileName: string; content: string }>;
   readonly storageDir: string;
   readonly namespace: string;
+  /** When provided, overrides the default FAISS backend. */
+  readonly vectorStoreConfig?: VectorStoreConfig;
 }
 
 export interface IngestResult {
@@ -34,6 +42,7 @@ export interface QueryParams {
   readonly namespace: string;
   readonly stream?: boolean;
   readonly onChunk?: (chunk: string) => void;
+  readonly vectorStoreConfig?: VectorStoreConfig;
 }
 
 export interface QueryResult {
@@ -228,6 +237,7 @@ export async function ingestDocuments(
     storageDir: params.storageDir,
     namespace: params.namespace,
     documents: params.documents,
+    ...(params.vectorStoreConfig ? { vectorStore: params.vectorStoreConfig } : {}),
   };
 
   const { stdout } = await spawnKnowledgeStore(payload);
@@ -247,6 +257,7 @@ export async function queryKnowledgeBase(
     namespace: params.namespace,
     question: params.question,
     stream: params.stream ?? false,
+    ...(params.vectorStoreConfig ? { vectorStore: params.vectorStoreConfig } : {}),
   };
 
   if (params.stream && params.onChunk) {
@@ -260,6 +271,97 @@ export async function queryKnowledgeBase(
     result: { answer: string };
   };
 
+  return parsed.result;
+}
+
+// ---------------------------------------------------------------------------
+// Vector-store search (raw chunks, no generation)
+// ---------------------------------------------------------------------------
+
+export interface SearchChunksParams {
+  readonly question: string;
+  readonly storageDir: string;
+  readonly namespace: string;
+  readonly topK?: number;
+  readonly vectorStoreConfig?: VectorStoreConfig;
+}
+
+export interface SearchChunksResult {
+  readonly chunks: ReadonlyArray<{ text: string; score: number }>;
+}
+
+/**
+ * Embed the question in Python and return raw FAISS search results.
+ *
+ * Unlike queryKnowledgeBase, this operation does NOT invoke an LLM to
+ * generate an answer — it returns the top-k matching chunks with their
+ * cosine-similarity scores so the caller can decide how to use them.
+ */
+export async function searchKnowledgeChunks(
+  params: SearchChunksParams,
+): Promise<SearchChunksResult> {
+  const payload = {
+    operation: 'search',
+    storageDir: params.storageDir,
+    namespace: params.namespace,
+    question: params.question,
+    topK: params.topK ?? 5,
+    ...(params.vectorStoreConfig ? { vectorStore: params.vectorStoreConfig } : {}),
+  };
+
+  const { stdout } = await spawnKnowledgeStore(payload);
+  const parsed = JSON.parse(stdout) as { result: SearchChunksResult };
+  return parsed.result;
+}
+
+// ---------------------------------------------------------------------------
+// Qdrant-specific bridge operations
+// ---------------------------------------------------------------------------
+
+export interface DeleteNamespaceParams {
+  readonly storageDir: string;
+  readonly namespace: string;
+  readonly vectorStoreConfig?: VectorStoreConfig;
+}
+
+/**
+ * Delete all vector data for a namespace.
+ * For Qdrant: drops the collection.
+ * For FAISS: removes index.faiss and chunks.json (handled by FaissVectorStoreProvider).
+ */
+export async function deleteNamespace(
+  params: DeleteNamespaceParams,
+): Promise<void> {
+  const payload = {
+    operation: 'delete_namespace',
+    storageDir: params.storageDir,
+    namespace: params.namespace,
+    ...(params.vectorStoreConfig ? { vectorStore: params.vectorStoreConfig } : {}),
+  };
+  await spawnKnowledgeStore(payload);
+}
+
+export interface NamespaceStatsParams {
+  readonly storageDir: string;
+  readonly namespace: string;
+  readonly vectorStoreConfig?: VectorStoreConfig;
+}
+
+/**
+ * Return vector count for a namespace via the Python store.
+ * Used by QdrantVectorStoreProvider.namespaceStats().
+ */
+export async function namespaceStats(
+  params: NamespaceStatsParams,
+): Promise<{ vectorCount: number; sizeBytes?: number }> {
+  const payload = {
+    operation: 'namespace_stats',
+    storageDir: params.storageDir,
+    namespace: params.namespace,
+    ...(params.vectorStoreConfig ? { vectorStore: params.vectorStoreConfig } : {}),
+  };
+  const { stdout } = await spawnKnowledgeStore(payload);
+  const parsed = JSON.parse(stdout) as { result: { vectorCount: number } };
   return parsed.result;
 }
 

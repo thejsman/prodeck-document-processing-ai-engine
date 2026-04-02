@@ -24,6 +24,7 @@ import {
   ingestDocuments,
   processDocumentStream,
   getStorageProvider,
+  getVectorStoreProvider,
   resolveStorageUri,
   createNodeConfigLoader,
 } from '@ai-engine/runtime';
@@ -39,6 +40,11 @@ import {
   type ProviderPolicyConfig,
 } from '../provider-policy.js';
 import { emitExecution } from '../execution-events.js';
+import {
+  workflowEventBus,
+  type IngestionCompletedEvent,
+  type IngestionFailedEvent,
+} from '../workflows/workflow-event-bus.js';
 import type { IngestionJob } from './ingestion-queue.js';
 
 const MAX_RETRIES = 2;
@@ -59,6 +65,15 @@ async function processBufferJob(
   const uploadsDir = path.join(storageDir, 'uploads');
   const filesToIndex = allFiles ?? [fileName];
 
+  // Read namespace config to resolve the correct vector store backend
+  const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
+  const configResolver = new ConfigResolver(configLoader);
+  const config = await configResolver.resolve({ namespace });
+  const rawVs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+  const vectorStoreConfig = (rawVs?.type === 'faiss' || rawVs?.type === 'qdrant')
+    ? { type: rawVs.type as 'faiss' | 'qdrant', url: rawVs.url }
+    : undefined;
+
   const documents: { fileName: string; content: string }[] = [];
   for (const f of filesToIndex) {
     const content = await readFile(path.join(uploadsDir, f), 'utf-8');
@@ -69,10 +84,10 @@ async function processBufferJob(
     const policy = resolvePolicy(policyConfig, namespace, 'ingest');
     await executeWithPolicy(
       policy,
-      () => ingestDocuments({ documents, storageDir, namespace }),
+      () => ingestDocuments({ documents, storageDir, namespace, vectorStoreConfig }),
     );
   } else {
-    await ingestDocuments({ documents, storageDir, namespace });
+    await ingestDocuments({ documents, storageDir, namespace, vectorStoreConfig });
   }
 }
 
@@ -85,7 +100,6 @@ async function processStreamJob(
   const { namespace, fileName, uri } = job;
   if (!uri) throw new Error('processStreamJob called without uri');
 
-  const storageDir = path.join(workdir, 'namespaces', namespace);
   const resolved = resolveStorageUri(uri);
 
   // Build the storage provider for this namespace
@@ -94,11 +108,13 @@ async function processStreamJob(
   const config = await configResolver.resolve({ namespace });
   const provider = getStorageProvider({ namespace, config, workdir });
 
+  const vectorStore = getVectorStoreProvider({ namespace, config: config as Record<string, unknown>, workdir });
+
   const { chunkCount } = await processDocumentStream({
     provider,
     relativePath: resolved.relativePath,
     namespace,
-    storageDir,
+    vectorStore,
     onProgress: (n) => {
       console.log(`[TraceLive] step received — ${fileName} chunk ${n}`);
     },
@@ -128,9 +144,11 @@ export async function processJob(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
+      let chunkCount = 0;
+
       if (uri) {
         // Stream path — large file progressive ingestion
-        const chunkCount = await processStreamJob(job, workdir);
+        chunkCount = await processStreamJob(job, workdir);
         await updateFileStatus(workdir, namespace, fileName, 'indexed');
         await updateFileChunkCount(workdir, namespace, fileName, chunkCount);
       } else {
@@ -143,6 +161,17 @@ export async function processJob(
 
       emitExecution({ executionId: job.id, status: 'COMPLETED', type: 'ingestion', title: job.fileName });
       console.log(`[TraceLive] execution completed — job ${job.id}`);
+
+      // Notify workflow resume service (STEP 2) — fire-and-forget
+      const completedEvent: IngestionCompletedEvent = {
+        namespace,
+        fileName,
+        uri: job.uri,
+        jobId: job.id,
+        chunkCount,
+      };
+      workflowEventBus.emit('ingestion_completed', completedEvent);
+
       return; // success
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -164,4 +193,14 @@ export async function processJob(
     title: job.fileName,
     message: errorMessage,
   });
+
+  // Notify workflow resume service of failure (STEP 2) — fire-and-forget
+  const failedEvent: IngestionFailedEvent = {
+    namespace,
+    fileName,
+    uri: job.uri,
+    jobId: job.id,
+    error: errorMessage,
+  };
+  workflowEventBus.emit('ingestion_failed', failedEvent);
 }

@@ -208,6 +208,9 @@ importers:
 
   plugins/presenter-markdown:
     dependencies:
+      '@ai-engine/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
       '@ai-engine/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -375,6 +378,9 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.2.0)(yaml@2.8.2)
 
   services/ui:
     dependencies:

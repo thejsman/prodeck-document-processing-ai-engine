@@ -41,6 +41,9 @@ import {
   validateTransition,
   type ProposalStatus,
 } from './proposal-meta.js';
+import { createVersionFromEdit } from './proposals/proposal-version.service.js';
+import { recommendTemplate } from './templates/template-recommendation.service.js';
+import { extractRfpRequirements } from './ingestion/extract-rfp-requirements.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,6 +71,9 @@ interface TemplateSection {
 }
 
 interface TemplateInfo {
+  /** Filename slug (without extension) — used for API routing. */
+  readonly id: string;
+  /** Human-readable display name from the YAML `name:` field. */
   readonly name: string;
   readonly version: string;
   readonly description: string;
@@ -219,6 +225,20 @@ export function registerProposalRoutes(
         }
       }
 
+      // Auto-snapshot: create version for the generated proposal (fire-and-forget)
+      if (namespace && outputFile) {
+        const generatedFileName = path.basename(outputFile);
+        void createVersionFromEdit(
+          workdir,
+          namespace,
+          generatedFileName,
+          document.content,
+          null,
+          'system',
+          `Generated proposal for "${client}"`,
+        ).catch(() => { /* non-fatal */ });
+      }
+
       // Append episodic entry to namespace memory (fire-and-forget)
       if (namespace) {
         void appendEpisodicEntry(workdir, namespace, {
@@ -232,6 +252,45 @@ export function registerProposalRoutes(
       }
 
       return reply.send({ document });
+    },
+  );
+
+  // GET /templates/recommend?namespace=<ns>
+  //
+  // Returns the best-matching template for the documents indexed in the given
+  // namespace.  Requires an RFP document to be indexed — returns a low-
+  // confidence result with fallbackGenerate=true when no RFP is present.
+  app.get(
+    '/templates/recommend',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace } = req.query as { namespace?: string };
+
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing required query param: namespace' });
+      }
+
+      const ns = namespace.trim();
+
+      try {
+        // Build requirement context from whatever is indexed in the namespace.
+        // Falls back to empty categories when no RFP is present.
+        const requirementMatrix = await extractRfpRequirements(workdir, ns).catch(() => ({
+          functional: [],
+          compliance: [],
+          timeline: [],
+          pricing: [],
+        }));
+
+        const recommendation = await recommendTemplate(
+          { requirementMatrix, namespace: ns },
+          workdir,
+        );
+
+        return reply.send({ recommendation });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.code(502).send({ error: `Recommendation failed: ${message}` });
+      }
     },
   );
 
@@ -250,9 +309,11 @@ export function registerProposalRoutes(
           const filePath = path.join(templateDir, file);
           const raw = await readFile(filePath, 'utf-8');
           const parsed = yaml.load(raw) as Record<string, unknown>;
+          const id = path.basename(file, path.extname(file));
 
           templates.push({
-            name: (parsed.name as string) ?? path.basename(file, '.yaml'),
+            id,
+            name: (parsed.name as string) ?? id,
             version: (parsed.version as string) ?? 'unknown',
             description: (parsed.description as string) ?? '',
             sections: (parsed.sections as TemplateSection[]) ?? [],
@@ -283,9 +344,11 @@ export function registerProposalRoutes(
         const parsed = yaml.load(content) as Record<string, unknown>;
 
         return reply.send({
+          id: name,
           name,
           content,
           parsed: {
+            id: name,
             name: (parsed.name as string) ?? name,
             version: (parsed.version as string) ?? 'unknown',
             description: (parsed.description as string) ?? '',
@@ -347,6 +410,7 @@ export function registerProposalRoutes(
       await writeFile(filePath, body.content, 'utf-8');
 
       return reply.code(201).send({
+        id: name,
         name: (parsed.name as string) ?? name,
         version: (parsed.version as string) ?? 'unknown',
         description: (parsed.description as string) ?? '',
@@ -593,6 +657,21 @@ export function registerProposalRoutes(
       const updated = await ensureMeta(filePath);
       updated.updatedAt = new Date().toISOString();
       await writeMeta(filePath, updated);
+
+      // Auto-snapshot: create version from user edit (fire-and-forget)
+      // Derive namespace from the request if available
+      const editNamespace = (req.query as Record<string, string>)?.namespace;
+      if (editNamespace) {
+        void createVersionFromEdit(
+          workdir,
+          editNamespace,
+          fileName,
+          body.content,
+          null,
+          'user',
+          'Manual edit',
+        ).catch(() => { /* non-fatal */ });
+      }
 
       return reply.send({ ok: true });
     },

@@ -142,6 +142,30 @@ class FaissVectorStore(VectorStore):
                 results.append(self._chunks[idx])
         return results
 
+    def search_with_scores(self, query_embedding, top_k):
+        """Return top-k chunks as dicts with 'text' and 'score' keys.
+
+        Scores are cosine-similarity values in [-1, 1] (IndexFlatIP on
+        L2-normalised vectors).  Higher is more similar.
+
+        Returns:
+            List of {"text": str, "score": float} dicts ordered by score descending.
+        """
+        if self._index is None or self._index.ntotal == 0:
+            return []
+
+        k = min(top_k, self._index.ntotal)
+        query_vec = np.array([query_embedding], dtype=np.float32)
+        faiss.normalize_L2(query_vec)
+
+        scores, indices = self._index.search(query_vec, k)
+
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if 0 <= idx < len(self._chunks):
+                results.append({"text": self._chunks[idx], "score": float(score)})
+        return results
+
     def persist(self):
         index_path = os.path.join(self._storage_dir, self.INDEX_FILENAME)
         chunks_path = os.path.join(self._storage_dir, self.CHUNKS_FILENAME)

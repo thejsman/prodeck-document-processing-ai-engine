@@ -9,6 +9,8 @@ import { useAuth } from '@/lib/auth-context';
 
 interface Props {
   namespace: string;
+  /** Dynamic suggestions from the namespace intelligence scan. */
+  insights?: string[];
 }
 
 function formatAgo(ts: number): string {
@@ -18,7 +20,7 @@ function formatAgo(ts: number): string {
   return `${Math.round(diff / 3_600_000)}h ago`;
 }
 
-export function ChatContextPanel({ namespace }: Props) {
+export function ChatContextPanel({ namespace, insights }: Props) {
   const { apiKey } = useAuth();
   const router = useRouter();
   const executions = useExecutionStore((s) => s.executions);
@@ -105,6 +107,18 @@ export function ChatContextPanel({ namespace }: Props) {
         </div>
         <Link href="/proposal" className="chat-ctx-link">View all →</Link>
       </div>
+
+      {/* Namespace insights */}
+      {insights && insights.length > 0 && (
+        <div className="chat-ctx-section">
+          <h4 className="chat-ctx-title">Insights</h4>
+          <ul className="chat-ctx-insights-list">
+            {insights.map((s) => (
+              <li key={s} className="chat-ctx-insights-item">{s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Namespace */}
       <div className="chat-ctx-section">

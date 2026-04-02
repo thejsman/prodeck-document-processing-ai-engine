@@ -1,9 +1,0 @@
-{
-  "episodic": [
-    {
-      "timestamp": "2026-03-16T13:32:33.580Z",
-      "source": "agent:microsite-generator-agent",
-      "content": "Agent \"microsite-generator-agent\" executed successfully"
-    }
-  ]
-}

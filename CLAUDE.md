@@ -492,13 +492,87 @@ Per-namespace provider routing via `withProviderEnv` / `executeWithPolicy`.
 - Routes: `/agent/run`, `/agent/list`, `/tools/list`, ingest, query, proposals
 - Auth hooks, audit hooks, multipart upload support
 - Wires concrete tool implementations with real side effects
+- Chat workflow system: stateful multi-turn workflows driven by `ChatOrchestrator`
+- See `docs/chat-workflows.md` for the full chat system reference
 
 ### `services/ui`
 - Next.js frontend
 - Proposal editing, section locking, version history
 - Calls API for agent execution
+- Chat page renders inline editable proposal section blocks (`ProposalSectionBlock`)
 
 Services are **adapters** — they wire runtime dependencies and expose them over HTTP/UI.
+
+---
+
+## 15a. Chat Workflow System
+
+The chat interface drives multi-turn AI workflows through a state machine.
+
+### Architecture
+
+```
+POST /chat/message
+  ↓
+ChatOrchestrator.processMessage()
+  ↓
+routeIntent() → WorkflowInstance (loaded or created)
+  ↓
+Execution loop: STATE_HANDLERS[state](ctx) → HandlerResult
+  ↓
+Transition: result.stateSignal → next state (workflow DSL)
+  ↓
+SSE stream: onPhase / onChunk / onSection callbacks → client
+```
+
+### HandlerContext
+
+Every state handler receives a `HandlerContext`:
+
+```typescript
+interface HandlerContext {
+  workdir: string;
+  namespace: string;
+  instance: WorkflowInstance;      // mutable — handlers update instance.context
+  incomingMessage: string;
+  onPhase: (phase: string) => void;
+  onChunk: (chunk: string) => void;
+  onSection?: (section: string, content: string, artifactId: string) => void;
+  onToolEvent?: (event: ToolTraceEvent) => void;
+  conversationContext?: LLMContext;
+}
+```
+
+### SSE Event Types
+
+| Event name | Payload | Purpose |
+|------------|---------|---------|
+| `phase` | `{ phase: string }` | Progress label shown while processing |
+| *(default)* | `string` (JSON) | Raw token chunks |
+| `proposal_section` | `{ section, content, artifactId }` | One complete proposal section block |
+| `done` | `{ message, actions }` | Workflow completed |
+| `error` | `{ error }` | Unrecoverable error |
+| `tool_progress` | `ToolProgressPayload` | Tool execution trace |
+| `namespace_insight` | `{ suggestions }` | Namespace-level suggestions |
+
+### Proposal Section Blocks
+
+When `handleGeneratingSections` runs, each section is emitted via `onSection` (not `onChunk`) so the frontend renders interactive blocks.
+
+Rules:
+- `onSection` is optional in `HandlerContext` — handlers must fall back to `onChunk` when absent
+- Each block carries `{ section, content, artifactId }` — enough to issue an edit without extra context
+- `POST /chat/proposal/section/edit` accepts `{ namespace, artifactId, section, instruction?, newContent? }` and always creates a version snapshot
+
+### Adding a New Workflow
+
+1. Define a `WorkflowDefinition` with states and transitions
+2. Write state handler functions (`HandlerFn`)
+3. Register the workflow in `WORKFLOW_REGISTRY` (chat-orchestrator.ts)
+4. Register handlers in `STATE_HANDLERS` (chat-orchestrator.ts)
+5. Add intent trigger patterns to `intent-router.ts`
+
+See `docs/chat-workflows.md` for the complete reference.
 
 ---
 

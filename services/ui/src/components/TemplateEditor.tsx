@@ -45,7 +45,8 @@ export function TemplateEditor({
   const [listError, setListError] = useState('');
 
   // Editor state
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null); // stores id (slug)
+  const [selectedDisplayName, setSelectedDisplayName] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -107,9 +108,10 @@ export function TemplateEditor({
 
   // ── Select template ─────────────────────────────────────────────
 
-  const handleSelect = useCallback(async (name: string) => {
+  const handleSelect = useCallback(async (id: string, displayName?: string) => {
     if (!apiKey) return;
-    setSelected(name);
+    setSelected(id);
+    setSelectedDisplayName(displayName ?? id);
     setIsAiDraft(false);
     setContent('');
     setOriginalContent('');
@@ -118,7 +120,7 @@ export function TemplateEditor({
     setSaveSuccess('');
 
     try {
-      const detail = await fetchTemplate(apiKey, name);
+      const detail = await fetchTemplate(apiKey, id);
       setContent(detail.content);
       setOriginalContent(detail.content);
     } catch (err) {
@@ -171,6 +173,7 @@ export function TemplateEditor({
       setIsAiDraft(false);
       await loadList();
       setSelected(name);
+      setSelectedDisplayName(name);
       setContent(yamlToSave);
       setOriginalContent(yamlToSave);
     } catch (err) {
@@ -270,9 +273,9 @@ export function TemplateEditor({
           <ul className="tpl-list">
             {templates.map((t) => (
               <li
-                key={t.name}
-                className={`tpl-list-item${selected === t.name ? ' tpl-list-item--active' : ''}`}
-                onClick={() => handleSelect(t.name)}
+                key={t.id}
+                className={`tpl-list-item${selected === t.id ? ' tpl-list-item--active' : ''}`}
+                onClick={() => handleSelect(t.id, t.name)}
               >
                 <span className="tpl-list-name">{t.name}</span>
                 <span className="muted" style={{ fontSize: 11 }}>v{t.version}</span>
@@ -301,7 +304,7 @@ export function TemplateEditor({
                       — enter a name in the sidebar to save
                     </span>
                   </span>
-                ) : selected}
+                ) : (selectedDisplayName ?? selected)}
               </h3>
               <div className="tpl-editor-actions">
                 {isDirty && !isAiDraft && (

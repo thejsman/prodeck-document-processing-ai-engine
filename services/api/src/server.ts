@@ -21,6 +21,17 @@ import { registerAssetRoutes } from './asset-routes.js';
 import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
+import { registerChatRoutes } from './chat-routes.js';
+import {
+  workflowEventBus,
+  type IngestionCompletedEvent,
+  type IngestionFailedEvent,
+} from './workflows/workflow-event-bus.js';
+import {
+  resumeWorkflowsForIngestion,
+  handleIngestionFailure,
+} from './workflows/workflow-resume.service.js';
+import { ChatOrchestrator } from './chat/chat-orchestrator.js';
 import { ingestionQueue } from './ingestion/ingestion-queue.js';
 import { recoverInterruptedJobs } from './ingestion/ingestion-service.js';
 import { loadProviderPolicy, type ProviderPolicyConfig } from './provider-policy.js';
@@ -93,9 +104,10 @@ export async function createServer(opts: ServerOptions) {
   registerConfigRoutes(app, opts.workdir, opts.auditLogPath);
   registerTemplateAgentRoutes(app);
   registerAgentRoutes(app, opts.workdir, policyConfig);
+  registerChatRoutes(app, opts.workdir, policyConfig);
   registerAssetRoutes(app, opts.workdir);
   registerStreamUploadRoutes(app, opts.workdir);
-  registerImageRoutes(app);
+  registerImageRoutes(app, opts.workdir);
   registerPluginRoutes(app, presenterRegistry);
 
   // ── Static exports (HTML downloads) ──────────────────────────
@@ -114,6 +126,22 @@ export async function createServer(opts: ServerOptions) {
     } catch {
       return reply.code(404).send({ error: 'File not found' });
     }
+  });
+
+  // ── Workflow event bus listeners (STEP 4) ────────────────────
+  // Bound once at startup so the same orchestrator instance handles all resumes.
+  const workflowOrchestrator = new ChatOrchestrator(opts.workdir, policyConfig);
+
+  workflowEventBus.on('ingestion_completed', (event: IngestionCompletedEvent) => {
+    resumeWorkflowsForIngestion(event, opts.workdir, workflowOrchestrator).catch((err) => {
+      process.stderr.write(`[WorkflowResume] ingestion_completed handler error: ${String(err)}\n`);
+    });
+  });
+
+  workflowEventBus.on('ingestion_failed', (event: IngestionFailedEvent) => {
+    handleIngestionFailure(event, opts.workdir).catch((err) => {
+      process.stderr.write(`[WorkflowResume] ingestion_failed handler error: ${String(err)}\n`);
+    });
   });
 
   // ── Ingestion queue ───────────────────────────────────────────

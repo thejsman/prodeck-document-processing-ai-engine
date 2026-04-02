@@ -7,18 +7,28 @@
 
 import { useState, useCallback, useRef } from 'react';
 
+export interface ProposalSection {
+  section: string;
+  content: string;
+  artifactId: string;
+}
+
 interface UseSSEReturn {
   chunks: string;
+  phase: string;
   isStreaming: boolean;
   error: string | null;
+  sections: ProposalSection[];
   startStream: (body: Record<string, unknown>) => void;
   reset: () => void;
 }
 
 export function useSSE(apiKey: string, url: string): UseSSEReturn {
   const [chunks, setChunks] = useState('');
+  const [phase, setPhase] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sections, setSections] = useState<ProposalSection[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(
@@ -28,7 +38,9 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
       abortRef.current = controller;
 
       setChunks('');
+      setPhase('');
       setError(null);
+      setSections([]);
       setIsStreaming(true);
 
       (async () => {
@@ -79,14 +91,34 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
                   }
                 }
 
-                if (currentEvent === 'done') {
-                  // Fallback: if no tokens streamed (e.g. Ollama buffered mode),
-                  // use the answer from the done payload so the response isn't lost.
+                if (currentEvent === 'phase') {
                   try {
-                    const parsed = JSON.parse(payload) as { answer?: string };
-                    if (parsed.answer) {
-                      setChunks((prev) => prev || parsed.answer!);
+                    const parsed = JSON.parse(payload) as { phase?: string };
+                    if (parsed.phase) setPhase(parsed.phase);
+                  } catch { /* ignore */ }
+                  currentEvent = '';
+                  continue;
+                }
+
+                if (currentEvent === 'proposal_section') {
+                  try {
+                    const parsed = JSON.parse(payload) as ProposalSection;
+                    if (parsed.section && parsed.artifactId) {
+                      setSections((prev) => [...prev, parsed]);
                     }
+                  } catch { /* ignore malformed payload */ }
+                  currentEvent = '';
+                  continue;
+                }
+
+                if (currentEvent === 'done') {
+                  setPhase('');
+                  // Fallback: if no tokens streamed (e.g. Ollama buffered mode),
+                  // use the answer/message from the done payload so the response isn't lost.
+                  try {
+                    const parsed = JSON.parse(payload) as { answer?: string; message?: string };
+                    const text = parsed.message ?? parsed.answer ?? '';
+                    if (text) setChunks((prev) => prev || text);
                   } catch { /* ignore malformed done payload */ }
                   currentEvent = '';
                   continue;
@@ -124,9 +156,11 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setChunks('');
+    setPhase('');
     setError(null);
+    setSections([]);
     setIsStreaming(false);
   }, []);
 
-  return { chunks, isStreaming, error, startStream, reset };
+  return { chunks, phase, isStreaming, error, sections, startStream, reset };
 }
