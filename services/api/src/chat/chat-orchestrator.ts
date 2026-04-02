@@ -204,17 +204,25 @@ export class ChatOrchestrator {
     }
 
     // ── STEP 7 — Extract requirements from incoming message ───────
-    // Merge any newly detected signals into the session requirements store.
-    if (!instance.context.proposalRequirements) {
-      instance.context.proposalRequirements = {};
+    // Store typed chat extractions in chatExtractedRequirements.
+    // The handler (handleCollectingInputs) merges these with RFP extractions
+    // using priority rules and conflict detection.
+    if (!instance.context.chatExtractedRequirements) {
+      instance.context.chatExtractedRequirements = {};
     }
-    const extractedRequirements = await extractRequirementsFromMessage(message, llmGenerateFn);
+    const extractedFromChat = await extractRequirementsFromMessage(message, llmGenerateFn);
+    // Accumulate chat signals (later messages win for the same field)
     Object.assign(
-      instance.context.proposalRequirements as Record<string, string>,
-      extractedRequirements,
+      instance.context.chatExtractedRequirements as Record<string, string>,
+      extractedFromChat,
     );
 
     // ── STEPS 1–6, 8 — Build full LLM context ────────────────────
+    // Use proposalRequirements (the merged flat map) for the status block.
+    // This is kept in sync by handleCollectingInputs after every merge pass.
+    if (!instance.context.proposalRequirements) {
+      instance.context.proposalRequirements = {};
+    }
     const conversationContext = await buildLLMContext(
       this.workdir,
       namespace,

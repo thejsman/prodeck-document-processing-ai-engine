@@ -30,6 +30,15 @@ import {
   type ExtractedField,
   type ExtractedProposalInputs,
 } from '../ingestion/extract-proposal-inputs.js';
+import {
+  chatExtractionsToStore,
+  buildMergedStore,
+  detectConflicts,
+  flattenRequirements,
+  buildConflictPrompt,
+  resolveConflictResponse,
+  type RequirementStore,
+} from '../ingestion/requirement-merger.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
@@ -98,14 +107,22 @@ export interface HandlerContext {
 const REQUIRED_FIELDS = ['industry', 'timeline', 'budget'] as const;
 type RequiredField = typeof REQUIRED_FIELDS[number];
 
+function getEffectiveRequirements(context: WorkflowInstance['context']): Record<string, string> {
+  // Priority: confirmedRequirements > proposalRequirements (merged flat map)
+  return {
+    ...(context.proposalRequirements as Record<string, string> | undefined ?? {}),
+    ...(context.confirmedRequirements as Record<string, string> | undefined ?? {}),
+  };
+}
+
 function isReadyForGeneration(context: WorkflowInstance['context']): boolean {
-  const reqs = context.proposalRequirements as Record<string, string> | undefined;
-  return REQUIRED_FIELDS.every((field) => Boolean(reqs?.[field]));
+  const reqs = getEffectiveRequirements(context);
+  return REQUIRED_FIELDS.every((field) => Boolean(reqs[field]));
 }
 
 function getMissingFields(context: WorkflowInstance['context']): RequiredField[] {
-  const reqs = context.proposalRequirements as Record<string, string> | undefined;
-  return REQUIRED_FIELDS.filter((field) => !reqs?.[field]);
+  const reqs = getEffectiveRequirements(context);
+  return REQUIRED_FIELDS.filter((field) => !reqs[field]);
 }
 
 const REQUIREMENT_QUESTIONS: Record<RequiredField, string> = {
@@ -352,23 +369,45 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 export async function handleCollectingInputs(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, incomingMessage } = ctx;
 
-  // ── Run extraction once on first entry ───────────────────────
-  if (!instance.context.extractionDone) {
+  // ── Initialise context stores ─────────────────────────────────
+  if (!instance.context.confirmedRequirements) instance.context.confirmedRequirements = {};
+  if (!instance.context.declinedFields) instance.context.declinedFields = [];
+
+  const confirmed = instance.context.confirmedRequirements as Record<string, string>;
+  const declined = instance.context.declinedFields as string[];
+
+  // ── Run RFP extraction once on first entry ────────────────────
+  if (!instance.context.rfpExtractionDone) {
     try {
-      instance.context.extractedRequirements = await extractRequirementsFromKnowledge(
+      instance.context.rfpExtractedRequirements = await extractRequirementsFromKnowledge(
         workdir,
         namespace,
       );
     } catch {
-      instance.context.extractedRequirements = {};
+      instance.context.rfpExtractedRequirements = {};
     }
-    instance.context.extractionDone = true;
+    instance.context.rfpExtractionDone = true;
   }
 
-  const extracted = (instance.context.extractedRequirements ?? {}) as ExtractedProposalInputs;
-  const declined = (instance.context.declinedFields ?? []) as string[];
+  const rfpStore = (instance.context.rfpExtractedRequirements ?? {}) as ExtractedProposalInputs;
+  const chatFlat = (instance.context.chatExtractedRequirements ?? {}) as Record<string, string>;
+  const chatStore: RequirementStore = chatExtractionsToStore(chatFlat);
 
-  // ── Process pending confirmation response ────────────────────
+  // ── Process pending conflict resolution ──────────────────────
+  const pendingConflict = instance.context.awaitingConflict as
+    | { field: string; rfpValue: string; chatValue: string }
+    | undefined;
+
+  if (pendingConflict) {
+    instance.context.awaitingConflict = undefined;
+    const chosen = resolveConflictResponse(incomingMessage, pendingConflict);
+    if (chosen) {
+      confirmed[pendingConflict.field] = chosen;
+    }
+    // If unrecognisable, fall through and re-surface conflicts next pass
+  }
+
+  // ── Process pending rfp/manual confirmation response ─────────
   const pending = instance.context.awaitingConfirmation as
     | { field: string; value: string }
     | undefined;
@@ -380,31 +419,46 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     const isNo = lower === 'no' || lower === 'n' || lower.startsWith('no,') || lower.startsWith('no ');
 
     if (isYes) {
-      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
-      (instance.context.proposalRequirements as Record<string, string>)[pending.field] = pending.value;
+      confirmed[pending.field] = pending.value;
     } else if (isNo) {
       instance.context.declinedFields = [...declined, pending.field];
     } else {
       // Custom override — treat the full message as the value
-      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
-      (instance.context.proposalRequirements as Record<string, string>)[pending.field] =
-        incomingMessage.trim();
+      confirmed[pending.field] = incomingMessage.trim();
     }
   }
 
-  // ── Auto-fill all high-confidence fields (≥ 0.85) ────────────
-  const autoFilled: string[] = [];
-  const updatedDeclined = (instance.context.declinedFields ?? []) as string[];
+  // ── Detect conflicts between rfp and chat ────────────────────
+  const conflicts = detectConflicts(rfpStore as RequirementStore, chatStore, confirmed);
+  if (conflicts.length > 0) {
+    const conflict = conflicts[0];
+    instance.context.awaitingConflict = {
+      field: conflict.field,
+      rfpValue: conflict.rfpValue,
+      chatValue: conflict.chatValue,
+    };
+    return { message: buildConflictPrompt(conflict) };
+  }
 
-  for (const field of getMissingFields(instance.context)) {
-    const entry = extracted[field];
-    if (!entry || updatedDeclined.includes(field)) continue;
-    if (resolveField(entry) === 'auto_fill') {
-      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
-      (instance.context.proposalRequirements as Record<string, string>)[field] = entry.value;
+  // ── Merge all sources → effective flat map ────────────────────
+  const mergedStore = buildMergedStore(rfpStore as RequirementStore, chatStore, confirmed);
+  const mergedFlat = flattenRequirements(mergedStore);
+
+  // ── Auto-fill high-confidence fields not yet confirmed ────────
+  const autoFilled: string[] = [];
+
+  for (const field of REQUIRED_FIELDS) {
+    if (confirmed[field] || declined.includes(field)) continue;
+    const entry = mergedStore[field];
+    if (!entry) continue;
+    if (entry.source === 'chat' || resolveField(entry as ExtractedField) === 'auto_fill') {
+      confirmed[field] = entry.value;
       autoFilled.push(`**${field}**: ${entry.value}`);
     }
   }
+
+  // ── Sync proposalRequirements (flat map used by generation) ──
+  instance.context.proposalRequirements = { ...mergedFlat, ...confirmed };
 
   // ── Ready check ───────────────────────────────────────────────
   if (isReadyForGeneration(instance.context)) {
@@ -417,20 +471,23 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     };
   }
 
-  // ── Next missing field: confirm or ask ────────────────────────
+  // ── Next missing field: confirm (medium rfp) or ask manually ─
   const missing = getMissingFields(instance.context);
   const nextField = missing[0];
-  const nextEntry = extracted[nextField];
+  const nextEntry = mergedStore[nextField];
   const autoFillPrefix = autoFilled.length > 0
     ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
     : '';
 
-  const confirmed = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
-
-  if (nextEntry && !updatedDeclined.includes(nextField) && resolveField(nextEntry) === 'confirm') {
+  if (
+    nextEntry &&
+    nextEntry.source === 'rfp' &&
+    !declined.includes(nextField) &&
+    resolveField(nextEntry as ExtractedField) === 'confirm'
+  ) {
     instance.context.awaitingConfirmation = { field: nextField, value: nextEntry.value };
     return {
-      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry, missing, confirmed),
+      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry as ExtractedField, missing, confirmed),
     };
   }
 
@@ -935,7 +992,7 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     'Next Steps',
   ];
 
-  const requirements = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
+  const requirements = getEffectiveRequirements(instance.context);
   const outline = (instance.context.outline as string | undefined) ?? '';
 
   // Pre-compute fileName so it can be included in onSection events during streaming.
