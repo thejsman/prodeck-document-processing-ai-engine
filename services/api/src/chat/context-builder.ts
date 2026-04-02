@@ -146,78 +146,223 @@ export function buildRequirementStatus(requirements: Record<string, string>): st
 }
 
 // ---------------------------------------------------------------------------
+// STEP 1 — Input normalisation
+// ---------------------------------------------------------------------------
+
+function normalizeInput(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ---------------------------------------------------------------------------
+// STEP 2 — Field pattern definitions
+// ---------------------------------------------------------------------------
+
+const FIELD_PATTERNS: Record<string, string[]> = {
+  industry:    ['industry', 'domain', 'sector'],
+  timeline:    ['timeline', 'duration', 'time'],
+  budget:      ['budget', 'cost', 'price'],
+  teamSize:    ['team size', 'team', 'members'],
+  clientName:  ['client', 'customer'],
+  projectType: ['project type', 'type', 'project'],
+};
+
+// ---------------------------------------------------------------------------
+// STEP 3 — Generic field extractor (colon and "is/=" patterns)
+// ---------------------------------------------------------------------------
+
+function extractField(text: string, keys: string[]): string | null {
+  for (const key of keys) {
+    const escaped = key.replace(/\s+/g, '\\s+');
+
+    // key: value  or  key = value
+    const colonMatch = new RegExp(`${escaped}\\s*[:=]\\s*([^,\\n]+)`).exec(text);
+    if (colonMatch) return colonMatch[1].trim();
+
+    // key is value  or  key = value (with "is" keyword)
+    const isMatch = new RegExp(`${escaped}\\s+(is|=)\\s+([^,\\n]+)`).exec(text);
+    if (isMatch) return isMatch[2].trim();
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// STEP 7 — Validation normalisation
+// ---------------------------------------------------------------------------
+
+function normalizeFieldValue(field: string, value: string): string {
+  const v = value.trim();
+
+  if (field === 'industry') {
+    if (/^tech(nology)?$/i.test(v)) return 'technology';
+  }
+
+  if (field === 'budget') {
+    // "$1500" → "$1,500" — keep as string with comma formatting
+    const plain = v.replace(/,/g, '');
+    const numMatch = /^\$?([\d.]+)\s*([kKmM]?)$/.exec(plain);
+    if (numMatch) {
+      let amount = parseFloat(numMatch[1]);
+      const suffix = numMatch[2].toLowerCase();
+      if (suffix === 'k') amount *= 1000;
+      if (suffix === 'm') amount *= 1_000_000;
+      return `$${amount.toLocaleString('en-US')}`;
+    }
+  }
+
+  if (field === 'timeline') {
+    // "12 weeks" → "12 weeks" (already structured), normalise casing
+    const durationMatch = /^(\d+)\s*(weeks?|months?|days?|quarters?)$/i.exec(v);
+    if (durationMatch) {
+      return `${durationMatch[1]} ${durationMatch[2].toLowerCase()}`;
+    }
+  }
+
+  return v;
+}
+
+// ---------------------------------------------------------------------------
+// STEP 6 — Merge strategy
+// ---------------------------------------------------------------------------
+
+export function mergeRequirements(
+  existing: Record<string, string>,
+  extracted: Record<string, string>,
+): Record<string, string> {
+  const updated = { ...existing };
+  for (const key in extracted) {
+    if (extracted[key]) updated[key] = extracted[key];
+  }
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
 // STEP 7 — Requirement extraction from incoming message
 // ---------------------------------------------------------------------------
 
+const INDUSTRIES = [
+  'fintech', 'finance', 'banking', 'healthcare', 'health', 'retail',
+  'ecommerce', 'e-commerce', 'logistics', 'education', 'government',
+  'telecom', 'insurance', 'real estate', 'manufacturing', 'energy',
+  'media', 'saas', 'enterprise', 'technology', 'tech',
+];
+
+const PROJECT_TYPES: Record<string, string> = {
+  'cloud migration': 'cloud migration',
+  'migration': 'cloud migration',
+  'digital transformation': 'digital transformation',
+  'modernisation': 'modernisation',
+  'modernization': 'modernisation',
+  'integration': 'system integration',
+  'data platform': 'data platform',
+  'analytics': 'analytics',
+  'security': 'security',
+  'compliance': 'compliance',
+  'mobile app': 'mobile application',
+  'web app': 'web application',
+  'api': 'API development',
+};
+
 /**
- * Lightweight regex-based parser that extracts structured requirement signals
- * from a free-text user message.
+ * Extract structured requirement signals from a free-text user message.
  *
- * Returns a partial Record<string, string> — only fields that were detected.
+ * Strategy (in order):
+ *   1. Colon/is patterns  (e.g. "industry: fintech", "budget is $50k")
+ *   2. Keyword/regex fallback for each field
+ *   3. LLM fallback for any fields still missing (requires generateFn)
+ *
+ * Returns a partial Record — only fields that were detected.
  * Callers merge this into the session's proposalRequirements.
  */
-export function extractRequirementsFromMessage(message: string): Record<string, string> {
+export async function extractRequirementsFromMessage(
+  message: string,
+  generateFn?: GenerateFn,
+): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
-  const lower = message.toLowerCase();
+  const normalized = normalizeInput(message);
 
-  // Industry
-  const INDUSTRIES = [
-    'fintech', 'finance', 'banking', 'healthcare', 'health', 'retail',
-    'ecommerce', 'e-commerce', 'logistics', 'education', 'government',
-    'telecom', 'insurance', 'real estate', 'manufacturing', 'energy',
-    'media', 'saas', 'enterprise',
-  ];
-  for (const ind of INDUSTRIES) {
-    if (lower.includes(ind)) {
-      result.industry = ind;
-      break;
+  // --- STEP 3 — Colon/is pattern extraction for all fields ---
+  for (const [field, keys] of Object.entries(FIELD_PATTERNS)) {
+    const extracted = extractField(normalized, keys);
+    if (extracted) {
+      result[field] = normalizeFieldValue(field, extracted);
     }
   }
 
-  // Timeline — e.g. "6 weeks", "3 months", "90 days"
-  const timelineMatch = message.match(/(\d+)\s*(weeks?|months?|days?|quarters?)/i);
-  if (timelineMatch) {
-    result.timeline = timelineMatch[0];
-  }
+  // --- STEP 2 fallback — keyword/regex extraction for fields still missing ---
 
-  // Budget — e.g. "$50k", "$500,000", "50 thousand dollars"
-  const budgetMatch = message.match(
-    /\$[\d,]+\s*[kKmM]?|\$[\d,.]+\s*(k|m|million|thousand)/i,
-  );
-  if (budgetMatch) {
-    result.budget = budgetMatch[0].trim();
-  }
-
-  // Team size — e.g. "5 engineers", "10 people", "a team of 3"
-  const teamMatch = message.match(
-    /(\d+)\s*(person|people|engineers?|developers?|team members?|consultants?)/i,
-  );
-  if (teamMatch) {
-    result.teamSize = teamMatch[0].trim();
-  }
-
-  // Project type keywords
-  const PROJECT_TYPES: Record<string, string> = {
-    'migration': 'cloud migration',
-    'cloud migration': 'cloud migration',
-    'digital transformation': 'digital transformation',
-    'modernisation': 'modernisation',
-    'modernization': 'modernisation',
-    'integration': 'system integration',
-    'data platform': 'data platform',
-    'analytics': 'analytics',
-    'security': 'security',
-    'compliance': 'compliance',
-    'mobile app': 'mobile application',
-    'web app': 'web application',
-    'api': 'API development',
-  };
-  for (const [keyword, label] of Object.entries(PROJECT_TYPES)) {
-    if (lower.includes(keyword)) {
-      result.projectType = label;
-      break;
+  if (!result.industry) {
+    for (const ind of INDUSTRIES) {
+      if (normalized.includes(ind)) {
+        result.industry = normalizeFieldValue('industry', ind);
+        break;
+      }
     }
   }
+
+  if (!result.timeline) {
+    const timelineMatch = message.match(/(\d+)\s*(weeks?|months?|days?|quarters?)/i);
+    if (timelineMatch) result.timeline = normalizeFieldValue('timeline', timelineMatch[0]);
+  }
+
+  if (!result.budget) {
+    const budgetMatch = message.match(/\$[\d,]+\s*[kKmM]?|\$[\d,.]+\s*(k|m|million|thousand)/i);
+    if (budgetMatch) result.budget = normalizeFieldValue('budget', budgetMatch[0].trim());
+  }
+
+  if (!result.teamSize) {
+    const teamMatch = message.match(
+      /(\d+)\s*(person|people|engineers?|developers?|team members?|consultants?)/i,
+    );
+    if (teamMatch) result.teamSize = teamMatch[0].trim();
+  }
+
+  if (!result.projectType) {
+    for (const [keyword, label] of Object.entries(PROJECT_TYPES)) {
+      if (normalized.includes(keyword)) {
+        result.projectType = label;
+        break;
+      }
+    }
+  }
+
+  // --- STEP 5 — LLM fallback for fields still missing ---
+  const missingFields = Object.keys(FIELD_PATTERNS).filter((k) => !result[k]);
+
+  if (missingFields.length > 0 && generateFn) {
+    try {
+      const prompt = [
+        'Extract structured fields from the following user message.',
+        `Fields to extract: ${missingFields.join(', ')}.`,
+        'Return a JSON object with only the fields that are clearly present.',
+        'Use null for any field not found. Return JSON only, no explanation.',
+        '',
+        `Message: "${message}"`,
+      ].join('\n');
+
+      const raw = await generateFn(prompt);
+      const cleaned = raw
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```\s*$/, '')
+        .trim();
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+
+      for (const field of missingFields) {
+        const val = parsed[field];
+        if (typeof val === 'string' && val.trim()) {
+          result[field] = normalizeFieldValue(field, val.trim());
+        }
+      }
+    } catch {
+      // Non-fatal — proceed with what regex found
+    }
+  }
+
+  // --- STEP 8 — Debug logging ---
+  console.log({ input: message, extracted: result });
 
   return result;
 }

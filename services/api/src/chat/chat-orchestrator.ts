@@ -208,7 +208,7 @@ export class ChatOrchestrator {
     if (!instance.context.proposalRequirements) {
       instance.context.proposalRequirements = {};
     }
-    const extractedRequirements = extractRequirementsFromMessage(message);
+    const extractedRequirements = await extractRequirementsFromMessage(message, llmGenerateFn);
     Object.assign(
       instance.context.proposalRequirements as Record<string, string>,
       extractedRequirements,

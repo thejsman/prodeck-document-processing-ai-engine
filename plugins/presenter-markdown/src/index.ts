@@ -1,70 +1,58 @@
-/**
- * Markdown presenter plugin.
- *
- * Writes the generated document's markdown content to a `.md` file
- * alongside the proposal output.
- *
- * Output path resolution (first match wins):
- *   1. Replace extension on `document.metadata.output_path`
- *   2. `config.outputDir` + `config.filename` (or `proposal.md`)
- *   3. `context.workingDirectory` + `proposal.md`
- */
+import type { PresentationPlugin, PresenterTokens, PluginManifest } from '@ai-engine/plugin-sdk';
 
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import type { ExecutionContext } from '@ai-engine/runtime';
-
-interface Document {
-  readonly type: string;
-  readonly source: string;
-  readonly content: string;
-  readonly metadata: Readonly<Record<string, unknown>>;
-  readonly createdAt: string;
-}
-
-function resolveOutputPath(
-  document: Document,
-  config?: Readonly<Record<string, unknown>>,
-  context?: ExecutionContext,
-): string {
-  // 1. Derive from existing output_path in metadata
-  const existingPath = document.metadata.output_path;
-  if (typeof existingPath === 'string' && existingPath.length > 0) {
-    const dir = path.dirname(existingPath);
-    const base = path.basename(existingPath, path.extname(existingPath));
-    return path.join(dir, `${base}.md`);
-  }
-
-  // 2. Use config.outputDir + filename
-  const outputDir =
-    (config?.outputDir as string | undefined) ??
-    context?.workingDirectory ??
-    '.';
-  const filename = (config?.filename as string | undefined) ?? 'proposal.md';
-  return path.join(outputDir, filename);
-}
-
-const presenter = {
-  name: 'presenter-markdown' as const,
-
-  async present(
-    data: unknown,
-    config?: Readonly<Record<string, unknown>>,
-    context?: ExecutionContext,
-  ): Promise<Document> {
-    const document = data as Document;
-    const mdPath = resolveOutputPath(document, config, context);
-
-    await mkdir(path.dirname(mdPath), { recursive: true });
-    await writeFile(mdPath, document.content, 'utf-8');
-
-    context?.logger.info(`Markdown written: ${mdPath}`);
-
-    return {
-      ...document,
-      metadata: { ...document.metadata, markdown_path: mdPath },
-    };
+const manifest: PluginManifest = {
+  name: 'markdown',
+  displayName: 'Markdown Presenter',
+  version: '0.1.0',
+  sdkVersion: '0.1',
+  type: 'presenter',
+  entry: './dist/index.js',
+  capabilities: {
+    presentation: {
+      sectionTypes: [
+        'hero', 'challenge', 'approach', 'deliverables', 'timeline',
+        'pricing', 'whyus', 'nextsteps', 'testimonials', 'showcase',
+        'benefits', 'problem', 'stats', 'metrics', 'security',
+        'techstack', 'testing', 'generic',
+      ],
+      supportsCustomTokens: false,
+      imageSourceTypes: [],
+    },
   },
 };
 
-export default presenter;
+const tokens: PresenterTokens = {
+  bg: '#FFFFFF',
+  surface: '#FFFFFF',
+  surfaceAlt: '#F6F8FA',
+  surfaceCard: '#FFFFFF',
+  text: '#1F2328',
+  textMuted: '#656D76',
+  textSubtle: '#9198A1',
+  accent: '#0969DA',
+  accentDim: '#218BFF',
+  accentRgb: '9,105,218',
+  glowColor: 'rgba(9,105,218,0.15)',
+  border: '#D0D7DE',
+  borderSubtle: '#EAEEF2',
+  heroFont: 'system-ui',
+  bodyFont: 'system-ui',
+  heroWeight: 700,
+  heroStyle: 'normal',
+  labelTracking: '0em',
+  dark: false,
+  noiseOpacity: 0,
+  gradientHero: 'none',
+  gradientText: 'none',
+  meshGradient: 'none',
+  cardShadow: '0 1px 3px rgba(31,35,40,0.1)',
+  cardShadowHover: '0 4px 12px rgba(31,35,40,0.15)',
+};
+
+const plugin: PresentationPlugin = {
+  manifest,
+  tokens,
+  fonts: [],
+};
+
+export default plugin;
