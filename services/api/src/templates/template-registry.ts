@@ -12,6 +12,7 @@
 
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import yaml from 'js-yaml';
 import type { ProposalTemplate } from './template-types.js';
 
 // ---------------------------------------------------------------------------
@@ -144,15 +145,29 @@ const SYSTEM_TEMPLATES: ProposalTemplate[] = [
 /**
  * List all available templates for a namespace.
  *
- * Combines system templates with any derived templates found in the
- * namespace's `templates/` metadata directory.
+ * Combines (in priority order):
+ *   1. System templates — hardcoded defaults
+ *   2. YAML templates — from workdir/data/templates/ (used by the Python plugin)
+ *   3. Derived templates — JSON metadata from namespace templates/ dir
+ *
+ * YAML templates take precedence over system templates with the same ID so
+ * user-customised versions of system templates are surfaced correctly.
  */
 export async function listTemplates(
   workdir: string,
   namespace: string,
 ): Promise<ProposalTemplate[]> {
-  const derived = await loadDerivedTemplates(workdir, namespace);
-  return [...SYSTEM_TEMPLATES, ...derived];
+  const [yamlTemplates, derived] = await Promise.all([
+    loadYamlTemplates(workdir),
+    loadDerivedTemplates(workdir, namespace),
+  ]);
+
+  // Merge: system → yaml overrides by id → derived overrides by id
+  const byId = new Map<string, ProposalTemplate>();
+  for (const t of [...SYSTEM_TEMPLATES, ...yamlTemplates, ...derived]) {
+    byId.set(t.id, t);
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -183,6 +198,73 @@ export function getSystemTemplates(): ProposalTemplate[] {
 // ---------------------------------------------------------------------------
 // Derived template loader
 // ---------------------------------------------------------------------------
+
+/**
+ * Load YAML templates from workdir/data/templates/.
+ * These are the canonical templates consumed by @ai-engine/plugin-proposal-generator.
+ *
+ * YAML format:
+ *   name: <display name>
+ *   description: <text>
+ *   sections:
+ *     - title: <section heading>
+ *       query: <rag search query>
+ *       instruction: <llm writing directive>
+ *
+ * Converted to ProposalTemplate with:
+ *   id  = filename slug (without .yaml)
+ *   tags = words from name/description (heuristic)
+ *   structure = ordered section titles
+ */
+async function loadYamlTemplates(workdir: string): Promise<ProposalTemplate[]> {
+  const templatesDir = path.join(workdir, 'data', 'templates');
+
+  let entries: string[];
+  try {
+    entries = await readdir(templatesDir);
+  } catch {
+    return [];
+  }
+
+  const yamlFiles = entries.filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'));
+  const templates: ProposalTemplate[] = [];
+
+  for (const file of yamlFiles) {
+    try {
+      const raw = await readFile(path.join(templatesDir, file), 'utf-8');
+      const parsed = yaml.load(raw) as Record<string, unknown>;
+
+      if (!parsed || typeof parsed !== 'object') continue;
+
+      const sections = Array.isArray(parsed.sections)
+        ? (parsed.sections as Array<{ title?: string }>)
+            .map((s) => (typeof s.title === 'string' ? s.title.trim() : ''))
+            .filter(Boolean)
+        : [];
+
+      if (sections.length === 0) continue;
+
+      const slug = file.replace(/\.ya?ml$/, '');
+      const name = typeof parsed.name === 'string' ? parsed.name : slug;
+      const description = typeof parsed.description === 'string' ? parsed.description : '';
+
+      // Heuristic tags: meaningful words from name + description
+      const tagText = `${name} ${description}`.toLowerCase();
+      const tags = [...new Set(
+        tagText
+          .split(/[\s,.\-_/]+/)
+          .filter((w) => w.length > 3)
+          .slice(0, 10),
+      )];
+
+      templates.push({ id: slug, name, tags, structure: sections });
+    } catch {
+      // Skip unparseable files
+    }
+  }
+
+  return templates;
+}
 
 /**
  * Scan the namespace `templates/` directory for JSON template metadata files.

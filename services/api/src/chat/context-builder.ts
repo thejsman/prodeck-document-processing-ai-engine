@@ -413,10 +413,11 @@ const GENERATING_STATES = new Set([
   'generating_outline', 'generating_sections',
   'analyzing_rfp', 'generating_template',
   'gap_analysis', 'go_no_go',
+  'analyzing', 'applying_fix',
 ]);
 
 const REVIEW_STATES = new Set([
-  'recommend_template', 'review_template', 'name_template', 'qa_review',
+  'recommend_template', 'review_template', 'name_template', 'qa_review', 'reviewing',
 ]);
 
 /**

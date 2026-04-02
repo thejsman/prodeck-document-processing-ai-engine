@@ -16,6 +16,7 @@
  */
 
 import type { ProviderPolicyConfig } from '../provider-policy.js';
+import { logTrace } from '../trace/trace-store.js';
 import { routeIntent } from './intent-router.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
@@ -32,6 +33,12 @@ import type { WorkflowDefinition } from '../workflows/proposal-generation.workfl
 import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
 import { ProposalVersionControlWorkflow } from '../workflows/proposal-version-control.workflow.js';
 import { TemplateCreationWorkflow } from '../workflows/template-creation.workflow.js';
+import { ComplianceRedlineWorkflow } from '../workflows/compliance-redline.workflow.js';
+import {
+  handleAnalyzing as handleComplianceAnalyzing,
+  handleReviewing as handleComplianceReviewing,
+  handleApplyingFix as handleComplianceApplyingFix,
+} from '../workflows/compliance-redline.handlers.js';
 import {
   createInstance,
   loadActiveInstance,
@@ -80,6 +87,7 @@ const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   [RfpAnalysisWorkflow.id]: RfpAnalysisWorkflow,
   [ProposalVersionControlWorkflow.id]: ProposalVersionControlWorkflow,
   [TemplateCreationWorkflow.id]: TemplateCreationWorkflow,
+  [ComplianceRedlineWorkflow.id]: ComplianceRedlineWorkflow,
 };
 
 // ---------------------------------------------------------------------------
@@ -131,6 +139,10 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   extract_requirements: handleExtractRequirements,
   gap_analysis: handleGapAnalysis,
   go_no_go: handleGoNoGo,
+  // compliance_redline
+  analyzing:    handleComplianceAnalyzing,
+  reviewing:    handleComplianceReviewing,
+  applying_fix: handleComplianceApplyingFix,
   // template_creation
   analyzing_rfp: handleAnalyzingRfp,
   review_template: handleReviewTemplate,
@@ -320,6 +332,14 @@ export class ChatOrchestrator {
             error: event.error,
           },
         });
+        // TRACE — tool calls and results
+        if (event.type === 'tool_started') {
+          logTrace(chatSessionId, { type: 'tool', name: event.tool, data: event.input });
+        } else if (event.type === 'tool_completed') {
+          logTrace(chatSessionId, { type: 'tool', name: `${event.tool}_result`, data: event.output });
+        } else if (event.type === 'tool_failed') {
+          logTrace(chatSessionId, { type: 'error', name: `${event.tool}_failed`, data: event.error });
+        }
       };
 
       const ctx: HandlerContext = {
@@ -334,8 +354,21 @@ export class ChatOrchestrator {
         conversationContext,
       };
 
-      const result = await handler(ctx);
+      let result: HandlerResult;
+      try {
+        result = await handler(ctx);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logTrace(chatSessionId, { type: 'error', name: msg });
+        throw err;
+      }
       lastResult = result;
+
+      // TRACE — artifact creation (handler advertises the saved proposal URL)
+      if (result.actions?.openProposalUrl) {
+        const artifactId = result.actions.openProposalUrl.split('/').pop() ?? '';
+        logTrace(chatSessionId, { type: 'artifact', name: 'proposal_saved', data: { artifactId } });
+      }
 
       // STEP 8 — checkpoint context after every handler execution
       await updateContext(this.workdir, instance, instance.context);
@@ -357,6 +390,9 @@ export class ChatOrchestrator {
 
       // STEP 8 — checkpoint state transition
       await updateState(this.workdir, instance, nextState);
+
+      // TRACE — state transition
+      logTrace(chatSessionId, { type: 'state', name: nextState });
 
       if (nextState === 'completed') {
         await markCompleted(this.workdir, instance);
@@ -448,7 +484,7 @@ export class ChatOrchestrator {
         proposalSection: { section, content, artifactId },
       });
 
-    const onToolEvent = (event: ToolTraceEvent) =>
+    const onToolEvent = (event: ToolTraceEvent) => {
       emitChatSessionEvent(chatSessionId, {
         type: 'tool_progress',
         toolProgress: {
@@ -463,6 +499,14 @@ export class ChatOrchestrator {
           error: event.error,
         },
       });
+      if (event.type === 'tool_started') {
+        logTrace(chatSessionId, { type: 'tool', name: event.tool, data: event.input });
+      } else if (event.type === 'tool_completed') {
+        logTrace(chatSessionId, { type: 'tool', name: `${event.tool}_result`, data: event.output });
+      } else if (event.type === 'tool_failed') {
+        logTrace(chatSessionId, { type: 'error', name: `${event.tool}_failed`, data: event.error });
+      }
+    };
 
     let lastResult: HandlerResult | null = null;
 
@@ -489,6 +533,11 @@ export class ChatOrchestrator {
         const result = await handler(ctx);
         lastResult = result;
 
+        if (result.actions?.openProposalUrl) {
+          const artifactId = result.actions.openProposalUrl.split('/').pop() ?? '';
+          logTrace(chatSessionId, { type: 'artifact', name: 'proposal_saved', data: { artifactId } });
+        }
+
         await updateContext(this.workdir, instance, instance.context);
 
         if (!result.stateSignal) {
@@ -502,6 +551,7 @@ export class ChatOrchestrator {
         if (!nextState) break;
 
         await updateState(this.workdir, instance, nextState);
+        logTrace(chatSessionId, { type: 'state', name: nextState });
 
         if (nextState === 'completed') {
           await markCompleted(this.workdir, instance);
@@ -541,6 +591,7 @@ export class ChatOrchestrator {
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      logTrace(chatSessionId, { type: 'error', name: errorMessage });
       emitChatSessionEvent(chatSessionId, { type: 'error', error: errorMessage });
     }
   }

@@ -12,13 +12,13 @@
  * the injected workdir path.
  *
  * Tool-Request Loop v2:
- *   The generating_outline and generating_sections handlers now use
- *   AgentExecutor to enable the LLM to autonomously call tools (e.g.
- *   search-documents) during generation.  Tool execution traces are emitted
- *   via onToolEvent for SSE streaming to the client.
+ *   The generating_outline handler uses AgentExecutor to enable the LLM to
+ *   autonomously call tools (e.g. search-documents) during outline generation.
+ *   Tool execution traces are emitted via onToolEvent for SSE streaming.
+ *   Section content generation is delegated to @ai-engine/plugin-proposal-generator.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import {
   buildFactMap,
   detectContradictions,
@@ -29,6 +29,8 @@ import {
 import path from 'node:path';
 import type { ToolOutput } from '@ai-engine/core';
 import { toolRegistry } from '@ai-engine/core';
+import { spawnProposalGenerator } from '@ai-engine/plugin-proposal-generator';
+import { ensureTemplateYaml } from '../templates/template-yaml-bridge.js';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
@@ -792,307 +794,105 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
 }
 
 // ---------------------------------------------------------------------------
-// generating_sections handler — cross-section coherence
+// generating_sections handler
 // ---------------------------------------------------------------------------
 
 /**
- * Accumulated state built up as each section is generated.
- * Passed into the next section's prompt so the LLM stays coherent.
- */
-interface ProposalState {
-  /** Concrete facts / claims established in prior sections. */
-  keyPoints: string[];
-  /** Timeline value set by an earlier section (locked — STEP 5 safety rule). */
-  timeline: string | null;
-  /** Pricing/budget value set by an earlier section (locked). */
-  pricing: string | null;
-  /** Writing tone established by the first section that set one. */
-  tone: string | null;
-}
-
-/**
- * Merge a newly extracted section summary into the running ProposalState.
- * STEP 5 safety rule: existing timeline/pricing are never overridden.
- */
-function mergeSectionSummary(
-  state: ProposalState,
-  summary: Partial<ProposalState>,
-): ProposalState {
-  const existingNormalized = new Set(
-    state.keyPoints.map((p) => p.toLowerCase().trim()),
-  );
-  const newPoints = (summary.keyPoints ?? []).filter(
-    (p) => !existingNormalized.has(p.toLowerCase().trim()),
-  );
-  return {
-    keyPoints: [...state.keyPoints, ...newPoints],
-    timeline: state.timeline ?? summary.timeline ?? null,   // prefer existing
-    pricing:  state.pricing  ?? summary.pricing  ?? null,   // prefer existing
-    tone:     state.tone     ?? summary.tone     ?? null,   // first wins
-  };
-}
-
-/**
- * Call the LLM to extract a structured summary from a completed section.
- * Non-fatal — returns empty summary on any failure.
- */
-async function extractSectionSummary(
-  sectionName: string,
-  content: string,
-): Promise<Partial<ProposalState>> {
-  const prompt = [
-    `You just read the "${sectionName}" section of a proposal.`,
-    'Extract a structured summary for use in subsequent sections to maintain coherence.',
-    '',
-    'Return JSON with:',
-    '- keyPoints: array of 1–3 key concrete facts or claims stated in this section',
-    '- timeline: the timeline value if explicitly stated, or null',
-    '- pricing: the pricing/budget value if explicitly stated, or null',
-    '- tone: one word describing the writing tone (e.g. "confident", "consultative"), or null',
-    '',
-    'Rules:',
-    '- Only include values explicitly stated — do NOT infer',
-    '- keyPoints must be specific facts, not vague summaries',
-    '- Output ONLY raw JSON — no markdown fences, no commentary',
-    '',
-    `Section content:\n${content.slice(0, 2000)}`,
-  ].join('\n');
-
-  try {
-    const raw = await llmGenerateFn(prompt);
-    const cleaned = raw
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```\s*$/, '')
-      .trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    return {
-      keyPoints: Array.isArray(parsed.keyPoints)
-        ? (parsed.keyPoints as unknown[]).filter((x): x is string => typeof x === 'string')
-        : [],
-      timeline: typeof parsed.timeline === 'string' ? parsed.timeline : null,
-      pricing:  typeof parsed.pricing  === 'string' ? parsed.pricing  : null,
-      tone:     typeof parsed.tone     === 'string' ? parsed.tone     : null,
-    };
-  } catch {
-    return { keyPoints: [] };
-  }
-}
-
-/**
- * When keyPoints exceeds 10 entries, ask the LLM to compress them into 3–5
- * bullets so the coherence context block stays concise (STEP 6).
- */
-async function compressKeyPoints(keyPoints: string[]): Promise<string[]> {
-  const prompt = [
-    'The following is a list of key points from a proposal being written.',
-    'Summarize them into 3–5 concise, non-redundant bullets that preserve all important facts.',
-    'Output ONLY the bullet items — one per line, no leading dashes or bullets.',
-    '',
-    keyPoints.map((p) => `- ${p}`).join('\n'),
-  ].join('\n');
-
-  try {
-    const raw = await llmGenerateFn(prompt);
-    const compressed = raw
-      .split('\n')
-      .map((l) => l.replace(/^[-•*]\s*/, '').trim())
-      .filter((l) => l.length > 0)
-      .slice(0, 5);
-    return compressed.length > 0 ? compressed : keyPoints.slice(0, 5);
-  } catch {
-    return keyPoints.slice(0, 5);
-  }
-}
-
-/**
- * Build a focused prompt for a single proposal section.
- * Injects coherence context from previously generated sections (STEP 4).
- */
-function buildSectionPrompt(
-  section: string,
-  allSections: string[],
-  requirements: Record<string, string>,
-  outline: string,
-  proposalState: ProposalState,
-): string {
-  const reqLines = REQUIRED_FIELDS
-    .filter((f) => requirements[f])
-    .map((f) => `- ${f}: ${requirements[f]}`)
-    .join('\n');
-
-  const parts = [
-    `You are a professional proposal writer writing the **${section}** section.`,
-    '',
-    'Confirmed proposal inputs:',
-    reqLines || '(none specified)',
-    '',
-    'Full section list for context:',
-    ...allSections.map((s, i) =>
-      `${i + 1}. ${s === section ? `**${s}** ← you are writing this` : s}`),
-    '',
-  ];
-
-  if (outline) {
-    parts.push(`Proposal outline:\n${outline}\n`, '');
-  }
-
-  // Coherence block — only injected once there are prior sections
-  const hasPriorContext = proposalState.keyPoints.length > 0
-    || proposalState.timeline
-    || proposalState.pricing
-    || proposalState.tone;
-
-  if (hasPriorContext) {
-    parts.push('Context from previous sections:');
-    if (proposalState.timeline) parts.push(`- Timeline: ${proposalState.timeline}`);
-    if (proposalState.pricing)  parts.push(`- Pricing:  ${proposalState.pricing}`);
-    if (proposalState.tone)     parts.push(`- Tone:     ${proposalState.tone}`);
-    if (proposalState.keyPoints.length > 0) {
-      parts.push('- Key points already established:');
-      proposalState.keyPoints.forEach((p) => parts.push(`  • ${p}`));
-    }
-    parts.push(
-      '',
-      'Coherence rules:',
-      '- Do NOT contradict the timeline, pricing, or key points above',
-      '- Do NOT repeat these points verbatim — reference them only if adding new value',
-      '- Maintain the established tone',
-      '',
-    );
-  }
-
-  parts.push(
-    'Writing rules:',
-    '- Write this section in full — no placeholders or "[TBD]"',
-    '- Be specific, actionable, and persuasive',
-    '- Output ONLY the section body — the heading will be added automatically',
-    '- 2–4 focused paragraphs, professional tone',
-  );
-
-  return parts.join('\n');
-}
-
-/**
- * Expand the outline into a full proposal draft, generating one section at a
- * time so the client receives progressive phase events and structured output.
+ * Expand the outline into a full proposal draft using the canonical
+ * @ai-engine/plugin-proposal-generator Python plugin.
  *
  * Flow:
- *   1. Resolve section list from selectedTemplate (or default).
- *   2. For each section:
- *        a. Emit phase "Writing: <section name>".
- *        b. Call LLM with a focused per-section prompt.
- *        c. Emit the formatted section content via onChunk.
- *   3. Save the assembled draft.
- *   4. Signal DONE.
+ *   1. Resolve the selected template → ensure a YAML file exists for it
+ *   2. Call spawnProposalGenerator — writes the file to the namespace
+ *      proposals directory and returns the full markdown
+ *   3. Validation guard — throw if no artifact was saved
+ *   4. Create initial version snapshot
+ *   5. Update context.proposalArtifactId
+ *   6. Parse sections from markdown and emit as structured blocks (STEP 7)
+ *   7. QA pass — detect cross-section contradictions
  */
 export async function handleGeneratingSections(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, onPhase, onChunk, onSection } = ctx;
 
-  const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
-  const sections = selectedTemplate?.structure ?? [
-    'Executive Summary',
-    'Problem Statement',
-    'Proposed Solution',
-    'Technical Approach',
-    'Timeline & Milestones',
-    'Team & Credentials',
-    'Budget Estimate',
-    'Next Steps',
-  ];
-
   const requirements = getEffectiveRequirements(instance.context);
-  const outline = (instance.context.outline as string | undefined) ?? '';
 
-  // Pre-compute fileName so it can be included in onSection events during streaming.
-  const timestamp = Date.now();
-  const fileName = `chat-draft-${timestamp}.md`;
+  // ── Resolve template ────────────────────────────────────────────
+  const selectedTemplate = instance.context.selectedTemplate as
+    | { id?: string; name?: string; structure?: string[] }
+    | undefined;
 
-  // Seed proposalState from confirmed requirements so the first section
-  // already has timeline and pricing locked (STEP 5 safety rule).
-  let proposalState: ProposalState = {
-    keyPoints: [],
-    timeline: requirements.timeline ?? null,
-    pricing:  requirements.budget   ?? null,
-    tone:     null,
-  };
-
-  let proposalMarkdown = '';
-
-  for (const section of sections) {
-    onPhase(`Writing: ${section}`);
-
-    const sectionPrompt = buildSectionPrompt(
-      section, sections, requirements, outline, proposalState,
-    );
-
-    try {
-      const content = await llmGenerateFn(sectionPrompt);
-      const formatted = `## ${section}\n\n${content.trim()}\n\n`;
-
-      // Prefer structured section events when the caller supports them;
-      // fall back to raw chunk for non-section-aware paths (e.g. resume).
-      if (onSection) {
-        onSection(section, content.trim(), fileName);
-      } else {
-        onChunk(formatted);
-      }
-      proposalMarkdown += formatted;
-
-      // Extract summary from the completed section and update proposalState
-      const summary = await extractSectionSummary(section, content);
-      let merged = mergeSectionSummary(proposalState, summary);
-
-      // STEP 6: Compress keyPoints when they exceed 10 entries
-      if (merged.keyPoints.length > 10) {
-        merged = { ...merged, keyPoints: await compressKeyPoints(merged.keyPoints) };
-      }
-
-      proposalState = merged;
-    } catch {
-      // Non-fatal — include a placeholder and continue with remaining sections
-      const placeholder = `## ${section}\n\n_(Section generation failed — please edit manually)_\n\n`;
-      if (onSection) {
-        onSection(section, '_(Section generation failed — please edit manually)_', fileName);
-      } else {
-        onChunk(placeholder);
-      }
-      proposalMarkdown += placeholder;
-    }
+  // Ensure a YAML file exists for the selected template so the plugin can
+  // use it. Falls back to 'default' if no template was selected.
+  let templateSlug = 'default';
+  if (selectedTemplate?.id && selectedTemplate.structure) {
+    onPhase('Preparing template');
+    templateSlug = await ensureTemplateYaml(workdir, {
+      id: selectedTemplate.id,
+      name: selectedTemplate.name ?? selectedTemplate.id,
+      tags: [],
+      structure: selectedTemplate.structure,
+    });
   }
 
-  // Persist final proposalState so it's available for inspection / future edits
-  instance.context.proposalState = proposalState;
-
-  // Persist the artifact
+  // ── Run the Python proposal generator plugin ────────────────────
   const proposalsDir = path.join(workdir, 'namespaces', namespace, 'proposals');
   await mkdir(proposalsDir, { recursive: true });
-  await writeFile(path.join(proposalsDir, fileName), proposalMarkdown, 'utf-8');
 
-  instance.context.proposalArtifactId = fileName;
+  onPhase('Generating proposal');
 
-  // Auto-snapshot: create initial version (v1.0) for the new proposal
+  const document = await spawnProposalGenerator({
+    workdir,
+    outputDir: proposalsDir,
+    client: requirements.client ?? namespace,
+    industry: requirements.industry ?? 'General',
+    namespace,
+    template: templateSlug,
+    templateDir: path.join(workdir, 'data', 'templates'),
+    overwrite: false,
+    pricing: null,
+    tone: null,
+    memory: null,
+  });
+
+  // ── Validation guard ────────────────────────────────────────────
+  const meta = document.metadata as Record<string, unknown>;
+  const outputFile = meta.output_file as string | undefined;
+  if (!outputFile) throw new Error('Proposal not saved — plugin returned no output_file');
+
+  const artifactId = path.basename(outputFile);
+  const proposalMarkdown = document.content;
+
+  // ── Version creation ────────────────────────────────────────────
   try {
-    const version = await createInitialVersion(workdir, namespace, fileName, 'system');
+    const version = await createInitialVersion(workdir, namespace, artifactId, 'system');
     onPhase(`Saved as version ${version.versionLabel}`);
   } catch {
-    // Non-fatal — version tracking failure should not block proposal delivery
+    // Non-fatal — version tracking must not block proposal delivery
   }
 
-  // ── QA pass — detect cross-section contradictions ────────────
+  // ── Context update ──────────────────────────────────────────────
+  instance.context.proposalArtifactId = artifactId;
+
+  // ── Emit structured section blocks (STEP 7) ─────────────────────
+  // The Python plugin returns the full markdown at once. Parse it into
+  // sections and emit each one so the frontend renders interactive blocks.
+  const parsedSections = parseSectionsFromMarkdown(proposalMarkdown);
+  if (onSection && parsedSections.length > 0) {
+    for (const sec of parsedSections) {
+      onSection(sec.name, sec.content, artifactId);
+    }
+  } else {
+    onChunk(proposalMarkdown);
+  }
+
+  // ── QA pass ─────────────────────────────────────────────────────
   onPhase('Checking proposal consistency');
   try {
-    const parsedSections = parseSectionsFromMarkdown(proposalMarkdown);
     const factMap = await buildFactMap(parsedSections);
-    const contradictions = detectContradictions(
-      factMap,
-      getEffectiveRequirements(instance.context),
-    );
-
-    // Store QA results for the qa_review handler
+    const contradictions = detectContradictions(factMap, requirements);
     instance.context.qaContradictions = contradictions;
-    instance.context.qaArtifactPath = path.join(proposalsDir, fileName);
+    instance.context.qaArtifactPath = outputFile;
   } catch {
-    // Non-fatal — QA failure must not block proposal delivery
     instance.context.qaContradictions = [];
   }
 
@@ -1100,7 +900,7 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     message: proposalMarkdown,
     stateSignal: 'DONE',
     actions: {
-      openProposalUrl: `/proposals/${namespace}/${fileName}`,
+      openProposalUrl: `/proposals/${namespace}/${artifactId}`,
     },
   };
 }

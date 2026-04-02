@@ -166,7 +166,7 @@ async function extractCapabilityKeywords(
     });
 
     // Extract meaningful keywords from chunk text
-    const allText = result.chunks.map((c: { text: string; score: number }) => c.text).join(' ').toLowerCase();
+    const allText = result.chunks.map((c) => c.text).join(' ').toLowerCase();
     return extractKeywords(allText);
   } catch {
     // Vector store unavailable — return empty (non-fatal)

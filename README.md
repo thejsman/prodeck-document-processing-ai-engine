@@ -157,6 +157,35 @@ node services/api/dist/index.js
 PROVIDER_POLICY_PATH=config/provider_policy.json node services/api/dist/index.js
 ```
 
+Namespace config is loaded from `config/namespaces/<namespace>.json`.
+
+To store generated assets in S3 and use Qdrant for vector search, create a namespace config like:
+
+```json
+{
+  "storage": {
+    "type": "s3",
+    "bucket": "your-assets-bucket",
+    "region": "ap-south-1",
+    "basePrefix": "ai-engine"
+  },
+  "vectorStore": {
+    "type": "qdrant",
+    "url": "http://localhost:6333"
+  }
+}
+```
+
+Example file:
+
+- `config/namespaces/default.s3-qdrant.example.json`
+
+Runtime env required for this setup:
+
+- `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for S3, unless your runtime uses an IAM role
+- `QDRANT_URL` optionally, if you want a global default instead of setting `vectorStore.url` per namespace
+- `OPENAI_API_KEY` or Ollama settings for embeddings and generation, depending on your LLM provider
+
 | Method | Path          | Description                       |
 | ------ | ------------- | --------------------------------- |
 | `GET`  | `/health`     | Health check                      |

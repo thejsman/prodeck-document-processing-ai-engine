@@ -102,6 +102,31 @@ const TEMPLATE_CREATION_TRIGGERS = [
 ];
 
 /**
+ * Patterns that signal the user wants a compliance / legal review of the proposal.
+ * Checked before proposal triggers — more specific intent.
+ */
+const COMPLIANCE_TRIGGERS = [
+  'check compliance',
+  'compliance check',
+  'compliance review',
+  'review compliance',
+  'review for compliance',
+  'review for legal',
+  'legal review',
+  'legal check',
+  'redline',
+  'red line',
+  'check for legal risks',
+  'check for risks',
+  'flag legal issues',
+  'flag compliance',
+  'compliance issues',
+  'legal issues',
+  'validate proposal',
+  'proposal validation',
+];
+
+/**
  * Patterns that signal the user wants to create a proposal.
  * Checked in order; first match wins.
  */
@@ -139,6 +164,13 @@ export function routeIntent(message: string): IntentRouteResult | null {
   for (const trigger of TEMPLATE_CREATION_TRIGGERS) {
     if (lower.includes(trigger)) {
       return { workflowId: 'template_creation' };
+    }
+  }
+
+  // Compliance redline — checked before proposal triggers
+  for (const trigger of COMPLIANCE_TRIGGERS) {
+    if (lower.includes(trigger)) {
+      return { workflowId: 'compliance_redline' };
     }
   }
 

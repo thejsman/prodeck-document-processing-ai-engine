@@ -12,6 +12,7 @@ export {
   type QueryResult,
   type SearchChunksParams,
   type SearchChunksResult,
+  type RetrievedChunk,
   type DeleteNamespaceParams,
   type NamespaceStatsParams,
 } from './knowledge-bridge.js';

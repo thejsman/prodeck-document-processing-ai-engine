@@ -10,6 +10,7 @@ import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { ChatContextPanel } from '@/components/chat/ChatContextPanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
+import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
+  const [traceOpen, setTraceOpen] = useState(false);
   const [insights, setInsights] = useState<string[]>([]);
 
   const chatSessionIdRef = useRef<string | null>(null);
@@ -270,6 +272,13 @@ export default function ChatPage() {
               Clear
             </button>
           )}
+          <button
+            className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
+            onClick={() => setTraceOpen((v) => !v)}
+            title={traceOpen ? 'Hide trace' : 'Show execution trace'}
+          >
+            ⚡
+          </button>
           <button
             className={`chat-v2-panel-toggle${contextOpen ? ' active' : ''}`}
             onClick={() => setContextOpen((v) => !v)}
@@ -472,6 +481,15 @@ export default function ChatPage() {
 
         {/* Context panel */}
         {contextOpen && <ChatContextPanel namespace={namespace} insights={insights} />}
+
+        {/* Execution trace panel — only rendered when open */}
+        {traceOpen && chatSessionIdRef.current && (
+          <ExecutionTracePanel
+            chatSessionId={chatSessionIdRef.current}
+            apiKey={apiKey}
+            live={isStreaming}
+          />
+        )}
       </div>
     </div>
   );
