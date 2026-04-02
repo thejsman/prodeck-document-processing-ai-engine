@@ -491,17 +491,30 @@ export async function savePresentationConfig(
   return data.presentation;
 }
 
-export async function generateMicrosite(apiKey: string, namespace: string, proposalId: string): Promise<string[]> {
+export interface GenerateMicrositeOptions {
+  proposalMarkdown: string;
+  plugin?: string;
+  brand?: Record<string, unknown>;
+  customInstructions?: string;
+  preSynthesizedDesignSystem?: Record<string, unknown>;
+}
+
+export async function generateMicrosite(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  options: GenerateMicrositeOptions,
+): Promise<{ ast: unknown; assets: string[] }> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate`,
     {
       method: 'POST',
       headers: authHeaders(apiKey),
-      body: JSON.stringify({}),
+      body: JSON.stringify(options),
     },
   );
-  const data = await handleResponse<{ assets: string[] }>(res);
-  return data.assets ?? [];
+  const data = await handleResponse<{ ast: unknown; assets: string[] }>(res);
+  return { ast: data.ast ?? null, assets: data.assets ?? [] };
 }
 
 export interface SynthesizedDesignSystem {
@@ -528,19 +541,36 @@ export async function fetchMicrositeContent(
   apiKey: string,
   namespace: string,
   proposalId: string,
-): Promise<unknown | null> {
+): Promise<{ ast: unknown | null; savedAt: string | null }> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`,
     { headers: authHeaders(apiKey) },
   );
-  const data = await handleResponse<{ ast: unknown | null }>(res);
-  return data.ast;
+  const data = await handleResponse<{ ast: unknown | null; savedAt: string | null }>(res);
+  return { ast: data.ast ?? null, savedAt: data.savedAt ?? null };
 }
 
 export interface MicrositeHistoryServerEntry {
   namespace: string;
   savedAt: string;
   ast: unknown;
+}
+
+export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<void> {
+  const res = await fetch('/api/presentations/history/save', {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ namespace, ast }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
+  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
+    method: 'DELETE',
+    headers: authHeaders(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
 }
 
 export async function fetchAllMicrositeHistory(apiKey: string): Promise<MicrositeHistoryServerEntry[]> {
@@ -631,7 +661,8 @@ export interface AgentRunResult {
 
 export type StreamEvent =
   | { type: 'start'; message: string }
-  | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown> }
+  | { type: 'plan'; totalSections: number; sectionTypes: string[] }
+  | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
   | { type: 'complete'; ast: unknown }
   | { type: 'error'; message: string };
@@ -640,6 +671,8 @@ export interface GenerateStreamOptions {
   proposalMarkdown: string;
   plugin?: string | null;
   brand?: Record<string, unknown>;
+  customInstructions?: string;
+  fullDesignPrompt?: string;
   designBrief?: string;
   preSynthesizedDesignSystem?: Record<string, unknown>;
   onEvent: (event: StreamEvent) => void;
@@ -659,7 +692,9 @@ export async function generateMicrositeStream(
       proposalMarkdown: opts.proposalMarkdown,
       plugin: opts.plugin ?? 'cobalt',
       brand: opts.brand ?? {},
-      designBrief: opts.designBrief ?? '',
+      ...(opts.customInstructions ? { customInstructions: opts.customInstructions } : {}),
+      ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
+      ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
       ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
     }),
     signal: opts.signal,

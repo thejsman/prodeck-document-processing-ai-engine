@@ -3,9 +3,9 @@
 import type { PluginTokens, ChallengeContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Body, Label } from '../shared/Typography';
+import { Headline, Body, Label, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
@@ -58,27 +58,30 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
 
             {content.pullquote && (
               <Reveal delay={240}>
-                <blockquote
-                  style={{
-                    borderLeft: `3px solid ${tokens.accent}`,
-                    paddingLeft: 24,
-                    margin: 0,
-                    fontFamily: `'${tokens.heroFont}', serif`,
-                    fontWeight: tokens.heroWeight,
-                    fontStyle: 'italic',
-                    fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
-                    lineHeight: 1.5,
-                    color: tokens.text,
-                  }}
-                >
-                  {content.pullquote}
-                </blockquote>
+                <InlineEditable field="pullquote" label="Pull quote" value={content.pullquote ?? ''} multiline>
+                  <blockquote
+                    style={{
+                      borderLeft: `3px solid ${tokens.accent}`,
+                      paddingLeft: 24,
+                      margin: 0,
+                      fontFamily: `'${tokens.heroFont}', serif`,
+                      fontWeight: tokens.heroWeight,
+                      fontStyle: 'italic',
+                      fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
+                      lineHeight: 1.5,
+                      color: tokens.text,
+                    }}
+                    {...(hasMarkdown(content.pullquote ?? '')
+                      ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.pullquote ?? '') } }
+                      : { children: content.pullquote })}
+                  />
+                </InlineEditable>
               </Reveal>
             )}
           </div>
 
           {content.diagram ? (
-            <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={200} caption="Impact chain" />
+            <ClickableDiagram diagram={content.diagram} tokens={tokens} delay={200} caption="Impact chain" />
           ) : imageUrl ? (
             <Reveal delay={200}>
               <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${tokens.border}` }}>

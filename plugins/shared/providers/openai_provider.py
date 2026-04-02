@@ -48,6 +48,8 @@ class OpenAIProvider(LLMProvider):
             response = self._client.chat.completions.create(
                 model=self._generation_model,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=4096,
+                timeout=60,
             )
         except Exception as exc:
             raise RuntimeError(f"OpenAI chat completion failed: {exc}") from exc

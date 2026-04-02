@@ -5,30 +5,22 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, SubHeadline, Body, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { CircularProgress } from '../shared/CircularProgress';
+import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: TestingContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-const PYRAMID_WIDTHS = ['40%', '55%', '70%', '85%', '100%'];
-const PYRAMID_OPACITIES = [0.3, 0.25, 0.2, 0.15, 0.1];
-
-function hexToRgba(hex: string, alpha: number): string {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  if (isNaN(r) || isNaN(g) || isNaN(b)) return `rgba(128, 128, 128, ${alpha})`;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-export function TestingSection({ content, tokens, index }: Props) {
+export function TestingSection({ content, tokens }: Props) {
   const sortedLayers = [...(content.layers ?? [])].sort((a, b) => a.level - b.level);
+  const additionalInfo = content.additionalInfo ?? [];
 
   return (
     <section
@@ -42,18 +34,21 @@ export function TestingSection({ content, tokens, index }: Props) {
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
+          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
+              {content.eyebrow}
+            </Label>
+          </InlineEditable>
         </Reveal>
 
         <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 48 }}>
-            {content.headline}
-          </Headline>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <Headline tokens={tokens} style={{ marginBottom: 48 }}>
+              {content.headline}
+            </Headline>
+          </InlineEditable>
         </Reveal>
 
         {/* Circular progress rings — Gamma-style coverage indicators */}
@@ -69,27 +64,55 @@ export function TestingSection({ content, tokens, index }: Props) {
           {sortedLayers.map((layer, li) => {
             const numericMatch = layer.coverage.match(/(\d+)/);
             const numericValue = numericMatch ? parseInt(numericMatch[1], 10) : 0;
+            const originalIndex = (content.layers ?? []).findIndex(l => l === layer);
             return (
-              <CircularProgress
-                key={li}
-                value={numericValue}
-                label={layer.name}
-                description={layer.description}
-                size={140}
-                strokeWidth={10}
-                tokens={tokens}
-                delay={li * 120}
-              />
+              <InlineArrayItem key={li} arrayPath="layers" index={originalIndex} total={sortedLayers.length}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                  <CircularProgress
+                    value={numericValue}
+                    label={layer.name}
+                    description={layer.description}
+                    labelNode={
+                      <InlineEditable field={`layers.${originalIndex}.name`} label="Layer name" value={layer.name ?? ''}>
+                        <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.85rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: tokens.text }}>
+                          {layer.name}
+                        </span>
+                      </InlineEditable>
+                    }
+                    descriptionNode={
+                      <InlineEditable field={`layers.${originalIndex}.description`} label="Description" value={layer.description ?? ''} multiline>
+                        <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 300, fontSize: '0.8rem', color: tokens.textMuted, lineHeight: 1.5 }}>
+                          {layer.description}
+                        </span>
+                      </InlineEditable>
+                    }
+                    size={140}
+                    strokeWidth={10}
+                    tokens={tokens}
+                    delay={li * 120}
+                  />
+                  <InlineEditable field={`layers.${originalIndex}.coverage`} label="Coverage" value={layer.coverage ?? ''}>
+                    <span style={{ fontSize: '0.75rem', color: tokens.textMuted, fontFamily: `'${tokens.bodyFont}', sans-serif` }}>
+                      {layer.coverage}
+                    </span>
+                  </InlineEditable>
+                </div>
+              </InlineArrayItem>
             );
           })}
         </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <InlineAddItem
+            arrayPath="layers"
+            template={{ level: sortedLayers.length + 1, name: 'New layer', coverage: '80%', description: 'Description…' }}
+            label="Add layer"
+          />
+        </div>
 
-        {content.diagram && (
-          <ThemedMermaid diagram={content.diagram} tokens={tokens} delay={240} caption="Testing pyramid" />
-        )}
+        <ClickableDiagram diagram={content.diagram ?? ''} tokens={tokens} delay={240} caption="Testing pyramid" />
 
         {/* Additional info grid */}
-        {(content.additionalInfo ?? []).length > 0 && (
+        {additionalInfo.length > 0 && (
           <div
             style={{
               display: 'grid',
@@ -97,20 +120,33 @@ export function TestingSection({ content, tokens, index }: Props) {
               gap: 'clamp(1.5rem, 3vw, 2rem)',
             }}
           >
-            {(content.additionalInfo ?? []).map((info, ai) => (
+            {additionalInfo.map((info, ai) => (
               <Reveal key={ai} variant="fadeUp" delay={160 + sortedLayers.length * 100 + ai * 80}>
-                <div>
-                  <SubHeadline tokens={tokens} style={{ marginBottom: 10, fontSize: '1.1rem' }}>
-                    {info.heading}
-                  </SubHeadline>
-                  <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
-                    {info.body}
-                  </Body>
-                </div>
+                <InlineArrayItem arrayPath="additionalInfo" index={ai} total={additionalInfo.length}>
+                  <div>
+                    <InlineEditable field={`additionalInfo.${ai}.heading`} label="Heading" value={info.heading ?? ''}>
+                      <SubHeadline tokens={tokens} style={{ marginBottom: 10, fontSize: '1.1rem' }}>
+                        {info.heading}
+                      </SubHeadline>
+                    </InlineEditable>
+                    <InlineEditable field={`additionalInfo.${ai}.body`} label="Body" value={info.body ?? ''} multiline>
+                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
+                        {info.body}
+                      </Body>
+                    </InlineEditable>
+                  </div>
+                </InlineArrayItem>
               </Reveal>
             ))}
           </div>
         )}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="additionalInfo"
+            template={{ heading: 'New section', body: 'Description…' }}
+            label="Add info"
+          />
+        </div>
       </div>
     </section>
   );

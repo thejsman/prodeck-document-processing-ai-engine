@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { LayoutAST } from '@/types/presentation';
+import { saveMicrositeHistoryToServer, deleteMicrositeHistoryFromServer } from './api';
 
 export interface MicrositeHistoryEntry {
   id: string;
@@ -12,6 +13,16 @@ export interface MicrositeHistoryEntry {
 
 const STORAGE_KEY = 'ms_history';
 const EVENT_NAME = 'ms-history-update';
+
+export function getHistoryCount(): number {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as unknown[]).length : 0;
+  } catch {
+    return 0;
+  }
+}
 
 function readAll(): MicrositeHistoryEntry[] {
   if (typeof window === 'undefined') return [];
@@ -41,7 +52,7 @@ function writeAll(entries: MicrositeHistoryEntry[]) {
   }
 }
 
-export function useMicrositeHistory(namespace?: string) {
+export function useMicrositeHistory(namespace?: string, apiKey?: string) {
   const [all, setAll] = useState<MicrositeHistoryEntry[]>(() => readAll());
 
   // Re-sync when other hook instances write
@@ -68,21 +79,71 @@ export function useMicrositeHistory(namespace?: string) {
       namespace: ns ?? namespace ?? '',
       ast: astForStorage,
     };
-    setAll(prev => {
-      const next = [entry, ...prev].slice(0, 50);
-      writeAll(next);
-      return next;
-    });
+    // Write to localStorage immediately (outside React state) so the entry is
+    // persisted even if this runs after the component has unmounted (e.g. the
+    // caller is inside a finally block of an async function that outlives the
+    // component lifecycle).
+    const current = readAll();
+    const next = [entry, ...current].slice(0, 50);
+    writeAll(next);
+    // Sync React state so in-component views update too
+    setAll(() => next);
+    // Sync to server (fire-and-forget)
+    if (apiKey && entry.namespace) {
+      saveMicrositeHistoryToServer(apiKey, entry.namespace, astForStorage).catch(() => {});
+    }
     return entry;
-  }, [namespace]);
+  }, [namespace, apiKey]);
+
+  const updateEntry = useCallback((id: string, ast: LayoutAST): MicrositeHistoryEntry => {
+    const astForStorage: LayoutAST = ast.brand?.logoUrl?.startsWith('data:')
+      ? { ...ast, brand: { ...ast.brand, logoUrl: null } }
+      : ast;
+    const current = readAll();
+    const existing = current.find(e => e.id === id);
+    if (!existing) {
+      // Not in localStorage (e.g. server-only entry) — create new entry instead
+      const entry: MicrositeHistoryEntry = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        savedAt: new Date().toISOString(),
+        namespace: namespace ?? '',
+        ast: astForStorage,
+      };
+      const next = [entry, ...current].slice(0, 50);
+      writeAll(next);
+      setAll(() => next);
+      if (apiKey && entry.namespace) {
+        saveMicrositeHistoryToServer(apiKey, entry.namespace, astForStorage).catch(() => {});
+      }
+      return entry;
+    }
+    const updated: MicrositeHistoryEntry = { ...existing, savedAt: new Date().toISOString(), ast: astForStorage };
+    const next = current.map(e => e.id === id ? updated : e);
+    writeAll(next);
+    setAll(() => next);
+    if (apiKey && updated.namespace) {
+      saveMicrositeHistoryToServer(apiKey, updated.namespace, astForStorage).catch(() => {});
+    }
+    return updated;
+  }, [namespace, apiKey]);
 
   const deleteEntry = useCallback((id: string) => {
-    setAll(prev => {
-      const next = prev.filter(e => e.id !== id);
-      writeAll(next);
-      return next;
-    });
+    // Read current state synchronously so we can find the namespace before filtering
+    const current = readAll();
+    const deletedNs = current.find(e => e.id === id)?.namespace;
+    const next = current.filter(e => e.id !== id);
+    // Persist synchronously (same pattern as addEntry — avoids side-effects in updater)
+    writeAll(next);
+    setAll(() => next);
+    // Sync delete to server (fire-and-forget, outside updater to avoid Strict Mode double-invoke)
+    if (apiKey && deletedNs) {
+      deleteMicrositeHistoryFromServer(apiKey, deletedNs).catch(() => {});
+    }
+  }, [apiKey]);
+
+  const refresh = useCallback(() => {
+    setAll(readAll());
   }, []);
 
-  return { history, addEntry, deleteEntry };
+  return { history, addEntry, updateEntry, deleteEntry, refresh };
 }

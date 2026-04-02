@@ -5,6 +5,7 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Label, Body } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: ProblemContent;
@@ -16,6 +17,7 @@ interface Props {
 
 export function ProblemSection({ content, tokens, sectionId }: Props) {
   const painPoints = content.painPoints ?? [];
+  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'list';
 
   return (
     <section
@@ -89,48 +91,43 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
         </Reveal>
 
         {/* Pain points */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={variant === 'grid' ? {
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16,
+        } : {
+          display: 'flex', flexDirection: 'column', gap: 18,
+        }}>
           {painPoints.map((point, i) => (
             <Reveal key={i} delay={220 + i * 60}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 18,
-                padding: '18px 24px',
-                borderRadius: 12,
-                background: `${tokens.accent}08`,
-                border: `1px solid ${tokens.accent}20`,
-              }}>
-                {/* Marker */}
+              <InlineArrayItem arrayPath="painPoints" index={i} total={painPoints.length}>
                 <div style={{
-                  flexShrink: 0,
-                  width: 28,
-                  height: 28,
-                  borderRadius: 8,
-                  background: `${tokens.accent}20`,
-                  border: `1px solid ${tokens.accent}40`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  color: tokens.accent,
+                  display: 'flex', alignItems: 'flex-start', gap: 18,
+                  padding: '18px 24px', borderRadius: 12,
+                  background: `${tokens.accent}08`, border: `1px solid ${tokens.accent}20`,
+                  height: variant === 'grid' ? '100%' : undefined,
+                  boxSizing: 'border-box',
                 }}>
-                  ✗
+                  <div style={{
+                    flexShrink: 0, width: 28, height: 28, borderRadius: 8,
+                    background: `${tokens.accent}20`, border: `1px solid ${tokens.accent}40`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.8rem', fontWeight: 700, color: tokens.accent,
+                  }}>✗</div>
+                  <InlineEditable field={`painPoints.${i}`} label="Pain point" value={point ?? ''}>
+                    <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.95rem', fontWeight: 400, color: tokens.text, lineHeight: 1.6 }}>
+                      {point}
+                    </span>
+                  </InlineEditable>
                 </div>
-                <span style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '0.95rem',
-                  fontWeight: 400,
-                  color: tokens.text,
-                  lineHeight: 1.6,
-                }}>
-                  {point}
-                </span>
-              </div>
+              </InlineArrayItem>
             </Reveal>
           ))}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="painPoints"
+            template="New pain point…"
+            label="Add pain point"
+          />
         </div>
       </div>
     </section>

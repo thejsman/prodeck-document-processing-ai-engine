@@ -20,6 +20,7 @@ interface Props {
 export function BenefitsSection({ content, tokens }: Props) {
   const items = content.items ?? [];
   const cols = items.length <= 3 ? items.length : Math.min(items.length, 3);
+  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'grid';
 
   return (
     <section
@@ -48,52 +49,75 @@ export function BenefitsSection({ content, tokens }: Props) {
           </InlineEditable>
         </Reveal>
 
-        <div className="ms-grid-3" style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
-          gap: 'clamp(1rem, 2.5vw, 2rem)',
-        }}>
+        <div
+          className={variant === 'list' ? undefined : 'ms-grid-3'}
+          style={variant === 'list' ? {
+            display: 'flex', flexDirection: 'column', gap: 'clamp(0.75rem, 2vw, 1rem)',
+          } : {
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
+            gap: 'clamp(1rem, 2.5vw, 2rem)',
+          }}
+        >
           {items.map((item, i) => (
             <Reveal key={i} delay={160 + i * 80}>
               <InlineArrayItem arrayPath="items" index={i} total={items.length}>
-                <GlassCard tokens={tokens}>
-                  {/* Icon — click to change */}
-                  <InlineIconEdit
-                    fieldPath={`items.${i}.iconHint`}
-                    hint={item.iconHint}
-                    color={tokens.accent}
-                    size={22}
-                    containerStyle={{
-                      width: 52,
-                      height: 52,
-                      borderRadius: 14,
-                      background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
-                      border: `1px solid ${tokens.accent}30`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginBottom: 22,
-                    }}
-                  />
-
-                  <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
-                    <div style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontWeight: 700,
-                      fontSize: '1rem',
-                      color: tokens.text,
-                      marginBottom: 10,
-                    }}>
-                      {item.title}
+                {variant === 'list' ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 20,
+                    padding: '18px 24px',
+                    borderRadius: parseInt(tokens.borderRadius ?? '12') || 12,
+                    border: `1px solid ${tokens.border}`,
+                    background: tokens.surfaceCard,
+                  }}>
+                    <InlineIconEdit
+                      fieldPath={`items.${i}.iconHint`}
+                      hint={item.iconHint}
+                      color={tokens.accent}
+                      size={22}
+                      containerStyle={{
+                        width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+                        background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
+                        border: `1px solid ${tokens.accent}30`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
+                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, marginBottom: 6 }}>
+                          {item.title}
+                        </div>
+                      </InlineEditable>
+                      <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
+                        <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>{item.description}</Body>
+                      </InlineEditable>
                     </div>
-                  </InlineEditable>
-
-                  <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
-                    <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>
-                      {item.description}
-                    </Body>
-                  </InlineEditable>
-                </GlassCard>
+                  </div>
+                ) : (
+                  <GlassCard tokens={tokens}>
+                    <InlineIconEdit
+                      fieldPath={`items.${i}.iconHint`}
+                      hint={item.iconHint}
+                      color={tokens.accent}
+                      size={22}
+                      containerStyle={{
+                        width: 52, height: 52, borderRadius: 14,
+                        background: `linear-gradient(135deg, ${tokens.accent}25, ${tokens.accent}10)`,
+                        border: `1px solid ${tokens.accent}30`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        marginBottom: 22,
+                      }}
+                    />
+                    <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
+                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, marginBottom: 10 }}>
+                        {item.title}
+                      </div>
+                    </InlineEditable>
+                    <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
+                      <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>{item.description}</Body>
+                    </InlineEditable>
+                  </GlassCard>
+                )}
               </InlineArrayItem>
             </Reveal>
           ))}

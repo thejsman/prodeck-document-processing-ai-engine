@@ -7,7 +7,7 @@ import {
   useMicrositeHistory,
   type MicrositeHistoryEntry,
 } from "@/lib/useMicrositeHistory";
-import { fetchAllMicrositeHistory } from "@/lib/api";
+import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
 import type { LayoutAST } from "@/types/presentation";
@@ -42,10 +42,10 @@ function formatDate(iso: string): string {
   }
 }
 
-export function MicrositeHistory() {
+export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { apiKey } = useAuth();
   // All local history (no namespace filter)
-  const { history: localHistory, deleteEntry, addEntry } = useMicrositeHistory();
+  const { history: localHistory, deleteEntry, addEntry, updateEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
@@ -79,15 +79,17 @@ export function MicrositeHistory() {
 
   // Merge local + server, deduplicate by namespace (prefer local/newer)
   const combined: CombinedEntry[] = (() => {
-    const localMapped: CombinedEntry[] = localHistory.map((e) => ({
-      id: e.id,
-      savedAt: e.savedAt,
-      namespace: e.namespace,
-      ast: e.ast,
-      source: "local" as const,
-    }));
+    const localMapped: CombinedEntry[] = localHistory
+      .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
+      .map((e) => ({
+        id: e.id,
+        savedAt: e.savedAt,
+        namespace: e.namespace,
+        ast: e.ast,
+        source: "local" as const,
+      }));
 
-    // Add server entries that aren't already covered by a local entry for the same namespace
+    // Add server entries that aren't already covered by a local entry
     const localNamespaces = new Set(localMapped.map((e) => e.namespace));
     const serverOnly = serverEntries.filter(
       (e) => !localNamespaces.has(e.namespace),
@@ -98,6 +100,9 @@ export function MicrositeHistory() {
     );
   })();
 
+  // Report combined count to parent whenever it changes
+  useEffect(() => { onCountChange?.(combined.length); }, [combined.length, onCountChange]);
+
   // Editor mode — opened from preview or history card
   if (editingEntry) {
     return (
@@ -107,7 +112,18 @@ export function MicrositeHistory() {
         proposalId={editingEntry.id}
         onClose={() => setEditingEntry(null)}
         onExport={(editedAst) => {
-          addEntry(editedAst, editingEntry.namespace);
+          // Update in-place for local entries; create new local entry for server-only entries
+          const saved = editingEntry.source === 'local'
+            ? updateEntry(editingEntry.id, editedAst)
+            : addEntry(editedAst, editingEntry.namespace);
+          refresh();
+          setPreviewEntry({
+            id: saved.id,
+            savedAt: saved.savedAt,
+            namespace: saved.namespace,
+            ast: editedAst,
+            source: 'local',
+          });
           setEditingEntry(null);
         }}
       />
@@ -118,7 +134,7 @@ export function MicrositeHistory() {
     return (
       <Microsite
         ast={previewEntry.ast}
-        onBack={() => setPreviewEntry(null)}
+        onBack={() => { refresh(); setPreviewEntry(null); }}
         onEdit={() => setEditingEntry(previewEntry)}
       />
     );
@@ -323,23 +339,29 @@ export function MicrositeHistory() {
                 >
                   Preview
                 </button>
-                {isLocal && (
-                  <button
-                    onClick={() => deleteEntry(entry.id)}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: 6,
-                      padding: "7px 10px",
-                      fontSize: 12,
-                      color: "var(--color-text-muted)",
-                      cursor: "pointer",
-                    }}
-                    title="Delete from history"
-                  >
-                    ×
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    // Remove from server state immediately (prevents flash-back)
+                    setServerEntries(prev => prev.filter(e => e.namespace !== entry.namespace));
+                    if (isLocal) {
+                      deleteEntry(entry.id); // removes from localStorage + fires server DELETE
+                    } else {
+                      if (apiKey) deleteMicrositeHistoryFromServer(apiKey, entry.namespace).catch(() => {});
+                    }
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 6,
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    color: "var(--color-text-muted)",
+                    cursor: "pointer",
+                  }}
+                  title="Remove from history"
+                >
+                  ×
+                </button>
               </div>
             </div>
           );

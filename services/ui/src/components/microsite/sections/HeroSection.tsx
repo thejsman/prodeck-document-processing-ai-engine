@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useContext } from 'react';
 import type { PluginTokens, HeroContent, BrandConfig, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -8,6 +8,8 @@ import { Display, Body, Label } from '../shared/Typography';
 import { CTAButton } from '../shared/CTAButton';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { Editable } from '../editor/Editable';
+import { TypewriterStateContext } from '../TypewriterSection';
+import { TypingCursor } from '../TypingCursor';
 
 interface HeroUI {
   showCTA?: boolean;
@@ -58,11 +60,20 @@ export function HeroSection({
 }: Props) {
   console.log('HERO PROPS →', { variant, ui, behavior, content });
 
+  // Typewriter context — present only during active streaming animation
+  const twCtx = useContext(TypewriterStateContext);
+
+  // Track image URL with error fallback — DALL-E URLs expire after 2h, drop them gracefully
+  const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
+  useEffect(() => { setActiveImageUrl(imageUrl); }, [imageUrl]);
+
   const resolvedVariant = variant ?? 'centered';
   const showCTA = ui?.showCTA !== false && !!(content.ctaPrimary?.trim() || content.ctaSecondary?.trim());
   const mediaPos = ui?.mediaPosition ?? 'right';
   const animation = behavior?.animation;
-  const noAnimation = animation === 'none';
+  // During typewriter animation, disable Reveal to prevent its IntersectionObserver
+  // from resetting visible state on every character update (causing flicker).
+  const noAnimation = animation === 'none' || !!twCtx?.showCursor;
   const revealVariant = resolveRevealVariant(animation);
 
   const pillRadius = tokens.buttonStyle === 'sharp' ? 4 : tokens.buttonStyle === 'pill' ? 100 : 50;
@@ -128,6 +139,7 @@ export function HeroSection({
       <E field="eyebrow" label="Eyebrow">
         <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
           {content.eyebrow}
+          <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
         </Label>
       </E>
     </R>
@@ -138,6 +150,7 @@ export function HeroSection({
       <E field="headline" label="Headline">
         <Display tokens={tokens} gradient style={{ marginBottom: 18 }}>
           {content.headline}
+          <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
         </Display>
       </E>
     </R>
@@ -150,6 +163,7 @@ export function HeroSection({
           <E field="subheadline" label="Subheadline">
             <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7 }}>
               {content.subheadline}
+              <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
             </Body>
           </E>
         </R>
@@ -159,6 +173,7 @@ export function HeroSection({
           <E field="body" label="Body">
             <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28 }}>
               {content.body}
+              <TypingCursor visible={twCtx?.activeField === 'body' && (twCtx?.showCursor ?? false)} />
             </Body>
           </E>
         </R>
@@ -254,15 +269,15 @@ export function HeroSection({
 
   // ── Shared section shell ──────────────────────────────────────────────────
 
-  // Full-width background image from Unsplash (if available)
-  const hasBgImage = !!imageUrl;
+  // Full-width background image — activeImageUrl clears itself on load error (e.g. expired DALL-E SAS tokens)
+  const hasBgImage = !!activeImageUrl;
   const bgScrim = tokens.dark ? 'rgba(0,0,0,0.62)' : 'rgba(15,15,20,0.55)';
 
   const sectionStyle: React.CSSProperties = {
     position: 'relative',
     padding: 'clamp(4rem, 8vw, 7rem) 2rem',
     background: hasBgImage
-      ? `url(${imageUrl}) center center / cover no-repeat`
+      ? `url(${activeImageUrl}) center center / cover no-repeat`
       : getSectionGradient('hero', tokens),
     overflow: 'hidden',
   };
@@ -274,6 +289,12 @@ export function HeroSection({
     margin: '0 auto',
   };
 
+  // Hidden probe image — fires onError when the URL is expired or broken (e.g. DALL-E SAS token),
+  // clearing the broken background across ALL variants, not just centered.
+  const imageProbeFallback = activeImageUrl
+    ? <img src={activeImageUrl} onError={() => setActiveImageUrl(null)} style={{ display: 'none' }} aria-hidden alt="" />
+    : null;
+
   // ════════════════════════════════════════════════════════════════════════════
   // SPLIT — text left, image right (or reversed by mediaPos)
   // ════════════════════════════════════════════════════════════════════════════
@@ -281,6 +302,7 @@ export function HeroSection({
     const imgLeft = mediaPos === 'left';
     return (
       <section style={sectionStyle}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={container}>
@@ -312,6 +334,7 @@ export function HeroSection({
   if (resolvedVariant === 'asymmetric') {
     return (
       <section style={sectionStyle}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Left accent bar matching other sections */}
@@ -352,6 +375,7 @@ export function HeroSection({
   if (resolvedVariant === 'editorial') {
     return (
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg, borderBottom: `1px solid ${tokens.border}` }}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={Math.min(tokens.noiseOpacity, 0.015)} />
         {/* Top accent rule */}
@@ -370,7 +394,7 @@ export function HeroSection({
           )}
           <R delay={60}>
             <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(2.2rem, 5vw, 4rem)',
+              fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
               lineHeight: 1.05,
               marginBottom: 32,
             }}>
@@ -413,6 +437,7 @@ export function HeroSection({
 
     return (
       <section style={sectionStyle}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Dot texture — same as other card-heavy sections */}
@@ -483,13 +508,14 @@ export function HeroSection({
   if (resolvedVariant === 'type-forward') {
     return (
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg }}>
+        {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={{ ...container, maxWidth: 800 }}>
           {eyebrow}
           <R delay={60}>
             <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(2.4rem, 6vw, 4.5rem)',
+              fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
               lineHeight: 1.02,
               marginBottom: 24,
             }}>
@@ -515,6 +541,7 @@ export function HeroSection({
   // ════════════════════════════════════════════════════════════════════════════
   return (
     <section style={sectionStyle}>
+      {imageProbeFallback}
       {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
       <NoiseOverlay opacity={tokens.noiseOpacity} />
       <div style={container}>

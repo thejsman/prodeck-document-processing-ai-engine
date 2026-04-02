@@ -12,7 +12,9 @@
  *   POST /presentations/:namespace/:proposalId/publish — export to self-contained HTML
  */
 
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, stat, rm } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { env } from 'node:process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -36,6 +38,7 @@ import {
   generateDalle3Image,
   buildDallePrompt,
   resolveImageSource,
+  downloadImageToFile,
 } from '../image-routes.js';
 
 function checkNamespaceAccess(
@@ -53,10 +56,116 @@ function getAuth(req: FastifyRequest): AuthContext {
   return (req as FastifyRequest & { auth: AuthContext }).auth;
 }
 
+/**
+ * Download a remote image URL (DALL-E or Unsplash) to local disk so it
+ * never expires. Returns the persistent local URL to store in the AST.
+ * Falls back to the original remote URL if download fails.
+ */
+async function saveImagePersistently(
+  remoteUrl: string,
+  namespace: string,
+  sectionId: string,
+  workdir: string,
+): Promise<string> {
+  const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+  await mkdir(imagesDir, { recursive: true });
+  const ext = '.jpg';
+  const filename = `${sectionId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+  const destPath = path.join(imagesDir, filename);
+  const ok = await downloadImageToFile(remoteUrl, destPath);
+  // Store as a root-relative path — works regardless of port or server restart.
+  // Falls back to the remote URL only if the download failed.
+  if (!ok) return remoteUrl;
+  return `/presentation-images/${namespace}/${filename}`;
+}
+
+/**
+ * Resolve a stored image URL to an absolute URL for serving.
+ * Root-relative paths (/presentation-images/...) get the API base prepended.
+ * Remote URLs (http/https) are returned as-is.
+ */
+function resolveImageUrl(storedUrl: string): string {
+  if (storedUrl.startsWith('/')) {
+    const apiPort = env.API_PORT ?? '3000';
+    return `http://localhost:${apiPort}${storedUrl}`;
+  }
+  return storedUrl;
+}
+
+/**
+ * Convert all image URLs in the AST to base64 data URIs so the exported HTML
+ * is fully self-contained and never makes external requests.
+ */
+async function embedImagesAsBase64(
+  ast: Record<string, unknown>,
+  workdir: string,
+  namespace: string,
+): Promise<Record<string, unknown>> {
+  const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+  if (!sections) return ast;
+
+  await Promise.all(sections.map(async (sec) => {
+    const image = sec.image as { url?: string | null; source?: string } | undefined;
+    if (!image?.url) return;
+
+    let localPath: string | null = null;
+
+    if (image.url.startsWith('/presentation-images/')) {
+      // Root-relative path saved by saveImagePersistently
+      const parts = image.url.replace('/presentation-images/', '').split('/');
+      if (parts.length === 2) {
+        localPath = path.join(workdir, 'assets', 'presentations', parts[0], 'images', parts[1]);
+      }
+    } else if (image.url.startsWith(`http://localhost`)) {
+      // Legacy absolute localhost URL — extract the file path
+      try {
+        const u = new URL(image.url);
+        const parts = u.pathname.replace('/presentation-images/', '').split('/');
+        if (parts.length === 2) {
+          localPath = path.join(workdir, 'assets', 'presentations', parts[0], 'images', parts[1]);
+        }
+      } catch { /* ignore malformed */ }
+    }
+
+    if (localPath && existsSync(localPath)) {
+      try {
+        const buf = await readFile(localPath);
+        image.url = `data:image/jpeg;base64,${buf.toString('base64')}`;
+      } catch { /* leave URL as-is on read error */ }
+    } else if (image.url.startsWith('http') && !image.url.startsWith('http://localhost')) {
+      // Remote URL (unsplash fallback) — download and embed
+      try {
+        const res = await fetch(image.url);
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          const mime = res.headers.get('content-type') ?? 'image/jpeg';
+          image.url = `data:${mime};base64,${buf.toString('base64')}`;
+        }
+      } catch { /* leave URL as-is on fetch error */ }
+    }
+  }));
+
+  return ast;
+}
+
 export function registerPresentationRoutes(
   app: FastifyInstance,
   workdir: string,
 ): void {
+
+  // GET /presentation-images/:namespace/:filename
+  // Serves locally saved images (DALL-E downloads) — no auth required since these are just background images.
+  app.get('/presentation-images/:namespace/:filename', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, filename } = req.params as { namespace: string; filename: string };
+    // Basic path traversal guard
+    if (filename.includes('..') || filename.includes('/') || namespace.includes('..')) {
+      return reply.code(400).send({ error: 'Invalid path' });
+    }
+    const filePath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
+    if (!existsSync(filePath)) return reply.code(404).send({ error: 'Not found' });
+    const stream = createReadStream(filePath);
+    return reply.type('image/jpeg').send(stream);
+  });
 
   // POST /presentations/synthesize-style
   // Runs Pass -1 only: synthesize a design system from an inspiration image (and optional text prompt).
@@ -146,6 +255,31 @@ export function registerPresentationRoutes(
     // Sort newest first
     entries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
     return reply.send({ entries });
+  });
+
+  // POST /presentations/history/save — save an AST entry for a namespace
+  app.post('/presentations/history/save', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { namespace?: string; ast?: unknown } | undefined;
+    if (!body?.namespace || !body?.ast) {
+      return reply.code(400).send({ error: 'Missing required fields: namespace, ast' });
+    }
+    const { namespace, ast } = body;
+    const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
+    await mkdir(nsDir, { recursive: true });
+    await writeFile(path.join(nsDir, 'site-ast.json'), JSON.stringify(ast, null, 2), 'utf-8');
+    return reply.send({ ok: true });
+  });
+
+  // DELETE /presentations/history/:namespace — remove a namespace's saved AST
+  app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    try {
+      await rm(astPath);
+    } catch {
+      // File didn't exist — still return ok
+    }
+    return reply.send({ ok: true });
   });
 
   // POST /presentations/create
@@ -252,24 +386,34 @@ export function registerPresentationRoutes(
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    // Load presentation to get fileName and theme config
-    let presentation: Awaited<ReturnType<typeof getPresentation>>;
-    try {
-      presentation = await getPresentation(workdir, namespace, proposalId);
-    } catch (err) {
-      if ((err as { code?: string }).code === 'NOT_FOUND') {
-        return reply.code(404).send({ error: 'Presentation not found' });
-      }
-      throw err;
-    }
+    const body = req.body as {
+      proposalMarkdown?: string;
+      plugin?: string;
+      brand?: Record<string, unknown>;
+      customInstructions?: string;
+      preSynthesizedDesignSystem?: Record<string, unknown>;
+    } | null;
 
-    // Read proposal markdown
-    const mdPath = path.join(workdir, 'output', presentation.fileName);
+    // Use markdown from body if provided, otherwise read from disk
     let markdown: string;
-    try {
-      markdown = await readFile(mdPath, 'utf-8');
-    } catch {
-      return reply.code(404).send({ error: `Proposal file not found: ${presentation.fileName}` });
+    if (body?.proposalMarkdown) {
+      markdown = body.proposalMarkdown;
+    } else {
+      let presentation: Awaited<ReturnType<typeof getPresentation>>;
+      try {
+        presentation = await getPresentation(workdir, namespace, proposalId);
+      } catch (err) {
+        if ((err as { code?: string }).code === 'NOT_FOUND') {
+          return reply.code(404).send({ error: 'Presentation not found' });
+        }
+        throw err;
+      }
+      const mdPath = path.join(workdir, 'output', presentation.fileName);
+      try {
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch {
+        return reply.code(404).send({ error: `Proposal file not found: ${presentation.fileName}` });
+      }
     }
 
     ensureRegistered(workdir);
@@ -285,12 +429,13 @@ export function registerPresentationRoutes(
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
+        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
-          designConfig: {
-            theme: presentation.config.theme,
-            primaryColor: presentation.config.accentColor,
-          },
+          ...(body?.plugin ? { plugin: body.plugin } : {}),
+          ...(body?.brand ? { brand: body.brand } : {}),
+          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
         },
       });
 
@@ -314,23 +459,25 @@ export function registerPresentationRoutes(
             }
 
             sec.image.source = chosenSource;
+            const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
 
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
-              const url = await generateDalle3Image(prompt);
-              if (url) sec.image.url = url;
+              const remoteUrl = await generateDalle3Image(prompt);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
             } else {
-              const url = await fetchUnsplashImageUrl(query);
-              if (url) sec.image.url = url;
+              const remoteUrl = await fetchUnsplashImageUrl(query);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
             }
           }),
         );
 
         const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+        await mkdir(path.dirname(astPath), { recursive: true });
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
       }
 
-      return reply.send({ assets: result.assets ?? [] });
+      return reply.send({ ast: result.json ?? null, assets: result.assets ?? [] });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: `Agent execution failed: ${message}` });
@@ -344,6 +491,9 @@ export function registerPresentationRoutes(
     const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    // Hijack the reply so Fastify doesn't interfere with our raw SSE response
+    reply.hijack();
 
     // SSE headers — must be set before any writes
     reply.raw.writeHead(200, {
@@ -361,6 +511,8 @@ export function registerPresentationRoutes(
       proposalMarkdown?: string;
       plugin?: string;
       brand?: Record<string, unknown>;
+      customInstructions?: string;
+      fullDesignPrompt?: string;
       designBrief?: string;
       preSynthesizedDesignSystem?: Record<string, unknown>;
     } | undefined;
@@ -387,46 +539,98 @@ export function registerPresentationRoutes(
       return reply.raw.end();
     }
 
+    // Pre-compute image config so parallel fetches can start during section generation
+    const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
+    const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+    const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
+
+    // Map of sectionId → in-flight image fetch Promise (started as sections complete)
+    const imageFetches = new Map<string, Promise<string | null>>();
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
+        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
           plugin: body?.plugin ?? 'cobalt',
           brand: body?.brand ?? {},
-          designBrief: body?.designBrief ?? '',
+          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
+          ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
-          // Streaming callback — fires after each section's LLM call completes
+          // Plan callback — fires once with the final section list before generation starts
+          onPlanReady: (plan: Record<string, unknown>) => {
+            send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes });
+          },
+          // Section callback — fires after each section's LLM call completes; kicks off image fetch immediately
           onSectionComplete: (section: Record<string, unknown>) => {
             send({ type: 'section', ...section });
+            // Start image fetch in parallel — don't await, fire-and-forget with tracked promise
+            const sectionId = section.id as string | undefined;
+            const sectionType = section.sectionType as string | undefined;
+            const imageQuery = (section.content as Record<string, unknown> | undefined)?.imageQuery as string | undefined;
+            if (sectionId && sectionType && imageQuery?.trim()) {
+              const chosenSource = resolveImageSource(sectionType, hasUnsplash, hasDalle);
+              if (chosenSource !== 'gradient') {
+                const fetchPromise = (async (): Promise<string | null> => {
+                  try {
+                    let remoteUrl: string | null = null;
+                    if (chosenSource === 'dalle') {
+                      const prompt = buildDallePrompt(sectionType, imageQuery, accentColor);
+                      remoteUrl = await generateDalle3Image(prompt);
+                    } else {
+                      remoteUrl = await fetchUnsplashImageUrl(imageQuery);
+                    }
+                    if (!remoteUrl) return null;
+                    const localUrl = await saveImagePersistently(remoteUrl, namespace, sectionId, workdir);
+                    send({ type: 'image', sectionId, url: localUrl });
+                    return localUrl;
+                  } catch { return null; }
+                })();
+                imageFetches.set(sectionId, fetchPromise);
+              }
+            }
           },
         },
       });
 
-      // Resolve images for all sections
+      // Reconcile images: await any in-flight fetches, fetch remaining sections that had no query at callback time
       type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
       if (ast?.sections) {
-        const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
-        const hasDalle = !!(env.OPENAI_API_KEY?.trim());
-        const accentColor = ast.brand?.primaryColor;
-
         await Promise.all(
           ast.sections.map(async (sec) => {
+            const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
+            if (imageFetches.has(secId)) {
+              // Await the parallel fetch that already started during streaming (already saved locally)
+              const localUrl = await imageFetches.get(secId)!;
+              if (localUrl) { sec.image.url = localUrl; sec.image.source = hasDalle ? 'dalle' : 'unsplash'; }
+              return;
+            }
+            // Section had no imageQuery at callback time — try now using AST image.query
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
             const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
             if (chosenSource === 'gradient') { sec.image.source = 'gradient'; return; }
             sec.image.source = chosenSource;
             if (chosenSource === 'dalle') {
-              const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
-              const url = await generateDalle3Image(prompt);
-              if (url) { sec.image.url = url; send({ type: 'image', sectionId: (sec as unknown as { id?: string }).id ?? sec.sectionType, url }); }
+              const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
+              const remoteUrl = await generateDalle3Image(prompt);
+              if (remoteUrl) {
+                const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+                sec.image.url = localUrl;
+                send({ type: 'image', sectionId: secId, url: localUrl });
+              }
             } else {
-              const url = await fetchUnsplashImageUrl(query);
-              if (url) { sec.image.url = url; send({ type: 'image', sectionId: (sec as unknown as { id?: string }).id ?? sec.sectionType, url }); }
+              const remoteUrl = await fetchUnsplashImageUrl(query);
+              if (remoteUrl) {
+                const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+                sec.image.url = localUrl;
+                send({ type: 'image', sectionId: secId, url: localUrl });
+              }
             }
           }),
         );
@@ -454,10 +658,11 @@ export function registerPresentationRoutes(
     const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
     try {
       const raw = await readFile(astPath, 'utf-8');
-      return reply.send({ ast: JSON.parse(raw) });
+      const fileStat = await stat(astPath);
+      return reply.send({ ast: JSON.parse(raw), savedAt: fileStat.mtime.toISOString() });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return reply.send({ ast: null });
+        return reply.send({ ast: null, savedAt: null });
       }
       throw err;
     }
@@ -552,7 +757,10 @@ export function registerPresentationRoutes(
     }
 
     try {
-      const html = renderMicrositeToHtml(ast as Parameters<typeof renderMicrositeToHtml>[0]);
+      // Embed all images as base64 data URIs so the exported HTML is fully
+      // self-contained — no external requests, no localhost dependencies.
+      const astWithImages = await embedImagesAsBase64(ast, workdir, namespace);
+      const html = renderMicrositeToHtml(astWithImages as Parameters<typeof renderMicrositeToHtml>[0]);
       const exportsDir = path.join(workdir, 'exports', namespace);
       await mkdir(exportsDir, { recursive: true });
       const fileName = `${proposalId}.html`;

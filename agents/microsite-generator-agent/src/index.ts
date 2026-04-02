@@ -16,6 +16,8 @@
 
 import type { Agent, AgentInput, AgentOutput, ToolRegistry } from '@ai-engine/core';
 import { selectBestDiagram, type DiagramSelection } from './diagramDetector.js';
+import { extractDesignTokens, type ExtractedDesignTokens } from './designTokenExtractor.js';
+import { detectSectionLimitRequest, type SectionLimitRequest } from './lib/sectionLimitDetector.js';
 
 // ── Section type classification (mirrors UI types) ───────────────────────────
 
@@ -37,12 +39,17 @@ type SectionType =
   | 'security'
   | 'techstack'
   | 'testing'
+  | 'faq'
+  | 'team'
+  | 'comparison'
+  | 'casestudy'
+  | 'chart'
   | 'generic';
 
 const ALL_SECTION_TYPES = new Set<string>([
   'hero','challenge','approach','deliverables','timeline','pricing',
   'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
-  'metrics','security','techstack','testing','generic',
+  'metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic',
 ]);
 
 /**
@@ -52,7 +59,8 @@ const ALL_SECTION_TYPES = new Set<string>([
  *          "3 sections only", "exactly 3 sections", "just 3 sections"
  */
 function parseExplicitCount(ci: string): number | null {
-  const m = ci.match(/\b(?:only|make\s+it|create|generate|just|exactly|use)?\s*(\d+)\s+sections?\b/i);
+  // Keyword is REQUIRED — prevents false positives from numbered layout lists like "1. Hero Section"
+  const m = ci.match(/\b(?:only|make\s+it|create|generate|just|exactly|use|limit\s+to|max|maximum)\s+(\d+)\s+sections?\b/i);
   return m ? parseInt(m[1], 10) : null;
 }
 
@@ -269,73 +277,49 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
-  const overrideBlock = customInstructions
-    ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST BEFORE ANYTHING ELSE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OF OVERRIDE — ALL RULES BELOW ARE SECONDARY TO THE ABOVE ⚡⚡⚡\n\n`
+  // Only treat customInstructions as a structural override if it explicitly mentions sections or count.
+  // Visual/style-only prompts must NOT override the structural rules (minimum 10 sections).
+  const hasStructuralInstruction = customInstructions
+    ? /section|count|layout|page|slide|only\s+\d+|generate\s+\d+|create\s+\d+|make\s+\d+/i.test(customInstructions)
+    : false;
+  const overrideBlock = (customInstructions && hasStructuralInstruction)
+    ? `⚡⚡⚡ USER STRUCTURE OVERRIDE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
     : '';
+  // Style/visual instructions go at the end as hints only — they do NOT override section count rules
+  const styleHintBlock = (customInstructions && !hasStructuralInstruction)
+    ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 400)}\n`
+    : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '');
   return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
 ${styleHint}
-## STEP 1 — APPLY USER INSTRUCTIONS FIRST (if USER OVERRIDE is present above)
+RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instructions):
+- Output a JSON array of ALL sections — target 12-13 sections, minimum 10
+- You MUST include these core section types (map from proposal content or generate from brief):
+  * hero (always first — map executive summary or overview)
+  * problem OR challenge (the client pain point)
+  * approach OR solution (the proposed methodology)
+  * deliverables OR showcase (what is being delivered)
+  * timeline (project phases and schedule)
+  * pricing (investment and commercial terms)
+  * stats (key metrics and impact numbers — generate from scattered metrics if needed)
+  * benefits (value propositions)
+  * whyus (credentials and differentiators)
+  * testimonials (generate from context if client names or outcomes mentioned)
+  * nextsteps (always last — call to action)
+- Add additional sections if content supports them (generic, showcase, etc.)
+- Map existing source headings to appropriate types
+- For sections with no source heading, set aiGenerated: true and generate from brief
+- NEVER output fewer than 10 sections
+- NEVER skip a core section type listed above
+${styleHintBlock}
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
 
-If an OVERRIDE DIRECTIVE was given, parse it for explicit directives BEFORE anything else:
-- Section list specified? ("only hero", "sections: hero, pricing", "create these sections: ...") → use EXACTLY those types in EXACTLY that order
-- Section count specified? ("only 1 section", "make it 3 sections") → honour that count precisely
-- Section removal? ("remove pricing", "skip testimonials", "no nextsteps") → remove those sections
-- Section addition? ("add a benefits section", "include stats") → add them
-- Reorder? ("swap hero and challenge", "put pricing first") → reorder exactly as asked
-- No CTA in hero? ("no cta", "no buttons in hero", "remove cta from hero") → set noCTAInHero: true
-- No CTA anywhere? ("no cta anywhere", "remove all buttons", "no calls to action") → set noCTAEverywhere: true
-- ⚠️ VISUAL-ONLY commands ("add image on hero", "remove image", "dark theme", "no animations", "change font") do NOT affect section structure — plan sections normally from the proposal.
+Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
-OVERRIDE DIRECTIVE supersedes ALL default rules below. Do not normalise or improve the user's structure.
-
-## STEP 2 — DEFAULT PLANNING (only when no OVERRIDE DIRECTIVE, or for fields not covered by it)
-
-- Map EACH source heading to a DIFFERENT section type — never assign the same sourceHeading to more than one section
-- "hero" MUST map to the main overview/summary heading (usually the first substantive section)
-- "challenge" or "problem" maps to a requirements, challenges, or gap analysis section — NOT the executive summary
-- "approach" maps to a methodology, architecture, solution design, or technical approach section
-- "deliverables" maps to a scope, deliverables, or output section
-- "timeline" maps to an implementation plan, phases, or schedule section
-- "pricing" maps to a commercial, investment, or pricing section
-- "whyus" maps to credentials, team, about us, or why us section
-- If a section type has no matching sourceHeading, set sourceHeading to null and aiGenerated to true
-- Insert AI-generated sections when they meaningfully improve the narrative:
-  * "stats" — numbers/metrics scattered across the proposal worth consolidating
-  * "benefits" — value propositions worth consolidating as an icon list
-  * "testimonials" — only if client quotes or case study language is present
-- Aim for 8–10 sections covering the full proposal breadth — hero always first, nextsteps always last
-- No duplicate sourceHeadings — each source section feeds at most one output section
-
-## STEP 3 — EXTRACT CONSTRAINTS
-
-Fill in the constraints object based on what the user said:
-- noCTAInHero: true if user said "no cta", "no buttons", "remove cta", "no call to action", "no cta in hero", "without cta"
-- noCTAEverywhere: true if user said "no cta anywhere", "remove all buttons", "no calls to action anywhere"
-- requestedSectionCount: exact number if user said "only X section(s)", "make it X sections", "X sections only" — else null
-- hasCustomStructure: true if user explicitly named sections or order
-- motion: "expressive" if "animate"/"transitions"/"dynamic"; "deliberate" if "subtle motion"; "instant" if "no animation"/"static"; null if unspecified
-- parallax: true if user said "parallax"/"depth effect"; false otherwise
-- scrollEffects: "slide-up" if "slide in/up"; "fade-in" if "fade in"; "none" otherwise
-
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
-
-Return ONLY valid JSON. No markdown, no explanation, no code fences.
-
-{
-  "sections": [
-    { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
-    { "type": "stats", "sourceHeading": null, "rationale": "3 strong metrics buried in approach section", "aiGenerated": true }
-  ],
-  "constraints": {
-    "noCTAInHero": false,
-    "noCTAEverywhere": false,
-    "requestedSectionCount": null,
-    "hasCustomStructure": false,
-    "motion": null,
-    "parallax": false,
-    "scrollEffects": null
-  }
-}
+Format:
+[
+  { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
+  { "type": "stats", "sourceHeading": null, "rationale": "Metrics scattered across proposal — consolidate", "aiGenerated": true }
+]
 
 PROPOSAL:
 ${markdown.slice(0, 8000)}`;
@@ -353,7 +337,7 @@ You are a section plan editor. Reshape the plan below to satisfy the USER COMMAN
 CURRENT PLAN:
 ${JSON.stringify(plan, null, 2)}
 
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 
 RULES:
 - Return ONLY a valid JSON array — same format as CURRENT PLAN
@@ -375,7 +359,7 @@ Parse the following user instruction into a structured command JSON.
 
 CURRENT PLUGIN: "${currentPlugin}"
 VALID PLUGINS: obsidian, ivory, cobalt, sage
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
 
 USER INSTRUCTION:
@@ -410,6 +394,35 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences.
     "sectionInstructions": {},
     "globalInstruction": null
   }
+}`;
+}
+
+// ── Fast hero prompt (speculative — no brief/plan dependency) ────────────────
+
+function buildFastHeroPrompt(
+  planningMarkdown: string,
+  companyName: string | undefined,
+  tagline: string | undefined,
+  customInstructions: string,
+): string {
+  return `You are generating the HERO section for a proposal microsite.
+Company: ${companyName ?? 'the proposing company'}
+Tagline: ${tagline ?? ''}
+${customInstructions ? `\nStyle notes: ${customInstructions.slice(0, 300)}` : ''}
+
+PROPOSAL (first 3000 chars):
+${planningMarkdown.slice(0, 3000)}
+
+Return ONLY valid JSON matching this exact schema — no markdown, no explanation:
+{
+  "eyebrow": "short label above headline (e.g. 'Proposal for Acme Corp')",
+  "headline": "bold punchy main headline (max 8 words)",
+  "subheadline": "one supporting sentence (max 20 words)",
+  "body": "2-3 sentence value proposition",
+  "ctaPrimary": "primary button label (e.g. 'Let's Get Started')",
+  "ctaSecondary": "secondary button label (e.g. 'View Details')",
+  "imageQuery": "Unsplash search query for hero background (3-5 words)",
+  "theme": "light"
 }`;
 }
 
@@ -496,6 +509,11 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
   security:     ['card-grid',   'split',      'asymmetric'],
   techstack:    ['card-grid',   'split',      'minimal'],
   testing:      ['card-grid',   'minimal',    'editorial'],
+  faq:          ['centered',    'minimal',    'editorial'],
+  team:         ['card-grid',   'centered',   'minimal'],
+  comparison:   ['centered',    'minimal',    'editorial'],
+  casestudy:    ['split',       'editorial',  'asymmetric'],
+  chart:        ['centered',    'editorial',  'minimal'],
   generic:      ['centered',    'split',      'minimal'],
 };
 
@@ -529,6 +547,11 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   security:     'editorial',
   techstack:    'editorial',
   testing:      'editorial',
+  faq:          'editorial',
+  team:         'card-grid',
+  comparison:   'editorial',
+  casestudy:    'editorial',
+  chart:        'editorial',
   generic:      'editorial',
 };
 
@@ -552,6 +575,11 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
   security:     'minimal',
   techstack:    'minimal',
   testing:      'minimal',
+  faq:          'minimal',
+  team:         'minimal',
+  comparison:   'minimal',
+  casestudy:    'minimal',
+  chart:        'minimal',
   generic:      'minimal',
 };
 
@@ -577,6 +605,11 @@ const BOLD_VARIANTS: Record<SectionType, string> = {
   security:     'asymmetric',
   techstack:    'card-grid',
   testing:      'card-grid',
+  faq:          'centered',
+  team:         'card-grid',
+  comparison:   'centered',
+  casestudy:    'split',
+  chart:        'centered',
   generic:      'split',
 };
 
@@ -1023,9 +1056,10 @@ export function buildSectionPrompt(
   const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
-  const fallbackContext = proposalMarkdown
-    ? `\n\nFull proposal for additional context:\n${proposalMarkdown.slice(0, 3000)}`
-    : '';
+  // When effectiveBody is empty, pass the full proposal — no truncation, no data loss
+  const fallbackContext = (!effectiveBody && proposalMarkdown)
+    ? `\n\nFull proposal (use ALL relevant data from this to populate the section):\n${proposalMarkdown}`
+    : (proposalMarkdown ? `\n\nFull proposal for additional context:\n${proposalMarkdown.slice(0, 4000)}` : '');
 
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
@@ -1177,6 +1211,8 @@ Generate a Testimonials section. Create 2-3 realistic quotes that reflect the cl
 {
   "eyebrow": "4-8 words e.g. 'Client Voices'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
+  "diagram": null,
   "items": [
     {
       "quote": "1-2 sentences, specific outcome or experience, no cliches, reads like a real person said it",
@@ -1214,6 +1250,7 @@ Transform into a Benefits section — a focused icon list of value propositions.
 {
   "eyebrow": "4-8 words e.g. 'What You Gain'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "items": [
     {
       "iconHint": "identity|digital|content|strategy|research|launch|document|website|photo|campaign",
@@ -1250,6 +1287,7 @@ Transform into a Stats section — a standalone impact metrics row. Return:
 {
   "eyebrow": "4-8 words e.g. 'By The Numbers'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "stats": [
     {
       "number": "specific metric e.g. '94%' or '3× faster' or '$2.4M' — from content or reasonably derived from brief",
@@ -1270,6 +1308,7 @@ Transform into a Metrics section — a standalone performance KPIs row with scal
 {
   "eyebrow": "4-8 words e.g. 'Performance at Scale'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "stats": [
     {
       "number": "specific metric e.g. '99.9%' or '3× faster' — from content or brief",
@@ -1291,6 +1330,7 @@ Transform into a Security section. Return:
 {
   "eyebrow": "4-8 words e.g. 'Built for Compliance'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "items": [
     {
       "iconHint": "identity|digital|strategy|research",
@@ -1311,6 +1351,7 @@ Transform into a Tech Stack section. Return:
 {
   "eyebrow": "4-8 words e.g. 'Built on Modern Foundations'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "categories": [
     {
       "iconHint": "identity|digital|content|strategy|research|launch|document|website",
@@ -1331,6 +1372,7 @@ Transform into a Testing & Quality section. Return:
 {
   "eyebrow": "4-8 words e.g. 'Quality Built In'",
   "headline": "8-12 words",
+  "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "layers": [
     {
       "level": 1,
@@ -1346,6 +1388,111 @@ Transform into a Testing & Quality section. Return:
     }
   ],
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.'}",
+  ${meta}
+}`,
+
+    faq: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a FAQ section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Common Questions'",
+  "headline": "8-12 words",
+  "subheadline": "1-2 sentences or null",
+  "items": [
+    {
+      "question": "A realistic question a prospect would ask, 8-16 words",
+      "answer": "2-3 sentences, specific and reassuring — address the real concern behind the question"
+    }
+  ],
+  ${meta}
+}`,
+
+    team: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Team section. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Meet the Team'",
+  "headline": "8-12 words",
+  "subheadline": "1-2 sentences or null",
+  "members": [
+    {
+      "name": "First Last",
+      "role": "2-4 words, job title",
+      "bio": "2-3 sentences, expertise and relevance to this engagement",
+      "iconHint": "identity|strategy|research|digital|content|launch"
+    }
+  ],
+  ${meta}
+}`,
+
+    comparison: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Comparison section showing our advantage vs alternatives. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Why Choose Us'",
+  "headline": "8-12 words",
+  "subheadline": "1-2 sentences or null",
+  "usLabel": "2-4 words, our name/label",
+  "themLabel": "2-4 words, competitor label e.g. 'Others' or 'Traditional Agencies'",
+  "rows": [
+    {
+      "feature": "3-6 words, the capability or attribute being compared",
+      "us": "Short value or '✓' for yes",
+      "them": "'✗' for no, or a short weaker value"
+    }
+  ],
+  ${meta}
+}`,
+
+    casestudy: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Case Study section with a challenge-solution-outcome narrative plus metrics. Return:
+{
+  "eyebrow": "4-8 words e.g. 'Case Study'",
+  "headline": "8-14 words, the transformation story headline",
+  "challenge": "2-3 sentences describing the client's core problem and its consequences",
+  "solution": "2-3 sentences describing the approach and what made it different",
+  "outcome": "2-3 sentences describing measurable results and lasting impact",
+  "metrics": [
+    {
+      "value": "specific metric e.g. '3×' or '94%' or '$2.4M'",
+      "label": "2-4 words, what was achieved"
+    }
+  ],
+  "imageQuery": "DALL-E 3 prompt: cinematic scene showing transformation, success, or breakthrough. High contrast, dramatic lighting.",
+  ${meta}
+}`,
+
+    chart: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Chart section. Choose the best chart type for the data: bar (comparisons), line (trends over time), pie (parts of a whole), donut (same with center label). Return:
+{
+  "eyebrow": "4-8 words",
+  "headline": "8-12 words",
+  "body": "1-2 sentences explaining what the chart shows or null",
+  "chartType": "bar | line | pie | donut",
+  "unit": "unit suffix e.g. '%' or 'k' or '$M' — or null",
+  "data": [
+    {
+      "label": "2-4 words, the data point label",
+      "value": numeric_value
+    }
+  ],
   ${meta}
 }`,
 
@@ -1777,6 +1924,269 @@ function applyDesignOverrides(
   }
 }
 
+// ── Full design prompt override builders ──────────────────────────────────────
+// These are called instead of the default builders when metadata.fullDesignPrompt
+// is provided and isFullOverride is true. They prepend the fullDesignPrompt at the
+// top of every prompt so the LLM follows the custom design spec exactly.
+// NOTE: These functions must NOT reference PLUGIN_CHARACTER, FORBIDDEN, or FORBIDDEN_OPENERS.
+
+function buildOverrideSectionPlanPrompt(
+  markdown: string,
+  fullDesignPrompt: string
+): string {
+  // Programmatically extract numbered sections from the design prompt's LAYOUT STRUCTURE
+  const layoutMatches = fullDesignPrompt.match(/^(\d+)\.\s+(.+?)(?:\r?\n|$)/gm) ?? [];
+  const layoutSections = layoutMatches.map(m => m.replace(/^\d+\.\s+/, '').trim());
+
+  const layoutHint = layoutSections.length > 0
+    ? `\nThe design specification mentions these layout sections as visual reference:\n` +
+      layoutSections.map((s, i) => `  ${i + 1}. ${s}`).join('\n') +
+      `\nUse these as TYPE MAPPING HINTS — map them to the appropriate section types below. Then add additional sections from the proposal to reach 12-13 total.\n`
+    : '';
+
+  return `${fullDesignPrompt}
+
+---
+
+You are a section planning expert. Produce a comprehensive microsite plan that follows the visual design specification above and covers the FULL proposal content.
+${layoutHint}
+TYPE MAPPING (choose closest match for each section name):
+- Hero / Welcome / Introduction → hero
+- Executive Summary / Overview / About → approach or generic
+- Solution / Features / Services / What We Offer → approach or deliverables or benefits
+- Timeline / Journey / Process / Steps / Schedule / Roadmap → timeline
+- Highlights / Fun Facts / Proof / Results / Stats → stats
+- Pricing / Packages / Investment / Cost → pricing
+- Call To Action / Footer / Next Steps / Get Started / Contact → nextsteps
+- Why Us / Credentials / Trust / Team / Differentiators → whyus
+- Challenge / Problem / Pain Points → challenge
+- Testimonials / Reviews / Client Said → testimonials
+- Showcase / Case Study / Features → showcase
+
+MANDATORY RULES:
+- Output a JSON array with 12-13 sections, minimum 10 sections
+- You MUST include ALL of these core types (generate content from proposal brief if no direct source):
+  hero, problem OR challenge, approach, deliverables OR showcase,
+  timeline, pricing, stats, benefits, whyus, testimonials, nextsteps
+- Set aiGenerated: true for sections with no direct source content
+- NEVER output fewer than 10 sections
+- The hero is always first, nextsteps is always last
+- Each section must have a unique type — do NOT repeat the same type twice
+
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
+
+Return ONLY valid JSON array. No markdown, no explanation, no code fences.
+
+PROPOSAL:
+${markdown.slice(0, 8000)}`;
+}
+
+function buildOverrideBriefPrompt(
+  markdown: string,
+  fullDesignPrompt: string,
+  brandHint?: { companyName?: string; tagline?: string }
+): string {
+  const hint = brandHint?.companyName
+    ? `\nThe proposing company is "${brandHint.companyName}". Use this name for proposingCompany.\n`
+    : '';
+
+  // IMPORTANT: facts (client, industry, challenge, value) come from the PROPOSAL only.
+  // The design prompt ONLY influences writing style/tone — never what the facts are.
+  const styleHint = `\nWRITING STYLE GUIDANCE (from the user's design specification): ${fullDesignPrompt.slice(0, 600).replace(/\n/g, ' ')}\n`;
+
+  return `You are a senior proposal strategist. Extract a structured brief from the proposal below. Return ONLY valid JSON. No markdown, no explanation, no code fences.
+${hint}${styleHint}
+RULES:
+- clientName, clientIndustry, clientChallenge, proposingCompany, totalValue, duration — extract EXACTLY from the proposal text. Do NOT invent or guess these.
+- primaryTone — derive from the proposal's subject matter and industry (e.g. "Professional and technical" for IT, "Clinical and precise" for healthcare). Ignore the design spec for this field.
+- heroNarrative — 8-12 words capturing the proposal's core value. Must NOT start with We/Our.
+- industryKeywords — 3-5 keywords for professional stock image searches that match the client's actual industry.
+
+{
+  "clientName": "string — extract from proposal",
+  "clientIndustry": "string — extract from proposal",
+  "clientChallenge": "1 concise sentence extracted from proposal",
+  "proposingCompany": "string — extract from proposal",
+  "proposingStrength": "most impressive credential mentioned in the proposal, 1 sentence",
+  "engagementSummary": "2 sentences summarising the engagement scope from the proposal",
+  "keyOutcomes": ["max 4 concrete outcomes stated in the proposal"],
+  "totalValue": "string — extract from proposal pricing section",
+  "duration": "string — extract from proposal",
+  "primaryTone": "derive from the proposal industry and subject matter",
+  "heroNarrative": "8-12 words capturing the proposal's core value proposition",
+  "industryKeywords": ["3-5 keywords matching the client's actual industry for image searches"]
+}
+
+PROPOSAL:
+${markdown}`;
+}
+
+function buildOverrideSectionPrompt(
+  type: SectionType,
+  heading: string,
+  rawBody: string,
+  brief: string,
+  fullDesignPrompt: string,
+  brandName?: string,
+  aiGenerated = false,
+  diagramSelection?: DiagramSelection | null
+): string {
+  const brandCtx = brandName
+    ? `The proposing company is "${brandName}" — use this name consistently.`
+    : '';
+
+  const generationNote = aiGenerated
+    ? 'NOTE: This section has NO source content — generate it entirely from the proposal brief and the design specification above.'
+    : '';
+
+  let diagramBlock = 'Set "diagram": null for this section.';
+  if (diagramSelection) {
+    diagramBlock = `DIAGRAM REQUIREMENT: Generate a diagram field using type: ${diagramSelection.diagramType.id}
+${diagramSelection.diagramType.isCustomSvg
+  ? 'Output: __CUSTOM_SVG__ followed immediately by valid JSON for this diagram type'
+  : 'Output: raw Mermaid syntax only, no backticks, escape newlines as \\\\n'
+}
+If content is insufficient for this diagram, set diagram to null.`;
+  }
+
+  const sectionSchemas: Record<string, string> = {
+    hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    pricing: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "string", "rows": [["Item", "Value"]], "totalLabel": "string", "footnote": "string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}], "diagram": null }`,
+    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    stats: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+  };
+
+  const schema = sectionSchemas[type] ?? sectionSchemas.generic;
+
+  return `${fullDesignPrompt}
+
+---
+
+CRITICAL INSTRUCTION: Follow the design specification above EXACTLY and STRICTLY.
+Every word, phrase, tone, style, and personality in the specification above must be reflected in your output.
+DO NOT use default professional/corporate tone. OVERRIDE all defaults.
+
+${brandCtx}
+${generationNote}
+${diagramBlock}
+
+Generate content for the "${heading}" section (type: ${type}).
+
+Brief context: ${brief}
+Source content: ${rawBody || '(No source — generate from brief and design specification above)'}
+
+Return ONLY valid JSON matching this shape. No markdown, no explanation, no code fences:
+${schema}`;
+}
+
+function buildOverrideMarkdownPrompt(
+  sections: Array<{ name: string; content: string }>,
+  fullDesignPrompt: string,
+  designConfig?: Record<string, unknown>
+): string {
+  const sectionBlock = sections
+    .map(s => `### ${s.name}\n${s.content}`)
+    .join('\n\n---\n\n');
+
+  const outputLanguage = (designConfig?.outputLanguage as string) || 'English';
+
+  return `${fullDesignPrompt}
+
+---
+
+CRITICAL: Follow the design specification above EXACTLY for ALL copy.
+Every sentence must reflect the personality, tone, voice, and style described above.
+Override all default corporate/professional tone.
+Output language: ${outputLanguage}
+
+Rewrite this proposal content as polished microsite copy matching the design specification:
+
+${sectionBlock}
+
+Generate microsite copy following the design specification strictly:`;
+}
+
+// ── Required section enforcement ─────────────────────────────────────────────
+
+const REQUIRED_SECTION_TYPES = [
+  'hero', 'problem', 'challenge', 'approach', 'deliverables',
+  'timeline', 'pricing', 'stats', 'benefits', 'whyus',
+  'testimonials', 'nextsteps',
+] as const;
+
+function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
+  const presentTypes = new Set(plan.map(s => s.type));
+  const additions: SectionPlan[] = [];
+
+  for (const required of REQUIRED_SECTION_TYPES) {
+    const hasEquivalent =
+      presentTypes.has(required as SectionType) ||
+      (required === 'problem' && presentTypes.has('challenge' as SectionType)) ||
+      (required === 'challenge' && presentTypes.has('problem' as SectionType)) ||
+      (required === 'deliverables' && presentTypes.has('showcase' as SectionType));
+
+    if (!hasEquivalent) {
+      additions.push({
+        type: required as SectionType,
+        sourceHeading: null,
+        rationale: 'Required section — generated from proposal brief',
+        aiGenerated: true,
+      });
+    }
+  }
+
+  if (additions.length === 0) return plan;
+
+  const nextstepsIdx = plan.findIndex(s => s.type === 'nextsteps');
+  if (nextstepsIdx >= 0) {
+    return [
+      ...plan.slice(0, nextstepsIdx),
+      ...additions,
+      ...plan.slice(nextstepsIdx),
+    ];
+  }
+  return [...plan, ...additions];
+}
+
+// Preferred substitute types when a duplicate is found, in priority order
+const DEDUP_SUBSTITUTES: SectionType[] = [
+  'showcase', 'benefits', 'deliverables', 'approach', 'problem', 'challenge',
+];
+
+/** Rename duplicate section types so no two sections share the same type.
+ *  'hero' and 'nextsteps' are also deduplicated (keep first only).
+ *  Extra generic sections get renamed to unused types from DEDUP_SUBSTITUTES.
+ */
+function deduplicateSectionTypes(plan: SectionPlan[]): SectionPlan[] {
+  const seenTypes = new Set<string>();
+  const usedTypes = new Set(plan.map(s => s.type));
+
+  return plan.map(section => {
+    if (!seenTypes.has(section.type)) {
+      seenTypes.add(section.type);
+      return section;
+    }
+    // Duplicate found — find first substitute not already in the plan
+    const alt = DEDUP_SUBSTITUTES.find(t => !usedTypes.has(t));
+    if (alt) {
+      usedTypes.add(alt);
+      return { ...section, type: alt };
+    }
+    // No substitute available — keep as-is (will render as generic)
+    return section;
+  });
+}
+
 // ── Agent implementation ─────────────────────────────────────────────────────
 
 export class MicrositeGeneratorAgent implements Agent {
@@ -1838,6 +2248,19 @@ export class MicrositeGeneratorAgent implements Agent {
     const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
     const customInstructions = rawInstructions
       || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.';
+    const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
+    const isFullOverride = fullDesignPrompt.trim().length > 100;
+    if (isFullOverride) {
+      console.log('[MicrositeAgent] FULL OVERRIDE MODE ACTIVE — fullDesignPrompt length:', fullDesignPrompt.length);
+    }
+    let extractedTokens: ExtractedDesignTokens | null = null;
+    if (isFullOverride) {
+      extractedTokens = extractDesignTokens(fullDesignPrompt);
+      console.log('[DesignTokenExtractor] fonts:', extractedTokens.typography.fonts);
+      console.log('[DesignTokenExtractor] backgrounds:', extractedTokens.colors.backgrounds);
+      console.log('[DesignTokenExtractor] accents:', extractedTokens.colors.accents);
+      console.log('[DesignTokenExtractor] googleFontsUrl:', extractedTokens.googleFontsUrl);
+    }
     const designConfig: Record<string, unknown> = {
       ...((meta.designConfig as Record<string, unknown> | undefined) ?? {}),
       ...(customInstructions ? { customInstructions } : {}),
@@ -1875,59 +2298,128 @@ export class MicrositeGeneratorAgent implements Agent {
     const preSynthesized = (meta.preSynthesizedDesignSystem as { rawTokens?: Record<string, unknown> } | undefined)?.rawTokens;
 
     if (generateTool) {
-      // Pass -1: Design system synthesis (skipped if preSynthesizedDesignSystem provided)
+      // ── PARALLEL WARM-UP: Pass -1 + CommandParser + Pass 1 all fire simultaneously ──
+      // Pass 0 (section planning) must wait for CommandParser (plugin override),
+      // but Pass -1 (design tokens) and Pass 1 (brief) are fully independent — run them now.
+      console.log('[microsite-agent] Starting parallel warm-up: Pass -1 + CommandParser + Pass 1...');
+
+      // Pass 0 planning markdown — 2000 chars per section (enough to identify structure)
+      const planningMarkdown = sourceSections.map(s => `## ${s.name}\n${s.content.slice(0, 2000)}`).join('\n\n');
+
+      // Define streaming callbacks early — hero .then() fires before Promise.all resolves
+      const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
+      const onPlanReady = meta.onPlanReady as ((data: Record<string, unknown>) => void) | undefined;
+
+      // Section results array declared here so hero .then() can push into it immediately
+      const sectionResults: Array<{ id: string; heading: string; type: string; content: Record<string, unknown>; diagramMeta: unknown }> = [];
+      let heroAlreadyStreamed = false;
+
+      // Start hero generation BEFORE the warm-up — streams SSE as soon as it resolves (~3-5s)
+      // Key: NOT inside Promise.all — that would block until the slowest member (~15s Pass -1)
+      const heroPromise = generateTool.run({
+        query: buildFastHeroPrompt(
+          planningMarkdown,
+          metaBrand.companyName as string | undefined,
+          metaBrand.tagline as string | undefined,
+          rawInstructions,
+        ),
+        content: '',
+      }).then(result => {
+        if (!result?.text || !onSectionComplete) return result;
+        try {
+          const heroContent = safeParseJSON(result.text) ?? {};
+          const hc = heroContent as Record<string, unknown>;
+          if (hc.headline || hc.eyebrow) {
+            if (hc.diagram) hc.diagram = normalizeDiagram(hc.diagram);
+            onSectionComplete({ id: 'hero', heading: 'Hero', sectionType: 'hero', content: hc, index: 0 });
+            sectionResults.push({ id: 'hero', heading: 'Hero', type: 'hero', content: hc, diagramMeta: null });
+            heroAlreadyStreamed = true;
+            console.log('[microsite-agent] Speculative hero streamed immediately ✓');
+          }
+        } catch { /* ignore — Pass 2 will generate hero normally */ }
+        return result;
+      }).catch(() => null);
+
+      const [designSystemRaw, cmdRaw, briefResult, planResult] = await Promise.all([
+        // Pass -1: Design system synthesis
+        (async () => {
+          if (preSynthesized) {
+            console.log('[microsite-agent] Using pre-synthesized design system — skipping Pass -1');
+            return preSynthesized;
+          }
+          if (!brandLanguagePrompt.trim()) return null;
+          console.log('[microsite-agent] Pass -1: design system synthesis...');
+          const r = await this.synthesizeDesignSystem(generateTool, brandLanguagePrompt, metaPlugin, metaBrand.primaryColor as string | undefined, brandImage || undefined);
+          console.log('[microsite-agent] Pass -1 done:', r ? `character="${r.customCharacter}"` : 'NULL');
+          return r;
+        })(),
+
+        // CommandParser: structured intent extraction
+        (async () => {
+          if (!customInstructions) return null;
+          try {
+            const r = await generateTool.run({ query: buildCommandParserPrompt(customInstructions, metaPlugin), content: '' });
+            return r?.text ?? null;
+          } catch { return null; }
+        })(),
+
+        // Pass 1: Brief extraction — full document (no truncation — all data must reach the LLM)
+        generateTool.run({
+          query: isFullOverride
+            ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
+            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
+          content: '',
+        }).catch(() => null),
+
+        // Pass 0: Section planning — runs in parallel with Pass -1 and Pass 1 (no dependency on them)
+        Promise.race([
+          generateTool.run({
+            query: isFullOverride
+              ? buildOverrideSectionPlanPrompt(planningMarkdown, fullDesignPrompt)
+              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions),
+            content: '',
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
+        ]).catch(() => null),
+      ]);
+
+      // Await hero — it started before the warm-up so it's almost certainly already done
+      await heroPromise;
+
+      // Resolve design system result
       let designSystemResult: { customCharacter: string; rawTokens: Record<string, unknown> } | null = null;
       if (preSynthesized) {
         const character = typeof preSynthesized.customCharacter === 'string' ? preSynthesized.customCharacter : 'custom-synthesized';
         designSystemResult = { customCharacter: character, rawTokens: preSynthesized };
-        console.log('[microsite-agent] Using pre-synthesized design system — skipping Pass -1');
-      } else {
-        console.log('[microsite-agent] brandLanguagePrompt present:', !!brandLanguagePrompt.trim(), '| length:', brandLanguagePrompt.length);
-        if (brandLanguagePrompt.trim()) {
-          console.log('[microsite-agent] Running Pass -1: design system synthesis...');
-          designSystemResult = await this.synthesizeDesignSystem(
-            generateTool,
-            brandLanguagePrompt,
-            metaPlugin,
-            metaBrand.primaryColor as string | undefined,
-            brandImage || undefined,
-          );
-          console.log('[microsite-agent] designSystemResult:', designSystemResult ? `OK — character: "${designSystemResult.customCharacter}"` : 'NULL (synthesis failed or returned invalid JSON)');
-        }
+      } else if (designSystemRaw && typeof (designSystemRaw as { customCharacter?: unknown }).customCharacter === 'string') {
+        designSystemResult = designSystemRaw as { customCharacter: string; rawTokens: Record<string, unknown> };
       }
       const effectiveCharacter = designSystemResult?.customCharacter;
 
-      // Command Parser: Parse customInstructions into structured ParsedCommand (runs before Pass 0)
+      // Apply CommandParser result (plugin override affects Pass 0 prompt)
       let parsedCommand: ParsedCommand = DEFAULT_PARSED_COMMAND;
-      if (customInstructions) {
+      if (cmdRaw) {
         try {
-          const cmdResult = await generateTool.run({
-            query: buildCommandParserPrompt(customInstructions, metaPlugin),
-            content: '',
-          });
-          if (cmdResult?.text) {
-            const raw = cmdResult.text.trim();
-            const jsonStart = raw.indexOf('{');
-            const jsonEnd = raw.lastIndexOf('}');
-            const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
-            const parsed = safeParseJSON(jsonStr);
-            if (parsed && typeof parsed.designOverrides === 'object' && typeof parsed.contentOverrides === 'object') {
-              parsedCommand = parsed as unknown as ParsedCommand;
-              // Plugin override — affects Pass 0 and Pass 2 prompts
-              if (typeof parsedCommand.designOverrides.plugin === 'string' && parsedCommand.designOverrides.plugin) {
-                metaPlugin = parsedCommand.designOverrides.plugin;
-                console.log('[microsite-agent] Command parser: plugin overridden to', metaPlugin);
-              }
+          const raw = (cmdRaw as string).trim();
+          const jsonStart = raw.indexOf('{');
+          const jsonEnd = raw.lastIndexOf('}');
+          const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
+          const parsed = safeParseJSON(jsonStr);
+          if (parsed && typeof parsed.designOverrides === 'object' && typeof parsed.contentOverrides === 'object') {
+            parsedCommand = parsed as unknown as ParsedCommand;
+            if (typeof parsedCommand.designOverrides.plugin === 'string' && parsedCommand.designOverrides.plugin) {
+              metaPlugin = parsedCommand.designOverrides.plugin;
+              console.log('[microsite-agent] Command parser: plugin overridden to', metaPlugin);
             }
           }
-        } catch { /* keep defaults if command parsing fails */ }
+        } catch { /* keep defaults */ }
       }
 
-      // Pass 0: Section planning + Pass 1: Brief extraction (parallel — markdown skipped, AST is authoritative)
-      const [planResult, briefResult] = await Promise.all([
-        generateTool.run({ query: buildSectionPlanPrompt(proposalMarkdown, metaPlugin, customInstructions), content: '' }).catch(() => null),
-        generateTool.run({ query: buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions), content: '' }).catch(() => null),
-      ]);
+      // Section limit detection — runs before Pass 0 to inform trimming after plan is parsed
+      const combinedPromptText = [fullDesignPrompt, customInstructions].filter(Boolean).join('\n');
+      const sectionLimitRequest: SectionLimitRequest = detectSectionLimitRequest(combinedPromptText);
+      console.log('[SectionLimitDetector]', JSON.stringify(sectionLimitRequest));
+
 
       // Parse section plan — handles both new { sections, constraints } format and legacy [] format
       let sectionPlan: SectionPlan[] | null = null;
@@ -1976,6 +2468,18 @@ export class MicrositeGeneratorAgent implements Agent {
       }
 
 
+      // Deduplicate FIRST (before required-section additions claim all substitute types),
+      // then add missing required sections — unless the user explicitly requested a specific count/list.
+      // Using sectionLimitRequest.hasLimit (not isFullOverride) so that visual-only prompts and
+      // fullDesignPrompt mode without explicit counts both get the full required-section expansion.
+      if (sectionPlan) {
+        sectionPlan = deduplicateSectionTypes(sectionPlan);
+        if (!sectionLimitRequest.hasLimit) {
+          sectionPlan = ensureRequiredSections(sectionPlan);
+          console.log('[MicrositeAgent] After ensureRequiredSections:', sectionPlan.length, 'sections');
+        }
+      }
+
       // Code-level constraint fallback: apply regex overrides on top of LLM-parsed planConstraints
       // This guarantees constraint enforcement even when the LLM misses keywords
       if (customInstructions) {
@@ -2002,17 +2506,71 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
+      // Apply section limit request (from detectSectionLimitRequest) after ensureRequiredSections
+      if (sectionLimitRequest.hasLimit && sectionPlan) {
+        if (sectionLimitRequest.limitType === 'count' && sectionLimitRequest.requestedCount) {
+          const count = sectionLimitRequest.requestedCount;
+          const hero = sectionPlan.filter(s => s.type === 'hero');
+          const last = sectionPlan.filter(s => s.type === 'nextsteps');
+          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
+          const trimmed = [
+            ...hero,
+            ...middle.slice(0, Math.max(0, count - hero.length - last.length)),
+            ...last,
+          ];
+          sectionPlan = trimmed.slice(0, count);
+          console.log('[SectionLimitDetector] Trimmed to', sectionPlan.length, 'sections per user request');
+        }
+        if (sectionLimitRequest.limitType === 'explicit-list' && sectionLimitRequest.requestedSections) {
+          sectionPlan = sectionPlan.filter(s =>
+            sectionLimitRequest.requestedSections!.some(r =>
+              s.type.includes(r) || r.includes(s.type)
+            )
+          );
+        }
+        if (sectionLimitRequest.limitType === 'exclude-list' && sectionLimitRequest.requestedSections) {
+          sectionPlan = sectionPlan.filter(s =>
+            !sectionLimitRequest.requestedSections!.includes(s.type)
+          );
+        }
+      }
+
       // Parse brief
       let brief: Record<string, unknown> | null = null;
       if (briefResult?.text) {
         brief = safeParseJSON(briefResult.text);
         console.log('[microsite-agent] brief parse:', brief ? `OK — client="${brief.clientName}", company="${brief.proposingCompany}"` : `FAILED — raw (first 200): ${briefResult.text.slice(0, 200)}`);
       } else {
-        console.log('[microsite-agent] brief parse: SKIPPED — briefResult has no text');
+        console.log('[microsite-agent] brief parse: SKIPPED — briefResult has no text, using fallback brief');
+      }
+      // Fallback brief so Pass 2 always runs even if Pass 1 LLM call failed
+      if (!brief) {
+        brief = {
+          clientName: meta.clientName ?? 'Client',
+          proposingCompany: meta.proposingCompany ?? 'Us',
+          primaryTone: 'authoritative',
+          industry: '',
+          coreProblem: '',
+          proposedSolution: '',
+          keyBenefits: [],
+        };
       }
 
       // Markdown is backward-compat only — derive from source sections (no extra LLM call)
-      markdown = this.fallbackMarkdown(sourceSections);
+      // In full override mode, use the design-prompt-aware markdown builder instead.
+      if (isFullOverride) {
+        try {
+          const mdResult = await generateTool.run({
+            query: buildOverrideMarkdownPrompt(sourceSections, fullDesignPrompt, designConfig),
+            content: '',
+          });
+          markdown = mdResult.text?.trim() || this.fallbackMarkdown(sourceSections);
+        } catch {
+          markdown = this.fallbackMarkdown(sourceSections);
+        }
+      } else {
+        markdown = this.fallbackMarkdown(sourceSections);
+      }
 
       // Hard-trim markdown sections to explicit count — LLMs ignore section count instructions
       if (customInstructions) {
@@ -2040,7 +2598,7 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
-      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','generic']);
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
@@ -2064,6 +2622,14 @@ export class MicrositeGeneratorAgent implements Agent {
             heading = sourceHeading;
           }
 
+          // Pricing fallback: if rawBody is empty, scan all source sections for price data
+          if (!rawBody && type === 'pricing') {
+            const pricePattern = /\$|£|€|USD|GBP|EUR|\d[\d,]+(\.\d+)?\s*(k|K|M|mn|million|thousand)?\/?(mo|month|yr|year|hour|hr|day)|total|invest|cost|fee|rate|price|package|tier/i;
+            const pricingSections = sourceSections.filter(s => pricePattern.test(s.content) || pricePattern.test(s.name));
+            if (pricingSections.length > 0) {
+              rawBody = pricingSections.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
+            }
+          }
           resolvedSections.push({ type, heading, rawBody, aiGenerated: planned.aiGenerated || !sourceHeading });
         }
       } else {
@@ -2129,9 +2695,6 @@ export class MicrositeGeneratorAgent implements Agent {
           customInstructions,
         );
 
-        // Optional streaming callback — called after each section completes
-        const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
-
         const seenSlugs = new Map<string, number>();
         // Filter out sections hidden by the parsed command; preserve original index for preassigned variant lookup
         const sectionsToHide = parsedCommand.contentOverrides.sectionsToHide ?? [];
@@ -2140,65 +2703,93 @@ export class MicrositeGeneratorAgent implements Agent {
         const pass2Sections = resolvedSections
           .map((s, originalIdx) => ({ ...s, originalIdx }))
           .filter(s => sectionsToHide.length === 0 || !sectionsToHide.includes(s.type));
-        const sectionResults = await Promise.all(
-          pass2Sections.map(async (s, idx) => {
-            const baseSlug = slugify(s.heading);
-            const count = seenSlugs.get(baseSlug) ?? 0;
-            seenSlugs.set(baseSlug, count + 1);
-            const id = count === 0 ? baseSlug : `${baseSlug}-${idx}`;
-            const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
-            const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
-            const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
-            const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
-            console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
-            const prompt = buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
-            try {
-              const result = await generateTool!.run({ query: prompt, content: '' });
-              const parsed = safeParseJSON(result.text ?? '') ?? {};
-              if (!parsed.headline && !parsed.eyebrow) {
-                console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
-              }
-              if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
-              // Notify streaming listener that this section is done
-              onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed });
-              // Force CTA off per constraints
-              const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
-                || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));
-              if (shouldStripCTA) {
-                parsed.ctaPrimary = '';
-                parsed.ctaSecondary = '';
-                parsed.cta = '';
-                if (parsed.ui && typeof parsed.ui === 'object') {
-                  (parsed.ui as Record<string, unknown>).showCTA = false;
+
+        // Notify caller of final section plan before generation starts
+        onPlanReady?.({
+          totalSections: pass2Sections.length,
+          sectionTypes: pass2Sections.map(s => s.type),
+        });
+
+        // Skip hero in Pass 2 if already streamed by speculative call (heroAlreadyStreamed set in .then() above)
+        const pass2SectionsFiltered = heroAlreadyStreamed
+          ? pass2Sections.filter(s => s.type !== 'hero')
+          : pass2Sections;
+
+        // Process sections in batches of 3 for faster progressive streaming
+        const BATCH_SIZE = 3;
+
+        for (let batchStart = 0; batchStart < pass2SectionsFiltered.length; batchStart += BATCH_SIZE) {
+          const batch = pass2SectionsFiltered.slice(batchStart, batchStart + BATCH_SIZE);
+          const batchOutputs = await Promise.all(
+            batch.map(async (s, batchIdx) => {
+              // Offset by 1 when hero is already at position 0 — prevents non-hero sections
+              // from getting index:0 and displacing the hero to position 2 or 3
+              const heroOffset = heroAlreadyStreamed ? 1 : 0;
+              const idx = (batchStart + batchIdx) + heroOffset;
+              const baseSlug = slugify(s.heading);
+              const count = seenSlugs.get(baseSlug) ?? 0;
+              seenSlugs.set(baseSlug, count + 1);
+              const id = count === 0 ? baseSlug : `${baseSlug}-${idx}`;
+              const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
+              const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
+              const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
+              const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
+              console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
+              const prompt = isFullOverride
+                ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel)
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
+              try {
+                const timeoutMs = 90_000;
+                const result = await Promise.race([
+                  generateTool!.run({ query: prompt, content: '' }),
+                  new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Section "${s.type}" timed out after ${timeoutMs}ms`)), timeoutMs)),
+                ]);
+                const parsed = safeParseJSON(result.text ?? '') ?? {};
+                if (!parsed.headline && !parsed.eyebrow) {
+                  console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
                 }
+                if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
+                onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
+                const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
+                  || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));
+                if (shouldStripCTA) {
+                  parsed.ctaPrimary = '';
+                  parsed.ctaSecondary = '';
+                  parsed.cta = '';
+                  if (parsed.ui && typeof parsed.ui === 'object') {
+                    (parsed.ui as Record<string, unknown>).showCTA = false;
+                  }
+                }
+                const diagramMeta = diagramSel ? {
+                  typeId: diagramSel.diagramType.id,
+                  typeLabel: diagramSel.diagramType.label,
+                  category: diagramSel.diagramType.category,
+                  confidence: diagramSel.confidence,
+                  matchedKeywords: diagramSel.matchedKeywords,
+                  score: diagramSel.score,
+                  isCustomSvg: diagramSel.diagramType.isCustomSvg ?? false,
+                } : null;
+                return { id, heading: s.heading, type: s.type, content: parsed, diagramMeta };
+              } catch (err) {
+                console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
+                return {
+                  id,
+                  heading: s.heading,
+                  type: s.type,
+                  content: {
+                    eyebrow: s.heading,
+                    headline: s.heading,
+                    body: s.rawBody.split('\n').slice(0, 3).join(' ').slice(0, 200),
+                    imageQuery: `business ${s.heading.toLowerCase()} professional`,
+                  },
+                  diagramMeta: null,
+                };
               }
-              const diagramMeta = diagramSel ? {
-                typeId: diagramSel.diagramType.id,
-                typeLabel: diagramSel.diagramType.label,
-                category: diagramSel.diagramType.category,
-                confidence: diagramSel.confidence,
-                matchedKeywords: diagramSel.matchedKeywords,
-                score: diagramSel.score,
-                isCustomSvg: diagramSel.diagramType.isCustomSvg ?? false,
-              } : null;
-              return { id, heading: s.heading, type: s.type, content: parsed, diagramMeta };
-            } catch (err) {
-              console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
-              return {
-                id,
-                heading: s.heading,
-                type: s.type,
-                content: {
-                  eyebrow: s.heading,
-                  headline: s.heading,
-                  body: s.rawBody.split('\n').slice(0, 3).join(' ').slice(0, 200),
-                  imageQuery: `business ${s.heading.toLowerCase()} professional`,
-                },
-                diagramMeta: null,
-              };
-            }
-          }),
-        );
+            })
+          );
+          sectionResults.push(...batchOutputs);
+          console.log(`[microsite-agent] Batch ${Math.floor(batchStart / BATCH_SIZE) + 1} complete — ${sectionResults.length}/${pass2Sections.length} sections done`);
+        }
 
         // Resolve image URLs in parallel (loremflickr.com — free, keyword-based)
         const imageUrls = await Promise.all(
@@ -2212,6 +2803,8 @@ export class MicrositeGeneratorAgent implements Agent {
         layoutAST = {
           proposalId: namespace,
           generatedAt: new Date().toISOString(),
+          generationMode: isFullOverride ? 'full-design-prompt-override' : 'default',
+          fullDesignPromptUsed: isFullOverride,
           meta: this.extractMeta(proposalMarkdown),
           brief,
           brand: {
@@ -2280,6 +2873,40 @@ export class MicrositeGeneratorAgent implements Agent {
         // Apply design overrides from parsed command (plugin swap, section layouts, image style, typography, accent color)
         if (layoutAST) {
           applyDesignOverrides(layoutAST as Record<string, unknown>, parsedCommand.designOverrides);
+        }
+        // Merge extracted design tokens into brand when fullDesignPrompt was provided
+        if (extractedTokens && layoutAST) {
+          const ast = layoutAST as Record<string, unknown>;
+          const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
+          ast.brand = {
+            ...existingBrand,
+            overrideTheme: true,
+            extractedCssVariables: extractedTokens.cssVariables,
+            googleFontsUrl: extractedTokens.googleFontsUrl,
+            fontFaceDeclarations: extractedTokens.fontFaceDeclarations,
+            animationStyle: extractedTokens.components.animationStyle,
+            gradientsEnabled: extractedTokens.components.gradients,
+            decorativeEnabled: extractedTokens.components.decorativeElements,
+            borderRadiusStyle: extractedTokens.components.borderRadius,
+            themeClass: extractedTokens.themeClass,
+          };
+        }
+
+        // Section count validation
+        if (layoutAST && typeof layoutAST === 'object') {
+          const astObj = layoutAST as Record<string, unknown>;
+          if (Array.isArray(astObj.sections)) {
+            const count = astObj.sections.length;
+            console.log('[MicrositeAgent] Section count:', count);
+            console.log('[MicrositeAgent] Sections:', astObj.sections.map((s: any) => s.sectionType).join(', '));
+            const withDiagram = astObj.sections.filter((s: any) => s.content?.diagram).length;
+            const withImage = astObj.sections.filter((s: any) => s.content?.imageQuery).length;
+            console.log('[MicrositeAgent] With diagram:', withDiagram, '/', count);
+            console.log('[MicrositeAgent] With imageQuery:', withImage, '/', count);
+            if (count < 8 && !sectionLimitRequest.hasLimit) {
+              console.warn('[MicrositeAgent] WARNING: Only', count, 'sections generated without user limit. Expected 10+.');
+            }
+          }
         }
       }
     } else {

@@ -4,8 +4,9 @@ import type { PluginTokens, TestimonialsContent } from '../../../types/presentat
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: TestimonialsContent;
@@ -64,75 +65,87 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
           </InlineEditable>
         </Reveal>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.min(items.length, 3)}, 1fr)`,
-          gap: 'clamp(1rem, 2vw, 1.5rem)',
-        }}>
+        <div
+          className="ms-grid-auto"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(items.length, 3)}, 1fr)`,
+            gap: 'clamp(1rem, 2vw, 1.5rem)',
+          }}
+        >
           {items.map((item, i) => (
             <Reveal key={i} delay={160 + i * 80}>
-              <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                {/* Quote mark */}
-                <div style={{
-                  fontFamily: 'Georgia, serif',
-                  fontSize: '3rem',
-                  lineHeight: 0.8,
-                  color: tokens.accent,
-                  fontWeight: 700,
-                }}>
-                  &ldquo;
-                </div>
-
-                {/* Quote text */}
-                <p style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '1rem',
-                  lineHeight: 1.75,
-                  color: tokens.text,
-                  fontStyle: 'italic',
-                  margin: 0,
-                  flex: 1,
-                }}>
-                  {item.quote}
-                </p>
-
-                {/* Attribution */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 20, borderTop: `1px solid ${tokens.border}` }}>
-                  {/* Avatar */}
-                  <div style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: '50%',
-                    background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
-                    border: `1px solid ${tokens.accent}50`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontWeight: 700,
-                    fontSize: '0.85rem',
-                    color: tokens.accent,
-                  }}>
-                    {item.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+              <InlineArrayItem arrayPath="items" index={i} total={items.length}>
+                <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  {/* Quote mark */}
+                  <div style={{ fontFamily: 'Georgia, serif', fontSize: '3rem', lineHeight: 0.8, color: tokens.accent, fontWeight: 700 }}>
+                    &ldquo;
                   </div>
-                  <div>
+
+                  {/* Quote text */}
+                  <InlineEditable field={`items.${i}.quote`} label="Quote" value={item.quote ?? ''} multiline>
+                    <p
+                      style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontSize: '1rem',
+                        lineHeight: 1.75,
+                        color: tokens.text,
+                        fontStyle: 'italic',
+                        margin: 0,
+                        flex: 1,
+                      }}
+                      {...(hasMarkdown(item.quote ?? '')
+                        ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(item.quote ?? '') } }
+                        : { children: item.quote })}
+                    />
+                  </InlineEditable>
+
+                  {/* Attribution */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 20, borderTop: `1px solid ${tokens.border}` }}>
+                    {/* Avatar initials */}
                     <div style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontWeight: 600,
-                      fontSize: '0.875rem',
-                      color: tokens.text,
+                      width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                      background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
+                      border: `1px solid ${tokens.accent}50`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700,
+                      fontSize: '0.85rem', color: tokens.accent,
                     }}>
-                      {item.name}
+                      {(item.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                     </div>
-                    <Body tokens={tokens} style={{ fontSize: '0.75rem', marginTop: 2 }}>
-                      {item.title} · {item.company}
-                    </Body>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <InlineEditable field={`items.${i}.name`} label="Name" value={item.name ?? ''}>
+                        <div style={{
+                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                          fontWeight: 600, fontSize: '0.875rem', color: tokens.text,
+                        }}>
+                          {item.name}
+                        </div>
+                      </InlineEditable>
+                      <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
+                        <Body tokens={tokens} style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                          {item.title}
+                        </Body>
+                      </InlineEditable>
+                      <InlineEditable field={`items.${i}.company`} label="Company" value={item.company ?? ''}>
+                        <Body tokens={tokens} style={{ fontSize: '0.75rem' }}>
+                          {item.company}
+                        </Body>
+                      </InlineEditable>
+                    </div>
                   </div>
-                </div>
-              </GlassCard>
+                </GlassCard>
+              </InlineArrayItem>
             </Reveal>
           ))}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+          <InlineAddItem
+            arrayPath="items"
+            template={{ quote: 'Share your experience here…', name: 'Full Name', title: 'Job Title', company: 'Company' }}
+            label="Add testimonial"
+          />
         </div>
       </div>
     </section>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
@@ -23,6 +23,11 @@ import { MetricsSection } from './sections/MetricsSection';
 import { SecuritySection } from './sections/SecuritySection';
 import { TechStackSection } from './sections/TechStackSection';
 import { TestingSection } from './sections/TestingSection';
+import { FaqSection } from './sections/FaqSection';
+import { TeamSection } from './sections/TeamSection';
+import { ComparisonSection } from './sections/ComparisonSection';
+import { CaseStudySection } from './sections/CaseStudySection';
+import { ChartSection } from './sections/ChartSection';
 
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
@@ -30,6 +35,7 @@ import { SectionIdProvider } from './editor/SectionIdContext';
 import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
+import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
 
 import type {
   HeroContent,
@@ -50,6 +56,11 @@ import type {
   SecurityContent,
   TechStackContent,
   TestingContent,
+  FaqContent,
+  TeamContent,
+  ComparisonContent,
+  CaseStudyContent,
+  ChartContent,
 } from '../../types/presentation';
 
 /** Unique stable DOM id for the fullscreen scroll container */
@@ -63,24 +74,43 @@ interface Props {
   onEdit?: () => void;
   /** 'fullscreen' (default) renders as a fixed full-viewport overlay; 'embedded' renders inline for the editor canvas. */
   mode?: 'fullscreen' | 'embedded';
+  /** True while streaming is in progress — enables spring reveal animation and progress overlay. */
+  generating?: boolean;
+  /** Total expected sections from the plan event. */
+  streamingTotal?: number;
+  /** Ordered list of section types from the plan — used to show the next section name in the progress overlay. */
+  planSectionTypes?: string[];
 }
 
-/** Wraps each section with scroll-triggered visibility animation. */
+/** Wraps each section with visibility animation.
+ *  - isStreaming=true: spring reveal immediately on mount (Gamma-style, no scroll wait)
+ *  - isStreaming=false: scroll-triggered fade-up (existing behavior, tightened to 16px)
+ */
 function AnimatedSection({
   id,
   children,
   behavior,
   index,
+  isStreaming,
 }: {
   id: string;
   children: React.ReactNode;
   behavior?: LayoutAST['behavior'];
   index: number;
+  isStreaming?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(index === 0); // hero always visible
+
+  // Freeze isStreaming at mount — parent re-renders change the prop to false after hero arrives
+  const wasStreamingRef = useRef(isStreaming ?? false);
+  const wasStreaming = wasStreamingRef.current;
+
+  const [visible, setVisible] = useState(wasStreaming ? true : index === 0);
 
   useEffect(() => {
+    // During streaming: sections appear instantly — the auto-scroll provides the
+    // natural reveal effect without jarring slide/fade animations (ChatGPT/Claude style).
+    if (wasStreaming) return;
     if (index === 0) return;
     const el = ref.current;
     if (!el) return;
@@ -90,23 +120,33 @@ function AnimatedSection({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [index]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — all refs captured at mount
 
   const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
   const delay = Math.min(index * 0.04, 0.24);
 
-  const animStyle: React.CSSProperties = effect === 'none'
+  const spring = 'cubic-bezier(0.34, 1.15, 0.64, 1)';
+
+  // Streaming sections: no inline animation styles at all — prevents any flicker
+  // and lets the typewriter + auto-scroll do the visual storytelling.
+  const animStyle: React.CSSProperties = (wasStreaming || (effect === 'none' && !wasStreaming))
     ? {}
     : {
         opacity: visible ? 1 : 0,
-        transform: visible ? 'none' : effect === 'slide-up' ? 'translateY(28px)' : 'none',
+        transform: visible ? 'none' : 'translateY(16px)',
         transition: visible
-          ? `opacity 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}s, transform 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}s`
+          ? `opacity 0.52s ${spring} ${delay}s, transform 0.52s ${spring} ${delay}s`
           : 'none',
       };
 
   return (
-    <div ref={ref} id={id} data-section-id={id} style={animStyle}>
+    <div
+      ref={ref}
+      id={id}
+      data-section-id={id}
+      style={{ ...animStyle, containerType: 'inline-size' }}
+    >
       {children}
     </div>
   );
@@ -120,7 +160,12 @@ function renderSection(
   allSections: LayoutAST['sections'],
   brief?: LayoutAST['brief'],
 ) {
-  const imageUrl = section.image.url;
+  // Root-relative paths (/presentation-images/...) are served by the API.
+  // Rewrite them through the Next.js /api proxy so they work in the UI.
+  const rawUrl = section.image.url;
+  const imageUrl = rawUrl?.startsWith('/presentation-images/')
+    ? `/api${rawUrl}`
+    : rawUrl;
   const sid = section.id;
 
   let inner: React.ReactNode;
@@ -181,22 +226,51 @@ function renderSection(
       inner = <StatsSection content={section.content as StatsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'metrics':
-      inner = <MetricsSection content={section.content as MetricsContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <MetricsSection content={section.content as MetricsContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'security':
-      inner = <SecuritySection content={section.content as SecurityContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <SecuritySection content={section.content as SecurityContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'techstack':
-      inner = <TechStackSection content={section.content as TechStackContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <TechStackSection content={section.content as TechStackContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'testing':
-      inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} />;
+      inner = <TestingSection content={section.content as TestingContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'faq':
+      inner = <FaqSection content={section.content as FaqContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'team':
+      inner = <TeamSection content={section.content as TeamContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'comparison':
+      inner = <ComparisonSection content={section.content as ComparisonContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'casestudy':
+      inner = <CaseStudySection content={section.content as CaseStudyContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'chart':
+      inner = <ChartSection content={section.content as ChartContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     default:
       inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
   }
 
   return inner;
+}
+
+// ── Shimmer skeleton placeholder (shown while sections are still generating) ──
+
+function SkeletonSection({ tokens }: { tokens: PluginTokens }) {
+  return (
+    <div style={{
+      minHeight: 480,
+      background: `linear-gradient(90deg, ${tokens.surface ?? tokens.bg} 25%, ${tokens.surfaceAlt ?? tokens.surface ?? tokens.bg} 50%, ${tokens.surface ?? tokens.bg} 75%)`,
+      backgroundSize: '200% 100%',
+      animation: 'ms-shimmer 1.6s ease-in-out infinite',
+      margin: '2px 0',
+    }} />
+  );
 }
 
 // ── Section overlay wrapper (editor-only) ────────────────────────────────────
@@ -210,12 +284,7 @@ function SectionWithOverlay({
   allSections,
   brief,
   behavior,
-  dragFrom,
-  dragOver,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  isStreaming,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -225,19 +294,31 @@ function SectionWithOverlay({
   allSections: LayoutAST['sections'];
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
-  dragFrom: number | null;
-  dragOver: number | null;
-  onDragStart: (index: number) => void;
-  onDragOver: (index: number, e: React.DragEvent) => void;
-  onDrop: (index: number) => void;
-  onDragEnd: () => void;
+  isStreaming?: boolean;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
-  // Apply per-section background override
-  let sectionInner: React.ReactNode = section.bgColor
-    ? <div style={{ background: section.bgColor }}>{inner}</div>
-    : inner;
+  // Apply per-section background override using scoped CSS to beat inline styles
+  const sel = `[data-section-id="${section.id}"] section,[data-section-id="${section.id}"] > div > section`;
+  const hasBgColor = !!section.bgColor;
+  // Background image only applies to hero by default.
+  // For other sections it only applies when the user explicitly set it via
+  // the toolbar (source === 'custom').
+  const isHero = section.sectionType === 'hero';
+  const hasBgImage = !!section.image?.url && (isHero || section.image.source === 'custom');
+  let bgCssRule = '';
+  if (hasBgColor) {
+    const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
+    bgCssRule = `${sel}{background:${safe} !important;}`;
+  } else if (hasBgImage) {
+    bgCssRule = `${sel}{background-image:url("${section.image!.url!.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
+  }
+  let sectionInner: React.ReactNode = bgCssRule ? (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: bgCssRule }} />
+      {inner}
+    </>
+  ) : inner;
 
   // Render embed overlay if section has an embed URL
   if (section.embed?.url) {
@@ -269,24 +350,9 @@ function SectionWithOverlay({
     }
   }
 
-  const isDragging = dragFrom === index;
-  const isDropTarget = dragOver === index && dragFrom !== null && dragFrom !== index;
-
   return (
-    <div
-      draggable={!!editCtx}
-      onDragStart={editCtx ? () => onDragStart(index) : undefined}
-      onDragOver={editCtx ? e => onDragOver(index, e) : undefined}
-      onDrop={editCtx ? () => onDrop(index) : undefined}
-      onDragEnd={editCtx ? onDragEnd : undefined}
-      style={{
-        opacity: isDragging ? 0.4 : 1,
-        transition: 'opacity 0.15s',
-        outline: isDropTarget ? '3px dashed #6366f1' : 'none',
-        outlineOffset: -3,
-      }}
-    >
-      <AnimatedSection id={section.id} behavior={behavior} index={index}>
+    <div>
+      <AnimatedSection id={section.id} behavior={behavior} index={index} isStreaming={isStreaming}>
         <SectionIdProvider id={section.id}>
           {editCtx ? (
             <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
@@ -298,6 +364,29 @@ function SectionWithOverlay({
     </div>
   );
 }
+
+/**
+ * Memoized SectionWithOverlay — prevents hero re-renders when only `total` or
+ * `allSections` grow during streaming. Without this, every new section arrival
+ * triggers a re-render of all existing sections, including hero. HeroSection
+ * defines inline helper components (R, E) whose function references change on
+ * every render → React unmounts/remounts Reveal children → visibility state
+ * resets → fade-in animations replay → visible flicker.
+ *
+ * The comparator intentionally excludes `total` and `allSections` — these grow
+ * during streaming but hero doesn't need to re-render when only the count grows.
+ */
+const StableSectionWithOverlay = React.memo(SectionWithOverlay, (prev, next) => {
+  return (
+    prev.section === next.section &&
+    prev.index === next.index &&
+    prev.tokens === next.tokens &&
+    prev.brand === next.brand &&
+    prev.brief === next.brief &&
+    prev.behavior === next.behavior &&
+    prev.isStreaming === next.isStreaming
+  );
+});
 
 /** Convert a YouTube/Loom/iframe URL into an embeddable src */
 function getEmbedSrc(url: string): string | null {
@@ -319,23 +408,218 @@ function getEmbedSrc(url: string): string | null {
   }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen' }: Props) {
+// ── Token override helpers (module-level, no deps) ───────────────────────────
+
+/** Extract just the font family name from a CSS font-family string like "'Nunito', sans-serif" */
+function extractFontName(fontFamily?: string): string | undefined {
+  if (!fontFamily) return undefined;
+  const match = fontFamily.match(/['"]?([^'",]+)['"]?/);
+  return match?.[1]?.trim();
+}
+
+/** Return true when a hex color has perceived luminance below 128 (i.e. dark background) */
+function isColorDark(hex: string): boolean {
+  try {
+    const h = hex.replace('#', '');
+    if (h.length < 6) return false;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+  } catch { return false; }
+}
+
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
-  const mergedTokens = ast.customTokens
-    ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
-    : undefined;
-  const tokens = resolveTokens(ast.plugin, ast.brand.primaryColor, mergedTokens);
-  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| heroFont:', tokens.heroFont);
+  const brand = ast.brand;
+
+  // Memoize mergedTokens — ast.customTokens/customDesignSystem don't change during
+  // streaming (only ast.sections grows), so this reference stays stable.
+  const mergedTokens = useMemo(
+    () => ast.customTokens
+      ? { ...(ast.customDesignSystem ?? {}), ...ast.customTokens }
+      : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ast.customTokens, ast.customDesignSystem],
+  );
+
+  // Memoize tokens — resolveTokens() returns a new object every call, which would
+  // break React.memo on SectionWithOverlay (prev.tokens !== next.tokens always).
+  // Stable token reference = hero section won't re-render when new sections arrive.
+  const tokens = useMemo(() => {
+    // When extractedCssVariables is present, skip brandPrimaryColor so applyBrandOverride
+    // does NOT taint tokens with the brand's primaryColor before the override.
+    const hasCssOverride = !!(brand?.extractedCssVariables && Object.keys(brand.extractedCssVariables).length > 0);
+    let t = resolveTokens(ast.plugin, hasCssOverride ? '' : brand.primaryColor, mergedTokens);
+    if (hasCssOverride) {
+      const vars = brand.extractedCssVariables!;
+      const bgOverride = vars['--ms-bg'] ?? t.bg;
+      const accentOverride = vars['--ms-accent'] ?? vars['--ms-hero-accent'] ?? t.accent;
+      const textOverride = vars['--ms-text'] ?? t.text;
+      const isDark = isColorDark(bgOverride);
+      t = {
+        ...t,
+        accent:          accentOverride,
+        accentDim:       vars['--ms-accent2']      ?? t.accentDim,
+        bg:              bgOverride,
+        surface:         vars['--ms-bg2']           ?? t.surface,
+        surfaceAlt:      vars['--ms-bg3']           ?? t.surfaceAlt,
+        surfaceCard:     vars['--ms-surface']       ?? t.surfaceCard,
+        text:            textOverride,
+        textMuted:       vars['--ms-text2']         ?? t.textMuted,
+        textSubtle:      vars['--ms-text3']         ?? t.textSubtle,
+        border:          vars['--ms-border']        ?? t.border,
+        heroFont:        extractFontName(vars['--ms-font-heading']) ?? t.heroFont,
+        bodyFont:        extractFontName(vars['--ms-font-body'])    ?? t.bodyFont,
+        borderRadius:    vars['--ms-r-card']        ?? t.borderRadius,
+        cardShadow:      vars['--ms-shadow']        ?? t.cardShadow,
+        cardShadowHover: vars['--ms-shadow-hover']  ?? t.cardShadowHover,
+        dark: isDark,
+      };
+    }
+    return t;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ast.plugin, brand, mergedTokens]);
+
+  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| overrideTheme:', !!brand?.overrideTheme, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| accent:', tokens.accent, '| heroFont:', tokens.heroFont);
+
+  // Resolve CSS variables: also inject as CSS custom properties for any
+  // CSS-based consumers (nav, overlays, etc.), now in addition to the token override above
+  const cssVars = (brand?.overrideTheme && brand?.extractedCssVariables)
+    ? brand.extractedCssVariables
+    : {};
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
+
+  // Track which section IDs have been seen to identify newly streamed sections (for spring reveal)
+  const seenSectionIds = useRef<Set<string>>(new Set());
+  const allSections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
+
+  // During streaming: show hero at top but freeze the allSections reference passed to each
+  // section component. Without freezing, every new section arrival grows allSections → hero
+  // re-renders with a new sections prop → visible flicker/layout shift.
+  const frozenSectionsRef = useRef<typeof allSections>([]);
+  if (generating && allSections.length > 0 && frozenSectionsRef.current.length === 0) {
+    // Lock when first section (hero) arrives — keeps hero stable throughout generation
+    frozenSectionsRef.current = allSections;
+  } else if (!generating) {
+    frozenSectionsRef.current = []; // Reset after generation so next run starts fresh
+  }
+  // What to pass as allSections prop to SectionWithOverlay components
+  const sectionsForComponents = (generating && frozenSectionsRef.current.length > 0)
+    ? frozenSectionsRef.current
+    : allSections;
+
+  // Full list — used for progress counting and seenSectionIds tracking
+  const sections = allSections;
+
+  const newSectionIds = new Set<string>();
+  if (generating) {
+    sections.forEach(s => {
+      if (!seenSectionIds.current.has(s.id)) newSectionIds.add(s.id);
+    });
+    sections.forEach(s => seenSectionIds.current.add(s.id));
+  }
+
+  // Progress overlay values — use allSections (includes hero) for accurate count
+  const generatedCount = allSections.length;
+  const totalCount = streamingTotal ?? 0;
+  const nextSectionType = planSectionTypes?.[generatedCount];
+  const nextSectionLabel = nextSectionType
+    ? nextSectionType.charAt(0).toUpperCase() + nextSectionType.slice(1).replace(/([A-Z])/g, ' $1')
+    : null;
+
+  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
-  const [dragOver, setDragOver] = useState<number | null>(null);
-  useEffect(() => setMounted(true), []);
+  // typingIndex: which section is currently being typed. null = no typing active.
+  const [typingIndex, setTypingIndex] = useState<number | null>(null);
+
+  // During generation: only render sections 0..typingIndex — sections not yet typed
+  // stay hidden so they don't flash full content then get retyped when their turn comes.
+  // When typingIndex is still null (effect hasn't fired yet), limit to at most 1 section
+  // to prevent the race-condition where multiple sections arrive before the first effect
+  // runs, causing them all to flash simultaneously then "jump" away when typingIndex=0.
+  const visibleSections = generating
+    ? sections.slice(0, typingIndex !== null ? typingIndex + 1 : 1)
+    : sections;
+
+  // Track previous sections length to detect new arrivals during streaming
+  const prevSectionsLengthRef = useRef<number>(0);
+  // Track which typing completions are pending (next section not yet arrived)
+  const typingCompletePendingRef = useRef(false);
+
+useEffect(() => setMounted(true), []);
+
+  // Drive typingIndex: start typing first section when streaming begins,
+  // advance to next when a new section arrives and the previous is done.
+  useEffect(() => {
+    const currentLen = sections.length;
+    if (!generating) {
+      // Stream ended — clear typing state
+      setTypingIndex(null);
+      typingCompletePendingRef.current = false;
+      prevSectionsLengthRef.current = 0;
+      return;
+    }
+    if (currentLen === 0) return;
+
+    const prev = prevSectionsLengthRef.current;
+
+    if (prev === 0 && currentLen > 0) {
+      // First section arrived: start typing it
+      setTypingIndex(0);
+      prevSectionsLengthRef.current = currentLen;
+      return;
+    }
+
+    if (currentLen > prev) {
+      // New section(s) arrived
+      prevSectionsLengthRef.current = currentLen;
+      if (typingCompletePendingRef.current) {
+        // Previous section finished typing while waiting for next — advance now
+        typingCompletePendingRef.current = false;
+        setTypingIndex(currentLen - 1);
+      }
+      // If current section not yet done typing, it will advance in onComplete
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections.length, generating]);
+
+  // Track if the user has scrolled up (so we don't force-scroll them back down)
+  const userScrolledUpRef = useRef(false);
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      userScrolledUpRef.current = (scrollHeight - scrollTop - clientHeight) > 180;
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Scroll in sync with content growth: ResizeObserver fires exactly when the
+  // content div gets taller (a new typed character rendered), so we scroll
+  // immediately — no timer lag, no periodic snap, no jerk.
+  useEffect(() => {
+    if (!generating) return;
+    const container = scrollRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (userScrolledUpRef.current) return;
+      container.scrollTop = container.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generating]);
 
   useEffect(() => {
     const fonts = ast.customFonts?.length ? ast.customFonts : plugin.fonts;
@@ -347,7 +631,40 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
         document.head.appendChild(link);
       }
     });
-  }, [plugin, ast.customFonts]);
+  // plugin is derived from ast.plugin (a string) — using the string avoids a new
+  // object reference every render that would re-run this effect unnecessarily.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ast.plugin, ast.customFonts]);
+
+  // Load Google Fonts from extractedDesignTokens when overrideTheme is active
+  useEffect(() => {
+    const fontsUrl = ast.brand?.googleFontsUrl;
+    if (!fontsUrl) return;
+    const existing = document.querySelector('link[data-ms-fonts]');
+    if (existing) existing.remove();
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = fontsUrl;
+    link.setAttribute('data-ms-fonts', 'true');
+    document.head.appendChild(link);
+    return () => { document.querySelector('link[data-ms-fonts]')?.remove(); };
+  }, [ast.brand?.googleFontsUrl]);
+
+  // Inject font CSS variable declarations extracted from design prompt
+  useEffect(() => {
+    const declarations = ast.brand?.fontFaceDeclarations;
+    if (!declarations) return;
+    const existing = document.querySelector('style[data-ms-font-vars]');
+    if (existing) existing.remove();
+    const style = document.createElement('style');
+    style.setAttribute('data-ms-font-vars', 'true');
+    style.textContent = declarations;
+    document.head.appendChild(style);
+    return () => { document.querySelector('style[data-ms-font-vars]')?.remove(); };
+  }, [ast.brand?.fontFaceDeclarations]);
+
+  const animClass = ast.brand?.animationStyle ? `anim-${ast.brand.animationStyle}` : 'anim-smooth';
+  const themeClass = ast.brand?.themeClass ?? '';
 
   const downloadHTML = () => {
     setDownloading(true);
@@ -490,20 +807,23 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       id={isEmbedded ? undefined : SCROLL_CONTAINER_ID}
       ref={scrollRef}
       data-parallax={ast.behavior?.parallax ? 'true' : 'false'}
+      className={`microsite-root ${animClass} ${themeClass}`.trim()}
       style={isEmbedded ? {
         background: tokens.bg,
         color: tokens.text,
         overflowX: 'hidden',
         minHeight: '100%',
         width: '100%',
-      } : {
+        ...cssVars,
+      } as React.CSSProperties : {
         position: 'fixed',
         inset: 0,
         zIndex: 9999,
         background: tokens.bg,
         overflowY: 'auto',
         overflowX: 'hidden',
-      }}
+        ...cssVars,
+      } as React.CSSProperties}
     >
       <style>{`
         /* ── Regular media queries (real mobile browsers) ── */
@@ -546,6 +866,29 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
           .ms-stats-row { flex-direction: column !important; border-radius: 12px !important; }
           section { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
         }
+
+        @keyframes ms-shimmer {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* During streaming, suppress ALL Reveal slide/fade animations.
+           Uses !important to override the inline styles that Reveal sets. */
+        .ms-generating [data-reveal="1"] {
+          opacity: 1 !important;
+          transform: none !important;
+          transition: none !important;
+        }
+
+        @keyframes tw-cursor-blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        @keyframes tw-item-pop {
+          from { opacity: 0; transform: translateY(6px) scale(0.97); }
+          to   { opacity: 1; transform: none; }
+        }
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -557,38 +900,95 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
       />
 
       {/* Sections */}
-      <div ref={contentRef} className="ms-content-root" style={{ containerType: 'inline-size' }}>
+      <div ref={contentRef} className={`ms-content-root${generating ? ' ms-generating' : ''}`} style={{ containerType: 'inline-size' }}>
         {/* Insert-before-first button */}
         {editCtx && <AddSectionButton afterIndex={-1} />}
 
-        {(ast.sections ?? []).filter(s => !isSectionEmpty(s)).map((section, i) => (
-          <React.Fragment key={section.id}>
-            <SectionWithOverlay
-              section={section}
-              index={i}
-              total={ast.sections.length}
-              tokens={tokens}
-              brand={ast.brand}
-              allSections={ast.sections}
-              brief={ast.brief}
-              behavior={ast.behavior}
-              dragFrom={dragFrom}
-              dragOver={dragOver}
-              onDragStart={idx => setDragFrom(idx)}
-              onDragOver={(idx, e) => { e.preventDefault(); setDragOver(idx); }}
-              onDrop={idx => {
-                if (dragFrom !== null && dragFrom !== idx) {
-                  editCtx?.moveArrayItem('__sections__', '__sections__', dragFrom, idx);
-                }
-                setDragFrom(null);
-                setDragOver(null);
-              }}
-              onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
-            />
-            {/* Insert-after button between sections */}
-            {editCtx && <AddSectionButton afterIndex={i} />}
-          </React.Fragment>
-        ))}
+        {/* SectionStreamingContext=true disables Reveal slide animations inside sections during generation */}
+        <SectionStreamingContext.Provider value={!!generating}>
+          {visibleSections.map((section, i) => (
+            <React.Fragment key={section.id}>
+              <div ref={el => { if (el) sectionRefs.current.set(section.id, el); else sectionRefs.current.delete(section.id); }}>
+                <TypewriterSection
+                  section={section}
+                  isActiveTyping={generating === true && typingIndex === i}
+                  isStreamingMode={generating === true}
+                  onComplete={() => {
+                    // Advance to the next section if it has already arrived,
+                    // otherwise mark as pending so the arrival effect picks it up.
+                    const nextIdx = i + 1;
+                    if (nextIdx < sections.length) {
+                      setTypingIndex(nextIdx);
+                    } else {
+                      // Next section not yet in the list — wait for it
+                      typingCompletePendingRef.current = true;
+                    }
+                  }}
+                >
+                  {(animatedSection) => (
+                    <StableSectionWithOverlay
+                      section={animatedSection}
+                      index={i}
+                      total={sections.length}
+                      tokens={tokens}
+                      brand={ast.brand}
+                      allSections={sectionsForComponents}
+                      brief={ast.brief}
+                      behavior={ast.behavior}
+                      isStreaming={newSectionIds.has(section.id)}
+                    />
+                  )}
+                </TypewriterSection>
+              </div>
+              {editCtx && <AddSectionButton afterIndex={i} />}
+            </React.Fragment>
+          ))}
+          {generating && mounted && createPortal(
+            <div style={{
+              position: 'fixed',
+              bottom: 28,
+              right: 28,
+              zIndex: 10001,
+              background: 'rgba(10,10,10,0.88)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              color: '#fff',
+              borderRadius: 12,
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontSize: 13,
+              lineHeight: 1.4,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+              minWidth: 220,
+            }}>
+              <div style={{
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.25)',
+                borderTopColor: '#fff',
+                animation: 'spin 0.75s linear infinite',
+                flexShrink: 0,
+              }} />
+              <div>
+                <div style={{ fontWeight: 600, color: '#fff' }}>
+                  {totalCount > 0
+                    ? `Section ${generatedCount} of ${totalCount}`
+                    : 'Generating sections...'}
+                </div>
+                {nextSectionLabel && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
+                    Next: {nextSectionLabel}
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )}
+        </SectionStreamingContext.Provider>
 
         <footer
           style={{
@@ -604,7 +1004,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
         </footer>
       </div>
 
-      {/* Control bar — hidden in embedded mode (editor provides its own controls) */}
+      {/* Control bar */}
       {!isEmbedded && mounted && createPortal(
         <div style={{
           position: 'fixed',
@@ -675,24 +1075,26 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
               ✏ Edit
             </button>
           )}
-          <button
-            onClick={downloadPdf}
-            disabled={downloadingPdf}
-            style={{
-              padding: '9px 18px',
-              borderRadius: 100,
-              border: 'none',
-              background: tokens.accent,
-              color: tokens.dark ? tokens.bg : '#fff',
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              cursor: downloadingPdf ? 'wait' : 'pointer',
-              boxShadow: `0 4px 16px ${tokens.glowColor}`,
-            }}
-          >
-            {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
-          </button>
+          {!generating && (
+            <button
+              onClick={downloadPdf}
+              disabled={downloadingPdf}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 100,
+                border: 'none',
+                background: tokens.accent,
+                color: tokens.dark ? tokens.bg : '#fff',
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: downloadingPdf ? 'wait' : 'pointer',
+                boxShadow: `0 4px 16px ${tokens.glowColor}`,
+              }}
+            >
+              {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
+            </button>
+          )}
         </div>,
         document.body
       )}

@@ -1,15 +1,18 @@
 "use client";
 
+import { useContext } from "react";
 import type { PluginTokens, ApproachContent } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
 import { Headline, Body, Label } from "../shared/Typography";
 import { getSectionGradient } from "../../../lib/presentation/pluginRegistry";
-import { ThemedMermaid } from "../shared/ThemedMermaid";
+import { ClickableDiagram } from "../editor/ClickableDiagram";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 import { InlineIconEdit } from "../editor/InlineIconEdit";
 import { ProcessSteps } from "../shared/ProcessSteps";
+import { TypewriterStateContext } from "../TypewriterSection";
+import { TypingCursor } from "../TypingCursor";
 
 interface Props {
   content: ApproachContent;
@@ -21,6 +24,8 @@ interface Props {
 
 export function ApproachSection({ content, tokens, index }: Props) {
   const pillars = content.pillars ?? [];
+  const twCtx = useContext(TypewriterStateContext);
+  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'grid';
 
   return (
     <section
@@ -40,6 +45,7 @@ export function ApproachSection({ content, tokens, index }: Props) {
           <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ""}>
             <Label tokens={tokens} style={{ display: "block", marginBottom: 16 }}>
               {content.eyebrow}
+              <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
             </Label>
           </InlineEditable>
         </Reveal>
@@ -48,6 +54,7 @@ export function ApproachSection({ content, tokens, index }: Props) {
           <InlineEditable field="headline" label="Headline" value={content.headline ?? ""}>
             <Headline tokens={tokens} style={{ marginBottom: 12 }}>
               {content.headline}
+              <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
             </Headline>
           </InlineEditable>
         </Reveal>
@@ -57,56 +64,78 @@ export function ApproachSection({ content, tokens, index }: Props) {
             <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ""} multiline>
               <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
                 {content.subheadline}
+                <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
               </Body>
             </InlineEditable>
           </Reveal>
         )}
 
-        {/* Pillar cards */}
+        {/* Pillar cards — grid or list layout */}
         <div
-          className="ms-grid-auto"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: "clamp(1.5rem, 3vw, 2rem)",
+          className={variant === 'list' ? undefined : 'ms-grid-auto'}
+          style={variant === 'list' ? {
+            display: 'flex', flexDirection: 'column', gap: 'clamp(0.75rem, 2vw, 1rem)',
+          } : {
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 'clamp(1.5rem, 3vw, 2rem)',
           }}
         >
           {pillars.map((pillar, pi) => (
             <Reveal key={pi} delay={240 + pi * 80}>
               <InlineArrayItem arrayPath="pillars" index={pi} total={pillars.length}>
-                <div
-                  style={{
-                    padding: tokens.density === "compact" ? "20px 18px" : tokens.density === "spacious" ? "40px 36px" : "32px 28px",
-                    borderRadius: parseInt(tokens.borderRadius ?? "8") || 8,
+                {variant === 'list' ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 20,
+                    padding: '20px 24px',
+                    borderRadius: parseInt(tokens.borderRadius ?? '8') || 8,
                     border: `1px solid ${tokens.border}`,
                     background: tokens.surfaceCard,
-                    height: "100%",
-                  }}
-                >
-                  <InlineIconEdit
-                    fieldPath={`pillars.${pi}.iconHint`}
-                    hint={pillar.iconHint}
-                    color={tokens.accent}
-                    size={28}
-                    containerStyle={{ marginBottom: 16, display: 'inline-flex' }}
-                  />
-                  <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ""}>
-                    <h3
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 600, fontSize: "1.05rem",
-                        color: tokens.text, margin: "0 0 10px",
-                      }}
-                    >
-                      {pillar.name}
-                    </h3>
-                  </InlineEditable>
-                  <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ""} multiline>
-                    <Body tokens={tokens} style={{ fontSize: "0.9rem" }}>
-                      {pillar.description}
-                    </Body>
-                  </InlineEditable>
-                </div>
+                  }}>
+                    <InlineIconEdit
+                      fieldPath={`pillars.${pi}.iconHint`}
+                      hint={pillar.iconHint}
+                      color={tokens.accent}
+                      size={28}
+                      containerStyle={{ flexShrink: 0, marginTop: 2, display: 'inline-flex' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
+                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 6px' }}>
+                          {pillar.name}
+                        </h3>
+                      </InlineEditable>
+                      <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
+                        <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{pillar.description}</Body>
+                      </InlineEditable>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: tokens.density === 'compact' ? '20px 18px' : tokens.density === 'spacious' ? '40px 36px' : '32px 28px',
+                    borderRadius: parseInt(tokens.borderRadius ?? '8') || 8,
+                    border: `1px solid ${tokens.border}`,
+                    background: tokens.surfaceCard,
+                    height: '100%',
+                  }}>
+                    <InlineIconEdit
+                      fieldPath={`pillars.${pi}.iconHint`}
+                      hint={pillar.iconHint}
+                      color={tokens.accent}
+                      size={28}
+                      containerStyle={{ marginBottom: 16, display: 'inline-flex' }}
+                    />
+                    <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
+                      <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 10px' }}>
+                        {pillar.name}
+                        <TypingCursor visible={twCtx?.activeField === `pillars.${pi}.name` && (twCtx?.showCursor ?? false)} />
+                      </h3>
+                    </InlineEditable>
+                    <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
+                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{pillar.description}</Body>
+                    </InlineEditable>
+                  </div>
+                )}
               </InlineArrayItem>
             </Reveal>
           ))}
@@ -129,14 +158,12 @@ export function ApproachSection({ content, tokens, index }: Props) {
           />
         )}
 
-        {content.diagram && (
-          <ThemedMermaid
-            diagram={content.diagram}
-            tokens={tokens}
-            delay={240 + pillars.length * 80 + 80}
-            caption="Methodology overview"
-          />
-        )}
+        <ClickableDiagram
+          diagram={content.diagram ?? ''}
+          tokens={tokens}
+          delay={240 + pillars.length * 80 + 80}
+          caption="Methodology overview"
+        />
       </div>
     </section>
   );

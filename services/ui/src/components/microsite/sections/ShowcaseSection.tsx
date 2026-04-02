@@ -6,8 +6,9 @@ import type {
 } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
-import { Headline, Label, Body } from "../shared/Typography";
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from "../shared/Typography";
 import { InlineEditable } from "../editor/InlineEditable";
+import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 
 interface Props {
   content: ShowcaseContent;
@@ -17,7 +18,7 @@ interface Props {
   sectionId?: string;
 }
 
-export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
+export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }: Props) {
   const highlights = content.highlights ?? [];
   // Alternate visual side based on section index
   const visualLeft = index % 2 === 0;
@@ -30,12 +31,35 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
         overflow: "hidden",
         position: "relative",
         minHeight: 360,
-        background: tokens.meshGradient
-          ? tokens.meshGradient + `, ${tokens.surfaceAlt}`
-          : `radial-gradient(ellipse 80% 80% at 50% 50%, ${tokens.accent}20 0%, ${tokens.surfaceAlt} 100%)`,
+        background: imageUrl
+          ? 'transparent'
+          : tokens.meshGradient
+            ? tokens.meshGradient + `, ${tokens.surfaceAlt}`
+            : `radial-gradient(ellipse 80% 80% at 50% 50%, ${tokens.accent}20 0%, ${tokens.surfaceAlt} 100%)`,
         border: `1px solid ${tokens.border}`,
       }}
     >
+      {/* Background image when available */}
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          alt=""
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      )}
+
+      {/* Overlay for readability when image is shown */}
+      {imageUrl && (
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.45) 100%)" }} />
+      )}
+
       {/* Floating pills */}
       <div
         style={{
@@ -46,6 +70,7 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
           gap: 10,
           padding: 28,
           alignContent: "flex-end",
+          zIndex: 2,
         }}
       >
         {highlights.map((pill, i) => (
@@ -54,13 +79,13 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
             style={{
               padding: "6px 14px",
               borderRadius: 100,
-              border: `1px solid ${tokens.accent}60`,
-              background: `${tokens.accent}15`,
+              border: `1px solid ${imageUrl ? 'rgba(255,255,255,0.4)' : tokens.accent + '60'}`,
+              background: imageUrl ? 'rgba(255,255,255,0.15)' : `${tokens.accent}15`,
               backdropFilter: "blur(8px)",
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontSize: "0.75rem",
               fontWeight: 500,
-              color: tokens.accent,
+              color: imageUrl ? '#fff' : tokens.accent,
               letterSpacing: "0.05em",
             }}
           >
@@ -69,20 +94,22 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
         ))}
       </div>
 
-      {/* Decorative orb */}
-      <div
-        style={{
-          position: "absolute",
-          top: "15%",
-          left: "20%",
-          width: 200,
-          height: 200,
-          borderRadius: "50%",
-          background: `radial-gradient(circle, ${tokens.accent}30 0%, transparent 70%)`,
-          filter: "blur(40px)",
-          pointerEvents: "none",
-        }}
-      />
+      {/* Decorative orb — only when no image */}
+      {!imageUrl && (
+        <div
+          style={{
+            position: "absolute",
+            top: "15%",
+            left: "20%",
+            width: 200,
+            height: 200,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, ${tokens.accent}30 0%, transparent 70%)`,
+            filter: "blur(40px)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
     </div>
   );
 
@@ -113,9 +140,10 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
               lineHeight: 1.5,
               marginBottom: 18,
             }}
-          >
-            {content.subheadline}
-          </p>
+            {...(hasMarkdown(content.subheadline ?? '')
+              ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.subheadline ?? '') } }
+              : { children: content.subheadline })}
+          />
         </InlineEditable>
       </Reveal>
       <Reveal delay={220}>
@@ -129,29 +157,40 @@ export function ShowcaseSection({ content, tokens, index, sectionId }: Props) {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {highlights.map((h, i) => (
           <Reveal key={i} delay={280 + i * 60}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div
-                style={{
-                  width: 3,
-                  height: 20,
-                  borderRadius: 2,
-                  background: tokens.accent,
-                  flexShrink: 0,
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: "0.9rem",
-                  fontWeight: 500,
-                  color: tokens.text,
-                }}
-              >
-                {h}
-              </span>
-            </div>
+            <InlineArrayItem arrayPath="highlights" index={i} total={highlights.length}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 3,
+                    height: 20,
+                    borderRadius: 2,
+                    background: tokens.accent,
+                    flexShrink: 0,
+                  }}
+                />
+                <InlineEditable field={`highlights.${i}`} label="Highlight" value={h ?? ''}>
+                  <span
+                    style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontSize: "0.9rem",
+                      fontWeight: 500,
+                      color: tokens.text,
+                    }}
+                  >
+                    {h}
+                  </span>
+                </InlineEditable>
+              </div>
+            </InlineArrayItem>
           </Reveal>
         ))}
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <InlineAddItem
+          arrayPath="highlights"
+          template="New highlight…"
+          label="Add highlight"
+        />
       </div>
     </div>
   );

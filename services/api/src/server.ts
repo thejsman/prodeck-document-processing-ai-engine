@@ -81,9 +81,11 @@ export async function createServer(opts: ServerOptions) {
     timestamp: new Date().toISOString(),
   }));
 
-  // ── Auth + audit hooks (everything except /health) ───────────
+  // ── Auth + audit hooks (everything except /health and public image assets) ───────────
   app.addHook('onRequest', async (req, reply) => {
     if (req.url === '/health') return;
+    // Locally saved presentation images are public (no expiry, no secrets)
+    if (req.url.startsWith('/presentation-images/')) return;
     await authHook(req, reply);
   });
 

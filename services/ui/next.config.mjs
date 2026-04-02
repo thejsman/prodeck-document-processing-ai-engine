@@ -12,12 +12,19 @@ const nextConfig = {
     proxyTimeout: 600_000, // 10 minutes
   },
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${process.env.API_URL ?? "http://localhost:3000"}/:path*`,
-      },
-    ];
+    // Use `fallback` so Next.js Route Handlers (e.g. generate-stream SSE proxy)
+    // take precedence. fallback rewrites only apply when no matching route/handler
+    // is found in the filesystem.
+    return {
+      beforeFiles: [],
+      afterFiles: [],
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${process.env.API_URL ?? "http://localhost:3000"}/:path*`,
+        },
+      ],
+    };
   },
 };
 

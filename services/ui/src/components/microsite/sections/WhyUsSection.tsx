@@ -6,8 +6,9 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: WhyUsContent;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
+  const stats = Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : [];
   return (
     <section
       id="whyus"
@@ -59,75 +61,86 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min((Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : []).length, 4)}, 1fr)`,
+            gridTemplateColumns: `repeat(${Math.min(stats.length || 1, 4)}, 1fr)`,
             gap: 'clamp(1rem, 2vw, 2rem)',
           }}
         >
-          {(Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : []).map((stat, si) => (
+          {stats.map((stat, si) => (
             <Reveal key={si} delay={240 + si * 80}>
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '32px 20px',
-                  borderRadius: 12,
-                  border: `1px solid ${tokens.border}`,
-                  background: tokens.surfaceCard,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Top accent line */}
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: '20%',
-                  right: '20%',
-                  height: 2,
-                  background: `linear-gradient(90deg, transparent, ${tokens.accent}, transparent)`,
-                }} />
+              <InlineArrayItem arrayPath="stats" index={si} total={stats.length}>
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: '32px 20px',
+                    borderRadius: 12,
+                    border: `1px solid ${tokens.border}`,
+                    background: tokens.surfaceCard,
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: '20%',
+                    right: '20%',
+                    height: 2,
+                    background: `linear-gradient(90deg, transparent, ${tokens.accent}, transparent)`,
+                  }} />
 
-                <div
-                  style={{
-                    fontFamily: `'${tokens.heroFont}', serif`,
-                    fontWeight: tokens.heroWeight,
-                    fontSize: 'clamp(2rem, 4vw, 3rem)',
-                    lineHeight: 1,
-                    color: tokens.accent,
-                    marginBottom: 10,
-                  }}
-                >
-                  <AnimatedCounter value={stat.number} />
+                  <InlineEditable field={`stats.${si}.number`} label="Number" value={stat.number ?? ''}>
+                    <div
+                      style={{
+                        fontFamily: `'${tokens.heroFont}', serif`,
+                        fontWeight: tokens.heroWeight,
+                        fontSize: 'clamp(2rem, 4vw, 3rem)',
+                        lineHeight: 1,
+                        color: tokens.accent,
+                        marginBottom: 10,
+                      }}
+                    >
+                      <AnimatedCounter value={stat.number} />
+                    </div>
+                  </InlineEditable>
+                  <InlineEditable field={`stats.${si}.label`} label="Label" value={stat.label ?? ''}>
+                    <div
+                      style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase' as const,
+                        color: tokens.text,
+                        marginBottom: 8,
+                      }}
+                    >
+                      {stat.label}
+                    </div>
+                  </InlineEditable>
+                  <InlineEditable field={`stats.${si}.context`} label="Context" value={stat.context ?? ''} multiline>
+                    <Body tokens={tokens} style={{ fontSize: '0.8rem' }}>
+                      {stat.context}
+                    </Body>
+                  </InlineEditable>
                 </div>
-                <div
-                  style={{
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontWeight: 700,
-                    fontSize: '0.8rem',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase' as const,
-                    color: tokens.text,
-                    marginBottom: 8,
-                  }}
-                >
-                  {stat.label}
-                </div>
-                <Body tokens={tokens} style={{ fontSize: '0.8rem' }}>
-                  {stat.context}
-                </Body>
-              </div>
+              </InlineArrayItem>
             </Reveal>
           ))}
         </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+          <InlineAddItem
+            arrayPath="stats"
+            template={{ number: '0', label: 'New stat', context: 'Context…' }}
+            label="Add stat"
+          />
+        </div>
 
-        {content.diagram && (
-          <div style={{ maxWidth: 520, margin: '0 auto' }}>
-            <ThemedMermaid
-              diagram={content.diagram}
-              tokens={tokens}
-              delay={240 + Math.min((content.stats?.length ?? 3), 4) * 80 + 80}
-            />
-          </div>
-        )}
+        <ClickableDiagram
+          diagram={content.diagram ?? ''}
+          tokens={tokens}
+          delay={240 + Math.min((content.stats?.length ?? 3), 4) * 80 + 80}
+          wrapperStyle={{ maxWidth: 520, margin: '0 auto' }}
+        />
       </div>
     </section>
   );

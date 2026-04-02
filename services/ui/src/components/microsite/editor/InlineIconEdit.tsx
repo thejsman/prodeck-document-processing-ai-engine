@@ -7,24 +7,11 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useEditContext } from './EditContext';
 import { useSectionId } from './SectionIdContext';
 import { SectionIcon } from '../shared/SectionIcon';
 
-const ICON_OPTIONS = [
-  { hint: 'identity',  emoji: '👤' }, { hint: 'digital',  emoji: '💻' },
-  { hint: 'content',   emoji: '📄' }, { hint: 'strategy', emoji: '⭐' },
-  { hint: 'research',  emoji: '🔍' }, { hint: 'launch',   emoji: '🚀' },
-  { hint: 'document',  emoji: '📁' }, { hint: 'website',  emoji: '🌐' },
-  { hint: 'photo',     emoji: '🖼'  }, { hint: 'campaign', emoji: '📢' },
-  { hint: 'check',     emoji: '✓'  }, { hint: 'star',     emoji: '✦'  },
-  { hint: 'lock',      emoji: '🔒' }, { hint: 'bolt',     emoji: '⚡' },
-  { hint: 'target',    emoji: '🎯' }, { hint: 'chart',    emoji: '📊' },
-  { hint: 'tool',      emoji: '🔧' }, { hint: 'gem',      emoji: '💎' },
-  { hint: 'trophy',    emoji: '🏆' }, { hint: 'shield',   emoji: '🛡'  },
-  { hint: 'fire',      emoji: '🔥' }, { hint: 'leaf',     emoji: '🌿' },
-  { hint: 'flag',      emoji: '🚩' }, { hint: 'default',  emoji: '⊞'  },
-];
 
 interface Props {
   /** dot-path to the iconHint field, e.g. "items.0.iconHint" */
@@ -40,16 +27,46 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
   const ctx = useEditContext();
   const sectionId = useSectionId();
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<'grid' | 'upload' | 'url'>('grid');
+  const [tab, setTab] = useState<'upload' | 'url'>('upload');
   const [urlInput, setUrlInput] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close on outside click
+  useEffect(() => setMounted(true), []);
+
+  // Calculate (and keep updated) popup position while open
+  useEffect(() => {
+    if (!open) return;
+    function updatePos() {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      const panelWidth = 260;
+      const left = Math.min(
+        Math.max(4, rect.left + rect.width / 2 - panelWidth / 2),
+        window.innerWidth - panelWidth - 4,
+      );
+      setPopupPos({ top: rect.bottom + 6, left });
+    }
+    updatePos();
+    window.addEventListener('scroll', updatePos, true);
+    window.addEventListener('resize', updatePos);
+    return () => {
+      window.removeEventListener('scroll', updatePos, true);
+      window.removeEventListener('resize', updatePos);
+    };
+  }, [open]);
+
+  // Close on outside click — check both trigger and popup refs
   useEffect(() => {
     if (!open) return;
     function handle(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      const inTrigger = triggerRef.current?.contains(target);
+      const inPopup = popupRef.current?.contains(target);
+      if (!inTrigger && !inPopup) setOpen(false);
     }
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
@@ -65,7 +82,8 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
   }
 
   function apply(value: string) {
-    ctx!.updateField(sectionId!, fieldPath, value);
+    if (!ctx || !sectionId) return;
+    ctx.updateField(sectionId, fieldPath, value);
     setOpen(false);
   }
 
@@ -74,13 +92,14 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
     if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => apply(ev.target?.result as string);
+    reader.onerror = () => setOpen(false);
     reader.readAsDataURL(file);
   }
 
   const isImage = hint.startsWith('data:') || hint.startsWith('http://') || hint.startsWith('https://');
 
   return (
-    <div ref={panelRef} style={{ position: 'relative', display: 'inline-block' }}>
+    <div ref={triggerRef} style={{ position: 'relative', display: 'inline-block' }}>
       <div
         title="Click to change icon"
         onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
@@ -93,15 +112,14 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
         onMouseEnter={e => {
           const el = e.currentTarget as HTMLElement;
           el.style.opacity = '0.7';
-          // show edit hint
-          const hint = el.querySelector('[data-icon-hint]') as HTMLElement | null;
-          if (hint) hint.style.opacity = '1';
+          const hintEl = el.querySelector('[data-icon-hint]') as HTMLElement | null;
+          if (hintEl) hintEl.style.opacity = '1';
         }}
         onMouseLeave={e => {
           const el = e.currentTarget as HTMLElement;
           el.style.opacity = '1';
-          const hint = el.querySelector('[data-icon-hint]') as HTMLElement | null;
-          if (hint) hint.style.opacity = '0';
+          const hintEl = el.querySelector('[data-icon-hint]') as HTMLElement | null;
+          if (hintEl) hintEl.style.opacity = '0';
         }}
       >
         <SectionIcon hint={hint} color={color} size={size} />
@@ -129,15 +147,15 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
         </span>
       </div>
 
-      {open && (
+      {/* Portal popup — rendered at body level to escape overflow:hidden */}
+      {open && popupPos && mounted && createPortal(
         <div
+          ref={popupRef}
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 30000,
-            marginTop: 6,
+            position: 'fixed',
+            top: popupPos.top,
+            left: popupPos.left,
+            zIndex: 60000,
             width: 260,
             background: '#fff',
             borderRadius: 10,
@@ -156,7 +174,7 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
 
           {/* Tabs */}
           <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
-            {([['grid', '⊞ Icons'], ['upload', '⬆ File'], ['url', '🔗 URL']] as [typeof tab, string][]).map(([t, label]) => (
+            {([['upload', '⬆ Upload File'], ['url', '🔗 Image URL']] as [typeof tab, string][]).map(([t, label]) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -174,37 +192,6 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
           </div>
 
           <div style={{ padding: 8 }}>
-            {tab === 'grid' && (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4, marginBottom: 6 }}>
-                  {ICON_OPTIONS.map(({ hint: h, emoji }) => (
-                    <button
-                      key={h}
-                      title={h}
-                      onClick={() => apply(h)}
-                      style={{
-                        width: '100%', aspectRatio: '1', borderRadius: 5,
-                        border: hint === h ? '2px solid #6366f1' : '1px solid #e2e8f0',
-                        background: hint === h ? '#f5f3ff' : '#f8fafc',
-                        fontSize: 15, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-                {/* Show current custom image if any */}
-                {isImage && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 6, border: '2px solid #6366f1', background: '#f5f3ff', marginBottom: 6 }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={hint} alt="" style={{ width: 22, height: 22, objectFit: 'contain', borderRadius: 4 }} />
-                    <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>Current: custom image ✓</span>
-                  </div>
-                )}
-              </>
-            )}
-
             {tab === 'upload' && (
               <>
                 <label style={{
@@ -252,7 +239,8 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
