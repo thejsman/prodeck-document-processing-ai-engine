@@ -7,11 +7,18 @@
 
 import { useState, useCallback, useRef } from 'react';
 
+export interface ProposalSection {
+  section: string;
+  content: string;
+  artifactId: string;
+}
+
 interface UseSSEReturn {
   chunks: string;
   phase: string;
   isStreaming: boolean;
   error: string | null;
+  sections: ProposalSection[];
   startStream: (body: Record<string, unknown>) => void;
   reset: () => void;
 }
@@ -21,6 +28,7 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
   const [phase, setPhase] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sections, setSections] = useState<ProposalSection[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(
@@ -32,6 +40,7 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
       setChunks('');
       setPhase('');
       setError(null);
+      setSections([]);
       setIsStreaming(true);
 
       (async () => {
@@ -91,6 +100,17 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
                   continue;
                 }
 
+                if (currentEvent === 'proposal_section') {
+                  try {
+                    const parsed = JSON.parse(payload) as ProposalSection;
+                    if (parsed.section && parsed.artifactId) {
+                      setSections((prev) => [...prev, parsed]);
+                    }
+                  } catch { /* ignore malformed payload */ }
+                  currentEvent = '';
+                  continue;
+                }
+
                 if (currentEvent === 'done') {
                   setPhase('');
                   // Fallback: if no tokens streamed (e.g. Ollama buffered mode),
@@ -138,8 +158,9 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
     setChunks('');
     setPhase('');
     setError(null);
+    setSections([]);
     setIsStreaming(false);
   }, []);
 
-  return { chunks, phase, isStreaming, error, startStream, reset };
+  return { chunks, phase, isStreaming, error, sections, startStream, reset };
 }

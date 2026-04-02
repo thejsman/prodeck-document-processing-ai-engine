@@ -28,7 +28,8 @@ export type ChatSessionEventType =
   | 'error'
   | 'system'
   | 'tool_progress'
-  | 'namespace_insight';
+  | 'namespace_insight'
+  | 'proposal_section';
 
 export interface ToolProgressPayload {
   /** 'started' | 'completed' | 'failed' */
@@ -37,6 +38,12 @@ export interface ToolProgressPayload {
   input?: unknown;
   output?: unknown;
   error?: string;
+}
+
+export interface ProposalSectionPayload {
+  section: string;
+  content: string;
+  artifactId: string;
 }
 
 export interface ChatSessionEvent {
@@ -49,6 +56,8 @@ export interface ChatSessionEvent {
   toolProgress?: ToolProgressPayload;
   /** Populated for namespace_insight events. */
   suggestions?: string[];
+  /** Populated for proposal_section events. */
+  proposalSection?: ProposalSectionPayload;
 }
 
 /** Singleton bus.  One listener per connected SSE client — uncapped. */

@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
-import { useSSE } from '@/lib/use-sse';
+import { useSSE, type ProposalSection } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { ChatContextPanel } from '@/components/chat/ChatContextPanel';
+import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -16,6 +17,8 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** Populated when the message is a structured proposal stream. */
+  sections?: ProposalSection[];
 }
 
 // ── Page ───────────────────────────────────────────────────────────
@@ -85,7 +88,7 @@ export default function ChatPage() {
   const rafRef = useRef<number | null>(null);
   const revealedLenRef = useRef(0);
 
-  const { chunks, phase, isStreaming, error, startStream, reset } = useSSE(apiKey, '/api/chat/message');
+  const { chunks, phase, isStreaming, error, sections, startStream, reset } = useSSE(apiKey, '/api/chat/message');
 
   const fetchInsights = useCallback((ns: string) => {
     fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
@@ -185,8 +188,16 @@ export default function ChatPage() {
     if (!q || isStreaming) return;
 
     // Commit any in-progress streaming response to history
-    if (chunks) {
-      setMessages((prev) => [...prev, { id: `assistant-${Date.now()}`, role: 'assistant', content: chunks }]);
+    if (chunks || sections.length > 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: chunks,
+          sections: sections.length > 0 ? [...sections] : undefined,
+        },
+      ]);
       reset();
     }
 
@@ -207,7 +218,7 @@ export default function ChatPage() {
       }
       startStream({ message: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     });
-  }, [input, isStreaming, chunks, namespace, apiKey, reset, startStream]);
+  }, [input, isStreaming, chunks, sections, namespace, apiKey, reset, startStream]);
 
   function handleClear() {
     // Rotate to a new session ID so the fresh chat has clean history
@@ -227,7 +238,7 @@ export default function ChatPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
-  const hasContent = messages.length > 0 || !!chunks;
+  const hasContent = messages.length > 0 || !!chunks || sections.length > 0;
 
   return (
     <div className="chat-v2">
@@ -288,9 +299,24 @@ export default function ChatPage() {
                     {m.role === 'assistant' && <div className="chat-v2-avatar">AI</div>}
                     <div className="chat-v2-bubble">
                       {m.role === 'assistant' ? (
-                        <div className="prose">
-                          <ReactMarkdown>{m.content}</ReactMarkdown>
-                        </div>
+                        m.sections && m.sections.length > 0 ? (
+                          <div className="proposal-sections-wrap">
+                            {m.sections.map((s) => (
+                              <ProposalSectionBlock
+                                key={s.section}
+                                section={s.section}
+                                content={s.content}
+                                artifactId={s.artifactId}
+                                namespace={namespace || 'default'}
+                                apiKey={apiKey}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="prose">
+                            <ReactMarkdown>{m.content}</ReactMarkdown>
+                          </div>
+                        )
                       ) : (
                         m.content
                       )}
@@ -298,8 +324,43 @@ export default function ChatPage() {
                   </div>
                 ))}
 
-                {/* Live streaming response */}
-                {chunks && (
+                {/* Live streaming response — section blocks */}
+                {sections.length > 0 && (
+                  <div
+                    className="chat-v2-message chat-v2-message--assistant"
+                    style={{ '--msg-i': messages.length } as React.CSSProperties}
+                  >
+                    <div className="chat-v2-avatar">AI</div>
+                    <div className="chat-v2-bubble chat-v2-bubble--sections">
+                      <div className="proposal-sections-wrap">
+                        {sections.map((s) => (
+                          <ProposalSectionBlock
+                            key={s.section}
+                            section={s.section}
+                            content={s.content}
+                            artifactId={s.artifactId}
+                            namespace={namespace || 'default'}
+                            apiKey={apiKey}
+                          />
+                        ))}
+                        {isStreaming && (
+                          <div className="psb psb--skeleton">
+                            <div className="psb-header">
+                              <div className="psb-skeleton-title" />
+                            </div>
+                            <div className="psb-skeleton-lines">
+                              <div className="psb-skeleton-line" />
+                              <div className="psb-skeleton-line psb-skeleton-line--short" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Live streaming response — plain text (non-section streams) */}
+                {chunks && sections.length === 0 && (
                   <div
                     className="chat-v2-message chat-v2-message--assistant"
                     style={{ '--msg-i': messages.length } as React.CSSProperties}

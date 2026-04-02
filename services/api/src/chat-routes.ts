@@ -23,6 +23,8 @@
  * Auth: inherits the global authHook applied in server.ts.
  */
 
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ChatOrchestrator } from './chat/chat-orchestrator.js';
 import {
@@ -34,6 +36,11 @@ import { scanNamespace } from './namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions, type TemplateInsight } from './namespace/insight-rules.js';
 import { recommendTemplate } from './templates/template-recommendation.service.js';
 import { extractRfpRequirements } from './ingestion/extract-rfp-requirements.js';
+import { llmGenerateFn } from './agent-routes.js';
+import {
+  listVersions,
+  createVersionFromEdit,
+} from './proposals/proposal-version.service.js';
 import type { ProviderPolicyConfig } from './provider-policy.js';
 
 // ---------------------------------------------------------------------------
@@ -101,6 +108,13 @@ export function registerChatRoutes(
           // STEP 6 — stream content tokens
           onChunk: (chunk: string) => {
             reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          },
+
+          // Emit structured proposal section blocks
+          onSection: (section: string, content: string, artifactId: string) => {
+            reply.raw.write(
+              `event: proposal_section\ndata: ${JSON.stringify({ section, content, artifactId })}\n\n`,
+            );
           },
         });
 
@@ -274,6 +288,11 @@ export function registerChatRoutes(
               `event: namespace_insight\ndata: ${JSON.stringify({ suggestions: event.suggestions ?? [] })}\n\n`,
             );
             break;
+          case 'proposal_section':
+            raw.write(
+              `event: proposal_section\ndata: ${JSON.stringify(event.proposalSection ?? {})}\n\n`,
+            );
+            break;
         }
       };
 
@@ -289,4 +308,144 @@ export function registerChatRoutes(
       });
     },
   );
+
+  // ── POST /chat/proposal/section/edit ─────────────────────────────
+  //
+  // Edit a single section of a proposal artifact.
+  //
+  // Body: { namespace, artifactId, section, instruction?, newContent? }
+  //   - instruction: rewrite the section using LLM guidance
+  //   - newContent:  replace the section content verbatim (direct user edit)
+  //
+  // Returns: { content, versionLabel }
+  //
+  app.post(
+    '/chat/proposal/section/edit',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as {
+        namespace?: unknown;
+        artifactId?: unknown;
+        section?: unknown;
+        instruction?: unknown;
+        newContent?: unknown;
+      };
+
+      const namespace  = typeof body?.namespace  === 'string' ? body.namespace.trim()  : '';
+      const artifactId = typeof body?.artifactId === 'string' ? body.artifactId.trim() : '';
+      const section    = typeof body?.section    === 'string' ? body.section.trim()    : '';
+      const instruction = typeof body?.instruction === 'string' ? body.instruction.trim() : '';
+      const newContent  = typeof body?.newContent  === 'string' ? body.newContent.trim()  : '';
+
+      if (!namespace || !artifactId || !section) {
+        return reply.code(400).send({ error: 'Missing required fields: namespace, artifactId, section' });
+      }
+      if (!instruction && !newContent) {
+        return reply.code(400).send({ error: 'Provide either instruction or newContent' });
+      }
+
+      // ── Read proposal markdown ──────────────────────────────────
+      const filePath = path.join(workdir, 'namespaces', namespace, 'proposals', artifactId);
+      let markdown: string;
+      try {
+        markdown = await readFile(filePath, 'utf-8');
+      } catch {
+        return reply.code(404).send({ error: `Proposal not found: ${artifactId}` });
+      }
+
+      // ── Parse into sections ─────────────────────────────────────
+      const parsed = parseMarkdownSections(markdown);
+      const target = parsed.find(
+        (s) => s.heading.toLowerCase() === section.toLowerCase(),
+      );
+
+      if (!target) {
+        return reply.code(404).send({ error: `Section not found: ${section}` });
+      }
+
+      // ── Produce new content ─────────────────────────────────────
+      let updatedContent: string;
+
+      if (newContent) {
+        updatedContent = newContent;
+      } else {
+        // LLM rewrite
+        const editPrompt = [
+          `You are rewriting the **${target.heading}** section of a proposal.`,
+          '',
+          'Original section content:',
+          target.content,
+          '',
+          'User instruction:',
+          instruction,
+          '',
+          'Rules:',
+          '- Apply the instruction precisely to this section only',
+          '- Output ONLY the new section body — no heading, no commentary',
+          '- Maintain professional, persuasive tone',
+        ].join('\n');
+
+        try {
+          updatedContent = await llmGenerateFn(editPrompt);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return reply.code(502).send({ error: `LLM rewrite failed: ${msg}` });
+        }
+      }
+
+      // ── Replace section and persist ─────────────────────────────
+      const updatedSections = parsed.map((s) =>
+        s.heading === target.heading ? { ...s, content: updatedContent.trim() } : s,
+      );
+      const updatedMarkdown = assembleSections(updatedSections);
+      await writeFile(filePath, updatedMarkdown, 'utf-8');
+
+      // ── Create new version snapshot ─────────────────────────────
+      const summary = instruction
+        ? `Edited via chat: ${instruction.slice(0, 80)}`
+        : `Direct edit: ${section}`;
+
+      const version = await createVersionFromEdit(
+        workdir, namespace, artifactId, updatedMarkdown, null, 'user', summary,
+      );
+
+      return reply.send({ content: updatedContent.trim(), versionLabel: version.versionLabel });
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Markdown section helpers (shared with proposal-version-control.handlers)
+// ---------------------------------------------------------------------------
+
+interface ParsedSection {
+  heading: string;
+  content: string;
+}
+
+function parseMarkdownSections(markdown: string): ParsedSection[] {
+  const lines = markdown.split('\n');
+  const sections: ParsedSection[] = [];
+  let currentHeading = '';
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      sections.push({ heading: currentHeading, content: currentLines.join('\n').trim() });
+      currentHeading = headingMatch[1].trim();
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+  sections.push({ heading: currentHeading, content: currentLines.join('\n').trim() });
+
+  return sections;
+}
+
+function assembleSections(sections: ParsedSection[]): string {
+  return sections
+    .map((s) => (s.heading ? `## ${s.heading}\n\n${s.content}` : s.content))
+    .join('\n\n')
+    .trim() + '\n';
 }

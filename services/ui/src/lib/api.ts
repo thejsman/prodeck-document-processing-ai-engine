@@ -776,3 +776,34 @@ export async function fetchProposalDiff(apiKey: string, fileA: string, fileB: st
   const data = await handleResponse<{ diffs: SectionDiff[] }>(res);
   return data.diffs;
 }
+
+// ---------------------------------------------------------------------------
+// Proposal section editing (chat inline)
+// ---------------------------------------------------------------------------
+
+export interface ProposalSectionEditRequest {
+  namespace: string;
+  artifactId: string;
+  section: string;
+  /** Instruction-based rewrite via LLM. */
+  instruction?: string;
+  /** Verbatim replacement (direct user edit). */
+  newContent?: string;
+}
+
+export interface ProposalSectionEditResult {
+  content: string;
+  versionLabel: string;
+}
+
+export async function editProposalSection(
+  apiKey: string,
+  req: ProposalSectionEditRequest,
+): Promise<ProposalSectionEditResult> {
+  const res = await fetch('/api/chat/proposal/section/edit', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(req),
+  });
+  return handleResponse<ProposalSectionEditResult>(res);
+}

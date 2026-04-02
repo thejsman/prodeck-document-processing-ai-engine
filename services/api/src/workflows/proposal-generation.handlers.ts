@@ -72,6 +72,13 @@ export interface HandlerContext {
   /** Emit a token chunk to the client for streaming display. */
   onChunk: (chunk: string) => void;
   /**
+   * Emit a fully-generated proposal section as a structured block.
+   * When provided, handleGeneratingSections uses this instead of onChunk
+   * so the frontend can render interactive editable section blocks.
+   * Falls back to onChunk when absent (e.g. non-streaming or resume paths).
+   */
+  onSection?: (section: string, content: string, artifactId: string) => void;
+  /**
    * Emit a tool execution trace event to the client (STEP 5).
    * Optional — no-op if not provided (e.g. non-streaming paths).
    */
@@ -914,7 +921,7 @@ function buildSectionPrompt(
  *   4. Signal DONE.
  */
 export async function handleGeneratingSections(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, onPhase, onChunk } = ctx;
+  const { workdir, namespace, instance, onPhase, onChunk, onSection } = ctx;
 
   const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
   const sections = selectedTemplate?.structure ?? [
@@ -930,6 +937,10 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
 
   const requirements = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
   const outline = (instance.context.outline as string | undefined) ?? '';
+
+  // Pre-compute fileName so it can be included in onSection events during streaming.
+  const timestamp = Date.now();
+  const fileName = `chat-draft-${timestamp}.md`;
 
   // Seed proposalState from confirmed requirements so the first section
   // already has timeline and pricing locked (STEP 5 safety rule).
@@ -952,7 +963,14 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     try {
       const content = await llmGenerateFn(sectionPrompt);
       const formatted = `## ${section}\n\n${content.trim()}\n\n`;
-      onChunk(formatted);
+
+      // Prefer structured section events when the caller supports them;
+      // fall back to raw chunk for non-section-aware paths (e.g. resume).
+      if (onSection) {
+        onSection(section, content.trim(), fileName);
+      } else {
+        onChunk(formatted);
+      }
       proposalMarkdown += formatted;
 
       // Extract summary from the completed section and update proposalState
@@ -968,7 +986,11 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     } catch {
       // Non-fatal — include a placeholder and continue with remaining sections
       const placeholder = `## ${section}\n\n_(Section generation failed — please edit manually)_\n\n`;
-      onChunk(placeholder);
+      if (onSection) {
+        onSection(section, '_(Section generation failed — please edit manually)_', fileName);
+      } else {
+        onChunk(placeholder);
+      }
       proposalMarkdown += placeholder;
     }
   }
@@ -977,8 +999,6 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
   instance.context.proposalState = proposalState;
 
   // Persist the artifact
-  const timestamp = Date.now();
-  const fileName = `chat-draft-${timestamp}.md`;
   const proposalsDir = path.join(workdir, 'namespaces', namespace, 'proposals');
   await mkdir(proposalsDir, { recursive: true });
   await writeFile(path.join(proposalsDir, fileName), proposalMarkdown, 'utf-8');

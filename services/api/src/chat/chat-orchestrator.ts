@@ -93,6 +93,12 @@ export interface ProcessMessageParams {
   onPhase?: (phase: string) => void;
   /** Called with each streamed token chunk. */
   onChunk?: (chunk: string) => void;
+  /**
+   * Called once per generated proposal section with structured data.
+   * When provided, the section generation handler emits structured blocks
+   * instead of raw markdown chunks so the frontend can render editable blocks.
+   */
+  onSection?: (section: string, content: string, artifactId: string) => void;
 }
 
 export interface OrchestratorResult {
@@ -162,6 +168,7 @@ export class ChatOrchestrator {
       chatSessionId,
       onPhase = () => {},
       onChunk = () => {},
+      onSection,
     } = params;
 
     // ── Load or create workflow instance ─────────────────────────
@@ -312,6 +319,7 @@ export class ChatOrchestrator {
         incomingMessage: message,
         onPhase,
         onChunk,
+        onSection,
         onToolEvent,
         conversationContext,
       };
@@ -424,6 +432,12 @@ export class ChatOrchestrator {
     const onChunk = (chunk: string) =>
       emitChatSessionEvent(chatSessionId, { type: 'chunk', chunk });
 
+    const onSection = (section: string, content: string, artifactId: string) =>
+      emitChatSessionEvent(chatSessionId, {
+        type: 'proposal_section',
+        proposalSection: { section, content, artifactId },
+      });
+
     const onToolEvent = (event: ToolTraceEvent) =>
       emitChatSessionEvent(chatSessionId, {
         type: 'tool_progress',
@@ -458,6 +472,7 @@ export class ChatOrchestrator {
           incomingMessage: '',
           onPhase,
           onChunk,
+          onSection,
           onToolEvent,
         };
 
