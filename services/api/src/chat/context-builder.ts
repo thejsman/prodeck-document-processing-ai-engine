@@ -416,7 +416,7 @@ const GENERATING_STATES = new Set([
 ]);
 
 const REVIEW_STATES = new Set([
-  'recommend_template', 'review_template', 'name_template',
+  'recommend_template', 'review_template', 'name_template', 'qa_review',
 ]);
 
 /**

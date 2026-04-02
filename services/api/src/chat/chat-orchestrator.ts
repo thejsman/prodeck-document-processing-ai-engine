@@ -48,6 +48,7 @@ import {
   handleRecommendTemplate,
   handleGeneratingOutline,
   handleGeneratingSections,
+  handleQaReview,
   type HandlerResult,
   type HandlerContext,
   type ToolTraceEvent,
@@ -121,6 +122,7 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   recommend_template: handleRecommendTemplate,
   generating_outline: handleGeneratingOutline,
   generating_sections: handleGeneratingSections,
+  qa_review: handleQaReview,
   // proposal_version_control
   resolve_action: handleResolveAction,
   // rfp_analysis

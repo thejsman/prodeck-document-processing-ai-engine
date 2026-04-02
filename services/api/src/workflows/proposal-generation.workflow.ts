@@ -11,6 +11,7 @@
  *   recommend_template    — analyse RFP context and recommend a template (agent)
  *   generating_outline    — LLM generates structured outline from RFP (agent)
  *   generating_sections   — LLM expands outline into full proposal draft (tool)
+ *   qa_review             — detect cross-section contradictions, offer fix (input)
  *   completed             — terminal state, proposal artifact persisted (system)
  */
 
@@ -60,6 +61,11 @@ export const ProposalWorkflow: WorkflowDefinition = {
 
     generating_sections: {
       kind: 'tool',
+      transitions: { DONE: 'qa_review' },
+    },
+
+    qa_review: {
+      kind: 'input',
       transitions: { DONE: 'completed' },
     },
 

@@ -19,6 +19,13 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import {
+  buildFactMap,
+  detectContradictions,
+  buildQAMessage,
+  parseSectionsFromMarkdown,
+  type Contradiction,
+} from '../proposals/proposal-qa.js';
 import path from 'node:path';
 import type { ToolOutput } from '@ai-engine/core';
 import { toolRegistry } from '@ai-engine/core';
@@ -1071,11 +1078,115 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     // Non-fatal — version tracking failure should not block proposal delivery
   }
 
+  // ── QA pass — detect cross-section contradictions ────────────
+  onPhase('Checking proposal consistency');
+  try {
+    const parsedSections = parseSectionsFromMarkdown(proposalMarkdown);
+    const factMap = await buildFactMap(parsedSections);
+    const contradictions = detectContradictions(
+      factMap,
+      getEffectiveRequirements(instance.context),
+    );
+
+    // Store QA results for the qa_review handler
+    instance.context.qaContradictions = contradictions;
+    instance.context.qaArtifactPath = path.join(proposalsDir, fileName);
+  } catch {
+    // Non-fatal — QA failure must not block proposal delivery
+    instance.context.qaContradictions = [];
+  }
+
   return {
     message: proposalMarkdown,
     stateSignal: 'DONE',
     actions: {
       openProposalUrl: `/proposals/${namespace}/${fileName}`,
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// qa_review handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Surface cross-section contradictions and optionally auto-fix them.
+ *
+ * Flow:
+ *   1. On entry: if contradictions exist, ask the user whether to fix them.
+ *      If no contradictions → signal DONE immediately (clean proposal).
+ *   2. On user reply:
+ *      - yes / y / fix    → apply canonical values to the artifact on disk,
+ *                           create a new version snapshot, signal DONE.
+ *      - no  / skip       → signal DONE without changes.
+ *      - anything else    → re-ask (one retry).
+ */
+export async function handleQaReview(ctx: HandlerContext): Promise<HandlerResult> {
+  const { workdir, namespace, instance, incomingMessage } = ctx;
+
+  const contradictions = (instance.context.qaContradictions ?? []) as Contradiction[];
+  const artifactPath = instance.context.qaArtifactPath as string | undefined;
+  const artifactId   = instance.context.proposalArtifactId as string | undefined;
+
+  // ── No contradictions → proceed immediately ───────────────────
+  if (contradictions.length === 0) {
+    return {
+      message: 'Proposal looks consistent — no contradictions found.',
+      stateSignal: 'DONE',
+      actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
+    };
+  }
+
+  // ── First entry: surface the QA findings ─────────────────────
+  if (!instance.context.awaitingQaConfirmation) {
+    instance.context.awaitingQaConfirmation = true;
+    return { message: buildQAMessage(contradictions) };
+  }
+
+  // ── Process user response ─────────────────────────────────────
+  instance.context.awaitingQaConfirmation = undefined;
+
+  const lower = incomingMessage.toLowerCase().trim();
+  const isYes = lower === 'yes' || lower === 'y'
+    || lower.startsWith('yes')
+    || lower.includes('fix')
+    || lower.includes('sure')
+    || lower.includes('go ahead');
+
+  if (isYes && artifactPath) {
+    try {
+      const { applyQAFixes } = await import('../proposals/proposal-qa.js');
+      await applyQAFixes(artifactPath, contradictions);
+
+      // Create a new version snapshot for the QA-fixed proposal
+      if (artifactId) {
+        try {
+          await createInitialVersion(workdir, namespace, artifactId, 'qa-fix');
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      instance.context.qaContradictions = [];
+
+      return {
+        message: 'Done — I\'ve aligned the inconsistent values across all sections.',
+        stateSignal: 'DONE',
+        actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
+      };
+    } catch {
+      return {
+        message: 'I wasn\'t able to apply the fixes automatically. You can edit sections manually.',
+        stateSignal: 'DONE',
+        actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
+      };
+    }
+  }
+
+  // User declined
+  return {
+    message: 'No problem — the proposal is ready as-is.',
+    stateSignal: 'DONE',
+    actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
   };
 }
