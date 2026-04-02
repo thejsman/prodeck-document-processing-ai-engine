@@ -788,13 +788,19 @@ export async function generateSectionImage(
   sectionTitle: string,
   style: string,
   keywords: string[],
+  namespace?: string,
+  sectionId?: string,
 ): Promise<string> {
   const res = await fetch('/api/images/generate', {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ sectionTitle, style, keywords }),
+    body: JSON.stringify({ sectionTitle, style, keywords, namespace, sectionId }),
   });
   const data = await handleResponse<{ url: string }>(res);
+  // Rewrite root-relative local paths through the Next.js proxy
+  if (data.url.startsWith('/presentation-images/')) {
+    return `/api${data.url}`;
+  }
   return data.url;
 }
 

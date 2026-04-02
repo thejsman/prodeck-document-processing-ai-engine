@@ -22,7 +22,10 @@ export function NamespaceSelector({ value, onChange }: Props) {
 
     fetchNamespaces(apiKey)
       .then((ns) => {
-        if (!cancelled) setNamespaces(ns);
+        if (!cancelled) {
+          setNamespaces(ns);
+          if (!value && ns.length > 0) onChange(ns[0]);
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);

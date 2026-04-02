@@ -10,7 +10,8 @@
 import type { FastifyInstance } from 'fastify';
 import { env } from 'node:process';
 import { writeFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 interface DalleResponse {
   data: Array<{ url?: string; b64_json?: string }>;
@@ -47,8 +48,8 @@ export function resolveImageSource(
     return 'gradient';
   }
 
-  // generic and others
-  return hasUnsplashKey ? 'unsplash' : 'gradient';
+  // generic and others — no image
+  return 'gradient';
 }
 
 // ── Unsplash helper ───────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ export async function downloadImageToFile(remoteUrl: string, destPath: string): 
 
 // ── Route registration ────────────────────────────────────────────────────
 
-export function registerImageRoutes(app: FastifyInstance): void {
+export function registerImageRoutes(app: FastifyInstance, workdir?: string): void {
   // POST /images/generate — single DALL-E 3 image
   app.post('/images/generate', async (req, reply) => {
     const body = req.body as {
@@ -148,6 +149,8 @@ export function registerImageRoutes(app: FastifyInstance): void {
       style?: string;
       keywords?: string[];
       sectionTitle?: string;
+      namespace?: string;
+      sectionId?: string;
     };
 
     const openaiKey = env.OPENAI_API_KEY;
@@ -200,6 +203,25 @@ export function registerImageRoutes(app: FastifyInstance): void {
       const url = json.data[0]?.url;
       if (!url) {
         return reply.status(500).send({ error: 'No image URL returned' });
+      }
+
+      // Persist to local disk so the URL never expires
+      const namespace = body.namespace?.trim();
+      const sectionId = body.sectionId?.trim();
+      if (workdir && namespace && sectionId) {
+        try {
+          const hash = createHash('sha1').update(url).digest('hex').slice(0, 8);
+          const filename = `${sectionId}-${hash}.jpg`;
+          const imagesDir = join(workdir, 'assets', 'presentations', namespace, 'images');
+          await mkdir(imagesDir, { recursive: true });
+          const destPath = join(imagesDir, filename);
+          const imgRes = await fetch(url);
+          if (imgRes.ok) {
+            const buf = Buffer.from(await imgRes.arrayBuffer());
+            await writeFile(destPath, buf);
+            return reply.send({ url: `/presentation-images/${namespace}/${filename}` });
+          }
+        } catch { /* fall through to raw URL */ }
       }
 
       return reply.send({ url });

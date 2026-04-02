@@ -311,7 +311,10 @@ function SectionWithOverlay({
     const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
     bgCssRule = `${sel}{background:${safe} !important;}`;
   } else if (hasBgImage) {
-    bgCssRule = `${sel}{background-image:url("${section.image!.url!.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
+    const resolvedBgUrl = section.image!.url!.startsWith('/presentation-images/')
+      ? `/api${section.image!.url!}`
+      : section.image!.url!;
+    bgCssRule = `${sel}{background-image:url("${resolvedBgUrl.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
   }
   let sectionInner: React.ReactNode = bgCssRule ? (
     <>
