@@ -37,6 +37,7 @@ import {
   flattenRequirements,
   buildConflictPrompt,
   resolveConflictResponse,
+  type RequirementKey,
   type RequirementStore,
 } from '../ingestion/requirement-merger.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
@@ -395,7 +396,7 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
 
   // ── Process pending conflict resolution ──────────────────────
   const pendingConflict = instance.context.awaitingConflict as
-    | { field: string; rfpValue: string; chatValue: string }
+    | { field: RequirementKey; rfpValue: string; chatValue: string }
     | undefined;
 
   if (pendingConflict) {
