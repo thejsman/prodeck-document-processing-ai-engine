@@ -1,6 +1,6 @@
 /**
  * Client-side PDF generator — one html2canvas call per section, combined into
- * a 16:9 landscape PDF where every section fills exactly one slide.
+ * an A4 portrait PDF where every section fills exactly one page.
  *
  * Capturing sections individually (instead of one full-page capture + slice) solves:
  *  - Sections split across multiple pages (each section canvas is sized to the section)
@@ -35,11 +35,11 @@ export interface PDFOptions {
   onProgress?: (p: PDFProgress) => void;
 }
 
-// 16:9 landscape slide in PDF points (1 pt = 1/72 inch)
-const SLIDE_W_PT = 960;
-const SLIDE_H_PT = 540;
-// Capture width in CSS pixels
-const SLIDE_W_PX = 1280;
+// A4 portrait in PDF points (1 pt = 1/72 inch)
+const SLIDE_W_PT = 595;
+const SLIDE_H_PT = 842;
+// Capture width in CSS pixels — narrower for portrait aspect ratio
+const SLIDE_W_PX = 900;
 
 function emit(fn: PDFOptions['onProgress'], pct: number, message: string) {
   fn?.({ pct, message });
@@ -266,7 +266,7 @@ export async function generateMicrositePDF(
   const liveRoot = contentEl.closest<HTMLElement>('.microsite-root') ?? contentEl.parentElement;
 
   const pdf = new JsPDF({
-    orientation: 'landscape',
+    orientation: 'portrait',
     unit:        'pt',
     format:      [SLIDE_W_PT, SLIDE_H_PT],
     compress:    true,
@@ -353,7 +353,7 @@ export async function generateMicrositePDF(
     }
 
     // 6. Add page(s) and draw image
-    if (i > 0) pdf.addPage([SLIDE_W_PT, SLIDE_H_PT], 'landscape');
+    if (i > 0) pdf.addPage([SLIDE_W_PT, SLIDE_H_PT], 'portrait');
 
     const cW = sectionCanvas.width;   // SLIDE_W_PX * scale
     const cH = sectionCanvas.height;  // naturalH * scale
@@ -401,7 +401,7 @@ export async function generateMicrositePDF(
 
         const sliceData = pageCanvas.toDataURL('image/jpeg', quality); // synchronous snapshot before next iteration
 
-        if (p > 0) pdf.addPage([SLIDE_W_PT, SLIDE_H_PT], 'landscape');
+        if (p > 0) pdf.addPage([SLIDE_W_PT, SLIDE_H_PT], 'portrait');
 
         pdf.setFillColor(background);
         pdf.rect(0, 0, SLIDE_W_PT, SLIDE_H_PT, 'F');

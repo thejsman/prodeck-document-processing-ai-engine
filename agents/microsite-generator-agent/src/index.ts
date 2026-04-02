@@ -2245,9 +2245,24 @@ export class MicrositeGeneratorAgent implements Agent {
     const meta = input.metadata ?? {};
     const proposalMarkdown = (meta.proposalMarkdown as string | undefined) ?? '';
     const namespace = input.namespace;
+    const pdfFriendly = !!(meta.pdfFriendly as boolean | undefined);
     const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
-    const customInstructions = rawInstructions
-      || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.';
+    const pdfConstraints = pdfFriendly
+      ? '\n\nPDF SLIDE CONSTRAINTS (enforce strictly — this microsite will be captured as a PDF where each section must fit in a single 720px-tall slide): ' +
+        'Maximum 4 bullet/list items per section. ' +
+        'Maximum 1 sentence (under 80 characters) per item description — no multi-sentence descriptions on cards or list items. ' +
+        'Maximum 2 sentences for section body/intro text. ' +
+        'Timeline: maximum 4 phases. ' +
+        'Stats, metrics, features, benefits: maximum 4 items. ' +
+        'FAQ: maximum 4 questions. ' +
+        'No nested lists. ' +
+        'Keep all headlines under 8 words. ' +
+        'Prefer 2-column grid layouts over 3-column. ' +
+        'Omit decorative sub-labels and long captions. ' +
+        'CRITICAL diagram rule: ONLY include a diagram in a section when that section contains ONLY body text with NO card grid, NO stat grid, and NO list items. If a section already has cards, stats, pillars, features, benefits, or any item array, set diagram to empty string — do NOT add a diagram to that section. Diagrams stacked below card grids make sections too tall for a single PDF slide.'
+      : '';
+    const customInstructions = (rawInstructions || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.') + pdfConstraints;
+    if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
     const isFullOverride = fullDesignPrompt.trim().length > 100;
     if (isFullOverride) {
@@ -2749,6 +2764,16 @@ export class MicrositeGeneratorAgent implements Agent {
                   console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
                 }
                 if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
+                // CODE-LEVEL enforcement: when pdfFriendly, strip diagram from any section that has item arrays
+                // (LLM ignores prompt constraints; this is the reliable fix)
+                if (pdfFriendly && parsed.diagram) {
+                  const ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
+                  const hasItems = ITEM_FIELDS.some(f => Array.isArray((parsed as Record<string,unknown>)[f]) && ((parsed as Record<string,unknown>)[f] as unknown[]).length > 0);
+                  if (hasItems) {
+                    (parsed as Record<string,unknown>).diagram = '';
+                    console.log(`[microsite-agent] PDF FRIENDLY: stripped diagram from "${s.type}" section (has item array)`);
+                  }
+                }
                 onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
                 const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
                   || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));

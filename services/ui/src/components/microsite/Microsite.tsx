@@ -560,6 +560,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
 
 useEffect(() => setMounted(true), []);
 
+
   // Drive typingIndex: start typing first section when streaming begins,
   // advance to next when a new section arrives and the previous is done.
   useEffect(() => {
@@ -714,32 +715,32 @@ ${el.innerHTML}
     }
   };
 
+
   const downloadPdf = async () => {
-    const el = contentRef.current;
-    if (!el || downloadingPdf) return;
+    const content = contentRef.current;
+    const root = scrollRef.current;
+    if (!content || !root || downloadingPdf) return;
     setDownloadingPdf(true);
     setPdfProgress(0);
     setPdfProgressMsg('Starting…');
     try {
-      const { generateMicrositePDF } = await import('../../lib/pdfGenerator');
+      const { generateCapturePDF } = await import('../../lib/pdfCaptureRenderer');
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
-      const result = await generateMicrositePDF(el, { bg: tokens.bg }, {
+      const result = await generateCapturePDF(content, root, {
         title,
-        quality: 0.82,
-        scale: 1.5,
-        background: tokens.bg,
+        quality: 0.90,
         onProgress: ({ pct, message }) => {
           setPdfProgress(pct);
           setPdfProgressMsg(message);
         },
       });
       if (!result.success) {
-        console.error('PDF generation failed:', result.error);
-        setPdfProgressMsg(`Error: ${result.error ?? 'PDF generation failed'}`);
+        console.error('PDF download failed:', result.error);
+        setPdfProgressMsg(`Error: ${result.error ?? 'Download failed'}`);
       }
     } catch (err) {
       console.error('PDF download failed:', err);
-      setPdfProgressMsg('PDF generation failed');
+      setPdfProgressMsg('Download failed');
     } finally {
       setDownloadingPdf(false);
     }
@@ -835,6 +836,7 @@ ${el.innerHTML}
           from { opacity: 0; transform: translateY(6px) scale(0.97); }
           to   { opacity: 1; transform: none; }
         }
+
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -1022,48 +1024,52 @@ ${el.innerHTML}
             </button>
           )}
           {!generating && (
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <button
-                onClick={downloadPdf}
-                disabled={downloadingPdf}
-                style={{
-                  padding: '9px 18px',
-                  borderRadius: 100,
-                  border: 'none',
-                  background: tokens.accent,
-                  color: tokens.dark ? tokens.bg : '#fff',
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  cursor: downloadingPdf ? 'wait' : 'pointer',
-                  boxShadow: `0 4px 16px ${tokens.glowColor}`,
-                  minWidth: 140,
-                  opacity: downloadingPdf ? 0.75 : 1,
-                }}
-              >
-                {downloadingPdf ? `${pdfProgress}% — ${pdfProgressMsg}` : '↓ Download PDF'}
-              </button>
-              {downloadingPdf && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: -6,
-                  left: 0,
-                  right: 0,
-                  height: 3,
-                  borderRadius: 100,
-                  background: `${tokens.accent}40`,
-                  overflow: 'hidden',
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${pdfProgress}%`,
-                    background: tokens.accent,
-                    transition: 'width 0.3s ease',
+            <>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  onClick={downloadPdf}
+                  disabled={downloadingPdf}
+                  style={{
+                    padding: '9px 18px',
                     borderRadius: 100,
-                  }} />
-                </div>
-              )}
-            </div>
+                    border: `1px solid ${tokens.border}`,
+                    background: `${tokens.bg}ee`,
+                    backdropFilter: 'blur(12px)',
+                    color: tokens.textMuted,
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: downloadingPdf ? 'wait' : 'pointer',
+                    minWidth: 148,
+                    opacity: downloadingPdf ? 0.75 : 1,
+                    boxShadow: tokens.cardShadow,
+                  }}
+                >
+                  {downloadingPdf ? `${pdfProgress}% — ${pdfProgressMsg}` : '↓ Download PDF'}
+                </button>
+                {downloadingPdf && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: -6,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    borderRadius: 100,
+                    background: `${tokens.accent}40`,
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${pdfProgress}%`,
+                      background: tokens.accent,
+                      transition: 'width 0.3s ease',
+                      borderRadius: 100,
+                    }} />
+                  </div>
+                )}
+              </div>
+
+            </>
           )}
         </div>,
         document.body
