@@ -136,6 +136,13 @@ export async function generateCapturePDF(
         );
 
         // ── Step 1: Clone with auto height to measure natural size ────────────
+        // Check if the section has a real image background (url(...)) BEFORE cloning
+        // so we can preserve it. Pure CSS gradients (no url) are stripped — they
+        // caused a coloured rectangle above the heading in earlier captures.
+        const origBg = sections[i].style.background + ' ' + sections[i].style.backgroundImage;
+        const sectionHasImageBg = origBg.includes('url(');
+        const sectionHasCssGradient = !sectionHasImageBg && origBg.includes('gradient');
+
         const clone = sections[i].cloneNode(true) as HTMLElement;
         clone.style.cssText = [
           `width:${CAPTURE_W}px`,
@@ -151,10 +158,20 @@ export async function generateCapturePDF(
           `transform:none`,
           `transition:none`,
           `animation:none`,
-          // Force section background to theme background — prevents hero gradient/image
-          // from appearing as a colored block above the text content in the capture.
-          `background:${rootBg}`,
+          // Only override to rootBg when section uses a CSS gradient (no real image).
+          // If it has a real image URL we preserve it so the photo shows in the PDF.
+          ...(!sectionHasImageBg ? [`background:${rootBg}`] : []),
         ].join(';');
+
+        // Restore the image background on the clone when the section has one.
+        // (cssText replacement cleared it; re-apply from the original inline style.)
+        if (sectionHasImageBg) {
+          if (sections[i].style.background) clone.style.background = sections[i].style.background;
+          if (sections[i].style.backgroundImage) clone.style.backgroundImage = sections[i].style.backgroundImage;
+          clone.style.backgroundSize = sections[i].style.backgroundSize || 'cover';
+          clone.style.backgroundPosition = sections[i].style.backgroundPosition || 'center center';
+          clone.style.backgroundRepeat = sections[i].style.backgroundRepeat || 'no-repeat';
+        }
 
         // ── Strip decorative elements using INLINE style checks ──────────────
         // IMPORTANT: clone is not in the DOM yet so getComputedStyle returns defaults.
@@ -170,7 +187,6 @@ export async function generateCapturePDF(
           // html2canvas doesn't support background-clip:text. Without fixing this,
           // stripping backgroundImage leaves color:transparent → invisible heading.
           if (isGradientText) {
-            // Extract the first colour stop from the gradient as the solid text colour.
             const grad = el.style.backgroundImage || el.style.background;
             const firstHex  = grad.match(/#[0-9a-fA-F]{3,8}/)?.[0];
             const firstRgb  = grad.match(/rgba?\([^)]+\)/)?.[0];
@@ -181,18 +197,28 @@ export async function generateCapturePDF(
             el.style.backgroundClip = '';
             el.style.webkitBackgroundClip = '';
             (el.style as unknown as Record<string,string>).webkitTextFillColor = '';
-            return; // done for this element
+            return;
           }
 
-          // Hide absolute/fixed overlays with no text (scrim div, noise SVG, parallax bg)
-          if ((inlinePos === 'absolute' || inlinePos === 'fixed') && !el.textContent?.trim()) {
+          // Hide absolute/fixed overlays with no text (scrim div, noise SVG, parallax bg).
+          // Keep the scrim when the section has a real image — it provides text legibility.
+          const isScrim = (inlinePos === 'absolute' || inlinePos === 'fixed') && !el.textContent?.trim();
+          if (isScrim && !sectionHasImageBg) {
             el.style.display = 'none';
+            return;
           }
 
-          // Strip gradient/image backgrounds from non-text elements.
-          // This eliminates the hero gradient box and CORS image artefacts.
-          if (inlineBg.includes('gradient') || inlineBg.includes('url(')) {
+          // Strip CSS gradient backgrounds from child elements (decorative gradient boxes).
+          // Preserve url() backgrounds — those are real content images.
+          if (inlineBg.includes('gradient') && !inlineBg.includes('url(')) {
             el.style.background = 'transparent';
+            el.style.backgroundImage = 'none';
+          }
+
+          // Strip pure CSS gradient on the section itself if it had one (already handled
+          // via cssText, but belt-and-suspenders for backgroundImage property).
+          if (sectionHasCssGradient && el === clone) {
+            el.style.background = rootBg;
             el.style.backgroundImage = 'none';
           }
 
@@ -249,11 +275,20 @@ export async function generateCapturePDF(
 
         let finalCanvas: HTMLCanvasElement;
 
+        // When the section has a real image background and is shorter than the slide,
+        // stretch it to fill the full slide height so the photo covers the entire
+        // canvas with no rootBg gap below.
+        if (sectionHasImageBg && naturalH < CAPTURE_H) {
+          clone.style.minHeight = `${CAPTURE_H}px`;
+          clone.style.backgroundSize = 'cover';
+          clone.style.backgroundPosition = 'center center';
+        }
+
         if (naturalH <= CAPTURE_H) {
           // ── Short section: align to top with proportional padding ────────────
           // Dead-center leaves too much empty space; top-align with 8% padding
           // looks like a proper slide with breathing room.
-          const topPad = Math.round((CAPTURE_H - naturalH) * 0.25);
+          const topPad = sectionHasImageBg ? 0 : Math.round((CAPTURE_H - naturalH) * 0.25);
           const wrapper = document.createElement('div');
           wrapper.style.cssText = [
             `width:${CAPTURE_W}px`,
@@ -263,7 +298,7 @@ export async function generateCapturePDF(
             `justify-content:flex-start`,
             `padding-top:${topPad}px`,
             `overflow:hidden`,
-            `background:${rootBg}`,
+            `background:${sectionHasImageBg ? 'transparent' : rootBg}`,
             `position:relative`,
             `box-sizing:border-box`,
           ].join(';');

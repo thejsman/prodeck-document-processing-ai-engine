@@ -461,7 +461,7 @@ export function HeroSection({
             <R delay={180}>
               <div className="ms-grid-3" style={{
                 display: 'grid',
-                gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, 1fr)`,
+                gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, minmax(0, 1fr))`,
                 gap: 'clamp(1rem, 2.5vw, 1.5rem)',
                 marginBottom: 36,
               }}>

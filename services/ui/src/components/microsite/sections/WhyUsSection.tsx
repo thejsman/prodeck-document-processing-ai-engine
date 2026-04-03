@@ -61,7 +61,7 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min(stats.length || 1, 4)}, 1fr)`,
+            gridTemplateColumns: `repeat(${Math.min(stats.length || 1, 4)}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2vw, 2rem)',
           }}
         >
@@ -93,10 +93,12 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
                       style={{
                         fontFamily: `'${tokens.heroFont}', serif`,
                         fontWeight: tokens.heroWeight,
-                        fontSize: 'clamp(2rem, 4vw, 3rem)',
-                        lineHeight: 1,
+                        fontSize: 'clamp(1.25rem, 2.8vw, 2.2rem)',
+                        lineHeight: 1.1,
                         color: tokens.accent,
                         marginBottom: 10,
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word',
                       }}
                     >
                       <AnimatedCounter value={stat.number} />
