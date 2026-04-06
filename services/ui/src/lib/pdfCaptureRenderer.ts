@@ -48,6 +48,55 @@ function nextFrame(): Promise<void> {
   return new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 }
 
+/**
+ * Convert an image URL to a same-origin fetchable URL.
+ * External URLs (http/https) are routed through the /api/proxy-image route
+ * so the server fetches them without CORS restrictions.
+ * Local /presentation-images/ paths are rewritten to /api/presentation-images/.
+ */
+function toProxyUrl(src: string): string {
+  if (src.startsWith('data:')) return src; // already a data URL
+  if (src.startsWith('/presentation-images/')) return `/api${src}`;
+  if (src.startsWith('http://') || src.startsWith('https://'))
+    return `/api/proxy-image?url=${encodeURIComponent(src)}`;
+  return src;
+}
+
+/**
+ * Find every <img> in the cloned element whose src is a cross-origin URL,
+ * fetch it through the proxy, and replace the src with a data URL so
+ * html2canvas can draw it without CORS errors.
+ */
+async function inlineCloneImages(clone: HTMLElement): Promise<void> {
+  const imgs = Array.from(clone.querySelectorAll<HTMLImageElement>('img'));
+  if (imgs.length === 0) return;
+
+  await Promise.allSettled(
+    imgs.map(async img => {
+      const src = img.getAttribute('src') ?? '';
+      if (!src || src.startsWith('data:')) return; // nothing to do
+
+      try {
+        const proxyUrl = toProxyUrl(src);
+        const res  = await fetch(proxyUrl);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload  = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        img.src = dataUrl;
+        img.removeAttribute('crossorigin');
+        img.removeAttribute('crossOrigin');
+      } catch {
+        // Leave image as-is if proxy fails — better than crashing
+      }
+    }),
+  );
+}
+
 // Minimum scale ratio — never shrink content below this fraction.
 // If section is taller than CAPTURE_H / MIN_SCALE, we clip the bottom
 // rather than producing unreadably tiny text.
@@ -234,6 +283,9 @@ export async function generateCapturePDF(
           el.style.transition = 'none';
           el.style.animation = 'none';
         });
+
+        // Replace all <img> src with data URLs fetched via proxy — eliminates CORS errors
+        await inlineCloneImages(clone);
 
         // Reduce excessive section padding (microsite uses clamp(4rem,8vw,7rem) ≈ 100px
         // per side = 200px wasted). Tighten to 40px top/bottom for slide capture.
