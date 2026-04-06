@@ -45,7 +45,7 @@ function copyCustomProps(from: HTMLElement, to: HTMLElement) {
 
 /** Two rAF ticks — lets the browser finish layout + paint before measuring. */
 function nextFrame(): Promise<void> {
-  return new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 }
 
 // Minimum scale ratio — never shrink content below this fraction.

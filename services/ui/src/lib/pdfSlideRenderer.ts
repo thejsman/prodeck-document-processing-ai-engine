@@ -97,7 +97,7 @@ export async function generateMicrositePDF(
     // Section slides
     const sections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
     for (const section of sections) {
-      const c = (section.content ?? {}) as Record<string, unknown>;
+      const c = (section.content ?? {}) as unknown as Record<string, unknown>;
       const diagramSVG = hasDiagram(section)
         ? extractDiagramSVG(contentEl, section.id)
         : '';
@@ -253,9 +253,9 @@ function buildSectionSlides(
 
 function buildCoverSlide(ast: LayoutAST): HTMLElement {
   const slide    = makeSlide();
-  const brief    = (ast.brief ?? {}) as Record<string, unknown>;
-  const brand    = (ast.brand ?? {}) as Record<string, unknown>;
-  const meta     = (ast.meta  ?? {}) as Record<string, unknown>;
+  const brief    = (ast.brief ?? {}) as unknown as Record<string, unknown>;
+  const brand    = (ast.brand ?? {}) as unknown as Record<string, unknown>;
+  const meta     = (ast.meta  ?? {}) as unknown as Record<string, unknown>;
   const title    = trunc(String(meta.title ?? brief.heroNarrative ?? 'Proposal'), 100);
   const client   = String(brief.clientName ?? '');
   const company  = String(brand.companyName ?? brief.proposingCompany ?? '');
@@ -1090,7 +1090,7 @@ function cellIcon(val: string): string {
 // ── Diagram extraction from live DOM ─────────────────────────────────────────
 
 function hasDiagram(section: LayoutSection): boolean {
-  const c = (section.content ?? {}) as Record<string, unknown>;
+  const c = (section.content ?? {}) as unknown as Record<string, unknown>;
   return typeof c.diagram === 'string' && c.diagram.trim().length > 0;
 }
 
