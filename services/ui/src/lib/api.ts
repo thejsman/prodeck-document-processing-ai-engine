@@ -675,6 +675,7 @@ export interface GenerateStreamOptions {
   fullDesignPrompt?: string;
   designBrief?: string;
   preSynthesizedDesignSystem?: Record<string, unknown>;
+  pdfFriendly?: boolean;
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -696,6 +697,7 @@ export async function generateMicrositeStream(
       ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
       ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
       ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
+      ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
     }),
     signal: opts.signal,
   });

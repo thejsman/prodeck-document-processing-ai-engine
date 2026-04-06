@@ -539,6 +539,8 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
 
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfProgressMsg, setPdfProgressMsg] = useState('');
   const [mounted, setMounted] = useState(false);
   // typingIndex: which section is currently being typed. null = no typing active.
   const [typingIndex, setTypingIndex] = useState<number | null>(null);
@@ -558,6 +560,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const typingCompletePendingRef = useRef(false);
 
 useEffect(() => setMounted(true), []);
+
 
   // Drive typingIndex: start typing first section when streaming begins,
   // advance to next when a new section arrives and the previous is done.
@@ -713,92 +716,33 @@ ${el.innerHTML}
     }
   };
 
-  const downloadPdf = () => {
+
+  const downloadPdf = async () => {
+    const content = contentRef.current;
+    const root = scrollRef.current;
+    if (!content || !root || downloadingPdf) return;
     setDownloadingPdf(true);
+    setPdfProgress(0);
+    setPdfProgressMsg('Starting…');
     try {
-      const el = contentRef.current;
-      if (!el) return;
-
-      // Clone the DOM so we don't mutate the live page
-      const clone = el.cloneNode(true) as HTMLElement;
-
-      // Reset ALL inline animation states — Reveal + AnimatedSection components
-      // leave opacity:0 / translateY on elements not yet scrolled into view.
-      clone.querySelectorAll<HTMLElement>('*').forEach(elem => {
-        const s = elem.style;
-        // Handle both string "0" and numeric 0 opacity
-        if (s.opacity === '0' || s.opacity === '0.0' || (s.opacity !== '' && parseFloat(s.opacity) === 0)) {
-          s.opacity = '1';
-        }
-        if (s.transform && s.transform !== 'none' && s.transform !== '') s.transform = 'none';
-        if (s.transition) s.transition = 'none';
-        if (s.visibility === 'hidden') s.visibility = 'visible';
-        // Some animations use pointer-events:none + opacity together
-        if (s.pointerEvents === 'none' && elem.tagName !== 'DIV') s.pointerEvents = 'auto';
-      });
-      // Also reset the outer animated wrappers (AnimatedSection)
-      clone.querySelectorAll<HTMLElement>('[data-section-id]').forEach(elem => {
-        elem.style.opacity = '1';
-        elem.style.transform = 'none';
-        elem.style.transition = 'none';
-      });
-
-      const fontLinks = (ast.customFonts?.length ? ast.customFonts : plugin.fonts)
-        .map(f => `<link rel="stylesheet" href="${f.url}">`)
-        .join('\n');
+      const { generateCapturePDF } = await import('../../lib/pdfCaptureRenderer');
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
-
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>${title}</title>
-${fontLinks}
-<style>
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden;width:1280px}
-@page{size:1280px 720px;margin:0}
-[data-section-id]{
-  width:1280px;
-  min-height:720px;
-  page-break-after:always;
-  break-after:page;
-  page-break-inside:avoid;
-  break-inside:avoid;
-  overflow:hidden;
-}
-[data-section-id]:last-child{page-break-after:avoid;break-after:avoid}
-*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
-*{opacity:1!important;visibility:visible!important;transform:none!important;transition:none!important}
-.ms-parallax-bg{background-attachment:scroll!important}
-</style>
-</head>
-<body>${clone.innerHTML}</body>
-</html>`;
-
-      // Render iframe at 1280px wide so sections layout correctly before printing
-      const iframe = document.createElement('iframe');
-      Object.assign(iframe.style, {
-        position: 'fixed', top: '-9999px', left: '-9999px',
-        width: '1280px', height: '720px', border: 'none',
-        visibility: 'hidden',
+      const result = await generateCapturePDF(content, root, {
+        title,
+        quality: 0.90,
+        onProgress: ({ pct, message }) => {
+          setPdfProgress(pct);
+          setPdfProgressMsg(message);
+        },
       });
-      document.body.appendChild(iframe);
-
-      iframe.srcdoc = html;
-
-      // Wait for fonts + layout inside the iframe before printing
-      setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } finally {
-          // Remove iframe after a short delay (print dialog may still be open)
-          setTimeout(() => document.body.removeChild(iframe), 3000);
-          setDownloadingPdf(false);
-        }
-      }, 1500);
-    } catch {
+      if (!result.success) {
+        console.error('PDF download failed:', result.error);
+        setPdfProgressMsg(`Error: ${result.error ?? 'Download failed'}`);
+      }
+    } catch (err) {
+      console.error('PDF download failed:', err);
+      setPdfProgressMsg('Download failed');
+    } finally {
       setDownloadingPdf(false);
     }
   };
@@ -893,6 +837,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
           from { opacity: 0; transform: translateY(6px) scale(0.97); }
           to   { opacity: 1; transform: none; }
         }
+
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -1080,24 +1025,52 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
             </button>
           )}
           {!generating && (
-            <button
-              onClick={downloadPdf}
-              disabled={downloadingPdf}
-              style={{
-                padding: '9px 18px',
-                borderRadius: 100,
-                border: 'none',
-                background: tokens.accent,
-                color: tokens.dark ? tokens.bg : '#fff',
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: downloadingPdf ? 'wait' : 'pointer',
-                boxShadow: `0 4px 16px ${tokens.glowColor}`,
-              }}
-            >
-              {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
-            </button>
+            <>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  onClick={downloadPdf}
+                  disabled={downloadingPdf}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: 100,
+                    border: `1px solid ${tokens.border}`,
+                    background: `${tokens.bg}ee`,
+                    backdropFilter: 'blur(12px)',
+                    color: tokens.textMuted,
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: downloadingPdf ? 'wait' : 'pointer',
+                    minWidth: 148,
+                    opacity: downloadingPdf ? 0.75 : 1,
+                    boxShadow: tokens.cardShadow,
+                  }}
+                >
+                  {downloadingPdf ? `${pdfProgress}% — ${pdfProgressMsg}` : '↓ Download PDF'}
+                </button>
+                {downloadingPdf && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: -6,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    borderRadius: 100,
+                    background: `${tokens.accent}40`,
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${pdfProgress}%`,
+                      background: tokens.accent,
+                      transition: 'width 0.3s ease',
+                      borderRadius: 100,
+                    }} />
+                  </div>
+                )}
+              </div>
+
+            </>
           )}
         </div>,
         document.body

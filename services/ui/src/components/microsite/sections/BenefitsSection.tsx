@@ -55,7 +55,7 @@ export function BenefitsSection({ content, tokens }: Props) {
             display: 'flex', flexDirection: 'column', gap: 'clamp(0.75rem, 2vw, 1rem)',
           } : {
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
+            gridTemplateColumns: `repeat(${Math.max(cols, 1)}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2.5vw, 2rem)',
           }}
         >

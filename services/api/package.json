@@ -29,7 +29,9 @@
     "@fastify/multipart": "^9.4.0",
     "fastify": "^5.2.1",
     "js-yaml": "^4.1.0",
-    "pptxgenjs": "^4.0.1"
+    "pdf-lib": "^1.17.1",
+    "pptxgenjs": "^4.0.1",
+    "puppeteer": "^24.40.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
