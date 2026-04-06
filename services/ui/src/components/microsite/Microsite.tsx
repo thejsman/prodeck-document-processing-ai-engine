@@ -892,7 +892,7 @@ ${el.innerHTML}
               {editCtx && <AddSectionButton afterIndex={i} />}
             </React.Fragment>
           ))}
-          {generating && mounted && createPortal(
+          {generating && mounted && (totalCount === 0 || generatedCount < totalCount) && createPortal(
             <div style={{
               position: 'fixed',
               bottom: 28,
