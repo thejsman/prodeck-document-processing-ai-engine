@@ -58,8 +58,6 @@ export function HeroSection({
   behavior,
   sectionId,
 }: Props) {
-  console.log('HERO PROPS →', { variant, ui, behavior, content });
-
   // Typewriter context — present only during active streaming animation
   const twCtx = useContext(TypewriterStateContext);
 

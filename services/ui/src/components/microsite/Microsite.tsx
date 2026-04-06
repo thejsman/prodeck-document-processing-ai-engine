@@ -162,10 +162,10 @@ function renderSection(
 ) {
   // Root-relative paths (/presentation-images/...) are served by the API.
   // Rewrite them through the Next.js /api proxy so they work in the UI.
-  const rawUrl = section.image.url;
+  const rawUrl = section.image?.url;
   const imageUrl = rawUrl?.startsWith('/presentation-images/')
     ? `/api${rawUrl}`
-    : rawUrl;
+    : rawUrl ?? null;
   const sid = section.id;
 
   let inner: React.ReactNode;
@@ -308,7 +308,9 @@ function SectionWithOverlay({
   const hasBgImage = !!section.image?.url && (isHero || section.image.source === 'custom');
   let bgCssRule = '';
   if (hasBgColor) {
-    const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
+    // Allow CSS variable syntax (hyphens) and all valid CSS value chars.
+    // Keep hyphen at end of character class so it's treated as a literal, not a range.
+    const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),. % -]/g, '');
     bgCssRule = `${sel}{background:${safe} !important;}`;
   } else if (hasBgImage) {
     const resolvedBgUrl = section.image!.url!.startsWith('/presentation-images/')
@@ -486,7 +488,6 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ast.plugin, brand, mergedTokens]);
 
-  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| overrideTheme:', !!brand?.overrideTheme, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| accent:', tokens.accent, '| heroFont:', tokens.heroFont);
 
   // Resolve CSS variables: also inject as CSS custom properties for any
   // CSS-based consumers (nav, overlays, etc.), now in addition to the token override above
