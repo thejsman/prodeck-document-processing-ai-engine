@@ -8,7 +8,7 @@
  * and episodic memory throughout the project.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -104,5 +104,18 @@ export async function loadHistory(
     return JSON.parse(raw) as ChatHistory;
   } catch {
     return null;
+  }
+}
+
+/** Delete the history file for a session. No-ops if the file does not exist. */
+export async function clearHistory(
+  workdir: string,
+  namespace: string,
+  chatSessionId: string,
+): Promise<void> {
+  try {
+    await unlink(historyPath(workdir, namespace, chatSessionId));
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 }
