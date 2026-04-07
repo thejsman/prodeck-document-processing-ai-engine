@@ -1196,13 +1196,14 @@ interface Props {
   sectionIndex: number;
   totalSections: number;
   children: React.ReactNode;
+  onAiAction?: (sectionId: string, instruction: string) => void;
 }
 
 const ACCENT = '#6366f1';
 
 type ActivePanel = 'bg' | 'diagram' | 'layout' | 'icon' | 'embed' | null;
 
-export function SectionEditOverlay({ section, sectionIndex, totalSections, children }: Props) {
+export function SectionEditOverlay({ section, sectionIndex, totalSections, children, onAiAction }: Props) {
   const ctx = useEditContext();
   const [hovered, setHovered] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -1309,6 +1310,40 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
           >
             {section.sectionType}
           </span>
+
+          {/* AI quick-actions */}
+          {onAiAction && (
+            <>
+              {[
+                { label: '✦ AI: Rewrite', instruction: 'Rewrite this section with improved copy' },
+                { label: 'Shorten', instruction: 'Make this section more concise' },
+                { label: 'Expand', instruction: 'Expand this section with more detail' },
+                { label: 'Restyle', instruction: 'Restyle this section — make it more visually striking' },
+              ].map(({ label, instruction }) => (
+                <button
+                  key={label}
+                  onClick={() => onAiAction(section.id, instruction)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 100,
+                    border: label.startsWith('✦') ? '1px solid rgba(99,102,241,0.5)' : 'none',
+                    background: label.startsWith('✦') ? 'rgba(99,102,241,0.9)' : 'rgba(255,255,255,0.9)',
+                    color: label.startsWith('✦') ? '#fff' : '#475569',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    backdropFilter: 'blur(8px)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    whiteSpace: 'nowrap',
+                    transition: 'background 0.15s, color 0.15s',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </>
+          )}
 
           {/* Background button */}
           <div style={{ position: 'relative' }}>

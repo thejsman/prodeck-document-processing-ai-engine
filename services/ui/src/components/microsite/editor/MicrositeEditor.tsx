@@ -15,7 +15,7 @@ const QUICK_THEMES = THEME_REGISTRY.slice(0, 8);
 
 // ── Canvas — reads editedAst from context ─────────────────────────────────
 
-function EditorCanvas() {
+function EditorCanvas({ onAiAction }: { onAiAction: (sectionId: string, instruction: string) => void }) {
   const ctx = useEditContext()!;
   const mergedTokens = ctx.ast.customTokens
     ? { ...(ctx.ast.customDesignSystem ?? {}), ...ctx.ast.customTokens }
@@ -41,8 +41,92 @@ function EditorCanvas() {
       }}
     >
       <div style={{ position: 'relative', minHeight: '100%' }}>
-        <Microsite ast={ctx.ast} mode="embedded" />
+        <Microsite ast={ctx.ast} mode="embedded" onSectionAiAction={onAiAction} />
       </div>
+    </div>
+  );
+}
+
+// ── Floating AI bar ────────────────────────────────────────────────────────
+
+function FloatingAIBar({ onSubmit }: { onSubmit: (instruction: string) => void }) {
+  const [value, setValue] = useState('');
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleSubmit() {
+    if (!value.trim()) return;
+    onSubmit(value.trim());
+    setValue('');
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); }
+    if (e.key === 'Escape') { setValue(''); inputRef.current?.blur(); }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 20,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 9000,
+        width: 'min(520px, calc(100% - 48px))',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        background: focused ? 'rgba(255,255,255,0.98)' : 'rgba(255,255,255,0.92)',
+        backdropFilter: 'blur(16px)',
+        border: focused ? '1.5px solid #6366f1' : '1.5px solid rgba(226,232,240,0.9)',
+        borderRadius: 12,
+        padding: '8px 12px',
+        boxShadow: focused
+          ? '0 0 0 3px rgba(99,102,241,0.12), 0 8px 32px rgba(0,0,0,0.14)'
+          : '0 4px 20px rgba(0,0,0,0.12)',
+        transition: 'border-color 0.15s, box-shadow 0.15s',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      }}
+    >
+      <span style={{ fontSize: 14, color: '#6366f1', flexShrink: 0 }}>✦</span>
+      <input
+        id="mse-floating-ai-input"
+        ref={inputRef}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Ask AI to redesign, restyle, or rewrite… (⌘K)"
+        style={{
+          flex: 1,
+          border: 'none',
+          outline: 'none',
+          background: 'transparent',
+          fontSize: 13,
+          color: '#1e293b',
+          fontFamily: 'inherit',
+        }}
+      />
+      {value.trim() && (
+        <button
+          onClick={handleSubmit}
+          style={{
+            padding: '4px 10px',
+            borderRadius: 7,
+            border: 'none',
+            background: '#6366f1',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          →
+        </button>
+      )}
     </div>
   );
 }
@@ -222,6 +306,8 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [viewport, setViewport] = useState<Viewport>('desktop');
+  const [panelInstruction, setPanelInstruction] = useState('');
+  const [panelTargetSectionId, setPanelTargetSectionId] = useState<string | undefined>(undefined);
   const themeBtnRef = useRef<HTMLDivElement>(null);
 
   const currentTheme = THEME_REGISTRY.find(t => t.id === ctx.ast.plugin);
@@ -242,6 +328,40 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // Consume pendingSectionAI from context (set by SectionEditOverlay AI buttons)
+  useEffect(() => {
+    if (!ctx.pendingSectionAI) return;
+    const { sectionId, instruction } = ctx.pendingSectionAI;
+    setPanelInstruction(instruction);
+    setPanelTargetSectionId(sectionId);
+    setShowDesignPanel(true);
+    ctx.clearSectionAITrigger();
+  }, [ctx.pendingSectionAI, ctx]);
+
+  // Cmd+K / Ctrl+K focuses floating bar — handled via a custom event from FloatingAIBar
+  useEffect(() => {
+    function handleCmdK(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        document.getElementById('mse-floating-ai-input')?.focus();
+      }
+    }
+    document.addEventListener('keydown', handleCmdK);
+    return () => document.removeEventListener('keydown', handleCmdK);
+  }, []);
+
+  const handleSectionAiAction = useCallback((sectionId: string, instruction: string) => {
+    setPanelInstruction(instruction);
+    setPanelTargetSectionId(sectionId);
+    setShowDesignPanel(true);
+  }, []);
+
+  const handleFloatingAISubmit = useCallback((instruction: string) => {
+    setPanelInstruction(instruction);
+    setPanelTargetSectionId(undefined);
+    setShowDesignPanel(true);
+  }, []);
 
   function handleThemeSelect(id: string) {
     ctx.replaceAst({
@@ -440,6 +560,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         background: viewport !== 'desktop' ? '#e2e8f0' : '#f1f5f9',
         transition: 'background 0.2s',
         padding: viewport !== 'desktop' ? '16px 0' : 0,
+        position: 'relative',
       }}>
         <div style={{
           width: VIEWPORT_OPTIONS.find(v => v.id === viewport)?.width ?? '100%',
@@ -452,8 +573,9 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
           flexShrink: 0,
         }}>
-          <EditorCanvas />
+          <EditorCanvas onAiAction={handleSectionAiAction} />
         </div>
+        <FloatingAIBar onSubmit={handleFloatingAISubmit} />
       </div>
 
       {/* Publish modal */}
@@ -472,8 +594,14 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           ast={ctx.ast}
           namespace={namespace}
           proposalId={proposalId}
+          targetSectionId={panelTargetSectionId}
+          initialInstruction={panelInstruction}
           onApply={(newAst) => { ctx.replaceAst(newAst); }}
-          onClose={() => setShowDesignPanel(false)}
+          onClose={() => {
+            setShowDesignPanel(false);
+            setPanelInstruction('');
+            setPanelTargetSectionId(undefined);
+          }}
         />
       )}
 

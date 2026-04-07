@@ -83,6 +83,8 @@ interface Props {
   streamingTotal?: number;
   /** Ordered list of section types from the plan — used to show the next section name in the progress overlay. */
   planSectionTypes?: string[];
+  /** Called when an AI quick-action is triggered from a section overlay in editor mode. */
+  onSectionAiAction?: (sectionId: string, instruction: string) => void;
 }
 
 /** Wraps each section with visibility animation.
@@ -289,6 +291,7 @@ function SectionWithOverlay({
   brief,
   behavior,
   isStreaming,
+  onSectionAiAction,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -299,6 +302,7 @@ function SectionWithOverlay({
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
   isStreaming?: boolean;
+  onSectionAiAction?: (sectionId: string, instruction: string) => void;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
@@ -360,17 +364,15 @@ function SectionWithOverlay({
   }
 
   return (
-    <div>
-      <AnimatedSection id={section.id} behavior={behavior} index={index} isStreaming={isStreaming}>
-        <SectionIdProvider id={section.id}>
-          {editCtx ? (
-            <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
-              {sectionInner}
-            </SectionEditOverlay>
-          ) : sectionInner}
-        </SectionIdProvider>
-      </AnimatedSection>
-    </div>
+    <AnimatedSection id={section.id} behavior={behavior} index={index} isStreaming={isStreaming}>
+      <SectionIdProvider id={section.id}>
+        {editCtx ? (
+          <SectionEditOverlay section={section} sectionIndex={index} totalSections={total} onAiAction={onSectionAiAction}>
+            {sectionInner}
+          </SectionEditOverlay>
+        ) : sectionInner}
+      </SectionIdProvider>
+    </AnimatedSection>
   );
 }
 
@@ -393,7 +395,8 @@ const StableSectionWithOverlay = React.memo(SectionWithOverlay, (prev, next) => 
     prev.brand === next.brand &&
     prev.brief === next.brief &&
     prev.behavior === next.behavior &&
-    prev.isStreaming === next.isStreaming
+    prev.isStreaming === next.isStreaming &&
+    prev.onSectionAiAction === next.onSectionAiAction
   );
 });
 
@@ -438,7 +441,7 @@ function isColorDark(hex: string): boolean {
   } catch { return false; }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes, onSectionAiAction }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -896,6 +899,7 @@ ${el.innerHTML}
                       brief={ast.brief}
                       behavior={ast.behavior}
                       isStreaming={newSectionIds.has(section.id)}
+                      onSectionAiAction={onSectionAiAction}
                     />
                   )}
                 </TypewriterSection>

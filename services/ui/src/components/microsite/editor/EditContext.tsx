@@ -28,6 +28,7 @@ export interface EditContextValue {
   activeSectionId: string | null;
   canUndo: boolean;
   canRedo: boolean;
+  pendingSectionAI: { sectionId: string; instruction: string } | null;
   selectElement: (s: EditSelection) => void;
   selectSection: (sectionId: string) => void;
   clearSelection: () => void;
@@ -41,6 +42,8 @@ export interface EditContextValue {
   removeSection: (sectionId: string) => void;
   undo: () => void;
   redo: () => void;
+  triggerSectionAI: (sectionId: string, instruction: string) => void;
+  clearSectionAITrigger: () => void;
 }
 
 const EditContext = createContext<EditContextValue | null>(null);
@@ -104,6 +107,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
   const [activeSectionId, setActiveSectionId] = useState<string | null>(
     initialAst.sections?.[0]?.id ?? null,
   );
+  const [pendingSectionAI, setPendingSectionAI] = useState<{ sectionId: string; instruction: string } | null>(null);
 
   // Undo / redo stacks (hold snapshots before each mutation)
   const undoStack = useRef<LayoutAST[]>([]);
@@ -302,6 +306,14 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     [notify],
   );
 
+  const triggerSectionAI = useCallback((sectionId: string, instruction: string) => {
+    setPendingSectionAI({ sectionId, instruction });
+  }, []);
+
+  const clearSectionAITrigger = useCallback(() => {
+    setPendingSectionAI(null);
+  }, []);
+
   const removeSection = useCallback(
     (sectionId: string) => {
       setAst(prev => {
@@ -328,6 +340,7 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         activeSectionId,
         canUndo,
         canRedo,
+        pendingSectionAI,
         selectElement,
         selectSection,
         clearSelection,
@@ -341,6 +354,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         removeSection,
         undo,
         redo,
+        triggerSectionAI,
+        clearSectionAITrigger,
       }}
     >
       {children}
