@@ -694,7 +694,23 @@ export function registerPresentationRoutes(
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
             const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
-            if (chosenSource === 'gradient') { sec.image.source = 'gradient'; return; }
+            if (chosenSource === 'gradient') {
+              // Even if source is 'gradient' by preference, the agent may have already resolved
+              // a DALL-E URL for this section via resolveImageUrl. Persist it locally so it
+              // doesn't expire, then send the image event to the client.
+              const agentUrl = sec.image?.url;
+              if (agentUrl && agentUrl.startsWith('http') && !agentUrl.startsWith('http://localhost')) {
+                try {
+                  const localUrl = await saveImagePersistently(agentUrl, namespace, secId, workdir);
+                  if (localUrl !== agentUrl) {
+                    sec.image.url = localUrl;
+                    send({ type: 'image', sectionId: secId, url: localUrl });
+                  }
+                } catch { /* keep original */ }
+              }
+              sec.image.source = 'gradient';
+              return;
+            }
             sec.image.source = chosenSource;
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);

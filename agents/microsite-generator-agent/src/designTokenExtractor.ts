@@ -105,6 +105,8 @@ const FONT_MAP: Record<string, { family: string; url: string }> = {
   'Baloo':             { family: 'Baloo 2',           url: 'Baloo+2:wght@400;600;700;800' },
   'Fredoka One':       { family: 'Fredoka One',       url: 'Fredoka+One' },
   'Fredoka':           { family: 'Fredoka One',       url: 'Fredoka+One' },
+  'Lilita One':        { family: 'Lilita One',        url: 'Lilita+One' },
+  'Bubblegum Sans':    { family: 'Bubblegum Sans',    url: 'Bubblegum+Sans' },
   'Quicksand':         { family: 'Quicksand',         url: 'Quicksand:wght@400;500;600;700' },
   'Comfortaa':         { family: 'Comfortaa',         url: 'Comfortaa:wght@400;600;700' },
   'Inter':             { family: 'Inter',             url: 'Inter:wght@400;500;600;700' },
@@ -147,13 +149,41 @@ export function extractColorsFromPrompt(prompt: string): { backgrounds: string[]
   return { backgrounds, accents }
 }
 
+function extractQuotedFonts(text: string): string[] {
+  const matches = [...text.matchAll(/["']([A-Za-z0-9 ]+)["']/g)]
+  return matches.map(m => m[1].trim()).filter(Boolean)
+}
+
 function extractTypographyFromPrompt(prompt: string): ExtractedDesignTokens['typography'] {
+  // Split prompt into heading-font section and body-font section
+  const headingSection = prompt.match(
+    /(?:heading|primary|display|title)\s*font[\s\S]*?(?=\n\s*(?:body|paragraph|text)\s*font|\n##|$)/i
+  )?.[0] ?? ''
+  const bodySection = prompt.match(
+    /(?:body|paragraph|text)\s*font[\s\S]*/i
+  )?.[0] ?? ''
+
+  const headingFonts = headingSection ? extractQuotedFonts(headingSection) : []
+  const bodyFonts    = bodySection    ? extractQuotedFonts(bodySection)    : []
+
   const fonts: string[] = []
-  // Check longer names first (e.g. "Baloo 2" before "Baloo")
-  const fontKeys = Object.keys(FONT_MAP).sort((a, b) => b.length - a.length)
-  for (const name of fontKeys) {
-    if (new RegExp(`\\b${name.replace(/[+]/g, '\\+')}\\b`, 'i').test(prompt) && !fonts.includes(name)) {
-      fonts.push(name)
+  if (headingFonts[0]) fonts.push(headingFonts[0])
+  if (bodyFonts[0] && bodyFonts[0] !== fonts[0]) fonts.push(bodyFonts[0])
+
+  // Fallback: all quoted fonts in the full prompt
+  if (fonts.length === 0) {
+    const allQuoted = extractQuotedFonts(prompt)
+    fonts.push(...allQuoted.slice(0, 2))
+  }
+
+  // Fallback: legacy FONT_MAP keyword scan for unquoted prompts
+  if (fonts.length === 0) {
+    const fontKeys = Object.keys(FONT_MAP).sort((a, b) => b.length - a.length)
+    for (const name of fontKeys) {
+      if (new RegExp(`\\b${name.replace(/[+]/g, '\\+')}\\b`, 'i').test(prompt) && !fonts.includes(name)) {
+        fonts.push(name)
+        if (fonts.length >= 2) break
+      }
     }
   }
 
@@ -235,10 +265,19 @@ function buildCssVariables(
   const a4  = colors.accents[3] ?? a3
   const a5  = colors.accents[4] ?? a1
 
-  const fontEntry = typography.fonts[0] ? FONT_MAP[typography.fonts[0]] : null
-  const fontFamily = fontEntry
-    ? `'${fontEntry.family}', -apple-system, BlinkMacSystemFont, sans-serif`
-    : '-apple-system, BlinkMacSystemFont, sans-serif'
+  const headingEntry = typography.fonts[0] ? FONT_MAP[typography.fonts[0]] : null
+  const headingFontFamily = headingEntry
+    ? `'${headingEntry.family}', -apple-system, BlinkMacSystemFont, sans-serif`
+    : typography.fonts[0]
+      ? `'${typography.fonts[0]}', -apple-system, BlinkMacSystemFont, sans-serif`
+      : '-apple-system, BlinkMacSystemFont, sans-serif'
+
+  const bodyEntry = typography.fonts[1] ? FONT_MAP[typography.fonts[1]] : null
+  const bodyFontFamily = bodyEntry
+    ? `'${bodyEntry.family}', -apple-system, BlinkMacSystemFont, sans-serif`
+    : typography.fonts[1]
+      ? `'${typography.fonts[1]}', -apple-system, BlinkMacSystemFont, sans-serif`
+      : headingFontFamily
 
   const hSizes: Record<string, { h1: string; h2: string; weight: string }> = {
     playful:   { h1: 'clamp(38px,6vw,72px)',   h2: 'clamp(30px,4.5vw,52px)', weight: '800' },
@@ -321,8 +360,8 @@ function buildCssVariables(
     '--ms-generic-accent':        a1,
     '--ms-metrics-accent':        a5,
     // Typography
-    '--ms-font-heading':        fontFamily,
-    '--ms-font-body':           fontFamily,
+    '--ms-font-heading':        headingFontFamily,
+    '--ms-font-body':           bodyFontFamily,
     '--ms-h1':                  hSize.h1,
     '--ms-h2':                  hSize.h2,
     '--ms-h1-weight':           hSize.weight,
@@ -347,17 +386,18 @@ function buildCssVariables(
 function buildGoogleFontsUrl(typography: ExtractedDesignTokens['typography']): string | null {
   if (!typography.fonts.length) return null
   const families = typography.fonts
-    .map(f => FONT_MAP[f]?.url ?? f.replace(/\s+/g, '+'))
+    .map(f => FONT_MAP[f]?.url ?? `${f.replace(/\s+/g, '+')}:wght@400;600;700;800`)
     .join('&family=')
   return `https://fonts.googleapis.com/css2?family=${families}&display=swap`
 }
 
 function buildFontFaceDeclarations(typography: ExtractedDesignTokens['typography']): string {
   if (!typography.fonts.length) return ''
-  const fontEntry = typography.fonts[0] ? FONT_MAP[typography.fonts[0]] : null
-  if (!fontEntry) return ''
-  const ff = `'${fontEntry.family}', -apple-system, sans-serif`
-  return `:root { --ms-font-heading: ${ff}; --ms-font-body: ${ff}; }`
+  const headingFamily = FONT_MAP[typography.fonts[0]]?.family ?? typography.fonts[0]
+  const bodyFamily    = FONT_MAP[typography.fonts[1] ?? '']?.family ?? typography.fonts[1] ?? headingFamily
+  const headingFf = `'${headingFamily}', -apple-system, sans-serif`
+  const bodyFf    = `'${bodyFamily}', -apple-system, sans-serif`
+  return `:root { --ms-font-heading: ${headingFf}; --ms-font-body: ${bodyFf}; }`
 }
 
 // Primary export — colors come ONLY from the prompt text

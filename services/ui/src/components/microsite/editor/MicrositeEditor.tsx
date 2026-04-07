@@ -20,9 +20,12 @@ function EditorCanvas() {
   const mergedTokens = ctx.ast.customTokens
     ? { ...(ctx.ast.customDesignSystem ?? {}), ...ctx.ast.customTokens }
     : undefined;
+  // When the brand has extractedCssVariables (from a custom design prompt), skip
+  // primaryColor so the extracted accent overrides the plugin default instead.
+  const hasCssOverride = !!(ctx.ast.brand?.extractedCssVariables && Object.keys(ctx.ast.brand.extractedCssVariables).length > 0);
   const tokens = resolveTokens(
     ctx.ast.plugin,
-    ctx.ast.brand.primaryColor,
+    hasCssOverride ? '' : ctx.ast.brand.primaryColor,
     mergedTokens as Parameters<typeof resolveTokens>[2],
   );
 

@@ -140,10 +140,26 @@ export function MicrositeNav({
     generic: "Overview",
   };
 
+  // Count how many sections share each type — types with duplicates need unique labels
+  const typeCounts = sections.reduce<Record<string, number>>((acc, s) => {
+    acc[s.sectionType] = (acc[s.sectionType] ?? 0) + 1;
+    return acc;
+  }, {});
+  const typeOccurrence: Record<string, number> = {};
+
   function navLabel(s: LayoutSection): string {
     const mapped = NAV_LABEL[s.sectionType];
-    if (mapped) return mapped;
-    // fallback: first word of heading
+    if (mapped && typeCounts[s.sectionType] === 1) return mapped;
+    // Multiple sections share this type — use the heading (or first 3 words of it)
+    if (s.heading) {
+      const words = s.heading.split(/\s+/).slice(0, 3).join(" ");
+      if (words) return words;
+    }
+    // Last resort: mapped label with a counter
+    if (mapped) {
+      typeOccurrence[s.sectionType] = (typeOccurrence[s.sectionType] ?? 0) + 1;
+      return `${mapped} ${typeOccurrence[s.sectionType]}`;
+    }
     return s.heading.split(/\s+/)[0] || "Section";
   }
 

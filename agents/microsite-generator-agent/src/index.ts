@@ -170,6 +170,7 @@ FONT RULES: heroFont and bodyFont MUST be real Google Fonts.
 - modern/bold: Syne, Space Grotesk, DM Sans, Inter, Outfit
 - warm/humanist: Fraunces, Lora, Nunito Sans, Source Serif 4
 - technical/data: IBM Plex Sans, Roboto Mono, JetBrains Mono
+- playful/children: Baloo 2, Fredoka, Lilita One, Bubblegum Sans, Nunito, Quicksand, Comfortaa
 
 USER BRAND BRIEF:
 ${brandLanguagePrompt}
@@ -277,10 +278,11 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
-  // Only treat customInstructions as a structural override if it explicitly mentions sections or count.
-  // Visual/style-only prompts must NOT override the structural rules (minimum 10 sections).
+  // Only treat customInstructions as a structural override if it explicitly requests a section
+  // count or reorder. Visual/design prompts (fonts, colors, layout style) must NOT trigger this —
+  // they often contain words like "section heading" or "structured layout" that are not structural intents.
   const hasStructuralInstruction = customInstructions
-    ? /section|count|layout|page|slide|only\s+\d+|generate\s+\d+|create\s+\d+|make\s+\d+/i.test(customInstructions)
+    ? /\b(only|exactly|just|max|maximum|limit\s+to)\s+\d+\s+sections?|\d+\s+sections?\s+(only|total|max|please)|\bsection\s+count\b|\bgenerate\s+\d+\s+sections?|\bcreate\s+\d+\s+sections?|\bmake\s+it\s+\d+\s+sections?/i.test(customInstructions)
     : false;
   const overrideBlock = (customInstructions && hasStructuralInstruction)
     ? `⚡⚡⚡ USER STRUCTURE OVERRIDE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
@@ -2055,7 +2057,8 @@ If content is insufficient for this diagram, set diagram to null.`;
     approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    pricing: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "string", "rows": [["Item", "Value"]], "totalLabel": "string", "footnote": "string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "rows": [["Service / Deliverable", "Investment"], ["Line item from proposal", "Exact price from proposal"], ["...more rows as needed from the proposal..."]], "totalLabel": "Total: [exact total from proposal]", "footnote": "payment terms or notes from the proposal", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}], "diagram": null }`,
@@ -2466,8 +2469,12 @@ export class MicrositeGeneratorAgent implements Agent {
         } catch { /* fallback to source order */ }
       }
 
-      // Pass 0.5: LLM refines the plan based on customInstructions (any free-form input)
-      if (customInstructions && sectionPlan) {
+      // Pass 0.5: LLM refines the plan — only for structural instructions (section count/reorder).
+      // Skip for visual/design-only prompts to prevent LLM from inflating section count.
+      const isStructuralInstruction = customInstructions
+        ? /\b(only|exactly|just|max|maximum|limit\s+to)\s+\d+\s+sections?|\d+\s+sections?\s+(only|total|max|please)|\bsection\s+count\b|\bgenerate\s+\d+\s+sections?|\bcreate\s+\d+\s+sections?|\bmake\s+it\s+\d+\s+sections?/i.test(customInstructions)
+        : false;
+      if (customInstructions && sectionPlan && isStructuralInstruction) {
         try {
           const refineResult = await generateTool.run({
             query: buildPlanRefinementPrompt(sectionPlan, customInstructions),
@@ -2903,8 +2910,14 @@ export class MicrositeGeneratorAgent implements Agent {
         if (extractedTokens && layoutAST) {
           const ast = layoutAST as Record<string, unknown>;
           const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
+          // Override primaryColor and secondaryColor from extracted accent colors so all
+          // downstream consumers (DALL-E prompts, logo, editor) use the prompt's colors.
+          const extractedPrimary = extractedTokens.colors.accents[0];
+          const extractedSecondary = extractedTokens.colors.accents[1] ?? extractedPrimary;
           ast.brand = {
             ...existingBrand,
+            ...(extractedPrimary ? { primaryColor: extractedPrimary } : {}),
+            ...(extractedSecondary ? { secondaryColor: extractedSecondary } : {}),
             overrideTheme: true,
             extractedCssVariables: extractedTokens.cssVariables,
             googleFontsUrl: extractedTokens.googleFontsUrl,
