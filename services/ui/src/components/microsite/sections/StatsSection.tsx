@@ -3,9 +3,11 @@
 import type { PluginTokens, StatsContent } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
+import { AnimatedCounter } from "../shared/AnimatedCounter";
 import { Label, Body } from "../shared/Typography";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
+import { useMicrositeEffects } from "../shared/MicrositeEffectsContext";
 
 interface Props {
   content: StatsContent;
@@ -15,7 +17,9 @@ interface Props {
   sectionId?: string;
 }
 
-export function StatsSection({ content, tokens }: Props) {
+export function StatsSection({ content, tokens, sectionId }: Props) {
+  const { sectionAnimations } = useMicrositeEffects();
+  const useCounterRollup = sectionId ? sectionAnimations[sectionId] === 'counterRollup' : false;
   const raw = content.stats;
   const stats = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
@@ -125,7 +129,9 @@ export function StatsSection({ content, tokens }: Props) {
                         overflowWrap: "break-word",
                       }}
                     >
-                      {stat.number}
+                      {useCounterRollup
+                        ? <AnimatedCounter value={stat.number ?? "0"} duration={1400} />
+                        : stat.number}
                     </div>
                   </InlineEditable>
 

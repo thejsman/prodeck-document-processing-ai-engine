@@ -22,6 +22,12 @@ interface HeroBehavior {
   animation?: string;
 }
 
+interface ImageOverlay {
+  type: 'gradient' | 'duotone' | 'vignette' | 'tint';
+  color?: string;
+  opacity?: number;
+}
+
 interface Props {
   content: HeroContent;
   tokens: PluginTokens;
@@ -33,6 +39,8 @@ interface Props {
   variant?: string;
   ui?: HeroUI;
   behavior?: HeroBehavior;
+  /** Optional image overlay effect (from ast.sections[].imageOverlay) */
+  imageOverlay?: ImageOverlay;
   /** Section id — provided by MicrositeEditor to enable element-level click-to-edit */
   sectionId?: string;
 }
@@ -47,6 +55,21 @@ function resolveRevealVariant(animation: string | undefined): 'fadeUp' | 'fadeIn
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+function buildOverlayBackground(overlay: ImageOverlay): string {
+  const color = overlay.color ?? '#000000';
+  const opacity = overlay.opacity ?? 0.35;
+  switch (overlay.type) {
+    case 'vignette':
+      return `radial-gradient(ellipse at center, transparent 30%, ${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')} 100%)`;
+    case 'duotone':
+      return `linear-gradient(135deg, ${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')} 0%, ${color}${Math.round(opacity * 0.5 * 255).toString(16).padStart(2, '0')} 100%)`;
+    case 'tint':
+      return `${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
+    default: // gradient
+      return `linear-gradient(180deg, transparent 0%, ${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')} 100%)`;
+  }
+}
+
 export function HeroSection({
   content,
   tokens,
@@ -56,6 +79,7 @@ export function HeroSection({
   variant,
   ui,
   behavior,
+  imageOverlay,
   sectionId,
 }: Props) {
   // Typewriter context — present only during active streaming animation
@@ -302,6 +326,7 @@ export function HeroSection({
       <section style={sectionStyle}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
+        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={container}>
           <div className="ms-split" style={{
@@ -334,6 +359,7 @@ export function HeroSection({
       <section style={sectionStyle}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
+        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Left accent bar matching other sections */}
         <div style={{
@@ -375,6 +401,7 @@ export function HeroSection({
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg, borderBottom: `1px solid ${tokens.border}` }}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
+        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
         <NoiseOverlay opacity={Math.min(tokens.noiseOpacity, 0.015)} />
         {/* Top accent rule */}
         <div style={{
@@ -437,6 +464,7 @@ export function HeroSection({
       <section style={sectionStyle}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
+        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Dot texture — same as other card-heavy sections */}
         <div style={{
@@ -508,6 +536,7 @@ export function HeroSection({
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg }}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
+        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={{ ...container, maxWidth: 800 }}>
           {eyebrow}

@@ -500,6 +500,12 @@ export interface LayoutSection {
   bgColor?: string;
   /** Optional embedded media (YouTube, Loom, or custom iframe) */
   embed?: { url: string; title?: string };
+  /** Optional image overlay effect applied on top of the background image */
+  imageOverlay?: {
+    type: 'gradient' | 'duotone' | 'vignette' | 'tint';
+    color?: string;
+    opacity?: number;
+  };
   editable: boolean;
   version: number;
 }
@@ -536,6 +542,19 @@ export interface LayoutAST {
     parallax?: boolean;
     scrollEffects?: 'none' | 'fade-in' | 'slide-up';
   };
+  /** Per-section animation overrides keyed by section.id */
+  sectionAnimations?: Record<string, 'fadeUp' | 'slideLeft' | 'scale' | 'staggerWave' | 'counterRollup' | 'none'>;
+  /** SVG divider shape rendered between sections */
+  dividerStyle?: 'none' | 'wave' | 'diagonal' | 'curve' | 'zigzag';
+  /** Floating decorative element layer applied to sections */
+  decorations?: {
+    style: 'orbs' | 'dots' | 'grid' | 'geometric' | 'none';
+    opacity?: number;
+    /** Section ids to apply decorations to; omit for all sections */
+    sections?: string[];
+  };
+  /** Hover micro-interaction tier for cards, stats, testimonials */
+  hoverStyle?: 'none' | 'subtle' | 'lift' | 'glow' | 'tilt';
 }
 
 // ── Icon hint type ───────────────────────────────────────────────────────────

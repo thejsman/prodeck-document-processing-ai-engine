@@ -36,6 +36,9 @@ import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
 import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
+import { MicrositeEffectsContext } from './shared/MicrositeEffectsContext';
+import { AstSectionDivider } from './shared/AstSectionDivider';
+import { DecorationLayer } from './shared/DecorationLayer';
 
 import type {
   HeroContent,
@@ -184,6 +187,7 @@ function renderSection(
           variant={typeof heroRaw.variant === 'string' ? heroRaw.variant : undefined}
           ui={heroRaw.ui as { showCTA?: boolean; layout?: string; mediaPosition?: string } | undefined}
           behavior={heroRaw.behavior as { hasParallax?: boolean; animation?: string } | undefined}
+          imageOverlay={section.imageOverlay}
           sectionId={sid}
         />
       );
@@ -747,10 +751,17 @@ ${el.innerHTML}
     }
   };
 
+  // Build effects context values from AST
+  const effectsContextValue = useMemo(() => ({
+    hoverStyle: (ast.hoverStyle ?? 'lift') as 'none' | 'subtle' | 'lift' | 'glow' | 'tilt',
+    sectionAnimations: ast.sectionAnimations ?? {},
+  }), [ast.hoverStyle, ast.sectionAnimations]);
+
   // In embedded mode the caller supplies its own scroll container — use a plain div.
   const isEmbedded = mode === 'embedded';
 
   return (
+    <MicrositeEffectsContext.Provider value={effectsContextValue}>
     <div
       id={isEmbedded ? undefined : SCROLL_CONTAINER_ID}
       ref={scrollRef}
@@ -889,10 +900,29 @@ ${el.innerHTML}
                   )}
                 </TypewriterSection>
               </div>
+              {/* AST-driven section divider between sections (not after last) */}
+              {!generating && ast.dividerStyle && ast.dividerStyle !== 'none' && i < visibleSections.length - 1 && (
+                <AstSectionDivider
+                  style={ast.dividerStyle}
+                  toColor={visibleSections[i + 1]?.bgColor ?? tokens.bg}
+                />
+              )}
+              {/* Floating decorative layer per section */}
+              {!generating && ast.decorations && ast.decorations.style !== 'none' && (
+                !ast.decorations.sections || ast.decorations.sections.includes(section.id)
+              ) && (
+                <div style={{ position: 'relative', height: 0, overflow: 'visible' }}>
+                  <DecorationLayer
+                    style={ast.decorations.style}
+                    opacity={ast.decorations.opacity}
+                    accentColor={tokens.accent}
+                  />
+                </div>
+              )}
               {editCtx && <AddSectionButton afterIndex={i} />}
             </React.Fragment>
           ))}
-          {generating && mounted && (totalCount === 0 || generatedCount < totalCount) && createPortal(
+          {generating && mounted && createPortal(
             <div style={{
               position: 'fixed',
               bottom: 28,
@@ -1076,6 +1106,7 @@ ${el.innerHTML}
         document.body
       )}
     </div>
+    </MicrositeEffectsContext.Provider>
   );
 }
 

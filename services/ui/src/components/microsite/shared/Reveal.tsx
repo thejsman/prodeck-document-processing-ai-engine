@@ -3,7 +3,7 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { SectionStreamingContext } from '../TypewriterSection';
 
-type RevealVariant = 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft';
+type RevealVariant = 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft' | 'staggerWave';
 
 interface RevealProps {
   children: React.ReactNode;
@@ -14,17 +14,19 @@ interface RevealProps {
 }
 
 const HIDDEN: Record<RevealVariant, React.CSSProperties> = {
-  fadeUp:    { opacity: 0, transform: 'translateY(28px)' },
-  fadeIn:    { opacity: 0, transform: 'none' },
-  scale:     { opacity: 0, transform: 'scale(0.94)' },
-  slideLeft: { opacity: 0, transform: 'translateX(-28px)' },
+  fadeUp:      { opacity: 0, transform: 'translateY(28px)' },
+  fadeIn:      { opacity: 0, transform: 'none' },
+  scale:       { opacity: 0, transform: 'scale(0.94)' },
+  slideLeft:   { opacity: 0, transform: 'translateX(-28px)' },
+  staggerWave: { opacity: 0, transform: 'translateY(20px) scale(0.96)' },
 };
 
 const VISIBLE: Record<RevealVariant, React.CSSProperties> = {
-  fadeUp:    { opacity: 1, transform: 'translateY(0)' },
-  fadeIn:    { opacity: 1, transform: 'none' },
-  scale:     { opacity: 1, transform: 'scale(1)' },
-  slideLeft: { opacity: 1, transform: 'translateX(0)' },
+  fadeUp:      { opacity: 1, transform: 'translateY(0)' },
+  fadeIn:      { opacity: 1, transform: 'none' },
+  scale:       { opacity: 1, transform: 'scale(1)' },
+  slideLeft:   { opacity: 1, transform: 'translateX(0)' },
+  staggerWave: { opacity: 1, transform: 'translateY(0) scale(1)' },
 };
 
 export function Reveal({ children, delay = 0, style, className, variant = 'fadeUp' }: RevealProps) {

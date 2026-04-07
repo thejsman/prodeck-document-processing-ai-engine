@@ -8,12 +8,20 @@ import type { LayoutAST } from '../../../types/presentation';
 // ── Preset suggestions ────────────────────────────────────────────────────
 
 const DESIGN_PRESETS = [
+  'Make it glassmorphic',
+  'Make it luxury',
+  'Make it cyberpunk',
+  'Add hover effects',
+  'Add tilt hover',
+  'Animate the counters',
+  'Add wavy dividers',
+  'Add floating orbs',
+  'Generate color harmony',
+  'Add image overlay',
   'Make it darker and more dramatic',
   'Warmer palette with earthy tones',
   'Bold, monumental typography',
   'More editorial — light and airy',
-  'High contrast, minimal color',
-  'Vibrant and energetic',
 ];
 
 const CONTENT_PRESETS = [
@@ -294,15 +302,25 @@ export function DesignAgentPanel({
         {previewResult && (
           <div>
             <div style={{ padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534', marginBottom: 12 }}>
-              <strong>{previewResult.mode === 'design' ? '✦ Design' : '✎ Content'}</strong> — {previewResult.summary}
+              <strong>
+                {{
+                  mood:      '🎨 Mood',
+                  hover:     '✋ Hover',
+                  animate:   '✨ Animate',
+                  dividers:  '〰 Dividers',
+                  harmonize: '🎨 Harmonize',
+                  overlay:   '🖼 Overlay',
+                  decorate:  '✦ Decorate',
+                  design:    '✦ Design',
+                  content:   '✎ Content',
+                }[previewResult.mode] ?? `✦ ${previewResult.mode}`}
+              </strong>{' '}— {previewResult.summary}
             </div>
 
-            {previewResult.mode === 'design' && (
-              <TokenDiff
-                before={previewResult.tokensBefore}
-                after={previewResult.tokensAfter}
-              />
-            )}
+            <TokenDiff
+              before={previewResult.tokensBefore}
+              after={previewResult.tokensAfter}
+            />
           </div>
         )}
       </div>
