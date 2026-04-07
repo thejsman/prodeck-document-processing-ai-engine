@@ -1333,10 +1333,10 @@ export function PresentationPage() {
                                     cursor: "pointer",
                                     border: `1px solid ${isSelected ? "var(--color-primary)" : "var(--color-border)"}`,
                                     background: isSelected
-                                      ? "#eff6ff"
+                                      ? "var(--color-primary-muted, rgba(99,102,241,0.15))"
                                       : "var(--color-surface)",
                                     boxShadow: isSelected
-                                      ? "0 0 0 2px #bfdbfe"
+                                      ? "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))"
                                       : "var(--shadow)",
                                     transition: "border-color 0.15s",
                                   }}

@@ -1,4 +1,5 @@
 import { appendFile, mkdir, writeFile as fsWriteFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -380,6 +381,34 @@ export function registerAgentRoutes(
           }>;
         };
         if (ast.sections?.length) {
+          const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+          await mkdir(imagesDir, { recursive: true });
+
+          // Persist ALL expiring image URLs (DALL-E Azure Blob) to local disk so they survive the 2-hour expiry.
+          // Unsplash and loremflickr CDN URLs are permanent and don't need persisting.
+          await Promise.allSettled(
+            ast.sections.map(async (section) => {
+              const url = section.image?.url;
+              if (!url || url.startsWith('/presentation-images/')) return;
+              // Only persist Azure Blob Storage URLs (DALL-E) — they expire after 2 hours
+              if (!url.includes('.blob.core.windows.net') && !url.includes('oaidalleapiprodscus')) return;
+              try {
+                const hash = createHash('sha1').update(url).digest('hex').slice(0, 8);
+                const filename = `${section.sectionType}-${hash}.jpg`;
+                const destPath = path.join(imagesDir, filename);
+                const imgRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
+                if (imgRes.ok) {
+                  const buf = Buffer.from(await imgRes.arrayBuffer());
+                  await fsWriteFile(destPath, buf);
+                  section.image.url = `/presentation-images/${namespace}/${filename}`;
+                  console.log(`[agent-routes] Persisted DALL-E image for "${section.sectionType}" → ${section.image.url}`);
+                }
+              } catch {
+                /* non-fatal — keep original URL */
+              }
+            }),
+          );
+
           // Optionally resolve hero Unsplash image
           const hero = ast.sections.find((s) => s.sectionType === 'hero' && s.image.source === 'unsplash');
           if (hero) {

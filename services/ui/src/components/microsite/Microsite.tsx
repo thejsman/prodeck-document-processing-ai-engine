@@ -954,11 +954,13 @@ ${el.innerHTML}
               }} />
               <div>
                 <div style={{ fontWeight: 600, color: '#fff' }}>
-                  {totalCount > 0
-                    ? `Section ${generatedCount} of ${totalCount}`
-                    : 'Generating sections...'}
+                  {totalCount > 0 && generatedCount >= totalCount
+                    ? 'Finalizing...'
+                    : totalCount > 0
+                      ? `Section ${generatedCount} of ${totalCount}`
+                      : 'Generating sections...'}
                 </div>
-                {nextSectionLabel && (
+                {nextSectionLabel && generatedCount < totalCount && (
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
                     Next: {nextSectionLabel}
                   </div>
