@@ -15,16 +15,18 @@
  * (input).  Adding a new workflow requires only a new definition + handlers.
  */
 
+import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import type { ProviderPolicyConfig } from '../provider-policy.js';
+import { searchKnowledgeChunks } from '@ai-engine/runtime';
 import { logTrace } from '../trace/trace-store.js';
-import { routeIntent } from './intent-router.js';
+import { routeIntent, isResetIntent } from './intent-router.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import {
   buildLLMContext,
   extractRequirementsFromMessage,
   detectInterrupt,
-  formatConversationForContext,
 } from './context-builder.js';
 import { appendChatTurn } from './chat-history.service.js';
 import { llmGenerateFn } from '../agent-routes.js';
@@ -34,6 +36,7 @@ import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
 import { ProposalVersionControlWorkflow } from '../workflows/proposal-version-control.workflow.js';
 import { TemplateCreationWorkflow } from '../workflows/template-creation.workflow.js';
 import { ComplianceRedlineWorkflow } from '../workflows/compliance-redline.workflow.js';
+import { MicrositeGenerationWorkflow } from '../workflows/microsite-generation.workflow.js';
 import {
   handleAnalyzing as handleComplianceAnalyzing,
   handleReviewing as handleComplianceReviewing,
@@ -48,6 +51,10 @@ import {
   setAwaitingInput,
   type WorkflowInstance,
 } from '../workflows/workflow-instance.service.js';
+import {
+  handleCheckingProposal,
+  handleGeneratingMicrosite,
+} from '../workflows/microsite-generation.handlers.js';
 import { emitChatSessionEvent } from './chat-session-bus.js';
 import {
   handleCollectingRfp,
@@ -88,6 +95,7 @@ const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   [ProposalVersionControlWorkflow.id]: ProposalVersionControlWorkflow,
   [TemplateCreationWorkflow.id]: TemplateCreationWorkflow,
   [ComplianceRedlineWorkflow.id]: ComplianceRedlineWorkflow,
+  [MicrositeGenerationWorkflow.id]: MicrositeGenerationWorkflow,
 };
 
 // ---------------------------------------------------------------------------
@@ -149,7 +157,114 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   generating_template: handleGeneratingTemplate,
   name_template: handleNameTemplate,
   saving_template: handleSavingTemplate,
+  // microsite_generation
+  checking_proposal: handleCheckingProposal,
+  generating_microsite: handleGeneratingMicrosite,
 };
+
+// ---------------------------------------------------------------------------
+// Knowledge-grounded answer helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve document chunks from the knowledge base and synthesize an answer
+ * using the LLM.  Uses broad topic queries so requests like "Summarize the
+ * knowledge base" pull from many documents, not just chunks similar to those
+ * exact words.
+ */
+async function answerFromKnowledge(
+  workdir: string,
+  namespace: string,
+  message: string,
+  generateFn: (prompt: string) => Promise<string>,
+): Promise<string> {
+  const storageDir = path.join(workdir, 'namespaces', namespace);
+  const lower = message.toLowerCase();
+
+  // "What documents are indexed?" / "What files are uploaded?" — answer from
+  // files.json, not from the vector store (FAISS doesn't surface filenames).
+  const isFileListQuery =
+    /\b(what|which|list|show)\b/.test(lower) &&
+    /\b(documents?|files?|uploaded|indexed|ingested|available)\b/.test(lower);
+
+  if (isFileListQuery) {
+    try {
+      const filesIndexPath = path.join(workdir, 'namespaces', namespace, 'files.json');
+      const raw = await readFile(filesIndexPath, 'utf-8');
+      const files = JSON.parse(raw) as Array<{ fileName: string; status: string; uploadedAt?: string }>;
+      if (files.length === 0) {
+        return 'No files have been uploaded to this namespace yet.';
+      }
+      const indexed = files.filter((f) => f.status === 'indexed');
+      const lines = files.map(
+        (f) => `- **${f.fileName}** (${f.status}${f.uploadedAt ? `, uploaded ${f.uploadedAt.slice(0, 10)}` : ''})`,
+      );
+      return [
+        `There are **${files.length} file(s)** in this namespace (${indexed.length} indexed):`,
+        '',
+        ...lines,
+      ].join('\n');
+    } catch {
+      // files.json not found — fall through to vector search
+    }
+  }
+
+  // For broad summarise/overview requests, query multiple topics to get
+  // a representative cross-section of the documents.
+  const isBroadSummary =
+    /\b(summar(ise|ize)|overview|what('s| is) in|tell me about|describe)\b/.test(lower) &&
+    /\b(knowledge\s*base|documents?|files?|content|data)\b/.test(lower);
+
+  let allChunks: string[];
+
+  if (isBroadSummary) {
+    const broadQueries = [
+      'main topics and key themes',
+      'important dates timelines milestones',
+      'requirements budget cost',
+      'people organisations stakeholders',
+      'decisions actions next steps',
+    ];
+    const results = await Promise.allSettled(
+      broadQueries.map((q) =>
+        searchKnowledgeChunks({ question: q, storageDir, namespace, topK: 4 }),
+      ),
+    );
+    const seen = new Set<string>();
+    allChunks = results
+      .flatMap((r) => (r.status === 'fulfilled' ? r.value.chunks : []))
+      .filter((c) => {
+        if (seen.has(c.text)) return false;
+        seen.add(c.text);
+        return true;
+      })
+      .map((c) => c.text);
+  } else {
+    // Specific question — single retrieval is fine
+    const result = await searchKnowledgeChunks({ question: message, storageDir, namespace, topK: 8 });
+    allChunks = result.chunks.map((c) => c.text);
+  }
+
+  if (allChunks.length === 0) {
+    return 'No documents have been ingested into this namespace yet. Upload some files first, then I can answer questions about them.';
+  }
+
+  const context = allChunks.map((t, i) => `[${i + 1}] ${t}`).join('\n\n');
+  const prompt = [
+    'You are an AI assistant. Answer the user\'s question based solely on the document excerpts provided below.',
+    'Do not invent information not present in the excerpts.',
+    '',
+    '## Document Excerpts',
+    context,
+    '',
+    `## User Question`,
+    message,
+    '',
+    'Answer clearly and concisely.',
+  ].join('\n');
+
+  return generateFn(prompt);
+}
 
 // ---------------------------------------------------------------------------
 // ChatOrchestrator
@@ -188,14 +303,46 @@ export class ChatOrchestrator {
     // ── Load or create workflow instance ─────────────────────────
     let instance = await loadActiveInstance(this.workdir, namespace, chatSessionId);
 
+    // ── Reset intent: "start over", "reset", "new session" ───────
+    // Clear the active instance so the user can start a fresh workflow.
+    if (instance && isResetIntent(message)) {
+      await markCompleted(this.workdir, instance);
+      instance = null;
+      // Try to route an underlying intent from the same message (e.g. "start over
+      // and create a new proposal for fintech") — fall through to intent routing.
+    }
+
     if (!instance) {
       const intent = routeIntent(message);
 
       if (!intent) {
-        return {
-          message:
-            'I can help you create proposals or build custom templates. Try saying "Create a proposal" or "Create a template".',
-        };
+        // No workflow intent — retrieve document chunks and synthesize an answer.
+        // Using searchKnowledgeChunks + llmGenerateFn instead of queryKnowledgeBase
+        // so broad requests like "Summarize the knowledge base" get context from
+        // many documents rather than chunks most similar to the literal phrase.
+        try {
+          const answer = await answerFromKnowledge(
+            this.workdir, namespace, message, llmGenerateFn,
+          );
+          void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
+          return { message: answer };
+        } catch {
+          return {
+            message: [
+              'Here\'s what I can help you with:',
+              '',
+              '- **Create a proposal** — "Create a proposal for [client]"',
+              '- **Analyse an RFP** — "Analyse this RFP" or "Should we bid?"',
+              '- **Generate a microsite** — "Convert proposal to microsite"',
+              '- **Create a template** — "Create a proposal template"',
+              '- **Compliance check** — "Check proposal for compliance issues"',
+              '- **Edit a section** — "Update the timeline section"',
+              '- **Ask about your documents** — any question about uploaded files',
+              '',
+              'What would you like to do?',
+            ].join('\n'),
+          };
+        }
       }
 
       const workflow = WORKFLOW_REGISTRY[intent.workflowId];
@@ -247,37 +394,27 @@ export class ChatOrchestrator {
     );
 
     // ── STEP 9 — Interrupt handling ───────────────────────────────
-    // If the user asks a question while the workflow is paused in an input
-    // state, answer with the LLM then return without changing workflow state.
+    // If the user asks a knowledge question while in an input-kind state,
+    // answer directly without advancing the workflow state machine.
+    //
+    // Do NOT interrupt agent/tool states — those are auto-advancing and the
+    // user can't be mid-turn in them anyway. Only interrupt input states where
+    // the workflow is paused waiting for a user reply.
     const currentStateDef = workflow.states[instance.state];
-    if (currentStateDef?.kind === 'input' && detectInterrupt(message)) {
-      const conversationLines = formatConversationForContext(
-        conversationContext.conversationWindow,
-      );
+    const isInputState = currentStateDef?.kind === 'input';
 
-      const interruptPrompt = [
-        conversationContext.systemPrompt,
-        '',
-        conversationLines.length > 0
-          ? `## Recent Conversation\n${conversationLines.join('\n')}`
-          : '',
-        '',
-        '## User Question',
-        message,
-        '',
-        'Answer the user\'s question clearly and concisely using your knowledge.',
-        'After answering, remind them of the current workflow step so they can continue.',
-      ]
-        .filter(Boolean)
-        .join('\n');
-
+    if (isInputState && detectInterrupt(message)) {
       try {
-        const answer = await llmGenerateFn(interruptPrompt);
-        // Persist this Q&A turn and return without advancing workflow state.
+        // Retrieve from documents and synthesize — do NOT use the workflow system
+        // prompt (which contains the requirement status block and causes the LLM
+        // to ask for industry/timeline/budget instead of answering the question).
+        const answer = await answerFromKnowledge(
+          this.workdir, namespace, message, llmGenerateFn,
+        );
         void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
         return { message: answer };
       } catch {
-        // If LLM call fails, fall through to normal workflow dispatch
+        // If knowledge base query fails, fall through to normal workflow dispatch
       }
     }
 
@@ -426,6 +563,8 @@ export class ChatOrchestrator {
         rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
         proposal_version_control: 'Version operation complete.',
         template_creation: 'Template saved successfully.',
+        microsite_generation: 'Your microsite has been generated successfully.',
+        compliance_redline: 'Compliance review complete.',
       };
       const completionMessage =
         lastResult?.message?.trim() ||
@@ -568,6 +707,8 @@ export class ChatOrchestrator {
         rfp_analysis: 'RFP analysis complete. See the go/no-go recommendation above.',
         proposal_version_control: 'Version operation complete.',
         template_creation: 'Template saved successfully.',
+        microsite_generation: 'Your microsite has been generated successfully.',
+        compliance_redline: 'Compliance review complete.',
       };
       if (instance.state === 'completed') {
         const completionMessage =

@@ -856,8 +856,8 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
 
   // ── Validation guard ────────────────────────────────────────────
   const meta = document.metadata as Record<string, unknown>;
-  const outputFile = meta.output_file as string | undefined;
-  if (!outputFile) throw new Error('Proposal not saved — plugin returned no output_file');
+  const outputFile = (meta.output_path ?? meta.output_file) as string | undefined;
+  if (!outputFile) throw new Error('Proposal not saved — plugin returned no output_path');
 
   const artifactId = path.basename(outputFile);
   const proposalMarkdown = document.content;
@@ -928,12 +928,23 @@ export async function handleQaReview(ctx: HandlerContext): Promise<HandlerResult
   const artifactPath = instance.context.qaArtifactPath as string | undefined;
   const artifactId   = instance.context.proposalArtifactId as string | undefined;
 
+  // ── Guard: no proposal was actually generated ─────────────────
+  // If the generation step failed or was skipped, artifactId will be absent.
+  // Do not claim "looks consistent" — that message only makes sense after a
+  // real proposal has been saved.
+  if (!artifactId) {
+    return {
+      message: 'No proposal was generated yet.',
+      stateSignal: 'DONE',
+    };
+  }
+
   // ── No contradictions → proceed immediately ───────────────────
   if (contradictions.length === 0) {
     return {
-      message: 'Proposal looks consistent — no contradictions found.',
+      message: 'Your proposal is ready.',
       stateSignal: 'DONE',
-      actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
+      actions: { openProposalUrl: `/proposals/${namespace}/${artifactId}` },
     };
   }
 

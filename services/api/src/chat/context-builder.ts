@@ -361,9 +361,6 @@ export async function extractRequirementsFromMessage(
     }
   }
 
-  // --- STEP 8 — Debug logging ---
-  console.log({ input: message, extracted: result });
-
   return result;
 }
 
@@ -371,32 +368,43 @@ export async function extractRequirementsFromMessage(
 // STEP 6 — System prompt
 // ---------------------------------------------------------------------------
 
+/** States where the requirement status block is relevant and should be shown. */
+const REQUIREMENT_STATES = new Set([
+  'collecting_rfp', 'collecting_inputs', 'recommend_template',
+]);
+
 function buildSystemPrompt(
   workflowState: string,
   requirementStatus: string,
   conversationSummary?: string,
 ): string {
   const parts = [
-    'You are an AI proposal assistant guiding a structured workflow.',
-    '',
-    `Current workflow state: ${workflowState}`,
-    '',
-    'Proposal inputs:',
-    requirementStatus,
+    'You are an AI assistant that helps users create proposals and answer questions about their documents.',
   ];
 
   if (conversationSummary) {
     parts.push('', 'Conversation context:', conversationSummary);
   }
 
-  parts.push(
-    '',
-    'Rules:',
-    '- If required inputs are missing, ask for them one at a time',
-    '- Do NOT generate the proposal until inputs are sufficient',
-    '- Answer user questions using available knowledge',
-    '- After answering a question, return to workflow progression',
-  );
+  // Only inject the requirement block when the workflow is actively collecting inputs.
+  // For general queries, completed states, and non-proposal workflows this block
+  // is irrelevant and causes the LLM to ask for industry/timeline/budget when it
+  // should just answer the question.
+  if (REQUIREMENT_STATES.has(workflowState)) {
+    parts.push(
+      '',
+      `Current workflow state: ${workflowState}`,
+      '',
+      'Proposal inputs gathered so far:',
+      requirementStatus,
+      '',
+      'Rules:',
+      '- If required inputs are missing, ask for them one at a time',
+      '- Do NOT generate the proposal until inputs are sufficient',
+      '- Answer user questions using available knowledge',
+      '- After answering a question, return to workflow progression',
+    );
+  }
 
   return parts.join('\n');
 }
@@ -458,20 +466,50 @@ const QUESTION_STARTERS = [
   'is there ', 'are there ', 'does ', 'do you ',
   'tell me ', 'explain ', 'help me understand ',
   'what\'s ', 'whats ', 'how\'s ',
+  // Broad knowledge queries — deliberately NOT including list/search/show/find
+  // as those overlap with workflow trigger patterns (e.g. "list versions")
+  'summarize ', 'summarise ', 'summary of ',
+  'what are ', 'what is ',
 ];
+
+/**
+ * Short messages that are workflow confirmations/affirmatives — never treat
+ * these as interrupts even if they superficially look like questions.
+ */
+const WORKFLOW_AFFIRMATIVES = new Set([
+  'yes', 'y', 'no', 'n',
+  'proceed', 'continue', 'go ahead', 'go on',
+  'ok', 'okay', 'sure', 'alright', 'fine', 'great',
+  'use this', 'use that', 'use it', 'accept', 'confirm',
+  'approve', 'approved', 'looks good', 'looks great', 'perfect',
+  'that works', 'sounds good', 'sounds great',
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+  'next', 'skip', 'back', 'done',
+]);
 
 /**
  * Detect whether an incoming message is an off-workflow question.
  *
- * Heuristic: ends with "?" OR starts with a common question word/phrase.
- * The intent router already handles workflow triggers; this catches everything
- * else that looks like a question rather than a workflow action.
+ * Returns true only when the message is clearly a knowledge query, NOT a
+ * workflow confirmation or a message so short it could be anything.
+ *
+ * Rules (all must pass for an interrupt):
+ *   1. Not a known workflow affirmative/confirmation
+ *   2. Not very short (< 20 chars) unless it ends with '?'
+ *   3. Ends with '?' OR starts with a question word/phrase
  */
 export function detectInterrupt(message: string): boolean {
   const trimmed = message.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Never interrupt on workflow affirmatives
+  if (WORKFLOW_AFFIRMATIVES.has(lower)) return false;
+
+  // Short messages that don't end with '?' are almost always confirmations
+  if (trimmed.length < 20 && !trimmed.endsWith('?')) return false;
+
   if (trimmed.endsWith('?')) return true;
 
-  const lower = trimmed.toLowerCase();
   for (const starter of QUESTION_STARTERS) {
     if (lower.startsWith(starter)) return true;
   }

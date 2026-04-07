@@ -193,6 +193,11 @@ def main():
         # Build the vector store once and pass it to all operations.
         store = create_vector_store(vector_store_config, storage_dir, namespace)
 
+        # Load existing index data so search/query operations can use it.
+        # ingest_documents also calls store.load() internally (harmless double-load).
+        if operation != "ingest":
+            store.load()
+
         if operation == "ingest":
             documents = input_data.get("documents", [])
             if not documents:

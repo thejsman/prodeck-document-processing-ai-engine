@@ -14,6 +14,37 @@ export interface IntentRouteResult {
 }
 
 /**
+ * Reset / start-over triggers.
+ * Checked by the orchestrator BEFORE workflow dispatch to allow clearing an
+ * active instance and starting fresh.
+ */
+const RESET_TRIGGERS = [
+  'start over',
+  'start again',
+  'restart',
+  'reset',
+  'clear workflow',
+  'new session',
+  'cancel workflow',
+  'cancel this',
+  'forget this',
+  'discard',
+  'begin again',
+  'start fresh',
+];
+
+/**
+ * Returns true if the message is a request to reset the current workflow.
+ */
+export function isResetIntent(message: string): boolean {
+  const lower = message.toLowerCase().trim();
+  for (const trigger of RESET_TRIGGERS) {
+    if (lower.includes(trigger)) return true;
+  }
+  return false;
+}
+
+/**
  * Patterns that signal the user wants to analyse an RFP.
  * Checked before proposal triggers — more specific intent.
  */
@@ -127,6 +158,43 @@ const COMPLIANCE_TRIGGERS = [
 ];
 
 /**
+ * Patterns that signal the user wants to generate a presentation microsite
+ * from an existing proposal.
+ * Checked before proposal triggers — more specific intent.
+ */
+const MICROSITE_TRIGGERS = [
+  'generate microsite',
+  'create microsite',
+  'build microsite',
+  'make microsite',
+  'create a microsite',
+  'generate a microsite',
+  'build a microsite',
+  'make a microsite',
+  'turn this into a microsite',
+  'turn proposal into microsite',
+  'convert to microsite',
+  'convert proposal to microsite',
+  'proposal to microsite',
+  'create presentation',
+  'generate presentation',
+  'build presentation',
+  'make a presentation',
+  'create a presentation',
+  'generate a presentation',
+  'proposal presentation',
+  'turn this into a presentation',
+  'turn proposal into presentation',
+  'convert to presentation',
+  'microsite from proposal',
+  'presentation from proposal',
+  'create a site',
+  'generate a site',
+  'build a site',
+  'proposal site',
+];
+
+/**
  * Patterns that signal the user wants to create a proposal.
  * Checked in order; first match wins.
  */
@@ -140,6 +208,11 @@ const PROPOSAL_TRIGGERS = [
   'proposal for',
   'proposal about',
   'new proposal',
+  'i need a proposal',
+  'help me write a proposal',
+  'help me create a proposal',
+  'help me build a proposal',
+  'prepare a proposal',
 ];
 
 /**
@@ -157,6 +230,13 @@ export function routeIntent(message: string): IntentRouteResult | null {
   for (const trigger of RFP_ANALYSIS_TRIGGERS) {
     if (lower.includes(trigger)) {
       return { workflowId: 'rfp_analysis' };
+    }
+  }
+
+  // Microsite generation — checked before proposal triggers
+  for (const trigger of MICROSITE_TRIGGERS) {
+    if (lower.includes(trigger)) {
+      return { workflowId: 'microsite_generation' };
     }
   }
 
