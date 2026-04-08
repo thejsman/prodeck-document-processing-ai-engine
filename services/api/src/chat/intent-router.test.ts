@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { routeIntent, isResetIntent } from './intent-router.js';
+import { describe, it, expect, vi } from 'vitest';
+import { routeIntent, isResetIntent, classifyIntentWithLLM } from './intent-router.js';
 
 describe('routeIntent', () => {
   // -------------------------------------------------------------------
@@ -225,4 +225,79 @@ describe('isResetIntent', () => {
       expect(isResetIntent(msg)).toBe(false);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// classifyIntentWithLLM
+// ---------------------------------------------------------------------------
+
+describe('classifyIntentWithLLM', () => {
+  it('returns workflow when LLM classifies a known intent', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{ "intent": "proposal_generation" }');
+    const result = await classifyIntentWithLLM(
+      'I mean to say to generate the proposal via this system',
+      [],
+      generateFn,
+    );
+    expect(result).toEqual({ workflowId: 'proposal_generation' });
+    expect(generateFn).toHaveBeenCalledOnce();
+  });
+
+  it('returns null when LLM classifies as no intent', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{ "intent": null }');
+    const result = await classifyIntentWithLLM('What is RAG?', [], generateFn);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for unknown workflow IDs', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{ "intent": "unknown_workflow" }');
+    const result = await classifyIntentWithLLM('do something', [], generateFn);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when generateFn throws', async () => {
+    const generateFn = vi.fn().mockRejectedValue(new Error('LLM unavailable'));
+    const result = await classifyIntentWithLLM('generate a proposal', [], generateFn);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when generateFn returns invalid JSON', async () => {
+    const generateFn = vi.fn().mockResolvedValue('not valid json');
+    const result = await classifyIntentWithLLM('generate a proposal', [], generateFn);
+    expect(result).toBeNull();
+  });
+
+  it('strips markdown code fences from LLM response', async () => {
+    const generateFn = vi.fn().mockResolvedValue('```json\n{ "intent": "rfp_analysis" }\n```');
+    const result = await classifyIntentWithLLM('analyze that document', [], generateFn);
+    expect(result).toEqual({ workflowId: 'rfp_analysis' });
+  });
+
+  it('includes conversation context in the prompt', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{ "intent": "proposal_generation" }');
+    const context = [
+      { role: 'user' as const, content: 'Can this system create proposals?' },
+      { role: 'assistant' as const, content: 'Yes, I can help you create proposals.' },
+    ];
+    await classifyIntentWithLLM('yes, let\'s do that', context, generateFn);
+    const prompt = generateFn.mock.calls[0][0];
+    expect(prompt).toContain('User: Can this system create proposals?');
+    expect(prompt).toContain('Assistant: Yes, I can help you create proposals.');
+  });
+
+  it('handles all known workflow IDs', async () => {
+    const workflows = [
+      'proposal_generation',
+      'rfp_analysis',
+      'microsite_generation',
+      'template_creation',
+      'compliance_redline',
+      'proposal_version_control',
+    ];
+    for (const wf of workflows) {
+      const generateFn = vi.fn().mockResolvedValue(`{ "intent": "${wf}" }`);
+      const result = await classifyIntentWithLLM('test', [], generateFn);
+      expect(result).toEqual({ workflowId: wf });
+    }
+  });
 });

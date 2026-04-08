@@ -657,10 +657,11 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
     .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
     .filter((line) => line.length > 0);
 
-  // Store as a synthetic template in context
+  // Store as a synthetic template in context, named after the namespace
+  const nsTemplateSlug = namespace.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   instance.context.selectedTemplate = {
-    id: 'generated-custom',
-    name: 'Custom (Generated from RFP)',
+    id: nsTemplateSlug,
+    name: namespace,
     tags: [],
     structure: generatedStructure.length > 0 ? generatedStructure : [
       'Executive Summary',
@@ -677,7 +678,7 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
   const message = [
     recommendation.reasoning,
     '',
-    'I\'ve generated a custom proposal structure tailored to the RFP:',
+    `I've generated a proposal structure for **${namespace}**:`,
     '',
     ...((instance.context.selectedTemplate as { structure: string[] }).structure).map(
       (s: string, i: number) => `${i + 1}. ${s}`,

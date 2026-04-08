@@ -1,16 +1,24 @@
 /**
- * Intent router v1 — rule-based message classification.
+ * Intent router — hybrid message classification.
  *
- * Determines whether an incoming chat message should trigger a workflow,
- * and if so, which one.  No ML or embeddings — deterministic pattern matching
- * on lowercased message text.
+ * Two-pass approach:
+ *   1. Rule-based: deterministic pattern matching on lowercased text (fast, zero cost).
+ *   2. LLM-based: sends the message + recent conversation to an LLM when
+ *      rule-based matching returns null (handles natural language).
  *
  * Returns null for messages that do not match any known workflow trigger,
  * allowing callers to fall through to generic RAG query handling.
  */
 
+import type { GenerateFn } from '@ai-engine/planner';
+
 export interface IntentRouteResult {
   workflowId: string;
+}
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 /**
@@ -261,6 +269,12 @@ export function routeIntent(message: string): IntentRouteResult | null {
     }
   }
 
+  // Catch natural language section edit requests not covered by static triggers above
+  // e.g. "rewrite the executive summary", "update the project overview", "edit the risk section"
+  if (/\b(update|edit|change|rewrite|revise|modify|improve)\b.{0,30}\b(executive|summary|overview|solution|approach|team|timeline|budget|pricing|risk|deliverable|quality|objective|section|proposal|introduction|conclusion|scope|methodology)\b/i.test(lower)) {
+    return { workflowId: 'proposal_version_control' };
+  }
+
   // Multi-word proposal patterns
   for (const trigger of PROPOSAL_TRIGGERS) {
     if (lower.includes(trigger)) {
@@ -274,4 +288,85 @@ export function routeIntent(message: string): IntentRouteResult | null {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// LLM-based intent classification (second pass)
+// ---------------------------------------------------------------------------
+
+const KNOWN_WORKFLOWS = new Set([
+  'proposal_generation',
+  'rfp_analysis',
+  'microsite_generation',
+  'template_creation',
+  'compliance_redline',
+  'proposal_version_control',
+]);
+
+const INTENT_CLASSIFICATION_PROMPT = `You are an intent classifier for a proposal management system.
+
+Given the user's message and recent conversation history, determine if the user wants to trigger one of these workflows:
+
+- proposal_generation: The user wants to create, write, draft, or generate a business proposal.
+- rfp_analysis: The user wants to analyze an RFP document, evaluate a bid, or make a go/no-go decision.
+- microsite_generation: The user wants to convert a proposal into a presentation or microsite.
+- template_creation: The user wants to create a reusable proposal template.
+- compliance_redline: The user wants a legal or compliance review of a proposal.
+- proposal_version_control: The user wants to edit, rollback, or view version history of proposal sections.
+
+Rules:
+- Only classify as a workflow if the user clearly intends to perform that action.
+- If the user is asking a general question, making conversation, or asking about documents, return null.
+- Use the conversation history for context — e.g. if prior messages discussed proposals and the user says "yes, let's do that", infer the intent.
+
+Respond with ONLY a JSON object: { "intent": "<workflow_id>" } or { "intent": null }
+Do not include any explanation or markdown formatting.`;
+
+/**
+ * LLM-based intent classification — called when rule-based matching returns null.
+ *
+ * Sends the user message plus recent conversation context to the LLM, which
+ * classifies the intent against the known workflow set.
+ *
+ * Returns null on any failure (invalid JSON, unknown workflow, LLM error) so
+ * the caller falls through to RAG as before.
+ */
+export async function classifyIntentWithLLM(
+  message: string,
+  conversationContext: ConversationMessage[],
+  generateFn: GenerateFn,
+): Promise<IntentRouteResult | null> {
+  try {
+    const historyBlock = conversationContext.length > 0
+      ? [
+          'Recent conversation:',
+          ...conversationContext.map(
+            (m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`,
+          ),
+          '',
+        ].join('\n')
+      : '';
+
+    const prompt = [
+      INTENT_CLASSIFICATION_PROMPT,
+      '',
+      historyBlock,
+      `User message: ${message}`,
+    ].join('\n');
+
+    const raw = await generateFn(prompt);
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim();
+    const parsed = JSON.parse(cleaned) as { intent: string | null };
+
+    if (!parsed.intent || !KNOWN_WORKFLOWS.has(parsed.intent)) {
+      return null;
+    }
+
+    return { workflowId: parsed.intent };
+  } catch {
+    return null;
+  }
 }

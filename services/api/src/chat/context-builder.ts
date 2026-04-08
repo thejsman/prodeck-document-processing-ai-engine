@@ -475,6 +475,10 @@ const QUESTION_STARTERS = [
 /**
  * Short messages that are workflow confirmations/affirmatives — never treat
  * these as interrupts even if they superficially look like questions.
+ *
+ * Also includes confusion expressions (e.g. "what?", "huh?") that end with
+ * "?" but are not knowledge queries — they should fall through to the workflow
+ * handler so it can re-explain the current step.
  */
 const WORKFLOW_AFFIRMATIVES = new Set([
   'yes', 'y', 'no', 'n',
@@ -485,6 +489,10 @@ const WORKFLOW_AFFIRMATIVES = new Set([
   'that works', 'sounds good', 'sounds great',
   '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
   'next', 'skip', 'back', 'done',
+  // Confusion expressions — not knowledge queries
+  'what?', 'huh?', 'sorry?', 'pardon?', 'excuse me?',
+  'what do you mean?', "i don't understand", 'i dont understand',
+  'can you repeat?', 'come again?', 'repeat that',
 ]);
 
 /**
@@ -515,6 +523,76 @@ export function detectInterrupt(message: string): boolean {
   }
 
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Interrupt context builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a rich context string for interrupt answers.
+ *
+ * Includes:
+ *   - Recent conversation (last 4 messages from the conversation window)
+ *   - Current workflow state
+ *   - Relevant workflow artifacts (template info, proposal artifact, requirements)
+ *
+ * This string is injected into `answerFromKnowledge` so the LLM can answer
+ * questions like "is there a matching template?" using what was just shown
+ * in the conversation, rather than blindly searching the knowledge base.
+ */
+export function buildInterruptContext(
+  workflowState: string,
+  conversationContext: LLMContext,
+  workflowCtx: Record<string, unknown>,
+): string {
+  const parts: string[] = [];
+
+  parts.push(`Current workflow state: ${workflowState}`);
+
+  // Recent conversation (last 4 messages)
+  const recentMessages = conversationContext.conversationWindow.slice(-4);
+  if (recentMessages.length > 0) {
+    parts.push('', 'Recent conversation:');
+    for (const msg of recentMessages) {
+      parts.push(`${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`);
+    }
+  }
+
+  // Template recommendation (shown during recommend_template state)
+  const templateRec = workflowCtx.templateRecommendation as Record<string, unknown> | undefined;
+  if (templateRec) {
+    const confidence = typeof templateRec.confidence === 'number'
+      ? `${(templateRec.confidence * 100).toFixed(0)}%`
+      : 'unknown';
+    const reasoning = typeof templateRec.reasoning === 'string' ? templateRec.reasoning : '';
+    parts.push('', `Template match confidence: ${confidence}`);
+    if (reasoning) parts.push(`Template reasoning: ${reasoning}`);
+  }
+
+  // Selected template info
+  const selectedTemplate = workflowCtx.selectedTemplate as Record<string, unknown> | undefined;
+  if (selectedTemplate) {
+    const name = typeof selectedTemplate.name === 'string' ? selectedTemplate.name : 'Unknown';
+    const structure = Array.isArray(selectedTemplate.structure)
+      ? (selectedTemplate.structure as string[]).join(', ')
+      : '';
+    parts.push('', `Selected template: ${name}`);
+    if (structure) parts.push(`Template sections: ${structure}`);
+  }
+
+  // Proposal artifact (if one has been saved)
+  if (typeof workflowCtx.proposalArtifactId === 'string') {
+    parts.push('', `Generated proposal: ${workflowCtx.proposalArtifactId}`);
+  }
+
+  // Requirements gathered so far
+  const reqs = workflowCtx.proposalRequirements as Record<string, string> | undefined;
+  if (reqs && Object.keys(reqs).length > 0) {
+    parts.push('', 'Requirements gathered:', buildRequirementStatus(reqs));
+  }
+
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------

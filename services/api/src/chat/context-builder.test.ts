@@ -7,6 +7,7 @@ import {
   extractRequirementsFromMessage,
   buildConversationWindow,
   formatConversationForContext,
+  buildInterruptContext,
 } from './context-builder.js';
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,21 @@ describe('detectInterrupt', () => {
   // Edge: "yes?" is technically a question but won't match affirmative check
   it('"yes?" ends with ? so is treated as an interrupt', () => {
     expect(detectInterrupt('yes?')).toBe(true);
+  });
+
+  // Confusion expressions — end with ? but are NOT knowledge queries
+  describe('confusion expressions are not interrupts', () => {
+    const confusionCases = [
+      'what?', 'huh?', 'sorry?', 'pardon?', 'excuse me?',
+      'what do you mean?', "i don't understand", 'i dont understand',
+      'can you repeat?', 'come again?',
+    ];
+
+    for (const msg of confusionCases) {
+      it(`"${msg}" is not an interrupt`, () => {
+        expect(detectInterrupt(msg)).toBe(false);
+      });
+    }
   });
 });
 
@@ -276,13 +292,95 @@ describe('extractRequirementsFromMessage', () => {
 });
 
 // ---------------------------------------------------------------------------
+// buildInterruptContext
+// ---------------------------------------------------------------------------
+
+describe('buildInterruptContext', () => {
+  const baseConversationContext = {
+    systemPrompt: '',
+    conversationWindow: [
+      { role: 'user' as const, content: 'okay' },
+      { role: 'assistant' as const, content: 'No template matched. Reply yes to proceed.' },
+    ],
+    workflowState: 'recommend_template',
+    proposalRequirements: {},
+    requirementStatus: '',
+    taskInstruction: '',
+  };
+
+  it('includes current workflow state', () => {
+    const result = buildInterruptContext('recommend_template', baseConversationContext, {});
+    expect(result).toContain('Current workflow state: recommend_template');
+  });
+
+  it('includes recent conversation messages', () => {
+    const result = buildInterruptContext('recommend_template', baseConversationContext, {});
+    expect(result).toContain('User: okay');
+    expect(result).toContain('Assistant: No template matched. Reply yes to proceed.');
+  });
+
+  it('includes template recommendation when present', () => {
+    const ctx = {
+      templateRecommendation: { confidence: 0.14, reasoning: 'Low match score — custom structure recommended.' },
+    };
+    const result = buildInterruptContext('recommend_template', baseConversationContext, ctx);
+    expect(result).toContain('14%');
+    expect(result).toContain('custom structure recommended');
+  });
+
+  it('includes selected template name and sections', () => {
+    const ctx = {
+      selectedTemplate: {
+        name: 'Custom Generated',
+        structure: ['Executive Summary', 'Project Overview', 'Budget'],
+      },
+    };
+    const result = buildInterruptContext('recommend_template', baseConversationContext, ctx);
+    expect(result).toContain('Selected template: Custom Generated');
+    expect(result).toContain('Executive Summary');
+  });
+
+  it('includes proposal artifact id when present', () => {
+    const ctx = { proposalArtifactId: 'nb-corp_proposal_v1.md' };
+    const result = buildInterruptContext('generating_sections', baseConversationContext, ctx);
+    expect(result).toContain('nb-corp_proposal_v1.md');
+  });
+
+  it('includes requirements when gathered', () => {
+    const ctx = { proposalRequirements: { industry: 'fintech', budget: '$50k' } };
+    const result = buildInterruptContext('collecting_inputs', baseConversationContext, ctx);
+    expect(result).toContain('industry: fintech');
+    expect(result).toContain('budget: $50k');
+  });
+
+  it('omits empty sections gracefully', () => {
+    const result = buildInterruptContext('collecting_inputs', baseConversationContext, {});
+    expect(result).not.toContain('Selected template');
+    expect(result).not.toContain('Generated proposal');
+    expect(result).not.toContain('Requirements gathered');
+  });
+
+  it('limits conversation window to last 4 messages', () => {
+    const manyMessages = Array.from({ length: 10 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: `message ${i}`,
+    }));
+    const ctx = { ...baseConversationContext, conversationWindow: manyMessages };
+    const result = buildInterruptContext('recommend_template', ctx, {});
+    expect(result).toContain('message 9');
+    expect(result).not.toContain('message 0');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildConversationWindow
 // ---------------------------------------------------------------------------
 
 describe('buildConversationWindow', () => {
   it('returns the last 10 messages', () => {
     const messages = Array.from({ length: 15 }, (_, i) => ({
-      role: i % 2 === 0 ? 'user' : 'assistant' as const,
+      id: `msg-${i}`,
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
       content: `message ${i}`,
       timestamp: new Date().toISOString(),
     }));
@@ -294,7 +392,7 @@ describe('buildConversationWindow', () => {
 
   it('trims messages longer than 1000 chars', () => {
     const longContent = 'x'.repeat(1500);
-    const messages = [{ role: 'user' as const, content: longContent, timestamp: new Date().toISOString() }];
+    const messages = [{ id: 'msg-0', role: 'user' as const, content: longContent, timestamp: new Date().toISOString() }];
     const window = buildConversationWindow(messages);
     expect(window[0].content).toHaveLength(1000 + '…[trimmed]'.length);
     expect(window[0].content).toContain('…[trimmed]');
@@ -302,7 +400,7 @@ describe('buildConversationWindow', () => {
 
   it('does not trim messages at or under 1000 chars', () => {
     const content = 'x'.repeat(1000);
-    const messages = [{ role: 'user' as const, content, timestamp: new Date().toISOString() }];
+    const messages = [{ id: 'msg-0', role: 'user' as const, content, timestamp: new Date().toISOString() }];
     const window = buildConversationWindow(messages);
     expect(window[0].content).toBe(content);
     expect(window[0].content).not.toContain('[trimmed]');

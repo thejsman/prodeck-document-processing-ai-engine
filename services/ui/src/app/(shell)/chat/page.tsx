@@ -20,6 +20,31 @@ interface Message {
   content: string;
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
+  metadata?: { proposalArtifactId?: string };
+}
+
+/** Parse ## headings from markdown into ProposalSection array for history rendering. */
+function parseProposalSections(content: string, artifactId: string): ProposalSection[] {
+  const sections: ProposalSection[] = [];
+  let currentHeading: string | null = null;
+  const currentLines: string[] = [];
+
+  for (const line of content.split('\n')) {
+    const m = line.match(/^## (.+)$/);
+    if (m) {
+      if (currentHeading) {
+        sections.push({ section: currentHeading, content: currentLines.join('\n').trim(), artifactId });
+        currentLines.length = 0;
+      }
+      currentHeading = m[1].trim();
+    } else if (currentHeading) {
+      currentLines.push(line);
+    }
+  }
+  if (currentHeading) {
+    sections.push({ section: currentHeading, content: currentLines.join('\n').trim(), artifactId });
+  }
+  return sections;
 }
 
 // ── Page ───────────────────────────────────────────────────────────
@@ -119,12 +144,13 @@ export default function ChatPage() {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
       .then((res) => (res.ok ? res.json() : { messages: [] }))
-      .then((data: { messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }> }) => {
+      .then((data: { messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; metadata?: { proposalArtifactId?: string } }> }) => {
         setMessages(data.messages);
       })
       .catch(() => { /* history unavailable — start fresh */ });
 
     fetchInsights(ns);
+    setTimeout(() => textareaRef.current?.focus(), 0);
   }, [namespace, apiKey, fetchInsights, reset]);
 
   // Refresh insights after each query completes (isStreaming: true → false)
@@ -308,24 +334,32 @@ export default function ChatPage() {
                     {m.role === 'assistant' && <div className="chat-v2-avatar">AI</div>}
                     <div className="chat-v2-bubble">
                       {m.role === 'assistant' ? (
-                        m.sections && m.sections.length > 0 ? (
-                          <div className="proposal-sections-wrap">
-                            {m.sections.map((s) => (
-                              <ProposalSectionBlock
-                                key={s.section}
-                                section={s.section}
-                                content={s.content}
-                                artifactId={s.artifactId}
-                                namespace={namespace || 'default'}
-                                apiKey={apiKey}
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="prose">
-                            <ReactMarkdown>{m.content}</ReactMarkdown>
-                          </div>
-                        )
+                        (() => {
+                          // Prefer in-memory sections (from active stream), then
+                          // reconstruct from stored metadata + markdown on history load
+                          const historySections = !m.sections && m.metadata?.proposalArtifactId
+                            ? parseProposalSections(m.content, m.metadata.proposalArtifactId)
+                            : null;
+                          const displaySections = m.sections ?? (historySections?.length ? historySections : null);
+                          return displaySections ? (
+                            <div className="proposal-sections-wrap">
+                              {displaySections.map((s) => (
+                                <ProposalSectionBlock
+                                  key={s.section}
+                                  section={s.section}
+                                  content={s.content}
+                                  artifactId={s.artifactId}
+                                  namespace={namespace || 'default'}
+                                  apiKey={apiKey}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="prose">
+                              <ReactMarkdown>{m.content}</ReactMarkdown>
+                            </div>
+                          );
+                        })()
                       ) : (
                         m.content
                       )}
@@ -452,7 +486,6 @@ export default function ChatPage() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 disabled={isStreaming}
-                autoFocus
               />
               <button
                 className="chat-v2-send-btn"

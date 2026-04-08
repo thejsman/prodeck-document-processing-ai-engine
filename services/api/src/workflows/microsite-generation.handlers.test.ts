@@ -139,7 +139,7 @@ describe('handleCheckingProposal', () => {
       // Reset both flags before each call
       const instance = makeInstance({ awaitingMicrositeProposalSelection: true });
       const result = await handleCheckingProposal(makeCtx(instance, msg));
-      expect(result.stateSignal).toBe('READY', `expected READY for message "${msg}"`);
+      expect(result.stateSignal, `expected READY for message "${msg}"`).toBe('READY');
     }
   });
 
@@ -178,7 +178,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('signals DONE and stores micrositeArtifactId on success', async () => {
-    vi.mocked(readFile).mockResolvedValue('# Proposal Content\n\nSome content here.' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('# Proposal Content\n\nSome content here.' as never);
     const instance = makeInstance({ proposalArtifactId: 'proposal.md' });
     const ctx = makeCtx(instance);
     const result = await handleGeneratingMicrosite(ctx);
@@ -188,7 +188,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('emits phase events during generation', async () => {
-    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as never);
     const instance = makeInstance({ proposalArtifactId: 'proposal.md' });
     const ctx = makeCtx(instance);
     await handleGeneratingMicrosite(ctx);
@@ -197,7 +197,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('emits summary chunk on success', async () => {
-    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as never);
     const instance = makeInstance({ proposalArtifactId: 'proposal.md' });
     const ctx = makeCtx(instance);
     await handleGeneratingMicrosite(ctx);
@@ -214,7 +214,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('returns error message when proposal file is empty', async () => {
-    vi.mocked(readFile).mockResolvedValue('   ' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('   ' as never);
     const instance = makeInstance({ proposalArtifactId: 'empty.md' });
     const result = await handleGeneratingMicrosite(makeCtx(instance));
     expect(result.stateSignal).toBeUndefined();
@@ -222,7 +222,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('returns error message when agent throws', async () => {
-    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as never);
     agentShouldThrow = true;
     agentThrowError = new Error('LLM unavailable');
     const instance = makeInstance({ proposalArtifactId: 'proposal.md' });
@@ -233,7 +233,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('stores layoutAST in context when agent returns json', async () => {
-    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as never);
     agentReturnValue = { json: { sections: [{ type: 'hero' }] }, assets: [] };
     const instance = makeInstance({ proposalArtifactId: 'proposal.md' });
     await handleGeneratingMicrosite(makeCtx(instance));
@@ -241,7 +241,7 @@ describe('handleGeneratingMicrosite', () => {
   });
 
   it('handles agent returning no assets gracefully', async () => {
-    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as unknown as Buffer);
+    vi.mocked(readFile).mockResolvedValue('# Proposal\n\nContent.' as never);
     agentReturnValue = { markdown: '# Microsite', json: null, assets: [] };
     const instance = makeInstance({ proposalArtifactId: 'proposal.md' });
     const result = await handleGeneratingMicrosite(makeCtx(instance));

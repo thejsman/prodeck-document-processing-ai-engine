@@ -21,6 +21,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChatHistory {
@@ -83,12 +84,20 @@ export async function appendChatTurn(
   chatSessionId: string,
   userContent: string,
   assistantContent: string,
+  assistantMetadata?: Record<string, unknown>,
 ): Promise<void> {
   const history = await loadOrCreate(workdir, namespace, chatSessionId);
   const now = new Date().toISOString();
+  const assistantMsg: ChatMessage = {
+    id: randomUUID(),
+    role: 'assistant',
+    content: assistantContent,
+    timestamp: now,
+  };
+  if (assistantMetadata) assistantMsg.metadata = assistantMetadata;
   history.messages.push(
     { id: randomUUID(), role: 'user', content: userContent, timestamp: now },
-    { id: randomUUID(), role: 'assistant', content: assistantContent, timestamp: now },
+    assistantMsg,
   );
   await persist(workdir, history);
 }

@@ -20,15 +20,16 @@ import { readFile } from 'node:fs/promises';
 import type { ProviderPolicyConfig } from '../provider-policy.js';
 import { searchKnowledgeChunks } from '@ai-engine/runtime';
 import { logTrace } from '../trace/trace-store.js';
-import { routeIntent, isResetIntent } from './intent-router.js';
+import { routeIntent, isResetIntent, classifyIntentWithLLM } from './intent-router.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import {
   buildLLMContext,
   extractRequirementsFromMessage,
   detectInterrupt,
+  buildInterruptContext,
 } from './context-builder.js';
-import { appendChatTurn } from './chat-history.service.js';
+import { appendChatTurn, loadHistory } from './chat-history.service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
@@ -177,6 +178,7 @@ async function answerFromKnowledge(
   namespace: string,
   message: string,
   generateFn: (prompt: string) => Promise<string>,
+  extraContext?: string,
 ): Promise<string> {
   const storageDir = path.join(workdir, 'namespaces', namespace);
   const lower = message.toLowerCase();
@@ -251,16 +253,16 @@ async function answerFromKnowledge(
 
   const context = allChunks.map((t, i) => `[${i + 1}] ${t}`).join('\n\n');
   const prompt = [
-    'You are an AI assistant. Answer the user\'s question based solely on the document excerpts provided below.',
-    'Do not invent information not present in the excerpts.',
+    'You are an AI assistant. Answer the user\'s question using the context below.',
+    ...(extraContext ? ['', '## Current Session Context', extraContext] : []),
     '',
     '## Document Excerpts',
     context,
     '',
-    `## User Question`,
+    '## User Question',
     message,
     '',
-    'Answer clearly and concisely.',
+    'Answer clearly and concisely. If the question relates to the current workflow state or recent conversation, prioritise that context over document excerpts.',
   ].join('\n');
 
   return generateFn(prompt);
@@ -313,7 +315,18 @@ export class ChatOrchestrator {
     }
 
     if (!instance) {
-      const intent = routeIntent(message);
+      let intent = routeIntent(message);
+
+      // Second pass: LLM-based classification when rule-based matching fails
+      if (!intent) {
+        const history = await loadHistory(this.workdir, namespace, chatSessionId);
+        const recentMessages = (history?.messages ?? []).slice(-6);
+        const conversationWindow = recentMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+        intent = await classifyIntentWithLLM(message, conversationWindow, llmGenerateFn);
+      }
 
       if (!intent) {
         // No workflow intent — retrieve document chunks and synthesize an answer.
@@ -405,11 +418,17 @@ export class ChatOrchestrator {
 
     if (isInputState && detectInterrupt(message)) {
       try {
-        // Retrieve from documents and synthesize — do NOT use the workflow system
-        // prompt (which contains the requirement status block and causes the LLM
-        // to ask for industry/timeline/budget instead of answering the question).
+        // Build enriched context: recent conversation + current workflow state +
+        // relevant artifacts (template info, proposal, requirements).
+        // This lets the LLM answer questions like "is there a matching template?"
+        // using what was just shown, rather than searching documents blindly.
+        const interruptContext = buildInterruptContext(
+          instance.state,
+          conversationContext,
+          instance.context as Record<string, unknown>,
+        );
         const answer = await answerFromKnowledge(
-          this.workdir, namespace, message, llmGenerateFn,
+          this.workdir, namespace, message, llmGenerateFn, interruptContext,
         );
         void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
         return { message: answer };
@@ -550,7 +569,13 @@ export class ChatOrchestrator {
     // Done here (not in routes) so interrupt answers and normal workflow
     // turns are both captured in a single place.
     if (lastResult?.message) {
-      void appendChatTurn(this.workdir, namespace, chatSessionId, message, lastResult.message);
+      const proposalArtifactId = typeof instance.context.proposalArtifactId === 'string'
+        ? instance.context.proposalArtifactId
+        : undefined;
+      void appendChatTurn(
+        this.workdir, namespace, chatSessionId, message, lastResult.message,
+        proposalArtifactId ? { proposalArtifactId } : undefined,
+      );
     }
 
     // ── Build final response ──────────────────────────────────────
