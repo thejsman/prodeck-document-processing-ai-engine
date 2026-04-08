@@ -275,16 +275,25 @@ export function routeIntent(message: string): IntentRouteResult | null {
     return { workflowId: 'proposal_version_control' };
   }
 
-  // Multi-word proposal patterns
-  for (const trigger of PROPOSAL_TRIGGERS) {
-    if (lower.includes(trigger)) {
+  // Guard: informational/how-to questions about proposals should NOT start the workflow.
+  // e.g. "how to generate the proposal?", "what is needed to generate a proposal?",
+  // "how does proposal generation work?", "can you explain the proposal process?"
+  const isInfoQuestion =
+    /^(how|what|why|can you|could you|explain|tell me|help me understand)\b/.test(lower) ||
+    /\b(how to|how do i|how does|what('s| is) needed|what do i need|what are the steps|what is the process)\b/.test(lower);
+
+  if (!isInfoQuestion) {
+    // Multi-word proposal patterns
+    for (const trigger of PROPOSAL_TRIGGERS) {
+      if (lower.includes(trigger)) {
+        return { workflowId: 'proposal_generation' };
+      }
+    }
+
+    // Fallback: any message containing the word "proposal"
+    if (lower.includes('proposal')) {
       return { workflowId: 'proposal_generation' };
     }
-  }
-
-  // Fallback: any message containing the word "proposal"
-  if (lower.includes('proposal')) {
-    return { workflowId: 'proposal_generation' };
   }
 
   return null;

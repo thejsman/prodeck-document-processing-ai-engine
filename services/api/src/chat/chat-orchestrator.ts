@@ -52,15 +52,13 @@ import {
   setAwaitingInput,
   type WorkflowInstance,
 } from '../workflows/workflow-instance.service.js';
-import {
-  handleCheckingProposal,
-  handleGeneratingMicrosite,
-} from '../workflows/microsite-generation.handlers.js';
+import { handleCheckingProposal, handleGeneratingMicrosite } from '../workflows/microsite-generation.handlers.js';
 import { emitChatSessionEvent } from './chat-session-bus.js';
 import {
   handleCollectingRfp,
   handleCollectingInputs,
   handleRecommendTemplate,
+  handleConfirmGeneration,
   handleGeneratingOutline,
   handleGeneratingSections,
   handleQaReview,
@@ -75,9 +73,7 @@ import {
   handleGapAnalysis,
   handleGoNoGo,
 } from '../workflows/rfp-analysis.handlers.js';
-import {
-  handleResolveAction,
-} from '../workflows/proposal-version-control.handlers.js';
+import { handleResolveAction } from '../workflows/proposal-version-control.handlers.js';
 import {
   handleAnalyzingRfp,
   handleReviewTemplate,
@@ -137,6 +133,7 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   collecting_rfp: handleCollectingRfp,
   collecting_inputs: handleCollectingInputs,
   recommend_template: handleRecommendTemplate,
+  confirm_generation: handleConfirmGeneration,
   generating_outline: handleGeneratingOutline,
   generating_sections: handleGeneratingSections,
   qa_review: handleQaReview,
@@ -149,8 +146,8 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   gap_analysis: handleGapAnalysis,
   go_no_go: handleGoNoGo,
   // compliance_redline
-  analyzing:    handleComplianceAnalyzing,
-  reviewing:    handleComplianceReviewing,
+  analyzing: handleComplianceAnalyzing,
+  reviewing: handleComplianceReviewing,
   applying_fix: handleComplianceApplyingFix,
   // template_creation
   analyzing_rfp: handleAnalyzingRfp,
@@ -182,6 +179,49 @@ async function answerFromKnowledge(
 ): Promise<string> {
   const storageDir = path.join(workdir, 'namespaces', namespace);
   const lower = message.toLowerCase();
+
+  // System capabilities block — reused across multiple early-exit answers.
+  const SYSTEM_CAPABILITIES = [
+    'This is an AI-powered proposal management system. You interact with it via chat.',
+    '',
+    '**Available actions (just type these):**',
+    '- **"Generate a proposal for [client]"** — Starts the proposal generation workflow. The system checks for an uploaded RFP, collects any extra requirements from you, recommends a template, asks for confirmation, then auto-generates all proposal sections.',
+    '- **"Analyse this RFP"** or **"Should we bid?"** — Runs an RFP analysis and gives a go/no-go recommendation.',
+    '- **"Convert proposal to microsite"** — Turns a generated proposal into a shareable presentation site.',
+    '- **"Create a proposal template"** — Builds a reusable template from the RFP.',
+    '- **"Check proposal for compliance issues"** — Legal/regulatory review of a proposal.',
+    '- **"Update the [section name]"** — Edits a specific section of an existing proposal.',
+    '- Ask any question about your uploaded documents.',
+    '',
+    '**To generate a proposal:**',
+    '1. Upload your RFP and any supporting documents via the Knowledge tab.',
+    '2. Select of gererate a proposal template if prompted — this helps the system structure the proposal correctly.',
+    '3. Come back to chat and say: **"Generate a proposal for [client name]"**',
+    '3. The system will guide you through the rest automatically.',
+  ].join('\n');
+
+  // "How do I use this?" / "How to generate a proposal?" — answer from system
+  // context only, do not let RAG document chunks pollute the answer.
+  const isSystemUsageQuery =
+    /\b(how to|how do i|how can i|how does|what('s| is) needed|what do i need|what are the steps|what is the process|how to use|how do i use|what do i need to|needed to generate|needed to create|needed to start)\b/.test(
+      lower,
+    ) && /\b(proposal|generat|creat|start|use|work|this system|the system)\b/.test(lower);
+
+  if (isSystemUsageQuery) {
+    return generateFn(
+      [
+        'You are an assistant for a proposal management system. The user is asking how to use the system.',
+        '',
+        '## System Guide',
+        SYSTEM_CAPABILITIES,
+        '',
+        '## User Question',
+        message,
+        '',
+        'Answer based on the System Guide above. Do NOT reference any RFP document submission requirements — the user is asking about the software system, not about what to write in a proposal.',
+      ].join('\n'),
+    );
+  }
 
   // "What documents are indexed?" / "What files are uploaded?" — answer from
   // files.json, not from the vector store (FAISS doesn't surface filenames).
@@ -228,9 +268,7 @@ async function answerFromKnowledge(
       'decisions actions next steps',
     ];
     const results = await Promise.allSettled(
-      broadQueries.map((q) =>
-        searchKnowledgeChunks({ question: q, storageDir, namespace, topK: 4 }),
-      ),
+      broadQueries.map((q) => searchKnowledgeChunks({ question: q, storageDir, namespace, topK: 4 })),
     );
     const seen = new Set<string>();
     allChunks = results
@@ -253,7 +291,7 @@ async function answerFromKnowledge(
 
   const context = allChunks.map((t, i) => `[${i + 1}] ${t}`).join('\n\n');
   const prompt = [
-    'You are an AI assistant. Answer the user\'s question using the context below.',
+    "You are an AI assistant. Answer the user's question using the document context below.",
     ...(extraContext ? ['', '## Current Session Context', extraContext] : []),
     '',
     '## Document Excerpts',
@@ -262,7 +300,7 @@ async function answerFromKnowledge(
     '## User Question',
     message,
     '',
-    'Answer clearly and concisely. If the question relates to the current workflow state or recent conversation, prioritise that context over document excerpts.',
+    'Answer clearly and concisely based on the document excerpts.',
   ].join('\n');
 
   return generateFn(prompt);
@@ -293,14 +331,7 @@ export class ChatOrchestrator {
    *     7. If "completed" → mark instance complete, emit final message (STEP 7)
    */
   async processMessage(params: ProcessMessageParams): Promise<OrchestratorResult> {
-    const {
-      message,
-      namespace,
-      chatSessionId,
-      onPhase = () => {},
-      onChunk = () => {},
-      onSection,
-    } = params;
+    const { message, namespace, chatSessionId, onPhase = () => {}, onChunk = () => {}, onSection } = params;
 
     // ── Load or create workflow instance ─────────────────────────
     let instance = await loadActiveInstance(this.workdir, namespace, chatSessionId);
@@ -334,15 +365,13 @@ export class ChatOrchestrator {
         // so broad requests like "Summarize the knowledge base" get context from
         // many documents rather than chunks most similar to the literal phrase.
         try {
-          const answer = await answerFromKnowledge(
-            this.workdir, namespace, message, llmGenerateFn,
-          );
+          const answer = await answerFromKnowledge(this.workdir, namespace, message, llmGenerateFn);
           void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
           return { message: answer };
         } catch {
           return {
             message: [
-              'Here\'s what I can help you with:',
+              "Here's what I can help you with:",
               '',
               '- **Create a proposal** — "Create a proposal for [client]"',
               '- **Analyse an RFP** — "Analyse this RFP" or "Should we bid?"',
@@ -363,13 +392,7 @@ export class ChatOrchestrator {
         return { message: `Unknown workflow: "${intent.workflowId}". Please try again.` };
       }
 
-      instance = await createInstance(
-        this.workdir,
-        namespace,
-        chatSessionId,
-        workflow.id,
-        workflow.initialState,
-      );
+      instance = await createInstance(this.workdir, namespace, chatSessionId, workflow.id, workflow.initialState);
     }
 
     const workflow = WORKFLOW_REGISTRY[instance.workflowId];
@@ -386,10 +409,7 @@ export class ChatOrchestrator {
     }
     const extractedFromChat = await extractRequirementsFromMessage(message, llmGenerateFn);
     // Accumulate chat signals (later messages win for the same field)
-    Object.assign(
-      instance.context.chatExtractedRequirements as Record<string, string>,
-      extractedFromChat,
-    );
+    Object.assign(instance.context.chatExtractedRequirements as Record<string, string>, extractedFromChat);
 
     // ── STEPS 1–6, 8 — Build full LLM context ────────────────────
     // Use proposalRequirements (the merged flat map) for the status block.
@@ -402,7 +422,7 @@ export class ChatOrchestrator {
       namespace,
       chatSessionId,
       instance.state,
-      (instance.context.proposalRequirements as Record<string, string>),
+      instance.context.proposalRequirements as Record<string, string>,
       llmGenerateFn,
     );
 
@@ -427,9 +447,7 @@ export class ChatOrchestrator {
           conversationContext,
           instance.context as Record<string, unknown>,
         );
-        const answer = await answerFromKnowledge(
-          this.workdir, namespace, message, llmGenerateFn, interruptContext,
-        );
+        const answer = await answerFromKnowledge(this.workdir, namespace, message, llmGenerateFn, interruptContext);
         void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
         return { message: answer };
       } catch {
@@ -462,8 +480,7 @@ export class ChatOrchestrator {
       if (currentState === 'completed') {
         // Already terminal from a prior turn — do not re-execute
         return {
-          message:
-            'This proposal workflow is already complete. Start a new chat session to create another.',
+          message: 'This proposal workflow is already complete. Start a new chat session to create another.',
         };
       }
 
@@ -477,11 +494,8 @@ export class ChatOrchestrator {
         emitChatSessionEvent(chatSessionId, {
           type: 'tool_progress',
           toolProgress: {
-            status: event.type === 'tool_started'
-              ? 'started'
-              : event.type === 'tool_completed'
-                ? 'completed'
-                : 'failed',
+            status:
+              event.type === 'tool_started' ? 'started' : event.type === 'tool_completed' ? 'completed' : 'failed',
             tool: event.tool,
             input: event.input,
             output: event.output,
@@ -569,11 +583,14 @@ export class ChatOrchestrator {
     // Done here (not in routes) so interrupt answers and normal workflow
     // turns are both captured in a single place.
     if (lastResult?.message) {
-      const proposalArtifactId = typeof instance.context.proposalArtifactId === 'string'
-        ? instance.context.proposalArtifactId
-        : undefined;
+      const proposalArtifactId =
+        typeof instance.context.proposalArtifactId === 'string' ? instance.context.proposalArtifactId : undefined;
       void appendChatTurn(
-        this.workdir, namespace, chatSessionId, message, lastResult.message,
+        this.workdir,
+        namespace,
+        chatSessionId,
+        message,
+        lastResult.message,
         proposalArtifactId ? { proposalArtifactId } : undefined,
       );
     }
@@ -592,9 +609,7 @@ export class ChatOrchestrator {
         compliance_redline: 'Compliance review complete.',
       };
       const completionMessage =
-        lastResult?.message?.trim() ||
-        defaultMessages[instance.workflowId] ||
-        'Workflow completed.';
+        lastResult?.message?.trim() || defaultMessages[instance.workflowId] || 'Workflow completed.';
 
       const actions: Record<string, string> = {
         viewTraceUrl: `/chat/trace/${chatSessionId}`,
@@ -636,11 +651,9 @@ export class ChatOrchestrator {
       phase: 'RFP ingestion complete. Starting proposal generation.',
     });
 
-    const onPhase = (phase: string) =>
-      emitChatSessionEvent(chatSessionId, { type: 'phase', phase });
+    const onPhase = (phase: string) => emitChatSessionEvent(chatSessionId, { type: 'phase', phase });
 
-    const onChunk = (chunk: string) =>
-      emitChatSessionEvent(chatSessionId, { type: 'chunk', chunk });
+    const onChunk = (chunk: string) => emitChatSessionEvent(chatSessionId, { type: 'chunk', chunk });
 
     const onSection = (section: string, content: string, artifactId: string) =>
       emitChatSessionEvent(chatSessionId, {
@@ -652,11 +665,7 @@ export class ChatOrchestrator {
       emitChatSessionEvent(chatSessionId, {
         type: 'tool_progress',
         toolProgress: {
-          status: event.type === 'tool_started'
-            ? 'started'
-            : event.type === 'tool_completed'
-              ? 'completed'
-              : 'failed',
+          status: event.type === 'tool_started' ? 'started' : event.type === 'tool_completed' ? 'completed' : 'failed',
           tool: event.tool,
           input: event.input,
           output: event.output,
@@ -737,9 +746,7 @@ export class ChatOrchestrator {
       };
       if (instance.state === 'completed') {
         const completionMessage =
-          lastResult?.message?.trim() ||
-          resumeDefaultMessages[instance.workflowId] ||
-          'Workflow completed.';
+          lastResult?.message?.trim() || resumeDefaultMessages[instance.workflowId] || 'Workflow completed.';
         emitChatSessionEvent(chatSessionId, {
           type: 'done',
           message: completionMessage,
