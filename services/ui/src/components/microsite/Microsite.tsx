@@ -476,7 +476,10 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
       const bgOverride = vars['--ms-bg'] ?? t.bg;
       const accentOverride = vars['--ms-accent'] ?? vars['--ms-hero-accent'] ?? t.accent;
       const textOverride = vars['--ms-text'] ?? t.text;
-      const isDark = isColorDark(bgOverride);
+      // Respect explicit dark/light signal from reference design extraction; fall back to luminance check
+      const isDark = vars['--ms-is-dark'] !== undefined
+        ? vars['--ms-is-dark'] === '1'
+        : isColorDark(bgOverride);
       t = {
         ...t,
         accent:          accentOverride,
