@@ -1201,7 +1201,7 @@ interface Props {
 
 const ACCENT = '#6366f1';
 
-type ActivePanel = 'bg' | 'diagram' | 'layout' | 'icon' | 'embed' | null;
+type ActivePanel = 'bg' | 'diagram' | 'layout' | 'icon' | 'embed' | 'ai' | null;
 
 export function SectionEditOverlay({ section, sectionIndex, totalSections, children, onAiAction }: Props) {
   const ctx = useEditContext();
@@ -1311,38 +1311,60 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             {section.sectionType}
           </span>
 
-          {/* AI quick-actions */}
+          {/* AI quick-actions — single dropdown to keep toolbar compact */}
           {onAiAction && (
-            <>
-              {[
-                { label: '✦ AI: Rewrite', instruction: 'Rewrite this section with improved copy' },
-                { label: 'Shorten', instruction: 'Make this section more concise' },
-                { label: 'Expand', instruction: 'Expand this section with more detail' },
-                { label: 'Restyle', instruction: 'Restyle this section — make it more visually striking' },
-              ].map(({ label, instruction }) => (
-                <button
-                  key={label}
-                  onClick={() => onAiAction(section.id, instruction)}
+            <div style={{ position: 'relative' }}>
+              {toolbarBtn('✦ AI', 'ai')}
+              {activePanel === ('ai') && (
+                <div
                   style={{
-                    padding: '4px 10px',
-                    borderRadius: 100,
-                    border: label.startsWith('✦') ? '1px solid rgba(99,102,241,0.5)' : 'none',
-                    background: label.startsWith('✦') ? 'rgba(99,102,241,0.9)' : 'rgba(255,255,255,0.9)',
-                    color: label.startsWith('✦') ? '#fff' : '#475569',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    backdropFilter: 'blur(8px)',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: 4,
+                    background: 'rgba(15,18,30,0.97)',
+                    backdropFilter: 'blur(12px)',
+                    border: '1px solid rgba(99,102,241,0.25)',
+                    borderRadius: 8,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                    overflow: 'hidden',
+                    minWidth: 160,
+                    zIndex: 20001,
                     fontFamily: 'system-ui, -apple-system, sans-serif',
-                    whiteSpace: 'nowrap',
-                    transition: 'background 0.15s, color 0.15s',
                   }}
                 >
-                  {label}
-                </button>
-              ))}
-            </>
+                  {[
+                    { label: '✎ Rewrite', instruction: 'Rewrite this section with improved copy' },
+                    { label: '✂ Shorten', instruction: 'Make this section more concise' },
+                    { label: '↕ Expand', instruction: 'Expand this section with more detail' },
+                    { label: '✦ Restyle', instruction: 'Restyle this section — make it more visually striking' },
+                  ].map(({ label, instruction }) => (
+                    <button
+                      key={label}
+                      onClick={() => { onAiAction(section.id, instruction); setActivePanel(null); }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#e2e8f0',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'background 0.1s',
+                        fontFamily: 'inherit',
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.2)'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Background button */}
