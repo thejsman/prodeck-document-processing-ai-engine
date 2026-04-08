@@ -326,9 +326,15 @@ function SectionWithOverlay({
       : section.image!.url!;
     bgCssRule = `${sel}{background-image:url("${resolvedBgUrl.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
   }
-  let sectionInner: React.ReactNode = bgCssRule ? (
+  const titleScale = section.titleScale ?? 1;
+  const contentScale = section.contentScale ?? 1;
+  const scaleCssRule = (titleScale !== 1 || contentScale !== 1)
+    ? `[data-section-id="${section.id}"]{--ms-title-scale:${titleScale};--ms-content-scale:${contentScale};}`
+    : '';
+  const allCssRules = [bgCssRule, scaleCssRule].filter(Boolean).join('');
+  let sectionInner: React.ReactNode = allCssRules ? (
     <>
-      <style dangerouslySetInnerHTML={{ __html: bgCssRule }} />
+      <style dangerouslySetInnerHTML={{ __html: allCssRules }} />
       {inner}
     </>
   ) : inner;

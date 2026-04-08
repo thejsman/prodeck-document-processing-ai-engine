@@ -498,6 +498,10 @@ export interface LayoutSection {
   };
   /** Optional per-section background color override (set via inline editor) */
   bgColor?: string;
+  /** Per-section title (h1/h2) font-size multiplier (0.5 – 2.0, default 1). */
+  titleScale?: number;
+  /** Per-section body text font-size multiplier (0.5 – 2.0, default 1). */
+  contentScale?: number;
   /** Optional embedded media (YouTube, Loom, or custom iframe) */
   embed?: { url: string; title?: string };
   /** Optional image overlay effect applied on top of the background image */

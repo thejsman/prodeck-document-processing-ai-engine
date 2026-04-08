@@ -175,6 +175,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
           if (fieldPath === '__imageQuery') return { ...sec, image: { ...sec.image, query: value as string } };
           if (fieldPath === '__imageSource') return { ...sec, image: { ...sec.image, source: value as string } };
           if (fieldPath === '__bgColor') return { ...sec, bgColor: value as string };
+          if (fieldPath === '__titleScale') return { ...sec, titleScale: value as number };
+          if (fieldPath === '__contentScale') return { ...sec, contentScale: value as number };
           if (fieldPath === '__heading') return { ...sec, heading: value as string };
           return {
             ...sec,
