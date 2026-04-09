@@ -231,6 +231,40 @@ const PROPOSAL_TRIGGERS = [
  * routeIntent('Create proposal for cloud')  // → { workflowId: 'proposal_generation' }
  * routeIntent('What is RAG?')               // → null
  */
+/**
+ * Returns true for messages that are clearly NOT workflow triggers and should
+ * go straight to Q&A / knowledge retrieval, bypassing all workflow routing
+ * including the LLM classifier.
+ *
+ * This prevents heavy proposal-related conversation history from causing the
+ * LLM to misclassify unrelated messages (e.g. "give me JS code for X").
+ */
+export function isDefinitelyNotWorkflow(message: string): boolean {
+  const lower = message.toLowerCase().trim();
+
+  // Programming / code requests
+  if (/\b(code|function|snippet|script|algorithm|syntax|loop|array|object|class|method|variable|import|export|return|print|console\.log)\b/.test(lower) &&
+      /\b(javascript|js|python|typescript|ts|java|go|rust|c\+\+|ruby|php|sql|html|css|bash|shell|node)\b/.test(lower)) {
+    return true;
+  }
+  // "give me code", "write me a function", "show me how to code"
+  if (/\b(give me|write me|show me|can you write|can you give)\b.{0,30}\b(code|function|script|example|snippet)\b/.test(lower)) {
+    return true;
+  }
+  // Pure location/status questions about existing content
+  if (/\b(where (is|can i find|are)|find the|locate the|show me the)\b.{0,40}\b(proposal|document|file)\b/.test(lower) &&
+      !/\b(creat|generat|build|writ|draft|start)\b/.test(lower)) {
+    return true;
+  }
+  // General knowledge / factual questions clearly unrelated to workflow actions
+  if (/^(what is|what are|who is|when is|where is|why is|explain|define|tell me about|describe)\b/.test(lower) &&
+      !/\b(proposal|rfp|template|microsite|compliance)\b/.test(lower)) {
+    return true;
+  }
+
+  return false;
+}
+
 export function routeIntent(message: string): IntentRouteResult | null {
   const lower = message.toLowerCase().trim();
 
@@ -324,9 +358,12 @@ Given the user's message and recent conversation history, determine if the user 
 - proposal_version_control: The user wants to edit, rollback, or view version history of proposal sections.
 
 Rules:
-- Only classify as a workflow if the user clearly intends to perform that action.
-- If the user is asking a general question, making conversation, or asking about documents, return null.
-- Use the conversation history for context — e.g. if prior messages discussed proposals and the user says "yes, let's do that", infer the intent.
+- Only classify as a workflow if the user's CURRENT message clearly and explicitly requests that action.
+- Do NOT infer workflow intent from history alone — the current message must contain a clear trigger.
+- Return null for: general questions, coding questions, factual questions, greetings, document Q&A, anything unrelated to the workflows above.
+- Return null if the user is asking HOW to use the system, or asking about documents, or asking a general knowledge question.
+- The presence of proposal-related history does NOT mean the current message is a workflow trigger.
+- Examples that must return null: "give me code for X", "what is X?", "how does X work?", "is the proposal good?", "where is the proposal?", "explain X".
 
 Respond with ONLY a JSON object: { "intent": "<workflow_id>" } or { "intent": null }
 Do not include any explanation or markdown formatting.`;

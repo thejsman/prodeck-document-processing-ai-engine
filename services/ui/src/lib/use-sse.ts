@@ -13,12 +13,21 @@ export interface ProposalSection {
   artifactId: string;
 }
 
+export interface ToolEvent {
+  status: 'started' | 'completed' | 'failed';
+  tool: string;
+  /** Timestamp added client-side for ordering */
+  ts: number;
+}
+
 interface UseSSEReturn {
   chunks: string;
   phase: string;
   isStreaming: boolean;
   error: string | null;
   sections: ProposalSection[];
+  toolEvents: ToolEvent[];
+  doneActions: Record<string, string> | null;
   startStream: (body: Record<string, unknown>) => void;
   reset: () => void;
 }
@@ -29,6 +38,8 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sections, setSections] = useState<ProposalSection[]>([]);
+  const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [doneActions, setDoneActions] = useState<Record<string, string> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(
@@ -41,6 +52,8 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
       setPhase('');
       setError(null);
       setSections([]);
+      setToolEvents([]);
+      setDoneActions(null);
       setIsStreaming(true);
 
       (async () => {
@@ -111,14 +124,29 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
                   continue;
                 }
 
+                if (currentEvent === 'tool_progress') {
+                  try {
+                    const parsed = JSON.parse(payload) as { status?: string; tool?: string };
+                    if (parsed.tool && parsed.status) {
+                      setToolEvents((prev) => [
+                        ...prev,
+                        { status: parsed.status as ToolEvent['status'], tool: parsed.tool!, ts: Date.now() },
+                      ]);
+                    }
+                  } catch { /* ignore */ }
+                  currentEvent = '';
+                  continue;
+                }
+
                 if (currentEvent === 'done') {
                   setPhase('');
                   // Fallback: if no tokens streamed (e.g. Ollama buffered mode),
                   // use the answer/message from the done payload so the response isn't lost.
                   try {
-                    const parsed = JSON.parse(payload) as { answer?: string; message?: string };
+                    const parsed = JSON.parse(payload) as { answer?: string; message?: string; actions?: Record<string, string> };
                     const text = parsed.message ?? parsed.answer ?? '';
                     if (text) setChunks((prev) => prev || text);
+                    if (parsed.actions) setDoneActions(parsed.actions);
                   } catch { /* ignore malformed done payload */ }
                   currentEvent = '';
                   continue;
@@ -159,8 +187,10 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
     setPhase('');
     setError(null);
     setSections([]);
+    setToolEvents([]);
+    setDoneActions(null);
     setIsStreaming(false);
   }, []);
 
-  return { chunks, phase, isStreaming, error, sections, startStream, reset };
+  return { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, startStream, reset };
 }

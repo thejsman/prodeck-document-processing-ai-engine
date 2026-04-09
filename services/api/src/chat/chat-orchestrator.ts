@@ -20,12 +20,11 @@ import { readFile } from 'node:fs/promises';
 import type { ProviderPolicyConfig } from '../provider-policy.js';
 import { searchKnowledgeChunks } from '@ai-engine/runtime';
 import { logTrace } from '../trace/trace-store.js';
-import { routeIntent, isResetIntent, classifyIntentWithLLM } from './intent-router.js';
+import { routeIntent, isResetIntent, classifyIntentWithLLM, isDefinitelyNotWorkflow } from './intent-router.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import {
   buildLLMContext,
-  extractRequirementsFromMessage,
   detectInterrupt,
   buildInterruptContext,
 } from './context-builder.js';
@@ -346,10 +345,13 @@ export class ChatOrchestrator {
     }
 
     if (!instance) {
-      let intent = routeIntent(message);
+      // Skip all workflow routing for messages that are clearly not workflow triggers
+      // (e.g. "give me JS code for X") — prevents history bias from misclassifying them.
+      const skipWorkflow = isDefinitelyNotWorkflow(message);
+      let intent = skipWorkflow ? null : routeIntent(message);
 
       // Second pass: LLM-based classification when rule-based matching fails
-      if (!intent) {
+      if (!intent && !skipWorkflow) {
         const history = await loadHistory(this.workdir, namespace, chatSessionId);
         const recentMessages = (history?.messages ?? []).slice(-6);
         const conversationWindow = recentMessages.map((m) => ({
@@ -400,18 +402,7 @@ export class ChatOrchestrator {
       return { message: `Workflow "${instance.workflowId}" is no longer registered.` };
     }
 
-    // ── STEP 7 — Extract requirements from incoming message ───────
-    // Store typed chat extractions in chatExtractedRequirements.
-    // The handler (handleCollectingInputs) merges these with RFP extractions
-    // using priority rules and conflict detection.
-    if (!instance.context.chatExtractedRequirements) {
-      instance.context.chatExtractedRequirements = {};
-    }
-    const extractedFromChat = await extractRequirementsFromMessage(message, llmGenerateFn);
-    // Accumulate chat signals (later messages win for the same field)
-    Object.assign(instance.context.chatExtractedRequirements as Record<string, string>, extractedFromChat);
-
-    // ── STEPS 1–6, 8 — Build full LLM context ────────────────────
+    // ── Build full LLM context ────────────────────────────────────
     // Use proposalRequirements (the merged flat map) for the status block.
     // This is kept in sync by handleCollectingInputs after every merge pass.
     if (!instance.context.proposalRequirements) {
@@ -572,7 +563,39 @@ export class ChatOrchestrator {
       const nextStateDef = workflow.states[nextState];
 
       if (nextStateDef?.kind === 'input') {
-        // Pause: next state requires user input before we can continue
+        // Run the new input state's handler once immediately so it can emit
+        // its entry prompt (e.g. "Here's the summary — reply yes to confirm").
+        // Without this, the state transitions silently and the user sees no
+        // follow-up message until they send the next turn.
+        const entryHandler = STATE_HANDLERS[nextState];
+        if (entryHandler) {
+          const entryCtx: HandlerContext = {
+            workdir: this.workdir,
+            namespace,
+            instance,
+            incomingMessage: message,
+            onPhase,
+            onChunk,
+            onSection,
+            onToolEvent,
+            conversationContext,
+          };
+          try {
+            const entryResult = await entryHandler(entryCtx);
+            lastResult = entryResult;
+            await updateContext(this.workdir, instance, instance.context);
+            // Entry handlers for input states must not return a signal on first
+            // entry (they just show the prompt). If they do signal, continue the
+            // loop so the auto-advance path handles it correctly.
+            if (entryResult.stateSignal) {
+              continue;
+            }
+          } catch {
+            // Entry prompt failure is non-fatal — just break and let the user
+            // trigger the next state on their own.
+          }
+          await setAwaitingInput(this.workdir, instance, true);
+        }
         break;
       }
 

@@ -34,21 +34,7 @@ import { ensureTemplateYaml } from '../templates/template-yaml-bridge.js';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
-import {
-  extractRequirementsFromKnowledge,
-  type ExtractedField,
-  type ExtractedProposalInputs,
-} from '../ingestion/extract-proposal-inputs.js';
-import {
-  chatExtractionsToStore,
-  buildMergedStore,
-  detectConflicts,
-  flattenRequirements,
-  buildConflictPrompt,
-  resolveConflictResponse,
-  type RequirementKey,
-  type RequirementStore,
-} from '../ingestion/requirement-merger.js';
+import { extractRequirementsFromKnowledge } from '../ingestion/extract-proposal-inputs.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
@@ -115,7 +101,6 @@ export interface HandlerContext {
 // ---------------------------------------------------------------------------
 
 const REQUIRED_FIELDS = ['industry', 'timeline', 'budget'] as const;
-type RequiredField = typeof REQUIRED_FIELDS[number];
 
 function getEffectiveRequirements(context: WorkflowInstance['context']): Record<string, string> {
   // Priority: confirmedRequirements > proposalRequirements (merged flat map)
@@ -130,100 +115,6 @@ function isReadyForGeneration(context: WorkflowInstance['context']): boolean {
   return REQUIRED_FIELDS.every((field) => Boolean(reqs[field]));
 }
 
-function getMissingFields(context: WorkflowInstance['context']): RequiredField[] {
-  const reqs = getEffectiveRequirements(context);
-  return REQUIRED_FIELDS.filter((field) => !reqs[field]);
-}
-
-const REQUIREMENT_QUESTIONS: Record<RequiredField, string> = {
-  industry: 'What industry is this proposal for?',
-  timeline: 'What timeline are you targeting?',
-  budget: 'Do you have a budget range in mind?',
-};
-
-/**
- * Build the requirement-asking message.
- * Acknowledges already-confirmed fields so the user feels heard and the
- * conversation feels continuous rather than starting from scratch each turn.
- */
-function buildRequirementPrompt(
-  missing: RequiredField[],
-  confirmed: Record<string, string>,
-): string {
-  const confirmedEntries = REQUIRED_FIELDS
-    .filter((f) => confirmed[f])
-    .map((f) => `• **${f}**: ${confirmed[f]}`);
-
-  const parts: string[] = [];
-
-  if (confirmedEntries.length > 0) {
-    parts.push('I already have:');
-    parts.push(...confirmedEntries);
-    parts.push('');
-  }
-
-  parts.push('I still need:');
-  parts.push(...missing.map((m) => `• ${m}`));
-  parts.push('');
-  parts.push(REQUIREMENT_QUESTIONS[missing[0]]);
-
-  return parts.join('\n');
-}
-
-/**
- * Decide how to handle an extracted field based on its confidence score.
- *
- *   ≥ 0.85  →  auto_fill  (silently populate, briefly inform user)
- *   ≥ 0.60  →  confirm    (ask user to confirm before accepting)
- *   < 0.60  →  ask        (discard extraction, ask manually — already filtered at extraction time)
- */
-type FieldDecision = 'auto_fill' | 'confirm' | 'ask';
-
-function resolveField(field: ExtractedField): FieldDecision {
-  if (field.confidence >= 0.85) return 'auto_fill';
-  if (field.confidence >= 0.6) return 'confirm';
-  return 'ask';
-}
-
-/**
- * Ask the user to confirm a medium-confidence extracted value.
- * Acknowledges already-confirmed fields and shows the supporting evidence.
- */
-function buildConfirmationPrompt(
-  field: RequiredField,
-  extracted: ExtractedField,
-  allMissing: RequiredField[],
-  confirmed: Record<string, string>,
-): string {
-  const { value, evidence } = extracted;
-  const confirmedEntries = REQUIRED_FIELDS
-    .filter((f) => confirmed[f])
-    .map((f) => `• **${f}**: ${confirmed[f]}`);
-
-  const parts: string[] = [];
-
-  if (confirmedEntries.length > 0) {
-    parts.push('I already have:');
-    parts.push(...confirmedEntries);
-    parts.push('');
-  }
-
-  const evidenceLine = evidence ? `\n\n> "${evidence}"` : '';
-  const otherMissing = allMissing.filter((f) => f !== field);
-  const suffix = otherMissing.length > 0
-    ? `\n\nI'll also need: ${otherMissing.join(', ')}.`
-    : '';
-
-  parts.push(
-    `I found that the **${field}** is **${value}** based on your documents.${evidenceLine}`,
-    '',
-    `Should I use this?${suffix}`,
-    '',
-    'Reply **yes** to confirm, **no** to skip, or type a different value.',
-  );
-
-  return parts.join('\n');
-}
 
 // ---------------------------------------------------------------------------
 // Tool descriptors available to proposal generation handlers
@@ -364,147 +255,133 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 // ---------------------------------------------------------------------------
 
 /**
- * Gate proposal generation until all required fields are collected.
+ * Collect proposal requirements through a fully LLM-driven conversation.
  *
- * Confidence-aware flow:
- *   1. On first entry, run extractRequirementsFromKnowledge and cache results.
- *   2. Process any pending confirmation response (yes / no / custom value).
- *   3. Auto-fill all high-confidence fields (≥ 0.85) not yet processed,
- *      collecting their names for a brief summary message.
- *   4. If all REQUIRED_FIELDS are satisfied → signal READY.
- *   5. For the next missing field:
- *        - Medium confidence (0.60–0.84) → ask for confirmation with evidence.
- *        - No extraction or declined     → ask manually (fallback).
+ * The LLM receives the conversation history and current requirements state
+ * and decides how to respond — extracting values, answering questions,
+ * applying corrections — returning structured JSON with updates and a reply.
+ * No regex, no keyword lists, no sticky state machines.
  */
 export async function handleCollectingInputs(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, incomingMessage } = ctx;
+  const { workdir, namespace, instance, incomingMessage, conversationContext } = ctx;
 
-  // ── Initialise context stores ─────────────────────────────────
-  if (!instance.context.confirmedRequirements) instance.context.confirmedRequirements = {};
-  if (!instance.context.declinedFields) instance.context.declinedFields = [];
-
-  const confirmed = instance.context.confirmedRequirements as Record<string, string>;
-  const declined = instance.context.declinedFields as string[];
-
-  // ── Run RFP extraction once on first entry ────────────────────
+  // ── Run RFP extraction once as seed context ───────────────────
   if (!instance.context.rfpExtractionDone) {
     try {
-      instance.context.rfpExtractedRequirements = await extractRequirementsFromKnowledge(
-        workdir,
-        namespace,
-      );
+      instance.context.rfpExtractedRequirements = await extractRequirementsFromKnowledge(workdir, namespace);
     } catch {
       instance.context.rfpExtractedRequirements = {};
     }
     instance.context.rfpExtractionDone = true;
   }
 
-  const rfpStore = (instance.context.rfpExtractedRequirements ?? {}) as ExtractedProposalInputs;
-  const chatFlat = (instance.context.chatExtractedRequirements ?? {}) as Record<string, string>;
-  const chatStore: RequirementStore = chatExtractionsToStore(chatFlat);
+  if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
+  const requirements = instance.context.proposalRequirements as Record<string, string>;
 
-  // ── Process pending conflict resolution ──────────────────────
-  const pendingConflict = instance.context.awaitingConflict as
-    | { field: RequirementKey; rfpValue: string; chatValue: string }
-    | undefined;
-
-  if (pendingConflict) {
-    instance.context.awaitingConflict = undefined;
-    const chosen = resolveConflictResponse(incomingMessage, pendingConflict);
-    if (chosen) {
-      confirmed[pendingConflict.field] = chosen;
-    }
-    // If unrecognisable, fall through and re-surface conflicts next pass
-  }
-
-  // ── Process pending rfp/manual confirmation response ─────────
-  const pending = instance.context.awaitingConfirmation as
-    | { field: string; value: string }
-    | undefined;
-
-  if (pending) {
-    instance.context.awaitingConfirmation = undefined;
-    const lower = incomingMessage.toLowerCase().trim();
-    const isYes = lower === 'yes' || lower === 'y' || lower.startsWith('yes,') || lower.startsWith('yes ');
-    const isNo = lower === 'no' || lower === 'n' || lower.startsWith('no,') || lower.startsWith('no ');
-
-    if (isYes) {
-      confirmed[pending.field] = pending.value;
-    } else if (isNo) {
-      instance.context.declinedFields = [...declined, pending.field];
-    } else {
-      // Custom override — treat the full message as the value
-      confirmed[pending.field] = incomingMessage.trim();
-    }
-  }
-
-  // ── Detect conflicts between rfp and chat ────────────────────
-  const conflicts = detectConflicts(rfpStore as RequirementStore, chatStore, confirmed);
-  if (conflicts.length > 0) {
-    const conflict = conflicts[0];
-    instance.context.awaitingConflict = {
-      field: conflict.field,
-      rfpValue: conflict.rfpValue,
-      chatValue: conflict.chatValue,
-    };
-    return { message: buildConflictPrompt(conflict) };
-  }
-
-  // ── Merge all sources → effective flat map ────────────────────
-  const mergedStore = buildMergedStore(rfpStore as RequirementStore, chatStore, confirmed);
-  const mergedFlat = flattenRequirements(mergedStore);
-
-  // ── Auto-fill high-confidence fields not yet confirmed ────────
-  const autoFilled: string[] = [];
-
-  for (const field of REQUIRED_FIELDS) {
-    if (confirmed[field] || declined.includes(field)) continue;
-    const entry = mergedStore[field];
-    if (!entry) continue;
-    if (entry.source === 'chat' || resolveField(entry as ExtractedField) === 'auto_fill') {
-      confirmed[field] = entry.value;
-      autoFilled.push(`**${field}**: ${entry.value}`);
-    }
-  }
-
-  // ── Sync proposalRequirements (flat map used by generation) ──
-  instance.context.proposalRequirements = { ...mergedFlat, ...confirmed };
-
-  // ── Ready check ───────────────────────────────────────────────
+  // ── Already complete — skip LLM call ─────────────────────────
   if (isReadyForGeneration(instance.context)) {
-    const autoFillNote = autoFilled.length > 0
-      ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
-      : '';
     return {
-      message: `${autoFillNote}Great — I have everything I need. I'll now recommend a template for your proposal.`,
+      message: "Great — I have everything I need. I'll now recommend a template for your proposal.",
       stateSignal: 'READY',
     };
   }
 
-  // ── Next missing field: confirm (medium rfp) or ask manually ─
-  const missing = getMissingFields(instance.context);
-  const nextField = missing[0];
-  const nextEntry = mergedStore[nextField];
-  const autoFillPrefix = autoFilled.length > 0
-    ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
-    : '';
+  // ── Format conversation history (include current message) ────
+  const historyLines = (conversationContext?.conversationWindow ?? [])
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`);
+  historyLines.push(`User: ${incomingMessage}`);
+  const history = historyLines.join('\n');
 
-  if (
-    nextEntry &&
-    nextEntry.source === 'rfp' &&
-    !declined.includes(nextField) &&
-    resolveField(nextEntry as ExtractedField) === 'confirm'
-  ) {
-    instance.context.awaitingConfirmation = { field: nextField, value: nextEntry.value };
-    return {
-      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry as ExtractedField, missing, confirmed),
-    };
+  const currentValues = Object.entries(requirements)
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n') || '  (none yet)';
+
+  // RFP hints are NOT given to the LLM — they are applied separately below
+  // with explicit user-visible confirmation. Giving them to the LLM caused it
+  // to silently set READY:true after only one user message.
+  const prompt = [
+    'You are collecting proposal requirements through a natural conversation.',
+    'Required fields: industry, timeline, budget.',
+    '',
+    'Currently collected:',
+    currentValues,
+    '',
+    'Conversation so far (most recent message is last):',
+    history,
+    '',
+    'Instructions:',
+    '- Respond to the LAST user message only.',
+    '- Extract values the user explicitly stated in THIS message.',
+    '- If correcting a previously given value, use the correction.',
+    '- If asking a question or for examples, answer helpfully then re-ask the same field.',
+    '- Ask for one missing field at a time. Be natural and conversational.',
+    '- Do NOT infer or assume values not stated by the user.',
+    '',
+    'Reply in EXACTLY this two-line format, nothing else:',
+    'UPDATES: {"field_name":"extracted_value_or_omit_field_if_not_stated"}',
+    'RESPONSE: your conversational reply to the user',
+    '',
+    'Use {} for UPDATES if the user provided no new field values.',
+    'Set a field in UPDATES only if the user said it explicitly in this message.',
+    'READY: true  (add this third line ONLY when industry, timeline, AND budget are all in "Currently collected")',
+  ].filter(Boolean).join('\n');
+
+  const raw = await llmGenerateFn(prompt);
+
+  // ── Parse the two-part response ───────────────────────────────
+  const updatesMatch = raw.match(/UPDATES:\s*(\{[^}]*\})/);
+  const responseMatch = raw.match(/RESPONSE:\s*([\s\S]+?)(?:\nREADY:|$)/);
+  const readyMatch = /READY:\s*true/i.test(raw);
+
+  // ── Apply explicit user-provided updates ──────────────────────
+  if (updatesMatch) {
+    try {
+      const updates = JSON.parse(updatesMatch[1]) as Record<string, string>;
+      for (const [k, v] of Object.entries(updates)) {
+        if (v && typeof v === 'string') requirements[k] = v;
+      }
+      instance.context.proposalRequirements = requirements;
+    } catch {
+      // Ignore malformed updates
+    }
   }
 
-  // No usable extraction — ask manually
-  return {
-    message: autoFillPrefix + buildRequirementPrompt(missing, confirmed),
-  };
+  // ── Auto-fill remaining fields from high-confidence RFP extraction ──
+  // Only fills fields the user hasn't provided yet, and only with ≥0.85 confidence.
+  // This runs AFTER user input is applied so user corrections always win.
+  const rfpRaw = (instance.context.rfpExtractedRequirements ?? {}) as Record<string, { value: string; confidence: number }>;
+  const autoFilled: string[] = [];
+  for (const field of REQUIRED_FIELDS) {
+    if (requirements[field]) continue; // already have it
+    const rfpEntry = rfpRaw[field];
+    if (rfpEntry?.value && (rfpEntry.confidence ?? 0) >= 0.85) {
+      requirements[field] = rfpEntry.value;
+      autoFilled.push(`**${field}**: ${rfpEntry.value}`);
+    }
+  }
+  if (autoFilled.length > 0) {
+    instance.context.proposalRequirements = requirements;
+  }
+
+  // ── Ready check ───────────────────────────────────────────────
+  // Only trust READY:true from LLM if requirements are actually complete.
+  if (isReadyForGeneration(instance.context)) {
+    const autoNote = autoFilled.length > 0
+      ? `I found these from your RFP documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
+      : '';
+    const llmReply = responseMatch?.[1]?.trim();
+    const reply = autoNote + (llmReply && !readyMatch ? llmReply + '\n\n' : '') +
+      "I have everything I need. I'll now recommend a template for your proposal.";
+    return { message: reply, stateSignal: 'READY' };
+  }
+
+  // ── Return the conversational reply ──────────────────────────
+  if (responseMatch?.[1]?.trim()) {
+    return { message: responseMatch[1].trim() };
+  }
+
+  const missing = REQUIRED_FIELDS.filter((f) => !requirements[f]);
+  return { message: `What is the ${missing[0]} for this proposal?` };
 }
 
 // ---------------------------------------------------------------------------
@@ -539,9 +416,9 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
       instance.context.selectedTemplate = undefined;
       // Fall through to re-run the analysis below
     } else {
-      // User confirmed — proceed to outline generation
+      // User confirmed template — move to final confirmation step
       instance.context.awaitingTemplateConfirmation = undefined;
-      return { message: 'Great! Proceeding to outline generation.', stateSignal: 'DONE' };
+      return { message: 'Template confirmed.', stateSignal: 'DONE' };
     }
   }
 
@@ -694,6 +571,85 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
 }
 
 // ---------------------------------------------------------------------------
+// confirm_generation handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Pause before generation begins and ask the user for explicit confirmation.
+ *
+ * Shows a summary of everything collected so far (requirements, template,
+ * detected context) so the user can verify before any LLM or plugin work runs.
+ *
+ * Flow:
+ *   1. On first entry: build summary, set awaitingGenerationConfirm = true, wait.
+ *   2. On user reply:
+ *        - yes / confirm / proceed → signal CONFIRM → generating_outline
+ *        - no / cancel / stop      → signal DECLINE → collecting_inputs
+ */
+export async function handleConfirmGeneration(ctx: HandlerContext): Promise<HandlerResult> {
+  const { instance, incomingMessage, onChunk } = ctx;
+
+  // ── Second entry: user is responding to the confirmation prompt ──────────
+  if (instance.context.awaitingGenerationConfirm) {
+    instance.context.awaitingGenerationConfirm = undefined;
+
+    const lower = incomingMessage.toLowerCase().trim();
+    const isDecline =
+      lower.startsWith('no') ||
+      lower.includes('cancel') ||
+      lower.includes('stop') ||
+      lower.includes('wait') ||
+      lower.includes('change');
+
+    if (isDecline) {
+      return {
+        message: "No problem — let me know what you'd like to adjust.",
+        stateSignal: 'DECLINE',
+      };
+    }
+
+    return {
+      message: "Great — starting proposal generation now.",
+      stateSignal: 'CONFIRM',
+    };
+  }
+
+  // ── First entry: build summary and ask for confirmation ──────────────────
+  const reqs = getEffectiveRequirements(instance.context);
+  const template = instance.context.selectedTemplate as
+    | { name?: string; structure?: string[] }
+    | undefined;
+
+  const lines: string[] = [
+    "I have everything I need to generate your proposal. Here's a summary of what I'll use:",
+    '',
+  ];
+
+  if (reqs.client)   lines.push(`• **Client:** ${reqs.client}`);
+  if (reqs.industry) lines.push(`• **Industry:** ${reqs.industry}`);
+  if (reqs.timeline) lines.push(`• **Timeline:** ${reqs.timeline}`);
+  if (reqs.budget)   lines.push(`• **Budget:** ${reqs.budget}`);
+
+  if (template?.name) {
+    lines.push(`• **Template:** ${template.name}`);
+  }
+  if (template?.structure && template.structure.length > 0) {
+    lines.push('• **Sections:**');
+    template.structure.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
+  }
+
+  lines.push('');
+  lines.push('Reply **yes** to generate the proposal, or **no** to make changes.');
+
+  const message = lines.join('\n');
+  onChunk(message);
+
+  instance.context.awaitingGenerationConfirm = true;
+
+  return { message };
+}
+
+// ---------------------------------------------------------------------------
 // generating_outline handler
 // ---------------------------------------------------------------------------
 
@@ -717,7 +673,7 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
 export async function handleGeneratingOutline(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
 
-  onPhase('Analyzing RFP');
+  onPhase('Planning proposal structure');
 
   // Read RFP document content
   let rfpContent = '';
@@ -726,7 +682,7 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
     rfpContent = await readFile(rfpPath, 'utf-8').catch(() => '');
   }
 
-  onPhase('Generating proposal structure');
+  onPhase('Building section outline (step 1 of 2)');
 
   // Use selected template structure from recommendation step (if available)
   const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
@@ -907,6 +863,38 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
 }
 
 // ---------------------------------------------------------------------------
+// Proposal ready message builder
+// ---------------------------------------------------------------------------
+
+function buildProposalReadyMessage(
+  instance: WorkflowInstance,
+  namespace: string,
+  artifactId: string,
+): string {
+  const template = instance.context.selectedTemplate as { structure?: string[] } | undefined;
+  const sections = template?.structure ?? [];
+
+  const parts = [
+    `Your proposal **${artifactId}** is ready for **${namespace}**.`,
+  ];
+
+  if (sections.length > 0) {
+    parts.push('', '**Sections generated:**');
+    parts.push(...sections.map((s, i) => `${i + 1}. ${s}`));
+  }
+
+  parts.push(
+    '',
+    'You can ask me to improve any section — for example:',
+    '- "Make the Executive Summary more compelling"',
+    '- "Add more detail to the pricing section"',
+    '- "Rewrite the technical approach to emphasise our cloud experience"',
+  );
+
+  return parts.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // qa_review handler
 // ---------------------------------------------------------------------------
 
@@ -943,7 +931,7 @@ export async function handleQaReview(ctx: HandlerContext): Promise<HandlerResult
   // ── No contradictions → proceed immediately ───────────────────
   if (contradictions.length === 0) {
     return {
-      message: 'Your proposal is ready.',
+      message: buildProposalReadyMessage(instance, namespace, artifactId),
       stateSignal: 'DONE',
       actions: { openProposalUrl: `/proposals/${namespace}/${artifactId}` },
     };
@@ -982,7 +970,7 @@ export async function handleQaReview(ctx: HandlerContext): Promise<HandlerResult
       instance.context.qaContradictions = [];
 
       return {
-        message: 'Done — I\'ve aligned the inconsistent values across all sections.',
+        message: `I've aligned the inconsistent values across all sections.\n\n${buildProposalReadyMessage(instance, namespace, artifactId)}`,
         stateSignal: 'DONE',
         actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
       };
@@ -995,9 +983,9 @@ export async function handleQaReview(ctx: HandlerContext): Promise<HandlerResult
     }
   }
 
-  // User declined
+  // User declined fixes
   return {
-    message: 'No problem — the proposal is ready as-is.',
+    message: buildProposalReadyMessage(instance, namespace, artifactId),
     stateSignal: 'DONE',
     actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
   };

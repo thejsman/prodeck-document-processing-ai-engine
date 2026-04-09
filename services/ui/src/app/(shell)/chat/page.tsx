@@ -11,6 +11,7 @@ import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { ChatContextPanel } from '@/components/chat/ChatContextPanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
 import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
+import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -23,29 +24,6 @@ interface Message {
   metadata?: { proposalArtifactId?: string };
 }
 
-/** Parse ## headings from markdown into ProposalSection array for history rendering. */
-function parseProposalSections(content: string, artifactId: string): ProposalSection[] {
-  const sections: ProposalSection[] = [];
-  let currentHeading: string | null = null;
-  const currentLines: string[] = [];
-
-  for (const line of content.split('\n')) {
-    const m = line.match(/^## (.+)$/);
-    if (m) {
-      if (currentHeading) {
-        sections.push({ section: currentHeading, content: currentLines.join('\n').trim(), artifactId });
-        currentLines.length = 0;
-      }
-      currentHeading = m[1].trim();
-    } else if (currentHeading) {
-      currentLines.push(line);
-    }
-  }
-  if (currentHeading) {
-    sections.push({ section: currentHeading, content: currentLines.join('\n').trim(), artifactId });
-  }
-  return sections;
-}
 
 // ── Page ───────────────────────────────────────────────────────────
 
@@ -115,7 +93,13 @@ export default function ChatPage() {
   const rafRef = useRef<number | null>(null);
   const revealedLenRef = useRef(0);
 
-  const { chunks, phase, isStreaming, error, sections, startStream, reset } = useSSE(apiKey, '/api/chat/message');
+  const { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, startStream, reset } = useSSE(apiKey, '/api/chat/message');
+
+  // Once a phase label arrives in a stream, stay in "proposal stream" mode
+  // for the rest of that stream so the progress bar never flickers back to dots.
+  const hadPhaseRef = useRef(false);
+  if (isStreaming && phase) hadPhaseRef.current = true;
+  if (!isStreaming) hadPhaseRef.current = false;
 
   const fetchInsights = useCallback((ns: string) => {
     fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
@@ -153,11 +137,14 @@ export default function ChatPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [namespace, apiKey, fetchInsights, reset]);
 
-  // Refresh insights after each query completes (isStreaming: true → false)
+  // Refresh insights and restore focus after each query completes (isStreaming: true → false)
   const wasStreamingRef = useRef(false);
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
       fetchInsights(namespace || 'default');
+      // Re-focus the composer so the user can type immediately after the AI replies.
+      // setTimeout defers until after React finishes re-enabling the disabled textarea.
+      setTimeout(() => textareaRef.current?.focus(), 0);
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, namespace, fetchInsights]);
@@ -268,6 +255,10 @@ export default function ChatPage() {
 
   const hasContent = messages.length > 0 || !!chunks || sections.length > 0;
 
+  // True once any proposal-specific signal arrives during a stream.
+  // Used to switch from thinking dots → progress bar without overlap.
+  const isProposalStream = sections.length > 0 || toolEvents.length > 0 || hadPhaseRef.current;
+
   return (
     <div className="chat-v2">
       {/* ── Header ── */}
@@ -335,26 +326,42 @@ export default function ChatPage() {
                     <div className="chat-v2-bubble">
                       {m.role === 'assistant' ? (
                         (() => {
-                          // Prefer in-memory sections (from active stream), then
-                          // reconstruct from stored metadata + markdown on history load
-                          const historySections = !m.sections && m.metadata?.proposalArtifactId
-                            ? parseProposalSections(m.content, m.metadata.proposalArtifactId)
-                            : null;
-                          const displaySections = m.sections ?? (historySections?.length ? historySections : null);
-                          return displaySections ? (
-                            <div className="proposal-sections-wrap">
-                              {displaySections.map((s) => (
-                                <ProposalSectionBlock
-                                  key={s.section}
-                                  section={s.section}
-                                  content={s.content}
-                                  artifactId={s.artifactId}
-                                  namespace={namespace || 'default'}
-                                  apiKey={apiKey}
-                                />
-                              ))}
-                            </div>
-                          ) : (
+                          // In-memory sections from active stream
+                          if (m.sections?.length) {
+                            return (
+                              <div className="proposal-sections-wrap">
+                                {m.sections.map((s) => (
+                                  <ProposalSectionBlock
+                                    key={s.section}
+                                    section={s.section}
+                                    content={s.content}
+                                    artifactId={s.artifactId}
+                                    namespace={namespace || 'default'}
+                                    apiKey={apiKey}
+                                  />
+                                ))}
+                              </div>
+                            );
+                          }
+                          // History load: show persistent proposal link if artifact exists
+                          const artifactId = m.metadata?.proposalArtifactId as string | undefined;
+                          if (artifactId) {
+                            return (
+                              <div className="prose">
+                                <ReactMarkdown>{m.content}</ReactMarkdown>
+                                <div className="proposal-history-link-card">
+                                  <span className="proposal-history-link-label">Proposal generated</span>
+                                  <a
+                                    href={`/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(namespace || 'default')}`}
+                                    className="proposal-done-link proposal-done-link--primary"
+                                  >
+                                    View proposal ↗
+                                  </a>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
                             <div className="prose">
                               <ReactMarkdown>{m.content}</ReactMarkdown>
                             </div>
@@ -367,42 +374,89 @@ export default function ChatPage() {
                   </div>
                 ))}
 
-                {/* Live streaming response — section blocks */}
-                {sections.length > 0 && (
+                {/* ── Proposal generation: progress bar + sections + done card ── */}
+                {(isProposalStream || (!isStreaming && sections.length > 0)) && (
                   <div
                     className="chat-v2-message chat-v2-message--assistant"
                     style={{ '--msg-i': messages.length } as React.CSSProperties}
                   >
                     <div className="chat-v2-avatar">AI</div>
                     <div className="chat-v2-bubble chat-v2-bubble--sections">
-                      <div className="proposal-sections-wrap">
-                        {sections.map((s) => (
-                          <ProposalSectionBlock
-                            key={s.section}
-                            section={s.section}
-                            content={s.content}
-                            artifactId={s.artifactId}
-                            namespace={namespace || 'default'}
-                            apiKey={apiKey}
-                          />
-                        ))}
-                        {isStreaming && (
-                          <div className="psb psb--skeleton">
-                            <div className="psb-header">
-                              <div className="psb-skeleton-title" />
+
+                      {/* Progress bar — always shown while streaming */}
+                      {isStreaming && (
+                        <ProposalProgressBar
+                          phase={phase}
+                          toolEvents={toolEvents}
+                          sectionCount={sections.length}
+                          isStreaming={isStreaming}
+                        />
+                      )}
+
+                      {/* Section blocks */}
+                      {sections.length > 0 && (
+                        <div className="proposal-sections-wrap">
+                          {sections.map((s) => (
+                            <ProposalSectionBlock
+                              key={s.section}
+                              section={s.section}
+                              content={s.content}
+                              artifactId={s.artifactId}
+                              namespace={namespace || 'default'}
+                              apiKey={apiKey}
+                            />
+                          ))}
+                          {isStreaming && (
+                            <div className="psb psb--skeleton">
+                              <div className="psb-header">
+                                <div className="psb-skeleton-title" />
+                              </div>
+                              <div className="psb-skeleton-lines">
+                                <div className="psb-skeleton-line" />
+                                <div className="psb-skeleton-line psb-skeleton-line--short" />
+                              </div>
                             </div>
-                            <div className="psb-skeleton-lines">
-                              <div className="psb-skeleton-line" />
-                              <div className="psb-skeleton-line psb-skeleton-line--short" />
+                          )}
+                        </div>
+                      )}
+
+                      {/* Completion message + improvement prompts + link */}
+                      {!isStreaming && sections.length > 0 && (
+                        <div className="proposal-done-footer">
+                          {chunks && (
+                            <div className="prose proposal-done-message">
+                              <ReactMarkdown>{chunks}</ReactMarkdown>
                             </div>
+                          )}
+                          <div className="proposal-done-actions">
+                            <a href="/proposal" className="proposal-done-link proposal-done-link--primary">
+                              Open in editor
+                            </a>
+                            {doneActions?.openProposalUrl && (
+                              <a href={doneActions.openProposalUrl} className="proposal-done-link">
+                                View proposal
+                              </a>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Live streaming response — plain text (non-section streams) */}
+                {/* ── Thinking dots — non-proposal streams waiting for first chunk ── */}
+                {isStreaming && !chunks && !isProposalStream && (
+                  <div className="chat-v2-message chat-v2-message--assistant">
+                    <div className="chat-v2-avatar">AI</div>
+                    <div className="chat-v2-bubble chat-v2-bubble--thinking">
+                      <span className="chat-thinking-dot" />
+                      <span className="chat-thinking-dot" />
+                      <span className="chat-thinking-dot" />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Live streaming response — plain text (non-section streams) ── */}
                 {chunks && sections.length === 0 && (
                   <div
                     className="chat-v2-message chat-v2-message--assistant"
@@ -424,26 +478,8 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {/* Thinking / phase indicator — streaming started but no chunks yet */}
-                {isStreaming && !chunks && (
-                  <div className="chat-v2-message chat-v2-message--assistant">
-                    <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble chat-v2-bubble--thinking">
-                      {phase ? (
-                        <span className="chat-phase-label">{phase}…</span>
-                      ) : (
-                        <>
-                          <span className="chat-thinking-dot" />
-                          <span className="chat-thinking-dot" />
-                          <span className="chat-thinking-dot" />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Phase label while tokens are already streaming */}
-                {isStreaming && chunks && phase && (
+                {/* Phase label while plain text tokens are already streaming */}
+                {isStreaming && chunks && sections.length === 0 && phase && (
                   <div className="chat-phase-strip">{phase}…</div>
                 )}
 

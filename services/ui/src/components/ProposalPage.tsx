@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type {
   ProposalDocument,
   ProposalFile,
@@ -35,6 +36,7 @@ import { ProposalSectionPreview } from './ProposalSectionPreview';
 
 export function ProposalPage() {
   const { apiKey } = useAuth();
+  const searchParams = useSearchParams();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const [currentDocument, setCurrentDocument] =
@@ -63,6 +65,23 @@ export function ProposalPage() {
     original: string;
     rewritten: string;
   } | null>(null);
+
+  // Auto-load proposal from URL query params (?artifact=...&namespace=...)
+  useEffect(() => {
+    const artifact = searchParams.get('artifact');
+    if (!artifact || !apiKey) return;
+    const ns = searchParams.get('namespace');
+    // The API resolves namespace-prefixed filenames via "ns::file.md" format
+    const fileKey = ns ? `${ns}::${artifact}` : artifact;
+    fetchProposalContent(apiKey, fileKey)
+      .then((doc) => {
+        setCurrentDocument(doc);
+        return fetchProposalMeta(apiKey, fileKey).catch(() => null);
+      })
+      .then((m) => { if (m) setMeta(m); })
+      .catch(() => { /* silently ignore — user can load manually */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey, searchParams]);
 
   // Derive the current proposal file name from document metadata
   function currentFileName(): string | null {

@@ -1,7 +1,12 @@
 'use client';
 
+import { Suspense } from 'react';
 import { ProposalPage } from '@/components/ProposalPage';
 
 export default function ProposalRoute() {
-  return <ProposalPage />;
+  return (
+    <Suspense>
+      <ProposalPage />
+    </Suspense>
+  );
 }
