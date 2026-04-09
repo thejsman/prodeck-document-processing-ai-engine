@@ -492,31 +492,43 @@ Return exactly this JSON — every field must use REAL data extracted from the p
 // ── Reference design extraction (Pass 0.5) ───────────────────────────────────
 
 function buildReferenceDesignExtractionPrompt(dominantColors?: string[]): string {
-  // Split into light (backgrounds) and brand colors based on ordering convention
-  const lightColors = dominantColors?.slice(0, 3) ?? [];
-  const brandColorsList = dominantColors?.slice(3) ?? [];
   const allColors = dominantColors ?? [];
 
+  // The first color in the list is always the background candidate (dark or light)
+  // Light colors (index 0-2 when light image) or dark color (index 0 when dark image)
+  // Vivid/accent colors follow
+  const bgCandidate = allColors[0] ?? null;
+  const accentCandidates = allColors.slice(1);
+
+  // Detect dark image: bg candidate luminance < 60
+  let isDarkImage = false;
+  if (bgCandidate) {
+    const h = bgCandidate.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    isDarkImage = (0.299 * r + 0.587 * g + 0.114 * b) < 60;
+  }
+
   const colorPaletteBlock = allColors.length > 0
-    ? `\nACTUAL COLORS PIXEL-SAMPLED FROM THE IMAGE — use ONLY these hex values, assign roles:
+    ? `\nACTUAL COLORS PIXEL-SAMPLED FROM THE IMAGE — use ONLY these exact hex values:
 
-LIGHT/BACKGROUND COLORS (use for background, surface, text on dark):
-${lightColors.length > 0 ? lightColors.map((c, i) => `  ${i + 1}. ${c}`).join('\n') : '  (none detected)'}
+BACKGROUND COLOR (page canvas — ${isDarkImage ? 'DARK image detected' : 'LIGHT image detected'}):
+  ${bgCandidate ?? '(none)'}
 
-BRAND/ACCENT COLORS (use for primary, secondary, accent, text):
-${brandColorsList.length > 0 ? brandColorsList.map((c, i) => `  ${i + 1}. ${c}`).join('\n') : '  (none detected)'}
+BRAND / ACCENT COLORS (vivid, sorted by saturation — most vivid first):
+${accentCandidates.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}
 
 RULES — STRICTLY FOLLOW:
-- "background": MUST be one of the LIGHT colors above (the page canvas)
-- "surface": MUST also be a light color (same as background if only one light color)
-- "primary": MUST be one of the BRAND colors (the most striking headline/logo color)
-- "secondary": another brand color
-- "accent": the CTA/button color from brand colors
-- "text": darkest available color for text on light background
-- "textMuted": a mid-tone color
-- Do NOT pick a dark color as background if light colors exist in the list
-- Do NOT invent hex values — use ONLY values from the lists above\n`
-    : `\nSample exact hex values from the image. "primary" = brand color (NOT background). "background" = the light canvas.\n`;
+- "background": use the BACKGROUND COLOR above (${bgCandidate ?? 'pick darkest from accents'})
+- "surface": same as background, or slightly lighter/darker variant from the list
+- "primary": pick the MOST VIVID/STRIKING brand color from BRAND/ACCENT list (the neon, the hero accent, the logo color)
+- "secondary": second most prominent brand color from the list
+- "accent": CTA/button color — pick the brightest or most contrasting from the list
+- "text": ${isDarkImage ? '"#ffffff" or brightest color for dark background' : '"#1a1a1a" or darkest for light background'}
+- "textMuted": ${isDarkImage ? 'a lighter muted tone' : 'a mid-grey tone'}
+- Do NOT invent hex values — ONLY use values from the lists above\n`
+    : `\nSample exact hex values from the image. "primary" = the most vivid brand accent. "background" = the page canvas.\n`;
 
   return `You are a brand designer. Analyze the attached image.
 ${colorPaletteBlock}
@@ -2369,13 +2381,85 @@ export class MicrositeGeneratorAgent implements Agent {
         console.warn('[microsite-agent] Pass 0.5: PDF reference files cannot be analyzed visually — skipping design extraction');
         return null;
       }
-      if (referenceFile.dominantColors?.length) {
-        console.log(`[microsite-agent] Pass 0.5: canvas-extracted colors — ${referenceFile.dominantColors.join(', ')}`);
+      const colors = referenceFile.dominantColors ?? [];
+      if (colors.length) {
+        console.log(`[microsite-agent] Pass 0.5: canvas-extracted colors — bg:${colors[0]} brand:[${colors.slice(1).join(', ')}]`);
       }
-      const prompt = `DESIGN_IMAGE:${referenceFile.base64}\n\n${buildReferenceDesignExtractionPrompt(referenceFile.dominantColors)}`;
+
+      // ── Fast path: deterministic role assignment from canvas-extracted hex codes ──
+      // This avoids adding a 6th concurrent Python/LLM subprocess during warmup, which
+      // was throttling the brief, section-plan, and hero calls and causing timeouts.
+      // Canvas extraction already pixel-samples the image and sorts by saturation, so
+      // we can assign roles directly without a Claude call.
+      if (colors.length >= 2) {
+        const bg    = colors[0];
+        const bgLum = hexLuminance(bg);
+        const isDark = bgLum < 128;
+
+        // Canvas ordering differs by image type:
+        //   Dark  image: [darkBg, vivid0, vivid1, vivid2, brand0, ...]
+        //   Light image: [light0, light1, light2, vivid0, vivid1, brand0, ...]
+        // For light images colors[1..2] are more light backgrounds, not brand accents.
+        // The first vivid/brand accent starts at index 3 for light, index 1 for dark.
+        const brandStart = isDark ? 1 : 3;
+
+        // Among the next 4 positions, pick the one with the most hue contrast against
+        // the background. This ensures brand accents (e.g. magenta on cream) rank above
+        // same-family vivid colors (e.g. gold on cream) even if gold has higher saturation.
+        const hexHue = (hex: string): number => {
+          const h = hex.replace('#', '');
+          if (h.length < 6) return 0;
+          const r = parseInt(h.slice(0,2),16)/255;
+          const g = parseInt(h.slice(2,4),16)/255;
+          const b = parseInt(h.slice(4,6),16)/255;
+          const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min;
+          if (d === 0) return 0;
+          let hue = max===r ? 60*((g-b)/d%6) : max===g ? 60*((b-r)/d+2) : 60*((r-g)/d+4);
+          return (hue+360)%360;
+        };
+        const hueDist = (h1: number, h2: number) => { const d=Math.abs(h1-h2); return Math.min(d,360-d); };
+        const bgHue = hexHue(bg);
+
+        // Collect up to 4 vivid candidates starting at brandStart
+        const candidates = colors.slice(brandStart, brandStart + 4).filter(Boolean);
+        // Sort by hue distance from bg descending — most contrasting hue = primary brand accent
+        const sorted = [...candidates].sort((a,b) => hueDist(hexHue(b),bgHue) - hueDist(hexHue(a),bgHue));
+
+        const primary   = sorted[0]                ?? colors[brandStart] ?? colors[1];
+        const secondary = candidates.find(c => c !== primary) ?? primary;
+        const accent    = candidates.find(c => c !== primary && c !== secondary) ?? primary;
+        const surface   = bg;
+
+        console.log(`[microsite-agent] Pass 0.5: hue contrast sort — bgHue=${bgHue.toFixed(0)}° candidates=${candidates.map(c=>`${c}(${hueDist(hexHue(c),bgHue).toFixed(0)}°)`).join(',')}`);
+
+        const text      = isDark ? '#ffffff' : '#1a1a1a';
+        const textMuted = isDark ? '#a0a0a0' : '#555555';
+
+        const tokens: ReferenceDesign = {
+          colors: { primary, secondary, accent, background: bg, surface, text, textMuted },
+          typography: {
+            headingFont: 'sans-serif',
+            bodyFont: 'sans-serif',
+            headingWeight: '700',
+            bodyWeight: '400',
+            headingStyle: 'sans-serif',
+            mood: isDark ? 'bold' : 'modern',
+          },
+          style: {
+            borderRadius: 'soft',
+            spacing: 'comfortable',
+            vibe: `${isDark ? 'Dark' : 'Light'} brand palette — primary ${primary}`,
+          },
+        };
+        console.log(`[microsite-agent] Pass 0.5: design tokens assigned — primary=${primary}, bg=${bg}, dark=${isDark}`);
+        return tokens;
+      }
+
+      // ── Slow path: no canvas colors — fall back to LLM call with 15 s timeout ──
+      const prompt = `DESIGN_IMAGE:${referenceFile.base64}\n\n${buildReferenceDesignExtractionPrompt()}`;
       const result = await Promise.race([
         generateTool.run({ query: prompt, content: '' }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
       ]);
       if (!result) {
         console.warn('[microsite-agent] Pass 0.5: design extraction timed out — continuing without reference tokens');
@@ -2390,7 +2474,7 @@ export class MicrositeGeneratorAgent implements Agent {
         console.warn('[microsite-agent] Pass 0.5: design extraction returned invalid JSON — continuing without reference tokens');
         return null;
       }
-      console.log(`[microsite-agent] Pass 0.5: design extraction complete — vibe="${parsed.style.vibe}", primary=${parsed.colors.primary}, bg=${parsed.colors.background}, secondary=${parsed.colors.secondary}`);
+      console.log(`[microsite-agent] Pass 0.5: design extraction complete — vibe="${parsed.style.vibe}", primary=${parsed.colors.primary}, bg=${parsed.colors.background}`);
       return parsed;
     } catch (err) {
       console.warn('[microsite-agent] Pass 0.5: design extraction failed —', err instanceof Error ? err.message : String(err));
@@ -2489,6 +2573,7 @@ export class MicrositeGeneratorAgent implements Agent {
     const brandImage = (meta.brandImage as string | undefined) ?? '';
     const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
     const referenceFile = (meta.referenceFile as ReferenceFile | undefined) ?? null;
+    console.log(`[microsite-agent] referenceFile: ${referenceFile ? `fileName=${referenceFile.fileName}, mediaType=${referenceFile.mediaType}, dominantColors=${referenceFile.dominantColors?.length ?? 0}` : 'NOT attached'}`);
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -3130,6 +3215,22 @@ export class MicrositeGeneratorAgent implements Agent {
             borderRadiusStyle: extractedTokens.components.borderRadius,
             themeClass: extractedTokens.themeClass,
           };
+        }
+
+        // Apply reference design tokens to brand when Pass 0.5 extracted them
+        // and no full design prompt (extractedTokens) was provided.
+        if (referenceDesign && !extractedTokens && layoutAST) {
+          const ast = layoutAST as Record<string, unknown>;
+          const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
+          const cssVars = referenceDesignToCssVars(referenceDesign);
+          ast.brand = {
+            ...existingBrand,
+            primaryColor: referenceDesign.colors.primary,
+            secondaryColor: referenceDesign.colors.secondary,
+            overrideTheme: true,
+            extractedCssVariables: cssVars,
+          };
+          console.log(`[microsite-agent] Pass 0.5: applied reference design to brand — primary=${referenceDesign.colors.primary}, bg=${referenceDesign.colors.background}`);
         }
 
         // Section count validation

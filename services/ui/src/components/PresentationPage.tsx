@@ -2031,37 +2031,62 @@ export function PresentationPage() {
                                   if (!ctx) { setReferenceFile({ base64, mediaType: file.type, fileName: file.name }); return; }
                                   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                                   const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                  // Quantize: bucket RGB into 24-step bins, count occurrences
-                                  const toHex = (v: number) => {
-                                    // clamp 0-255 then convert — prevents overflow to 3-char hex
-                                    const clamped = Math.min(255, Math.max(0, v));
-                                    return clamped.toString(16).padStart(2, "0");
+                                  const toHex = (v: number) => Math.min(255, Math.max(0, v)).toString(16).padStart(2, "0");
+                                  // Saturation helper — how vivid is a color (0=grey, 1=fully saturated)
+                                  const saturation = (r: number, g: number, b: number) => {
+                                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                                    return max === 0 ? 0 : (max - min) / max;
                                   };
-                                  const buckets = new Map<string, { r: number; g: number; b: number; count: number }>();
+                                  // Bucket pixels into 24-step bins — track count AND max saturation seen
+                                  const buckets = new Map<string, { r: number; g: number; b: number; count: number; sat: number }>();
                                   for (let i = 0; i < data.length; i += 4) {
-                                    const a = data[i + 3];
-                                    if (a < 128) continue; // skip transparent
-                                    // Clamp to 255 before quantizing to avoid overflow
+                                    if (data[i + 3] < 128) continue;
                                     const r = Math.min(255, Math.round(data[i] / 24) * 24);
                                     const g = Math.min(255, Math.round(data[i + 1] / 24) * 24);
                                     const b = Math.min(255, Math.round(data[i + 2] / 24) * 24);
+                                    const sat = saturation(r, g, b);
                                     const key = `${r},${g},${b}`;
                                     const entry = buckets.get(key);
-                                    if (entry) { entry.count++; } else { buckets.set(key, { r, g, b, count: 1 }); }
+                                    if (entry) { entry.count++; entry.sat = Math.max(entry.sat, sat); }
+                                    else { buckets.set(key, { r, g, b, count: 1, sat }); }
                                   }
-                                  // Sort by frequency, take top 10
-                                  const sorted = [...buckets.values()].sort((a, b) => b.count - a.count);
-                                  // Separate light colors (potential backgrounds) from brand colors
-                                  const lightColors: string[] = [];
-                                  const brandColors: string[] = [];
-                                  for (const { r, g, b } of sorted.slice(0, 12)) {
+                                  const all = [...buckets.values()];
+                                  // Sort by frequency for background/dominant detection
+                                  const byFreq = [...all].sort((a, b) => b.count - a.count);
+                                  // Sort by perceptual vividness = saturation × brightness.
+                                  // HSV saturation alone is 1.0 for near-black colors (e.g. #000018 = R0 G0 B24),
+                                  // which would rank dark navies above magenta. Multiplying by min(lum/128, 1)
+                                  // penalises dark colors so only truly bright+saturated accents rank first.
+                                  const bySat = [...all].map(c => {
+                                    const lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+                                    return { ...c, lum, vivid: c.sat * Math.min(lum / 128, 1) };
+                                  }).filter(c => c.sat > 0.35 && c.vivid > 0.2)
+                                    .sort((a, b) => b.vivid - a.vivid);
+
+                                  const lightColors: string[] = [];   // backgrounds (high luminance)
+                                  const darkColors: string[] = [];    // dark backgrounds
+                                  const brandColors: string[] = [];   // mid-tone frequent colors
+                                  const vividColors: string[] = [];   // high saturation accents
+
+                                  // Collect vivid colors first (these are neon accents regardless of frequency)
+                                  for (const { r, g, b } of bySat.slice(0, 4)) {
+                                    vividColors.push(`#${toHex(r)}${toHex(g)}${toHex(b)}`);
+                                  }
+                                  // Classify frequent colors by luminance
+                                  for (const { r, g, b } of byFreq.slice(0, 14)) {
                                     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
                                     const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-                                    if (lum > 180) { lightColors.push(hex); } // light/cream/white
-                                    else if (lum > 15) { brandColors.push(hex); } // skip near-black
+                                    if (lum > 180) { if (lightColors.length < 3) lightColors.push(hex); }
+                                    else if (lum < 30) { if (darkColors.length < 2) darkColors.push(hex); }
+                                    else { if (brandColors.length < 4) brandColors.push(hex); }
                                   }
-                                  // dominantColors: background candidates first, then brand colors
-                                  const dominantColors = [...lightColors.slice(0, 3), ...brandColors.slice(0, 6)];
+
+                                  // Determine if this is a dark-background image
+                                  const isDarkImage = lightColors.length === 0;
+                                  // Layout: [bg candidates] [vivid accents] [mid-tone brand]
+                                  const dominantColors = isDarkImage
+                                    ? [...darkColors.slice(0, 1), ...vividColors.slice(0, 4), ...brandColors.slice(0, 3)]
+                                    : [...lightColors, ...vividColors.slice(0, 3), ...brandColors.slice(0, 3)];
                                   setReferenceFile({ base64, mediaType: file.type, fileName: file.name, dominantColors });
                                 } catch {
                                   setReferenceFile({ base64, mediaType: file.type, fileName: file.name });
