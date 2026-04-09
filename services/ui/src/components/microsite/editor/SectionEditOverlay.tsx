@@ -1311,51 +1311,6 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             {section.sectionType}
           </span>
 
-          {/* Size controls — title and body text independently */}
-          {(() => {
-            const STEP = 0.25;
-            const MIN = 0.5;
-            const MAX = 2.0;
-            const scaleGroup = (fieldKey: '__titleScale' | '__contentScale', currentScale: number, label: string) => {
-              const dec = Math.max(MIN, Math.round((currentScale - STEP) * 100) / 100);
-              const inc = Math.min(MAX, Math.round((currentScale + STEP) * 100) / 100);
-              const btn = (ch: string, next: number, disabled: boolean) => (
-                <button
-                  key={ch}
-                  disabled={disabled}
-                  onClick={() => ctx.updateField(section.id, fieldKey, next)}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: 100,
-                    border: 'none',
-                    background: disabled ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.9)',
-                    color: disabled ? '#94a3b8' : '#475569',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: disabled ? 'not-allowed' : 'pointer',
-                    lineHeight: 1,
-                  }}
-                >{ch}</button>
-              );
-              return (
-                <div key={fieldKey} style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(255,255,255,0.12)', borderRadius: 100, padding: '2px 5px', backdropFilter: 'blur(8px)' }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: '#64748b', letterSpacing: '0.04em', fontFamily: 'system-ui, -apple-system, sans-serif', paddingLeft: 2 }}>{label}</span>
-                  {btn('−', dec, currentScale <= MIN)}
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#475569', minWidth: 26, textAlign: 'center', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-                    {Math.round(currentScale * 100)}%
-                  </span>
-                  {btn('+', inc, currentScale >= MAX)}
-                </div>
-              );
-            };
-            return (
-              <>
-                {scaleGroup('__titleScale', section.titleScale ?? 1, 'T')}
-                {scaleGroup('__contentScale', section.contentScale ?? 1, 'B')}
-              </>
-            );
-          })()}
-
           {/* AI quick-actions — single dropdown to keep toolbar compact */}
           {onAiAction && (
             <div style={{ position: 'relative' }}>
