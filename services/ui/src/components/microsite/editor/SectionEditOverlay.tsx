@@ -1288,7 +1288,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             zIndex: 20000,
             display: 'flex',
             gap: 4,
-            alignItems: 'flex-start',
+            alignItems: 'center',
           }}
           onClick={e => e.stopPropagation()}
         >
@@ -1305,7 +1305,6 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
               textTransform: 'uppercase',
               fontFamily: 'system-ui, -apple-system, sans-serif',
               backdropFilter: 'blur(8px)',
-              alignSelf: 'center',
             }}
           >
             {section.sectionType}
@@ -1319,47 +1318,61 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                 <div
                   style={{
                     position: 'absolute',
-                    top: '100%',
+                    top: 'calc(100% + 6px)',
                     left: 0,
-                    marginTop: 4,
-                    background: 'rgba(15,18,30,0.97)',
-                    backdropFilter: 'blur(12px)',
-                    border: '1px solid rgba(99,102,241,0.25)',
-                    borderRadius: 8,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                    background: '#fff',
+                    border: `1px solid ${ACCENT}28`,
+                    borderRadius: 10,
+                    boxShadow: `0 8px 24px rgba(0,0,0,0.1), 0 0 0 1px ${ACCENT}10`,
                     overflow: 'hidden',
-                    minWidth: 160,
+                    minWidth: 172,
                     zIndex: 20001,
                     fontFamily: 'system-ui, -apple-system, sans-serif',
                   }}
                 >
+                  <div style={{ padding: '7px 12px 5px', borderBottom: `1px solid ${ACCENT}18` }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: ACCENT, letterSpacing: '0.07em', textTransform: 'uppercase' }}>✦ AI Actions</span>
+                  </div>
                   {[
-                    { label: '✎ Rewrite', instruction: 'Rewrite this section with improved copy' },
-                    { label: '✂ Shorten', instruction: 'Make this section more concise' },
-                    { label: '↕ Expand', instruction: 'Expand this section with more detail' },
-                    { label: '✦ Restyle', instruction: 'Restyle this section — make it more visually striking' },
-                  ].map(({ label, instruction }) => (
+                    { icon: '✎', label: 'Rewrite',  desc: 'Improve copy',         instruction: 'Rewrite this section with improved copy' },
+                    { icon: '✂', label: 'Shorten',  desc: 'Make concise',         instruction: 'Make this section more concise' },
+                    { icon: '↕', label: 'Expand',   desc: 'Add more detail',      instruction: 'Expand this section with more detail' },
+                    { icon: '◈', label: 'Restyle',  desc: 'New visual treatment', instruction: 'Restyle this section — make it more visually striking' },
+                  ].map(({ icon, label, desc, instruction }) => (
                     <button
                       key={label}
                       onClick={() => { onAiAction(section.id, instruction); setActivePanel(null); }}
                       style={{
-                        display: 'block',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
                         width: '100%',
-                        padding: '8px 12px',
+                        padding: '7px 12px',
                         border: 'none',
                         background: 'transparent',
-                        color: '#e2e8f0',
+                        color: '#1e293b',
                         fontSize: 12,
                         fontWeight: 500,
                         cursor: 'pointer',
                         textAlign: 'left',
+                        whiteSpace: 'nowrap',
                         transition: 'background 0.1s',
                         fontFamily: 'inherit',
                       }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.2)'; }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${ACCENT}12`; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                     >
-                      {label}
+                      <span style={{
+                        width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                        background: `${ACCENT}18`,
+                        color: ACCENT, fontSize: 13,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700,
+                      }}>{icon}</span>
+                      <span>
+                        <span style={{ display: 'block', fontWeight: 600, color: '#1e293b', fontSize: 12 }}>{label}</span>
+                        <span style={{ display: 'block', fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{desc}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
