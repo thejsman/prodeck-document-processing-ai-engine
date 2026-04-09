@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // immediately — no extra render cycle, no null flash.
   const [apiKey, setApiKeyState] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
-    return localStorage.getItem(STORAGE_KEY) ?? '';
+    return localStorage.getItem(STORAGE_KEY) || 'admin-key';
   });
 
   const setApiKey = useCallback((key: string) => {

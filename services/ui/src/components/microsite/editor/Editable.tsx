@@ -110,10 +110,18 @@ export function Editable({
   const [slashSelected, setSlashSelected] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [inputRect, setInputRect] = useState<DOMRect | null>(null);
+  const [hovered, setHovered] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
   const filteredCmdsRef = useRef<typeof SLASH_COMMANDS>([]);
   const applySlashCommandRef = useRef<(cmdId: string) => void>(() => {});
   const toolbarWidth = 380; // estimated toolbar width for clamping
+
+  // Determine which scale field this element controls, based on its fieldPath
+  const sizeKey: '__titleScale' | '__contentScale' | null = (() => {
+    if (['headline', 'title', 'heading'].includes(fieldPath)) return '__titleScale';
+    if (['body', 'subheadline', 'subtitle', 'subhead'].includes(fieldPath)) return '__contentScale';
+    return null;
+  })();
 
   useEffect(() => setMounted(true), []);
 
@@ -346,12 +354,14 @@ export function Editable({
         transition: 'outline-color 0.15s, outline-offset 0.15s',
       }}
       onMouseEnter={e => {
+        setHovered(true);
         if (!isSelected && !editing) {
           (e.currentTarget as HTMLElement).style.outlineColor = `${ACCENT}55`;
           (e.currentTarget as HTMLElement).style.outlineOffset = '3px';
         }
       }}
       onMouseLeave={e => {
+        setHovered(false);
         if (!isSelected && !editing) {
           (e.currentTarget as HTMLElement).style.outlineColor = 'transparent';
           (e.currentTarget as HTMLElement).style.outlineOffset = '4px';
@@ -374,6 +384,68 @@ export function Editable({
           ✎ {label}
         </span>
       )}
+
+      {/* Inline size badge — shown on hover when this field controls a scale */}
+      {ctx && sizeKey && hovered && !editing && (() => {
+        const STEP = 0.25;
+        const MIN = 0.5;
+        const MAX = 2.0;
+        const section = ctx.ast.sections.find(s => s.id === sectionId);
+        const currentScale = (sizeKey === '__titleScale' ? section?.titleScale : section?.contentScale) ?? 1;
+        const dec = Math.max(MIN, Math.round((currentScale - STEP) * 100) / 100);
+        const inc = Math.min(MAX, Math.round((currentScale + STEP) * 100) / 100);
+        return (
+          <div
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              bottom: -20,
+              right: 0,
+              zIndex: 300,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              background: 'rgba(6,10,20,0.88)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              border: '1px solid rgba(99,102,241,0.25)',
+              borderRadius: 100,
+              padding: '2px 5px',
+              boxShadow: `0 2px 10px rgba(0,0,0,0.3), 0 0 0 1px rgba(99,102,241,0.1)`,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              pointerEvents: 'auto',
+            }}
+          >
+            <button
+              disabled={currentScale <= MIN}
+              onClick={e => { e.stopPropagation(); ctx.updateField(sectionId, sizeKey, dec); }}
+              style={{
+                width: 18, height: 18, borderRadius: '50%', border: 'none',
+                background: currentScale <= MIN ? 'transparent' : 'rgba(255,255,255,0.1)',
+                color: currentScale <= MIN ? '#334155' : '#94a3b8',
+                fontSize: 13, fontWeight: 700, cursor: currentScale <= MIN ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                padding: 0,
+              }}
+            >−</button>
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#64748b', minWidth: 24, textAlign: 'center', letterSpacing: '0.02em' }}>
+              {Math.round(currentScale * 100)}%
+            </span>
+            <button
+              disabled={currentScale >= MAX}
+              onClick={e => { e.stopPropagation(); ctx.updateField(sectionId, sizeKey, inc); }}
+              style={{
+                width: 18, height: 18, borderRadius: '50%', border: 'none',
+                background: currentScale >= MAX ? 'transparent' : 'rgba(255,255,255,0.1)',
+                color: currentScale >= MAX ? '#334155' : '#94a3b8',
+                fontSize: 13, fontWeight: 700, cursor: currentScale >= MAX ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                padding: 0,
+              }}
+            >+</button>
+          </div>
+        );
+      })()}
 
       {/* Inline editor overlay */}
       {editing && canInlineEdit && (

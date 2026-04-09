@@ -182,7 +182,7 @@ export function registerPresentationRoutes(
     const filePath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
     if (!existsSync(filePath)) return reply.code(404).send({ error: 'Not found' });
     const stream = createReadStream(filePath);
-    return reply.type('image/jpeg').send(stream);
+    return reply.header('Access-Control-Allow-Origin', '*').type('image/jpeg').send(stream);
   });
 
   // POST /presentations/synthesize-style
@@ -533,6 +533,8 @@ export function registerPresentationRoutes(
       fullDesignPrompt?: string;
       designBrief?: string;
       preSynthesizedDesignSystem?: Record<string, unknown>;
+      pdfFriendly?: boolean;
+      referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
     } | undefined;
 
     // Load markdown from body or saved file
@@ -565,6 +567,15 @@ export function registerPresentationRoutes(
     // Map of sectionId → in-flight image fetch Promise (started as sections complete)
     const imageFetches = new Map<string, Promise<string | null>>();
 
+    const pdfFriendly = !!(body?.pdfFriendly);
+    // Tracks how many extra continuation sections have been emitted so far;
+    // used to shift the index of all subsequent sections forward correctly.
+    let sectionIndexOffset = 0;
+
+    // Item-array fields that can make a section too tall for a slide
+    const PDF_ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
+    const PDF_MAX_PER_SLIDE = 4;
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
@@ -579,17 +590,88 @@ export function registerPresentationRoutes(
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
+          ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
+          ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
-            send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes });
+            send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });
           },
           // Section callback — fires after each section's LLM call completes; kicks off image fetch immediately
           onSectionComplete: (section: Record<string, unknown>) => {
-            send({ type: 'section', ...section });
+            const content = ((section.content ?? {}) as Record<string, unknown>);
+            const rawIdx = (section.index as number | undefined) ?? 0;
+            const adjustedIdx = rawIdx + sectionIndexOffset;
+
+            // ── pdfFriendly: split oversized item arrays into continuation slides ──────
+            if (pdfFriendly) {
+              for (const field of PDF_ITEM_FIELDS) {
+                const items = content[field];
+                if (Array.isArray(items) && items.length > PDF_MAX_PER_SLIDE) {
+                  // Trim the primary section to first N items
+                  content[field] = items.slice(0, PDF_MAX_PER_SLIDE);
+                  send({ type: 'section', ...section, content, index: adjustedIdx });
+                  console.log(`[routes] PDF FRIENDLY: split "${section.sectionType as string}" — ${items.length} ${field} → ${PDF_MAX_PER_SLIDE} + continuation`);
+
+                  // Emit continuation slides for remaining items
+                  let remaining = items.slice(PDF_MAX_PER_SLIDE) as unknown[];
+                  let contNum = 1;
+                  while (remaining.length > 0) {
+                    sectionIndexOffset++;
+                    const chunk = remaining.slice(0, PDF_MAX_PER_SLIDE);
+                    remaining = remaining.slice(PDF_MAX_PER_SLIDE);
+                    const contContent: Record<string, unknown> = {
+                      eyebrow: content.eyebrow ?? '',
+                      headline: content.headline ?? '',
+                      [field]: chunk,
+                      diagram: '',
+                    };
+                    send({
+                      type: 'section',
+                      id: `${section.id as string}-cont${contNum}`,
+                      heading: section.heading,
+                      sectionType: section.sectionType,
+                      content: contContent,
+                      index: adjustedIdx + contNum,
+                    });
+                    contNum++;
+                  }
+
+                  // Image fetch only for the primary (trimmed) section
+                  const sectionId = section.id as string | undefined;
+                  const sectionType = section.sectionType as string | undefined;
+                  const imageQuery = content.imageQuery as string | undefined;
+                  if (sectionId && sectionType && imageQuery?.trim()) {
+                    const chosenSource = resolveImageSource(sectionType, hasUnsplash, hasDalle);
+                    if (chosenSource !== 'gradient') {
+                      const fetchPromise = (async (): Promise<string | null> => {
+                        try {
+                          let remoteUrl: string | null = null;
+                          if (chosenSource === 'dalle') {
+                            const prompt = buildDallePrompt(sectionType, imageQuery, accentColor);
+                            remoteUrl = await generateDalle3Image(prompt);
+                          } else {
+                            remoteUrl = await fetchUnsplashImageUrl(imageQuery);
+                          }
+                          if (!remoteUrl) return null;
+                          const localUrl = await saveImagePersistently(remoteUrl, namespace, sectionId, workdir);
+                          send({ type: 'image', sectionId, url: localUrl });
+                          return localUrl;
+                        } catch { return null; }
+                      })();
+                      imageFetches.set(sectionId, fetchPromise);
+                    }
+                  }
+                  return; // handled — skip normal send below
+                }
+              }
+            }
+
+            // ── Normal (no split needed) ──────────────────────────────────────────────
+            send({ type: 'section', ...section, content, index: adjustedIdx });
             // Start image fetch in parallel — don't await, fire-and-forget with tracked promise
             const sectionId = section.id as string | undefined;
             const sectionType = section.sectionType as string | undefined;
-            const imageQuery = (section.content as Record<string, unknown> | undefined)?.imageQuery as string | undefined;
+            const imageQuery = content.imageQuery as string | undefined;
             if (sectionId && sectionType && imageQuery?.trim()) {
               const chosenSource = resolveImageSource(sectionType, hasUnsplash, hasDalle);
               if (chosenSource !== 'gradient') {
@@ -632,7 +714,23 @@ export function registerPresentationRoutes(
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
             const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
-            if (chosenSource === 'gradient') { sec.image.source = 'gradient'; return; }
+            if (chosenSource === 'gradient') {
+              // Even if source is 'gradient' by preference, the agent may have already resolved
+              // a DALL-E URL for this section via resolveImageUrl. Persist it locally so it
+              // doesn't expire, then send the image event to the client.
+              const agentUrl = sec.image?.url;
+              if (agentUrl && agentUrl.startsWith('http') && !agentUrl.startsWith('http://localhost')) {
+                try {
+                  const localUrl = await saveImagePersistently(agentUrl, namespace, secId, workdir);
+                  if (localUrl !== agentUrl) {
+                    sec.image.url = localUrl;
+                    send({ type: 'image', sectionId: secId, url: localUrl });
+                  }
+                } catch { /* keep original */ }
+              }
+              sec.image.source = 'gradient';
+              return;
+            }
             sec.image.source = chosenSource;
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);

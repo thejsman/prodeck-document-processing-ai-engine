@@ -111,7 +111,7 @@ export async function createServer(opts: ServerOptions) {
   registerExecutionStreamRoutes(app);
   registerAssetRoutes(app, opts.workdir);
   registerStreamUploadRoutes(app, opts.workdir);
-  registerImageRoutes(app);
+  registerImageRoutes(app, opts.workdir);
   registerPluginRoutes(app, presenterRegistry);
 
   // ── Static exports (HTML downloads) ──────────────────────────

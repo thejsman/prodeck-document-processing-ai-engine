@@ -36,6 +36,9 @@ import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
 import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
+import { MicrositeEffectsContext } from './shared/MicrositeEffectsContext';
+import { AstSectionDivider } from './shared/AstSectionDivider';
+import { DecorationLayer } from './shared/DecorationLayer';
 
 import type {
   HeroContent,
@@ -80,6 +83,8 @@ interface Props {
   streamingTotal?: number;
   /** Ordered list of section types from the plan — used to show the next section name in the progress overlay. */
   planSectionTypes?: string[];
+  /** Called when an AI quick-action is triggered from a section overlay in editor mode. */
+  onSectionAiAction?: (sectionId: string, instruction: string) => void;
 }
 
 /** Wraps each section with visibility animation.
@@ -162,10 +167,10 @@ function renderSection(
 ) {
   // Root-relative paths (/presentation-images/...) are served by the API.
   // Rewrite them through the Next.js /api proxy so they work in the UI.
-  const rawUrl = section.image.url;
+  const rawUrl = section.image?.url;
   const imageUrl = rawUrl?.startsWith('/presentation-images/')
     ? `/api${rawUrl}`
-    : rawUrl;
+    : rawUrl ?? null;
   const sid = section.id;
 
   let inner: React.ReactNode;
@@ -184,6 +189,7 @@ function renderSection(
           variant={typeof heroRaw.variant === 'string' ? heroRaw.variant : undefined}
           ui={heroRaw.ui as { showCTA?: boolean; layout?: string; mediaPosition?: string } | undefined}
           behavior={heroRaw.behavior as { hasParallax?: boolean; animation?: string } | undefined}
+          imageOverlay={section.imageOverlay}
           sectionId={sid}
         />
       );
@@ -285,6 +291,7 @@ function SectionWithOverlay({
   brief,
   behavior,
   isStreaming,
+  onSectionAiAction,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -295,6 +302,7 @@ function SectionWithOverlay({
   brief?: LayoutAST['brief'];
   behavior?: LayoutAST['behavior'];
   isStreaming?: boolean;
+  onSectionAiAction?: (sectionId: string, instruction: string) => void;
 }) {
   const editCtx = useEditContext();
   const inner = renderSection(section, tokens, brand, index, allSections, brief);
@@ -308,14 +316,25 @@ function SectionWithOverlay({
   const hasBgImage = !!section.image?.url && (isHero || section.image.source === 'custom');
   let bgCssRule = '';
   if (hasBgColor) {
-    const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
+    // Allow CSS variable syntax (hyphens) and all valid CSS value chars.
+    // Keep hyphen at end of character class so it's treated as a literal, not a range.
+    const safe = section.bgColor!.replace(/[^a-zA-Z0-9#(),. % -]/g, '');
     bgCssRule = `${sel}{background:${safe} !important;}`;
   } else if (hasBgImage) {
-    bgCssRule = `${sel}{background-image:url("${section.image!.url!.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
+    const resolvedBgUrl = section.image!.url!.startsWith('/presentation-images/')
+      ? `/api${section.image!.url!}`
+      : section.image!.url!;
+    bgCssRule = `${sel}{background-image:url("${resolvedBgUrl.replace(/"/g, '')}") !important;background-size:cover !important;background-position:center !important;}`;
   }
-  let sectionInner: React.ReactNode = bgCssRule ? (
+  const titleScale = section.titleScale ?? 1;
+  const contentScale = section.contentScale ?? 1;
+  const scaleCssRule = (titleScale !== 1 || contentScale !== 1)
+    ? `[data-section-id="${section.id}"]{--ms-title-scale:${titleScale};--ms-content-scale:${contentScale};}`
+    : '';
+  const allCssRules = [bgCssRule, scaleCssRule].filter(Boolean).join('');
+  let sectionInner: React.ReactNode = allCssRules ? (
     <>
-      <style dangerouslySetInnerHTML={{ __html: bgCssRule }} />
+      <style dangerouslySetInnerHTML={{ __html: allCssRules }} />
       {inner}
     </>
   ) : inner;
@@ -351,17 +370,15 @@ function SectionWithOverlay({
   }
 
   return (
-    <div>
-      <AnimatedSection id={section.id} behavior={behavior} index={index} isStreaming={isStreaming}>
-        <SectionIdProvider id={section.id}>
-          {editCtx ? (
-            <SectionEditOverlay section={section} sectionIndex={index} totalSections={total}>
-              {sectionInner}
-            </SectionEditOverlay>
-          ) : sectionInner}
-        </SectionIdProvider>
-      </AnimatedSection>
-    </div>
+    <AnimatedSection id={section.id} behavior={behavior} index={index} isStreaming={isStreaming}>
+      <SectionIdProvider id={section.id}>
+        {editCtx ? (
+          <SectionEditOverlay section={section} sectionIndex={index} totalSections={total} onAiAction={onSectionAiAction}>
+            {sectionInner}
+          </SectionEditOverlay>
+        ) : sectionInner}
+      </SectionIdProvider>
+    </AnimatedSection>
   );
 }
 
@@ -384,7 +401,8 @@ const StableSectionWithOverlay = React.memo(SectionWithOverlay, (prev, next) => 
     prev.brand === next.brand &&
     prev.brief === next.brief &&
     prev.behavior === next.behavior &&
-    prev.isStreaming === next.isStreaming
+    prev.isStreaming === next.isStreaming &&
+    prev.onSectionAiAction === next.onSectionAiAction
   );
 });
 
@@ -429,7 +447,7 @@ function isColorDark(hex: string): boolean {
   } catch { return false; }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes, onSectionAiAction }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -458,7 +476,10 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
       const bgOverride = vars['--ms-bg'] ?? t.bg;
       const accentOverride = vars['--ms-accent'] ?? vars['--ms-hero-accent'] ?? t.accent;
       const textOverride = vars['--ms-text'] ?? t.text;
-      const isDark = isColorDark(bgOverride);
+      // Respect explicit dark/light signal from reference design extraction; fall back to luminance check
+      const isDark = vars['--ms-is-dark'] !== undefined
+        ? vars['--ms-is-dark'] === '1'
+        : isColorDark(bgOverride);
       t = {
         ...t,
         accent:          accentOverride,
@@ -483,7 +504,6 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ast.plugin, brand, mergedTokens]);
 
-  console.log('[Microsite] USING LLM TOKENS →', !!mergedTokens, '| overrideTheme:', !!brand?.overrideTheme, '| customDesignSystem:', !!ast.customDesignSystem, '| bg:', tokens.bg, '| accent:', tokens.accent, '| heroFont:', tokens.heroFont);
 
   // Resolve CSS variables: also inject as CSS custom properties for any
   // CSS-based consumers (nav, overlays, etc.), now in addition to the token override above
@@ -535,6 +555,8 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
 
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfProgressMsg, setPdfProgressMsg] = useState('');
   const [mounted, setMounted] = useState(false);
   // typingIndex: which section is currently being typed. null = no typing active.
   const [typingIndex, setTypingIndex] = useState<number | null>(null);
@@ -554,6 +576,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const typingCompletePendingRef = useRef(false);
 
 useEffect(() => setMounted(true), []);
+
 
   // Drive typingIndex: start typing first section when streaming begins,
   // advance to next when a new section arrives and the previous is done.
@@ -709,100 +732,48 @@ ${el.innerHTML}
     }
   };
 
-  const downloadPdf = () => {
+
+  const downloadPdf = async () => {
+    const content = contentRef.current;
+    const root = scrollRef.current;
+    if (!content || !root || downloadingPdf) return;
     setDownloadingPdf(true);
+    setPdfProgress(0);
+    setPdfProgressMsg('Starting…');
     try {
-      const el = contentRef.current;
-      if (!el) return;
-
-      // Clone the DOM so we don't mutate the live page
-      const clone = el.cloneNode(true) as HTMLElement;
-
-      // Reset ALL inline animation states — Reveal + AnimatedSection components
-      // leave opacity:0 / translateY on elements not yet scrolled into view.
-      clone.querySelectorAll<HTMLElement>('*').forEach(elem => {
-        const s = elem.style;
-        // Handle both string "0" and numeric 0 opacity
-        if (s.opacity === '0' || s.opacity === '0.0' || (s.opacity !== '' && parseFloat(s.opacity) === 0)) {
-          s.opacity = '1';
-        }
-        if (s.transform && s.transform !== 'none' && s.transform !== '') s.transform = 'none';
-        if (s.transition) s.transition = 'none';
-        if (s.visibility === 'hidden') s.visibility = 'visible';
-        // Some animations use pointer-events:none + opacity together
-        if (s.pointerEvents === 'none' && elem.tagName !== 'DIV') s.pointerEvents = 'auto';
-      });
-      // Also reset the outer animated wrappers (AnimatedSection)
-      clone.querySelectorAll<HTMLElement>('[data-section-id]').forEach(elem => {
-        elem.style.opacity = '1';
-        elem.style.transform = 'none';
-        elem.style.transition = 'none';
-      });
-
-      const fontLinks = (ast.customFonts?.length ? ast.customFonts : plugin.fonts)
-        .map(f => `<link rel="stylesheet" href="${f.url}">`)
-        .join('\n');
+      const { generateCapturePDF } = await import('../../lib/pdfCaptureRenderer');
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
-
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>${title}</title>
-${fontLinks}
-<style>
-*{box-sizing:border-box}
-html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden;width:1280px}
-@page{size:1280px 720px;margin:0}
-[data-section-id]{
-  width:1280px;
-  min-height:720px;
-  page-break-after:always;
-  break-after:page;
-  page-break-inside:avoid;
-  break-inside:avoid;
-  overflow:hidden;
-}
-[data-section-id]:last-child{page-break-after:avoid;break-after:avoid}
-*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}
-*{opacity:1!important;visibility:visible!important;transform:none!important;transition:none!important}
-.ms-parallax-bg{background-attachment:scroll!important}
-</style>
-</head>
-<body>${clone.innerHTML}</body>
-</html>`;
-
-      // Render iframe at 1280px wide so sections layout correctly before printing
-      const iframe = document.createElement('iframe');
-      Object.assign(iframe.style, {
-        position: 'fixed', top: '-9999px', left: '-9999px',
-        width: '1280px', height: '720px', border: 'none',
-        visibility: 'hidden',
+      const result = await generateCapturePDF(content, root, {
+        title,
+        quality: 0.90,
+        onProgress: ({ pct, message }) => {
+          setPdfProgress(pct);
+          setPdfProgressMsg(message);
+        },
       });
-      document.body.appendChild(iframe);
-
-      iframe.srcdoc = html;
-
-      // Wait for fonts + layout inside the iframe before printing
-      setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } finally {
-          // Remove iframe after a short delay (print dialog may still be open)
-          setTimeout(() => document.body.removeChild(iframe), 3000);
-          setDownloadingPdf(false);
-        }
-      }, 1500);
-    } catch {
+      if (!result.success) {
+        console.error('PDF download failed:', result.error);
+        setPdfProgressMsg(`Error: ${result.error ?? 'Download failed'}`);
+      }
+    } catch (err) {
+      console.error('PDF download failed:', err);
+      setPdfProgressMsg('Download failed');
+    } finally {
       setDownloadingPdf(false);
     }
   };
+
+  // Build effects context values from AST
+  const effectsContextValue = useMemo(() => ({
+    hoverStyle: (ast.hoverStyle ?? 'lift') as 'none' | 'subtle' | 'lift' | 'glow' | 'tilt',
+    sectionAnimations: ast.sectionAnimations ?? {},
+  }), [ast.hoverStyle, ast.sectionAnimations]);
 
   // In embedded mode the caller supplies its own scroll container — use a plain div.
   const isEmbedded = mode === 'embedded';
 
   return (
+    <MicrositeEffectsContext.Provider value={effectsContextValue}>
     <div
       id={isEmbedded ? undefined : SCROLL_CONTAINER_ID}
       ref={scrollRef}
@@ -889,6 +860,7 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
           from { opacity: 0; transform: translateY(6px) scale(0.97); }
           to   { opacity: 1; transform: none; }
         }
+
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
@@ -936,10 +908,30 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
                       brief={ast.brief}
                       behavior={ast.behavior}
                       isStreaming={newSectionIds.has(section.id)}
+                      onSectionAiAction={onSectionAiAction}
                     />
                   )}
                 </TypewriterSection>
               </div>
+              {/* AST-driven section divider between sections (not after last) */}
+              {!generating && ast.dividerStyle && ast.dividerStyle !== 'none' && i < visibleSections.length - 1 && (
+                <AstSectionDivider
+                  style={ast.dividerStyle}
+                  toColor={visibleSections[i + 1]?.bgColor ?? tokens.bg}
+                />
+              )}
+              {/* Floating decorative layer per section */}
+              {!generating && ast.decorations && ast.decorations.style !== 'none' && (
+                !ast.decorations.sections || ast.decorations.sections.includes(section.id)
+              ) && (
+                <div style={{ position: 'relative', height: 0, overflow: 'visible' }}>
+                  <DecorationLayer
+                    style={ast.decorations.style}
+                    opacity={ast.decorations.opacity}
+                    accentColor={tokens.accent}
+                  />
+                </div>
+              )}
               {editCtx && <AddSectionButton afterIndex={i} />}
             </React.Fragment>
           ))}
@@ -975,11 +967,13 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
               }} />
               <div>
                 <div style={{ fontWeight: 600, color: '#fff' }}>
-                  {totalCount > 0
-                    ? `Section ${generatedCount} of ${totalCount}`
-                    : 'Generating sections...'}
+                  {totalCount > 0 && generatedCount >= totalCount
+                    ? 'Finalizing...'
+                    : totalCount > 0
+                      ? `Section ${generatedCount} of ${totalCount}`
+                      : 'Generating sections...'}
                 </div>
-                {nextSectionLabel && (
+                {nextSectionLabel && generatedCount < totalCount && (
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
                     Next: {nextSectionLabel}
                   </div>
@@ -1076,29 +1070,58 @@ html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overfl
             </button>
           )}
           {!generating && (
-            <button
-              onClick={downloadPdf}
-              disabled={downloadingPdf}
-              style={{
-                padding: '9px 18px',
-                borderRadius: 100,
-                border: 'none',
-                background: tokens.accent,
-                color: tokens.dark ? tokens.bg : '#fff',
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: downloadingPdf ? 'wait' : 'pointer',
-                boxShadow: `0 4px 16px ${tokens.glowColor}`,
-              }}
-            >
-              {downloadingPdf ? 'Preparing…' : '↓ Download PDF'}
-            </button>
+            <>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <button
+                  onClick={downloadPdf}
+                  disabled={downloadingPdf}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: 100,
+                    border: `1px solid ${tokens.border}`,
+                    background: `${tokens.bg}ee`,
+                    backdropFilter: 'blur(12px)',
+                    color: tokens.textMuted,
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: downloadingPdf ? 'wait' : 'pointer',
+                    minWidth: 148,
+                    opacity: downloadingPdf ? 0.75 : 1,
+                    boxShadow: tokens.cardShadow,
+                  }}
+                >
+                  {downloadingPdf ? `${pdfProgress}% — ${pdfProgressMsg}` : '↓ Download PDF'}
+                </button>
+                {downloadingPdf && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: -6,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    borderRadius: 100,
+                    background: `${tokens.accent}40`,
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${pdfProgress}%`,
+                      background: tokens.accent,
+                      transition: 'width 0.3s ease',
+                      borderRadius: 100,
+                    }} />
+                  </div>
+                )}
+              </div>
+
+            </>
           )}
         </div>,
         document.body
       )}
     </div>
+    </MicrositeEffectsContext.Provider>
   );
 }
 

@@ -675,6 +675,8 @@ export interface GenerateStreamOptions {
   fullDesignPrompt?: string;
   designBrief?: string;
   preSynthesizedDesignSystem?: Record<string, unknown>;
+  pdfFriendly?: boolean;
+  referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -696,6 +698,8 @@ export async function generateMicrositeStream(
       ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
       ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
       ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
+      ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
+      ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
     }),
     signal: opts.signal,
   });
@@ -788,13 +792,19 @@ export async function generateSectionImage(
   sectionTitle: string,
   style: string,
   keywords: string[],
+  namespace?: string,
+  sectionId?: string,
 ): Promise<string> {
   const res = await fetch('/api/images/generate', {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ sectionTitle, style, keywords }),
+    body: JSON.stringify({ sectionTitle, style, keywords, namespace, sectionId }),
   });
   const data = await handleResponse<{ url: string }>(res);
+  // Rewrite root-relative local paths through the Next.js proxy
+  if (data.url.startsWith('/presentation-images/')) {
+    return `/api${data.url}`;
+  }
   return data.url;
 }
 

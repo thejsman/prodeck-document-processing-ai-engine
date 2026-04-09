@@ -69,7 +69,7 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
           className="ms-grid-auto"
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min(items.length, 3)}, 1fr)`,
+            gridTemplateColumns: `repeat(${Math.min(items.length, 3)}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2vw, 1.5rem)',
           }}
         >

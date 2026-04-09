@@ -52,7 +52,7 @@ export function Display({ children, tokens, style, gradient }: TypoProps) {
     fontFamily: `'${tokens.heroFont}', serif`,
     fontWeight: tokens.heroWeight,
     fontStyle: tokens.heroStyle,
-    fontSize: 'clamp(1.5rem, 5cqi, 3.5rem)',
+    fontSize: 'calc(clamp(1.5rem, 5cqi, 3.5rem) * var(--ms-title-scale, 1))',
     letterSpacing: '-0.02em',
     lineHeight: 1.05,
     margin: 0,
@@ -69,7 +69,7 @@ export function Headline({ children, tokens, style, gradient }: TypoProps) {
   const computedStyle: React.CSSProperties = {
     fontFamily: `'${tokens.heroFont}', serif`,
     fontWeight: tokens.heroWeight,
-    fontSize: 'clamp(1.25rem, 4cqi, 2.8rem)',
+    fontSize: 'calc(clamp(1.25rem, 4cqi, 2.8rem) * var(--ms-title-scale, 1))',
     lineHeight: 1.1,
     margin: 0,
     ...(isGradient
@@ -83,7 +83,7 @@ export function Headline({ children, tokens, style, gradient }: TypoProps) {
 export function Label({ children, tokens, style }: TypoProps) {
   const computedStyle: React.CSSProperties = {
     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-    fontSize: '0.65rem',
+    fontSize: 'calc(0.65rem * var(--ms-content-scale, 1))',
     fontWeight: 600,
     letterSpacing: tokens.labelTracking,
     textTransform: 'uppercase' as const,
@@ -98,7 +98,7 @@ export function SubHeadline({ children, tokens, style }: TypoProps) {
   const computedStyle: React.CSSProperties = {
     fontFamily: `'${tokens.bodyFont}', sans-serif`,
     fontWeight: 600,
-    fontSize: 'clamp(0.9rem, 2cqi, 1.25rem)',
+    fontSize: 'calc(clamp(0.9rem, 2cqi, 1.25rem) * var(--ms-title-scale, 1))',
     lineHeight: 1.3,
     color: tokens.text,
     margin: 0,
@@ -113,7 +113,7 @@ export function Body({ children, tokens, style }: TypoProps) {
     fontWeight: 300,
     lineHeight: 1.85,
     color: tokens.textMuted,
-    fontSize: '1rem',
+    fontSize: 'calc(1rem * var(--ms-content-scale, 1))',
     margin: 0,
     ...style,
   };

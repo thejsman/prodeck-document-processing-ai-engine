@@ -52,6 +52,33 @@ const ALL_SECTION_TYPES = new Set<string>([
   'metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic',
 ]);
 
+// ── Reference file design extraction types ───────────────────────────────────
+
+interface ReferenceFile {
+  readonly base64: string;      // full data URL: "data:image/png;base64,..."
+  readonly mediaType: string;   // "image/png" | "image/jpeg" | "image/webp" | "application/pdf"
+  readonly fileName: string;
+  readonly dominantColors?: string[]; // canvas-extracted hex colors, most frequent first
+}
+
+interface ReferenceDesign {
+  colors: {
+    primary: string; secondary: string; accent: string;
+    background: string; surface: string; text: string; textMuted: string;
+  };
+  typography: {
+    headingFont: string; bodyFont: string;
+    headingWeight: string; bodyWeight: string;
+    headingStyle: 'serif' | 'sans-serif' | 'display';
+    mood: 'modern' | 'classic' | 'bold' | 'minimal' | 'playful';
+  };
+  style: {
+    borderRadius: 'sharp' | 'soft' | 'rounded';
+    spacing: 'compact' | 'comfortable' | 'spacious';
+    vibe: string;
+  };
+}
+
 /**
  * Extract exact section count from customInstructions.
  * LLMs are unreliable at exact counting — this enforces it in code.
@@ -170,6 +197,7 @@ FONT RULES: heroFont and bodyFont MUST be real Google Fonts.
 - modern/bold: Syne, Space Grotesk, DM Sans, Inter, Outfit
 - warm/humanist: Fraunces, Lora, Nunito Sans, Source Serif 4
 - technical/data: IBM Plex Sans, Roboto Mono, JetBrains Mono
+- playful/children: Baloo 2, Fredoka, Lilita One, Bubblegum Sans, Nunito, Quicksand, Comfortaa
 
 USER BRAND BRIEF:
 ${brandLanguagePrompt}
@@ -277,10 +305,11 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
-  // Only treat customInstructions as a structural override if it explicitly mentions sections or count.
-  // Visual/style-only prompts must NOT override the structural rules (minimum 10 sections).
+  // Only treat customInstructions as a structural override if it explicitly requests a section
+  // count or reorder. Visual/design prompts (fonts, colors, layout style) must NOT trigger this —
+  // they often contain words like "section heading" or "structured layout" that are not structural intents.
   const hasStructuralInstruction = customInstructions
-    ? /section|count|layout|page|slide|only\s+\d+|generate\s+\d+|create\s+\d+|make\s+\d+/i.test(customInstructions)
+    ? /\b(only|exactly|just|max|maximum|limit\s+to)\s+\d+\s+sections?|\d+\s+sections?\s+(only|total|max|please)|\bsection\s+count\b|\bgenerate\s+\d+\s+sections?|\bcreate\s+\d+\s+sections?|\bmake\s+it\s+\d+\s+sections?/i.test(customInstructions)
     : false;
   const overrideBlock = (customInstructions && hasStructuralInstruction)
     ? `⚡⚡⚡ USER STRUCTURE OVERRIDE ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
@@ -458,6 +487,152 @@ Return exactly this JSON — every field must use REAL data extracted from the p
   "heroNarrative": "THE most compelling transformation statement, 8-12 words, never starts with We/Our, present tense, names the specific result",
   "industryKeywords": ["3-5 specific keywords for image searches — include industry + visual mood"]
 }`;
+}
+
+// ── Reference design extraction (Pass 0.5) ───────────────────────────────────
+
+function buildReferenceDesignExtractionPrompt(dominantColors?: string[]): string {
+  const allColors = dominantColors ?? [];
+
+  // The first color in the list is always the background candidate (dark or light)
+  // Light colors (index 0-2 when light image) or dark color (index 0 when dark image)
+  // Vivid/accent colors follow
+  const bgCandidate = allColors[0] ?? null;
+  const accentCandidates = allColors.slice(1);
+
+  // Detect dark image: bg candidate luminance < 60
+  let isDarkImage = false;
+  if (bgCandidate) {
+    const h = bgCandidate.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    isDarkImage = (0.299 * r + 0.587 * g + 0.114 * b) < 60;
+  }
+
+  const colorPaletteBlock = allColors.length > 0
+    ? `\nACTUAL COLORS PIXEL-SAMPLED FROM THE IMAGE — use ONLY these exact hex values:
+
+BACKGROUND COLOR (page canvas — ${isDarkImage ? 'DARK image detected' : 'LIGHT image detected'}):
+  ${bgCandidate ?? '(none)'}
+
+BRAND / ACCENT COLORS (vivid, sorted by saturation — most vivid first):
+${accentCandidates.map((c, i) => `  ${i + 1}. ${c}`).join('\n')}
+
+RULES — STRICTLY FOLLOW:
+- "background": use the BACKGROUND COLOR above (${bgCandidate ?? 'pick darkest from accents'})
+- "surface": same as background, or slightly lighter/darker variant from the list
+- "primary": pick the MOST VIVID/STRIKING brand color from BRAND/ACCENT list (the neon, the hero accent, the logo color)
+- "secondary": second most prominent brand color from the list
+- "accent": CTA/button color — pick the brightest or most contrasting from the list
+- "text": ${isDarkImage ? '"#ffffff" or brightest color for dark background' : '"#1a1a1a" or darkest for light background'}
+- "textMuted": ${isDarkImage ? 'a lighter muted tone' : 'a mid-grey tone'}
+- Do NOT invent hex values — ONLY use values from the lists above\n`
+    : `\nSample exact hex values from the image. "primary" = the most vivid brand accent. "background" = the page canvas.\n`;
+
+  return `You are a brand designer. Analyze the attached image.
+${colorPaletteBlock}
+Also identify typography from the image letterforms:
+- Ultra-bold condensed all-caps → headingStyle: "display"
+- Clean geometric → "sans-serif"
+- Elegant with serifs → "serif"
+- Name the font if recognizable, otherwise describe it (e.g. "bold condensed sans-serif")
+
+Respond ONLY with valid JSON. No preamble, no backticks, no explanation.
+{
+  "colors": {
+    "primary": "#hex",
+    "secondary": "#hex",
+    "accent": "#hex",
+    "background": "#hex",
+    "surface": "#hex",
+    "text": "#hex",
+    "textMuted": "#hex"
+  },
+  "typography": {
+    "headingFont": "font name or style description",
+    "bodyFont": "font name or style description",
+    "headingWeight": "700",
+    "bodyWeight": "400",
+    "headingStyle": "serif | sans-serif | display",
+    "mood": "modern | classic | bold | minimal | playful"
+  },
+  "style": {
+    "borderRadius": "sharp | soft | rounded",
+    "spacing": "compact | comfortable | spacious",
+    "vibe": "one sentence describing the overall brand vibe"
+  }
+}`;
+}
+
+function formatReferenceDesignBlock(tokens: ReferenceDesign): string {
+  return `## REFERENCE DESIGN TOKENS (extracted from user-attached file — follow closely)
+Primary color: ${tokens.colors.primary}
+Secondary color: ${tokens.colors.secondary}
+Accent: ${tokens.colors.accent}
+Background: ${tokens.colors.background}
+Heading font: ${tokens.typography.headingFont} (${tokens.typography.headingStyle})
+Body font: ${tokens.typography.bodyFont}
+Border radius style: ${tokens.style.borderRadius}
+Overall vibe: ${tokens.style.vibe}
+Apply these tokens consistently across all sections.
+`;
+}
+
+function formatReferenceDesignShortBlock(tokens: ReferenceDesign): string {
+  return `DESIGN REFERENCE: ${tokens.style.vibe}. Primary: ${tokens.colors.primary}. Typography: ${tokens.typography.headingFont}.`;
+}
+
+/**
+ * Convert extracted ReferenceDesign tokens into Microsite CSS custom property format.
+ * These map 1:1 to the --ms-* vars that Microsite.tsx reads from brand.extractedCssVariables.
+ */
+/** Parse a hex color string like "#rrggbb" into luminance 0-255 */
+function hexLuminance(hex: string): number {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return 128;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+function referenceDesignToCssVars(tokens: ReferenceDesign): Record<string, string> {
+  const headingFamily = `'${tokens.typography.headingFont}', sans-serif`;
+  const bodyFamily = `'${tokens.typography.bodyFont}', sans-serif`;
+
+  // Determine if the background is light or dark to fix text contrast
+  const bgLum = hexLuminance(tokens.colors.background);
+  const isLightBg = bgLum > 128;
+
+  // On a light background: use dark text. On dark: use the extracted text color.
+  const textColor     = isLightBg ? '#1a1a1a' : tokens.colors.text;
+  const textMuted     = isLightBg ? '#555555' : tokens.colors.textMuted;
+  const borderColor   = isLightBg ? '#e0e0e0' : `${tokens.colors.text}22`;
+  const surfaceColor  = isLightBg
+    ? tokens.colors.surface === tokens.colors.background
+      ? '#ffffff'
+      : tokens.colors.surface
+    : tokens.colors.surface;
+
+  return {
+    '--ms-bg':           tokens.colors.background,
+    '--ms-bg2':          surfaceColor,
+    '--ms-bg3':          surfaceColor,
+    '--ms-surface':      surfaceColor,
+    '--ms-accent':       tokens.colors.primary,
+    '--ms-hero-accent':  tokens.colors.primary,
+    '--ms-accent2':      tokens.colors.secondary,
+    '--ms-text':         textColor,
+    '--ms-text2':        textMuted,
+    '--ms-text3':        textMuted,
+    '--ms-border':       borderColor,
+    '--ms-font-heading': headingFamily,
+    '--ms-font-body':    bodyFamily,
+    '--ms-r-card':       tokens.style.borderRadius === 'sharp' ? '0px' : tokens.style.borderRadius === 'soft' ? '8px' : '16px',
+    // Signal light/dark mode so Microsite.tsx resolves the correct base token set
+    '--ms-is-dark':      isLightBg ? '0' : '1',
+  };
 }
 
 // ── Section formatting prompts ───────────────────────────────────────────────
@@ -1015,7 +1190,9 @@ export function buildSectionPrompt(
   sectionInstruction?: string,
   proposalMarkdown?: string,
   diagramSelection?: DiagramSelection | null,
+  referenceDesign?: ReferenceDesign | null,
 ): string {
+  const refBlock = referenceDesign ? formatReferenceDesignBlock(referenceDesign) : '';
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
   const brandCtx = brandName ? ` The proposing company is "${brandName}" — use this name consistently in copy.` : '';
   const character = characterOverride ?? (plugin ? PLUGIN_CHARACTER[plugin] : undefined);
@@ -1053,7 +1230,7 @@ export function buildSectionPrompt(
         : `MERMAID: Include the "diagram" field. ${diagramBlock}`)
     : `MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. Node labels: plain text only, NO double quotes inside brackets. If you cannot make a meaningful diagram from the content, set "diagram": null.`;
 
-  const system = `${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
   // When effectiveBody is empty, pass the full proposal — no truncation, no data loss
@@ -2055,7 +2232,8 @@ If content is insufficient for this diagram, set diagram to null.`;
     approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    pricing: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "string", "rows": [["Item", "Value"]], "totalLabel": "string", "footnote": "string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "rows": [["Service / Deliverable", "Investment"], ["Line item from proposal", "Exact price from proposal"], ["...more rows as needed from the proposal..."]], "totalLabel": "Total: [exact total from proposal]", "footnote": "payment terms or notes from the proposal", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}], "diagram": null }`,
@@ -2194,6 +2372,116 @@ export class MicrositeGeneratorAgent implements Agent {
   readonly description =
     'Converts proposal markdown into a high-end presentation microsite with structured Layout AST.';
 
+  private async extractReferenceDesign(
+    generateTool: { run: (input: { query: string; content: string }) => Promise<{ text?: string }> },
+    referenceFile: ReferenceFile,
+  ): Promise<ReferenceDesign | null> {
+    try {
+      if (referenceFile.mediaType === 'application/pdf') {
+        console.warn('[microsite-agent] Pass 0.5: PDF reference files cannot be analyzed visually — skipping design extraction');
+        return null;
+      }
+      const colors = referenceFile.dominantColors ?? [];
+      if (colors.length) {
+        console.log(`[microsite-agent] Pass 0.5: canvas-extracted colors — bg:${colors[0]} brand:[${colors.slice(1).join(', ')}]`);
+      }
+
+      // ── Fast path: deterministic role assignment from canvas-extracted hex codes ──
+      // This avoids adding a 6th concurrent Python/LLM subprocess during warmup, which
+      // was throttling the brief, section-plan, and hero calls and causing timeouts.
+      // Canvas extraction already pixel-samples the image and sorts by saturation, so
+      // we can assign roles directly without a Claude call.
+      if (colors.length >= 2) {
+        const bg    = colors[0];
+        const bgLum = hexLuminance(bg);
+        const isDark = bgLum < 128;
+
+        // Canvas ordering differs by image type:
+        //   Dark  image: [darkBg, vivid0, vivid1, vivid2, brand0, ...]
+        //   Light image: [light0, light1, light2, vivid0, vivid1, brand0, ...]
+        // For light images colors[1..2] are more light backgrounds, not brand accents.
+        // The first vivid/brand accent starts at index 3 for light, index 1 for dark.
+        const brandStart = isDark ? 1 : 3;
+
+        // Among the next 4 positions, pick the one with the most hue contrast against
+        // the background. This ensures brand accents (e.g. magenta on cream) rank above
+        // same-family vivid colors (e.g. gold on cream) even if gold has higher saturation.
+        const hexHue = (hex: string): number => {
+          const h = hex.replace('#', '');
+          if (h.length < 6) return 0;
+          const r = parseInt(h.slice(0,2),16)/255;
+          const g = parseInt(h.slice(2,4),16)/255;
+          const b = parseInt(h.slice(4,6),16)/255;
+          const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min;
+          if (d === 0) return 0;
+          let hue = max===r ? 60*((g-b)/d%6) : max===g ? 60*((b-r)/d+2) : 60*((r-g)/d+4);
+          return (hue+360)%360;
+        };
+        const hueDist = (h1: number, h2: number) => { const d=Math.abs(h1-h2); return Math.min(d,360-d); };
+        const bgHue = hexHue(bg);
+
+        // Collect up to 4 vivid candidates starting at brandStart
+        const candidates = colors.slice(brandStart, brandStart + 4).filter(Boolean);
+        // Sort by hue distance from bg descending — most contrasting hue = primary brand accent
+        const sorted = [...candidates].sort((a,b) => hueDist(hexHue(b),bgHue) - hueDist(hexHue(a),bgHue));
+
+        const primary   = sorted[0]                ?? colors[brandStart] ?? colors[1];
+        const secondary = candidates.find(c => c !== primary) ?? primary;
+        const accent    = candidates.find(c => c !== primary && c !== secondary) ?? primary;
+        const surface   = bg;
+
+        console.log(`[microsite-agent] Pass 0.5: hue contrast sort — bgHue=${bgHue.toFixed(0)}° candidates=${candidates.map(c=>`${c}(${hueDist(hexHue(c),bgHue).toFixed(0)}°)`).join(',')}`);
+
+        const text      = isDark ? '#ffffff' : '#1a1a1a';
+        const textMuted = isDark ? '#a0a0a0' : '#555555';
+
+        const tokens: ReferenceDesign = {
+          colors: { primary, secondary, accent, background: bg, surface, text, textMuted },
+          typography: {
+            headingFont: 'sans-serif',
+            bodyFont: 'sans-serif',
+            headingWeight: '700',
+            bodyWeight: '400',
+            headingStyle: 'sans-serif',
+            mood: isDark ? 'bold' : 'modern',
+          },
+          style: {
+            borderRadius: 'soft',
+            spacing: 'comfortable',
+            vibe: `${isDark ? 'Dark' : 'Light'} brand palette — primary ${primary}`,
+          },
+        };
+        console.log(`[microsite-agent] Pass 0.5: design tokens assigned — primary=${primary}, bg=${bg}, dark=${isDark}`);
+        return tokens;
+      }
+
+      // ── Slow path: no canvas colors — fall back to LLM call with 15 s timeout ──
+      const prompt = `DESIGN_IMAGE:${referenceFile.base64}\n\n${buildReferenceDesignExtractionPrompt()}`;
+      const result = await Promise.race([
+        generateTool.run({ query: prompt, content: '' }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+      ]);
+      if (!result) {
+        console.warn('[microsite-agent] Pass 0.5: design extraction timed out — continuing without reference tokens');
+        return null;
+      }
+      const raw = (result as { text?: string }).text ?? '';
+      const jsonStart = raw.indexOf('{');
+      const jsonEnd = raw.lastIndexOf('}');
+      const jsonStr = jsonStart !== -1 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
+      const parsed = safeParseJSON(jsonStr) as ReferenceDesign | null;
+      if (!parsed?.colors?.primary || !parsed?.typography?.headingFont || !parsed?.style?.vibe) {
+        console.warn('[microsite-agent] Pass 0.5: design extraction returned invalid JSON — continuing without reference tokens');
+        return null;
+      }
+      console.log(`[microsite-agent] Pass 0.5: design extraction complete — vibe="${parsed.style.vibe}", primary=${parsed.colors.primary}, bg=${parsed.colors.background}`);
+      return parsed;
+    } catch (err) {
+      console.warn('[microsite-agent] Pass 0.5: design extraction failed —', err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
   private async synthesizeDesignSystem(
     generateTool: { run: (input: { query: string; content: string }) => Promise<{ text?: string }> },
     brandLanguagePrompt: string,
@@ -2245,9 +2533,24 @@ export class MicrositeGeneratorAgent implements Agent {
     const meta = input.metadata ?? {};
     const proposalMarkdown = (meta.proposalMarkdown as string | undefined) ?? '';
     const namespace = input.namespace;
+    const pdfFriendly = !!(meta.pdfFriendly as boolean | undefined);
     const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
-    const customInstructions = rawInstructions
-      || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.';
+    const pdfConstraints = pdfFriendly
+      ? '\n\nPDF SLIDE CONSTRAINTS (enforce strictly — this microsite will be captured as a PDF where each section must fit in a single 720px-tall slide): ' +
+        'Maximum 4 bullet/list items per section. ' +
+        'Maximum 1 sentence (under 80 characters) per item description — no multi-sentence descriptions on cards or list items. ' +
+        'Maximum 2 sentences for section body/intro text. ' +
+        'Timeline: maximum 4 phases. ' +
+        'Stats, metrics, features, benefits: maximum 4 items. ' +
+        'FAQ: maximum 4 questions. ' +
+        'No nested lists. ' +
+        'Keep all headlines under 8 words. ' +
+        'Prefer 2-column grid layouts over 3-column. ' +
+        'Omit decorative sub-labels and long captions. ' +
+        'CRITICAL diagram rule: ONLY include a diagram in a section when that section contains ONLY body text with NO card grid, NO stat grid, and NO list items. If a section already has cards, stats, pillars, features, benefits, or any item array, set diagram to empty string — do NOT add a diagram to that section. Diagrams stacked below card grids make sections too tall for a single PDF slide.'
+      : '';
+    const customInstructions = (rawInstructions || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.') + pdfConstraints;
+    if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
     const isFullOverride = fullDesignPrompt.trim().length > 100;
     if (isFullOverride) {
@@ -2269,6 +2572,8 @@ export class MicrositeGeneratorAgent implements Agent {
     let metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
     const brandImage = (meta.brandImage as string | undefined) ?? '';
     const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
+    const referenceFile = (meta.referenceFile as ReferenceFile | undefined) ?? null;
+    console.log(`[microsite-agent] referenceFile: ${referenceFile ? `fileName=${referenceFile.fileName}, mediaType=${referenceFile.mediaType}, dominantColors=${referenceFile.dominantColors?.length ?? 0}` : 'NOT attached'}`);
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -2340,7 +2645,7 @@ export class MicrositeGeneratorAgent implements Agent {
         return result;
       }).catch(() => null);
 
-      const [designSystemRaw, cmdRaw, briefResult, planResult] = await Promise.all([
+      const [designSystemRaw, cmdRaw, briefResult, planResult, referenceDesign] = await Promise.all([
         // Pass -1: Design system synthesis
         (async () => {
           if (preSynthesized) {
@@ -2381,6 +2686,11 @@ export class MicrositeGeneratorAgent implements Agent {
           }),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
         ]).catch(() => null),
+
+        // Pass 0.5: Reference design extraction — runs in parallel, zero impact on hero speed
+        referenceFile
+          ? this.extractReferenceDesign(generateTool, referenceFile)
+          : Promise.resolve(null),
       ]);
 
       // Await hero — it started before the warm-up so it's almost certainly already done
@@ -2451,8 +2761,12 @@ export class MicrositeGeneratorAgent implements Agent {
         } catch { /* fallback to source order */ }
       }
 
-      // Pass 0.5: LLM refines the plan based on customInstructions (any free-form input)
-      if (customInstructions && sectionPlan) {
+      // Pass 0.5: LLM refines the plan — only for structural instructions (section count/reorder).
+      // Skip for visual/design-only prompts to prevent LLM from inflating section count.
+      const isStructuralInstruction = customInstructions
+        ? /\b(only|exactly|just|max|maximum|limit\s+to)\s+\d+\s+sections?|\d+\s+sections?\s+(only|total|max|please)|\bsection\s+count\b|\bgenerate\s+\d+\s+sections?|\bcreate\s+\d+\s+sections?|\bmake\s+it\s+\d+\s+sections?/i.test(customInstructions)
+        : false;
+      if (customInstructions && sectionPlan && isStructuralInstruction) {
         try {
           const refineResult = await generateTool.run({
             query: buildPlanRefinementPrompt(sectionPlan, customInstructions),
@@ -2556,21 +2870,9 @@ export class MicrositeGeneratorAgent implements Agent {
         };
       }
 
-      // Markdown is backward-compat only — derive from source sections (no extra LLM call)
-      // In full override mode, use the design-prompt-aware markdown builder instead.
-      if (isFullOverride) {
-        try {
-          const mdResult = await generateTool.run({
-            query: buildOverrideMarkdownPrompt(sourceSections, fullDesignPrompt, designConfig),
-            content: '',
-          });
-          markdown = mdResult.text?.trim() || this.fallbackMarkdown(sourceSections);
-        } catch {
-          markdown = this.fallbackMarkdown(sourceSections);
-        }
-      } else {
-        markdown = this.fallbackMarkdown(sourceSections);
-      }
+      // Markdown is backward-compat only — derive from source sections, no extra LLM call.
+      // The structured Layout AST (json output) is what the UI renders; markdown is unused in the UI.
+      markdown = this.fallbackMarkdown(sourceSections);
 
       // Hard-trim markdown sections to explicit count — LLMs ignore section count instructions
       if (customInstructions) {
@@ -2644,11 +2946,17 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Code-level section count trim — applied after resolvedSections is built so it covers
-      // both the sectionPlan path and the sourceSections fallback path (when sectionPlan is null)
+      // Hard cap: never generate more than 14 sections regardless of planning result or fallback
+      const MAX_SECTIONS = 14;
+      if (resolvedSections.length > MAX_SECTIONS) {
+        const originalCount = resolvedSections.length;
+        resolvedSections.splice(MAX_SECTIONS);
+        console.log(`[microsite-agent] Section count capped at ${MAX_SECTIONS} (was ${originalCount})`);
+      }
+      // Also honour any explicit user count (if lower than the cap)
       if (customInstructions) {
         const explicitCount = parseExplicitCount(customInstructions);
-        if (explicitCount && explicitCount > 0 && resolvedSections.length > explicitCount) {
+        if (explicitCount && explicitCount > 0 && explicitCount < MAX_SECTIONS && resolvedSections.length > explicitCount) {
           resolvedSections.splice(explicitCount);
         }
       }
@@ -2708,6 +3016,7 @@ export class MicrositeGeneratorAgent implements Agent {
         onPlanReady?.({
           totalSections: pass2Sections.length,
           sectionTypes: pass2Sections.map(s => s.type),
+          ...(referenceDesign ? { referenceCssVars: referenceDesignToCssVars(referenceDesign) } : {}),
         });
 
         // Skip hero in Pass 2 if already streamed by speculative call (heroAlreadyStreamed set in .then() above)
@@ -2737,7 +3046,7 @@ export class MicrositeGeneratorAgent implements Agent {
               console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
               const prompt = isFullOverride
                 ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel)
-                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel);
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, referenceDesign);
               try {
                 const timeoutMs = 90_000;
                 const result = await Promise.race([
@@ -2749,6 +3058,16 @@ export class MicrositeGeneratorAgent implements Agent {
                   console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
                 }
                 if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
+                // CODE-LEVEL enforcement: when pdfFriendly, strip diagram from any section that has item arrays
+                // (LLM ignores prompt constraints; this is the reliable fix)
+                if (pdfFriendly && parsed.diagram) {
+                  const ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
+                  const hasItems = ITEM_FIELDS.some(f => Array.isArray((parsed as Record<string,unknown>)[f]) && ((parsed as Record<string,unknown>)[f] as unknown[]).length > 0);
+                  if (hasItems) {
+                    (parsed as Record<string,unknown>).diagram = '';
+                    console.log(`[microsite-agent] PDF FRIENDLY: stripped diagram from "${s.type}" section (has item array)`);
+                  }
+                }
                 onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
                 const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
                   || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));
@@ -2878,8 +3197,14 @@ export class MicrositeGeneratorAgent implements Agent {
         if (extractedTokens && layoutAST) {
           const ast = layoutAST as Record<string, unknown>;
           const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
+          // Override primaryColor and secondaryColor from extracted accent colors so all
+          // downstream consumers (DALL-E prompts, logo, editor) use the prompt's colors.
+          const extractedPrimary = extractedTokens.colors.accents[0];
+          const extractedSecondary = extractedTokens.colors.accents[1] ?? extractedPrimary;
           ast.brand = {
             ...existingBrand,
+            ...(extractedPrimary ? { primaryColor: extractedPrimary } : {}),
+            ...(extractedSecondary ? { secondaryColor: extractedSecondary } : {}),
             overrideTheme: true,
             extractedCssVariables: extractedTokens.cssVariables,
             googleFontsUrl: extractedTokens.googleFontsUrl,
@@ -2890,6 +3215,22 @@ export class MicrositeGeneratorAgent implements Agent {
             borderRadiusStyle: extractedTokens.components.borderRadius,
             themeClass: extractedTokens.themeClass,
           };
+        }
+
+        // Apply reference design tokens to brand when Pass 0.5 extracted them
+        // and no full design prompt (extractedTokens) was provided.
+        if (referenceDesign && !extractedTokens && layoutAST) {
+          const ast = layoutAST as Record<string, unknown>;
+          const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
+          const cssVars = referenceDesignToCssVars(referenceDesign);
+          ast.brand = {
+            ...existingBrand,
+            primaryColor: referenceDesign.colors.primary,
+            secondaryColor: referenceDesign.colors.secondary,
+            overrideTheme: true,
+            extractedCssVariables: cssVars,
+          };
+          console.log(`[microsite-agent] Pass 0.5: applied reference design to brand — primary=${referenceDesign.colors.primary}, bg=${referenceDesign.colors.background}`);
         }
 
         // Section count validation
