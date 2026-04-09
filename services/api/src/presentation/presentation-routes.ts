@@ -454,6 +454,7 @@ export function registerPresentationRoutes(
 
             const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
             if (chosenSource === 'gradient') {
+              sec.image.url = null;
               sec.image.source = 'gradient';
               return;
             }
@@ -546,8 +547,6 @@ export function registerPresentationRoutes(
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
     const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
 
-    // Map of sectionId → in-flight image fetch Promise (started as sections complete)
-    const imageFetches = new Map<string, Promise<string | null>>();
 
     const pdfFriendly = !!(body?.pdfFriendly);
     // Tracks how many extra continuation sections have been emitted so far;
@@ -591,7 +590,12 @@ export function registerPresentationRoutes(
                 if (Array.isArray(items) && items.length > PDF_MAX_PER_SLIDE) {
                   // Trim the primary section to first N items
                   content[field] = items.slice(0, PDF_MAX_PER_SLIDE);
-                  send({ type: 'section', ...section, content, index: adjustedIdx });
+                  const pdfSectionType = section.sectionType as string | undefined;
+                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle) : 'gradient';
+                  const pdfImageForClient = pdfChosenSource === 'gradient'
+                    ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
+                    : section.image;
+                  send({ type: 'section', ...section, image: pdfImageForClient, content, index: adjustedIdx });
                   console.log(`[routes] PDF FRIENDLY: split "${section.sectionType as string}" — ${items.length} ${field} → ${PDF_MAX_PER_SLIDE} + continuation`);
 
                   // Emit continuation slides for remaining items
@@ -618,126 +622,73 @@ export function registerPresentationRoutes(
                     contNum++;
                   }
 
-                  // Image fetch only for the primary (trimmed) section
-                  const sectionId = section.id as string | undefined;
-                  const sectionType = section.sectionType as string | undefined;
-                  const imageQuery = content.imageQuery as string | undefined;
-                  if (sectionId && sectionType && imageQuery?.trim()) {
-                    const chosenSource = resolveImageSource(sectionType, hasUnsplash, hasDalle);
-                    if (chosenSource !== 'gradient') {
-                      const fetchPromise = (async (): Promise<string | null> => {
-                        try {
-                          let remoteUrl: string | null = null;
-                          if (chosenSource === 'dalle') {
-                            const prompt = buildDallePrompt(sectionType, imageQuery, accentColor);
-                            remoteUrl = await generateDalle3Image(prompt);
-                          } else {
-                            remoteUrl = await fetchUnsplashImageUrl(imageQuery);
-                          }
-                          if (!remoteUrl) return null;
-                          const localUrl = await saveImagePersistently(remoteUrl, namespace, sectionId, workdir);
-                          send({ type: 'image', sectionId, url: localUrl });
-                          return localUrl;
-                        } catch { return null; }
-                      })();
-                      imageFetches.set(sectionId, fetchPromise);
-                    }
-                  }
                   return; // handled — skip normal send below
                 }
               }
             }
 
             // ── Normal (no split needed) ──────────────────────────────────────────────
-            send({ type: 'section', ...section, content, index: adjustedIdx });
-            // Start image fetch in parallel — don't await, fire-and-forget with tracked promise
-            const sectionId = section.id as string | undefined;
             const sectionType = section.sectionType as string | undefined;
-            const imageQuery = content.imageQuery as string | undefined;
-            if (sectionId && sectionType && imageQuery?.trim()) {
-              const chosenSource = resolveImageSource(sectionType, hasUnsplash, hasDalle);
-              if (chosenSource !== 'gradient') {
-                const fetchPromise = (async (): Promise<string | null> => {
-                  try {
-                    let remoteUrl: string | null = null;
-                    if (chosenSource === 'dalle') {
-                      const prompt = buildDallePrompt(sectionType, imageQuery, accentColor);
-                      remoteUrl = await generateDalle3Image(prompt);
-                    } else {
-                      remoteUrl = await fetchUnsplashImageUrl(imageQuery);
-                    }
-                    if (!remoteUrl) return null;
-                    const localUrl = await saveImagePersistently(remoteUrl, namespace, sectionId, workdir);
-                    send({ type: 'image', sectionId, url: localUrl });
-                    return localUrl;
-                  } catch { return null; }
-                })();
-                imageFetches.set(sectionId, fetchPromise);
-              }
-            }
+            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle) : 'gradient';
+            // Strip agent's loremflickr URL for gradient sections — prevents flicker in client.
+            // Agent doesn't include image.url in callback data anyway, but guard for safety.
+            const imageForClient = chosenSource === 'gradient'
+              ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
+              : section.image;
+            send({ type: 'section', ...section, image: imageForClient, content, index: adjustedIdx });
           },
         },
       });
 
-      // Reconcile images: await any in-flight fetches, fetch remaining sections that had no query at callback time
       type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+
+      // Download images for hero/showcase from the agent's already-generated URLs, then persist locally.
+      // All other sections use gradient (no image fetch). Running in parallel for hero + showcase.
       if (ast?.sections) {
         await Promise.all(
           ast.sections.map(async (sec) => {
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
-            if (imageFetches.has(secId)) {
-              // Await the parallel fetch that already started during streaming (already saved locally)
-              const localUrl = await imageFetches.get(secId)!;
-              if (localUrl) { sec.image.url = localUrl; sec.image.source = hasDalle ? 'dalle' : 'unsplash'; }
-              return;
-            }
-            // Section had no imageQuery at callback time — try now using AST image.query
-            const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
-            if (!query?.trim()) return;
             const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+
             if (chosenSource === 'gradient') {
-              // Even if source is 'gradient' by preference, the agent may have already resolved
-              // a DALL-E URL for this section via resolveImageUrl. Persist it locally so it
-              // doesn't expire, then send the image event to the client.
-              const agentUrl = sec.image?.url;
-              if (agentUrl && agentUrl.startsWith('http') && !agentUrl.startsWith('http://localhost')) {
-                try {
-                  const localUrl = await saveImagePersistently(agentUrl, namespace, secId, workdir);
-                  if (localUrl !== agentUrl) {
-                    sec.image.url = localUrl;
-                    send({ type: 'image', sectionId: secId, url: localUrl });
-                  }
-                } catch { /* keep original */ }
-              }
+              sec.image.url = null;
               sec.image.source = 'gradient';
               return;
             }
-            sec.image.source = chosenSource;
-            if (chosenSource === 'dalle') {
-              const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
-              const remoteUrl = await generateDalle3Image(prompt);
-              if (remoteUrl) {
-                const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
-                sec.image.url = localUrl;
-                send({ type: 'image', sectionId: secId, url: localUrl });
-              }
-            } else {
-              const remoteUrl = await fetchUnsplashImageUrl(query);
-              if (remoteUrl) {
-                const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
-                sec.image.url = localUrl;
-                send({ type: 'image', sectionId: secId, url: localUrl });
+
+            // hero/showcase: download the agent's URL locally (agent already called DALL-E)
+            const agentUrl = sec.image?.url;
+            let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
+
+            // Fallback: if agent didn't provide a URL, fetch from the configured source
+            if (!remoteUrl) {
+              const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
+              if (!query?.trim()) return;
+              if (chosenSource === 'dalle') {
+                const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
+                remoteUrl = await generateDalle3Image(prompt);
+              } else {
+                remoteUrl = await fetchUnsplashImageUrl(query);
               }
             }
+
+            if (!remoteUrl) return;
+            try {
+              const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              sec.image.url = localUrl;
+              sec.image.source = chosenSource;
+            } catch { /* keep original remote URL on download failure */ }
           }),
         );
-
-        const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-        await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
       }
 
+      // complete event carries local image URLs — no further reconciliation needed
       send({ type: 'complete', ast });
+      if (ast?.sections) {
+        await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+      }
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     } finally {

@@ -31,24 +31,10 @@ export function resolveImageSource(
   hasUnsplashKey: boolean,
   hasDalleKey: boolean,
 ): ImageSource {
-  const gradientOnly = new Set(['stats', 'pricing', 'nextsteps', 'metrics', 'testing']);
-  const unsplashPrefer = new Set(['challenge', 'approach', 'timeline', 'deliverables', 'benefits', 'problem', 'whyus', 'security', 'techstack', 'testimonials']);
-  const visualHighImpact = new Set(['hero', 'showcase']);
-
-  if (gradientOnly.has(sectionType)) return 'gradient';
-
-  if (visualHighImpact.has(sectionType)) {
-    if (hasDalleKey) return 'dalle';
-    if (hasUnsplashKey) return 'unsplash';
-    return 'gradient';
-  }
-
-  if (unsplashPrefer.has(sectionType)) {
-    if (hasUnsplashKey) return 'unsplash';
-    return 'gradient';
-  }
-
-  // generic and others — no image
+  // Only hero and showcase get real images — everything else uses gradient
+  if (sectionType !== 'hero' && sectionType !== 'showcase') return 'gradient';
+  if (hasDalleKey) return 'dalle';
+  if (hasUnsplashKey) return 'unsplash';
   return 'gradient';
 }
 

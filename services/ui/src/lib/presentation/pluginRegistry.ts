@@ -395,6 +395,146 @@ const OCEAN_TOKENS: PluginTokens = {
   cardShadowHover: '0 8px 40px rgba(0,0,0,0.80), 0 0 24px rgba(14,165,201,0.25)',
 };
 
+const ROSE_TOKENS: PluginTokens = {
+  bg: '#1a0810', surface: '#240f18', surfaceAlt: '#2e1420', surfaceCard: '#200d15',
+  text: '#ffeef5', textMuted: '#c888a0', textSubtle: '#884460',
+  accent: '#e8457a', accentDim: '#c02258', accentRgb: '232,69,122',
+  glowColor: 'rgba(232,69,122,0.38)', border: '#350f20', borderSubtle: '#2809018',
+  heroFont: 'Playfair Display', bodyFont: 'Jost',
+  heroWeight: 700, heroStyle: 'normal', labelTracking: '0.16em',
+  dark: true, noiseOpacity: 0.035,
+  gradientHero: 'radial-gradient(ellipse 85% 65% at 50% 35%, #2e1420 0%, #1a0810 100%)',
+  gradientText: 'linear-gradient(135deg, #ff80a8 0%, #e8457a 50%, #ff6090 100%)',
+  meshGradient: 'radial-gradient(ellipse 85% 65% at 15% 20%, rgba(232,69,122,0.20) 0%, transparent 55%), radial-gradient(ellipse 65% 50% at 85% 75%, rgba(232,69,122,0.14) 0%, transparent 50%)',
+  cardShadow: '0 4px 24px rgba(0,0,0,0.6)', cardShadowHover: '0 8px 40px rgba(0,0,0,0.8), 0 0 24px rgba(232,69,122,0.28)',
+};
+
+const CHALK_TOKENS: PluginTokens = {
+  bg: '#fafaf8', surface: '#ffffff', surfaceAlt: '#f2f2f0', surfaceCard: '#fdfdfb',
+  text: '#1c1c1a', textMuted: '#6b6b68', textSubtle: '#a0a09e',
+  accent: '#4b5563', accentDim: '#374151', accentRgb: '75,85,99',
+  glowColor: 'rgba(75,85,99,0.12)', border: '#e5e5e2', borderSubtle: '#ececea',
+  heroFont: 'Libre Baskerville', bodyFont: 'Nunito Sans',
+  heroWeight: 700, heroStyle: 'normal', labelTracking: '0.14em',
+  dark: false, noiseOpacity: 0.015,
+  gradientHero: 'linear-gradient(180deg, #ffffff 0%, #fafaf8 100%)',
+  gradientText: 'linear-gradient(135deg, #374151 0%, #4b5563 50%, #1c1c1a 100%)',
+  meshGradient: '',
+  cardShadow: '0 2px 12px rgba(28,28,26,0.07)', cardShadowHover: '0 6px 24px rgba(28,28,26,0.12), 0 0 0 1px rgba(75,85,99,0.10)',
+};
+
+const DUSK_TOKENS: PluginTokens = {
+  bg: '#0d0820', surface: '#140d2e', surfaceAlt: '#1c1240', surfaceCard: '#100a28',
+  text: '#ede8ff', textMuted: '#9888cc', textSubtle: '#584880',
+  accent: '#a855f7', accentDim: '#7c3aed', accentRgb: '168,85,247',
+  glowColor: 'rgba(168,85,247,0.38)', border: '#1f1445', borderSubtle: '#180f38',
+  heroFont: 'Cormorant Garamond', bodyFont: 'DM Sans',
+  heroWeight: 300, heroStyle: 'italic', labelTracking: '0.18em',
+  dark: true, noiseOpacity: 0.03,
+  gradientHero: 'radial-gradient(ellipse 90% 70% at 50% 30%, #1c1240 0%, #0d0820 100%)',
+  gradientText: 'linear-gradient(135deg, #c880ff 0%, #a855f7 50%, #d0a0ff 100%)',
+  meshGradient: 'radial-gradient(ellipse 90% 70% at 10% 20%, rgba(168,85,247,0.20) 0%, transparent 55%), radial-gradient(ellipse 70% 55% at 85% 78%, rgba(168,85,247,0.14) 0%, transparent 50%)',
+  cardShadow: '0 4px 24px rgba(0,0,0,0.65)', cardShadowHover: '0 8px 40px rgba(0,0,0,0.85), 0 0 28px rgba(168,85,247,0.30)',
+};
+
+const COPPER_TOKENS: PluginTokens = {
+  bg: '#0d0805', surface: '#180f08', surfaceAlt: '#221508', surfaceCard: '#150d06',
+  text: '#f5ede6', textMuted: '#c8a090', textSubtle: '#886050',
+  accent: '#b87333', accentDim: '#8b5523', accentRgb: '184,115,51',
+  glowColor: 'rgba(184,115,51,0.28)', border: '#2a1a10', borderSubtle: '#201408',
+  heroFont: 'Fraunces', bodyFont: 'Source Serif 4',
+  heroWeight: 300, heroStyle: 'italic', labelTracking: '0.18em',
+  dark: true, noiseOpacity: 0.03,
+  gradientHero: 'radial-gradient(ellipse 80% 60% at 50% 40%, #221508 0%, #0d0805 100%)',
+  gradientText: 'linear-gradient(135deg, #d49050 0%, #b87333 50%, #e0a860 100%)',
+  meshGradient: 'radial-gradient(ellipse 80% 60% at 20% 30%, rgba(184,115,51,0.14) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 80% 70%, rgba(184,115,51,0.10) 0%, transparent 55%)',
+  cardShadow: '0 4px 24px rgba(0,0,0,0.6)', cardShadowHover: '0 8px 40px rgba(0,0,0,0.78), 0 0 20px rgba(184,115,51,0.22)',
+};
+
+const ARCTIC_TOKENS: PluginTokens = {
+  bg: '#f0f7ff', surface: '#ffffff', surfaceAlt: '#e4f0ff', surfaceCard: '#f8fbff',
+  text: '#0d1b2e', textMuted: '#3a5a80', textSubtle: '#7090b0',
+  accent: '#1e6ec8', accentDim: '#1453a0', accentRgb: '30,110,200',
+  glowColor: 'rgba(30,110,200,0.14)', border: '#c8dff5', borderSubtle: '#d8eaff',
+  heroFont: 'Inter', bodyFont: 'Inter',
+  heroWeight: 600, heroStyle: 'normal', labelTracking: '0.08em',
+  dark: false, noiseOpacity: 0.01,
+  gradientHero: 'linear-gradient(180deg, #ffffff 0%, #f0f7ff 100%)',
+  gradientText: 'linear-gradient(135deg, #3a90e8 0%, #1e6ec8 50%, #1453a0 100%)',
+  meshGradient: 'radial-gradient(ellipse 70% 50% at 20% 30%, rgba(30,110,200,0.08) 0%, transparent 60%)',
+  cardShadow: '0 1px 8px rgba(13,27,46,0.08)', cardShadowHover: '0 4px 20px rgba(13,27,46,0.14), 0 0 0 1px rgba(30,110,200,0.14)',
+};
+
+const EMBER_TOKENS: PluginTokens = {
+  bg: '#0a0300', surface: '#160700', surfaceAlt: '#200a00', surfaceCard: '#120500',
+  text: '#fff5ee', textMuted: '#cc8870', textSubtle: '#884430',
+  accent: '#ff4500', accentDim: '#cc2200', accentRgb: '255,69,0',
+  glowColor: 'rgba(255,69,0,0.40)', border: '#2a0a00', borderSubtle: '#200800',
+  heroFont: 'Syne', bodyFont: 'DM Sans',
+  heroWeight: 800, heroStyle: 'normal', labelTracking: '0.2em',
+  dark: true, noiseOpacity: 0.045,
+  gradientHero: 'radial-gradient(ellipse 90% 70% at 50% 25%, #200a00 0%, #0a0300 100%)',
+  gradientText: 'linear-gradient(135deg, #ff8040 0%, #ff4500 50%, #ff6020 100%)',
+  meshGradient: 'radial-gradient(ellipse 90% 70% at 10% 15%, rgba(255,69,0,0.24) 0%, transparent 50%), radial-gradient(ellipse 70% 55% at 85% 80%, rgba(255,69,0,0.16) 0%, transparent 48%)',
+  cardShadow: '0 4px 24px rgba(0,0,0,0.65)', cardShadowHover: '0 8px 40px rgba(0,0,0,0.85), 0 0 28px rgba(255,69,0,0.32)',
+};
+
+const LAVENDER_TOKENS: PluginTokens = {
+  bg: '#f8f5ff', surface: '#ffffff', surfaceAlt: '#eee8ff', surfaceCard: '#fbf9ff',
+  text: '#1a1228', textMuted: '#6048a0', textSubtle: '#9878c8',
+  accent: '#7c3aed', accentDim: '#6d28d9', accentRgb: '124,58,237',
+  glowColor: 'rgba(124,58,237,0.14)', border: '#e0d8f8', borderSubtle: '#ece8fc',
+  heroFont: 'Lora', bodyFont: 'Libre Franklin',
+  heroWeight: 600, heroStyle: 'italic', labelTracking: '0.14em',
+  dark: false, noiseOpacity: 0.02,
+  gradientHero: 'radial-gradient(ellipse 70% 50% at 50% 30%, #ffffff 0%, #f8f5ff 100%)',
+  gradientText: 'linear-gradient(135deg, #9060ff 0%, #7c3aed 50%, #a060ff 100%)',
+  meshGradient: 'radial-gradient(ellipse 70% 50% at 25% 30%, rgba(124,58,237,0.10) 0%, transparent 60%), radial-gradient(ellipse 50% 40% at 75% 70%, rgba(124,58,237,0.07) 0%, transparent 55%)',
+  cardShadow: '0 2px 16px rgba(26,18,40,0.08)', cardShadowHover: '0 8px 32px rgba(26,18,40,0.14), 0 0 0 1px rgba(124,58,237,0.14)',
+};
+
+const STEEL_TOKENS: PluginTokens = {
+  bg: '#0c1420', surface: '#132030', surfaceAlt: '#1a2c40', surfaceCard: '#102038',
+  text: '#ccd8e8', textMuted: '#7898b8', textSubtle: '#405870',
+  accent: '#7ba7d4', accentDim: '#5a88b5', accentRgb: '123,167,212',
+  glowColor: 'rgba(123,167,212,0.24)', border: '#1e2e42', borderSubtle: '#182538',
+  heroFont: 'Space Grotesk', bodyFont: 'Inter',
+  heroWeight: 700, heroStyle: 'normal', labelTracking: '0.15em',
+  dark: true, noiseOpacity: 0.035,
+  gradientHero: 'linear-gradient(180deg, #1a2c40 0%, #0c1420 100%)',
+  gradientText: 'linear-gradient(135deg, #a0c8e8 0%, #7ba7d4 50%, #90b8e0 100%)',
+  meshGradient: 'radial-gradient(ellipse 80% 60% at 20% 25%, rgba(123,167,212,0.14) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 80% 75%, rgba(123,167,212,0.10) 0%, transparent 50%)',
+  cardShadow: '0 4px 24px rgba(0,0,0,0.55)', cardShadowHover: '0 8px 40px rgba(0,0,0,0.70), 0 0 20px rgba(123,167,212,0.20)',
+};
+
+const TERRA_TOKENS: PluginTokens = {
+  bg: '#f7f0e8', surface: '#ffffff', surfaceAlt: '#ede4d8', surfaceCard: '#faf6f0',
+  text: '#2a1a0a', textMuted: '#7a5038', textSubtle: '#b08060',
+  accent: '#c4621a', accentDim: '#a0481a', accentRgb: '196,98,26',
+  glowColor: 'rgba(196,98,26,0.18)', border: '#ddd0c0', borderSubtle: '#e8ddd0',
+  heroFont: 'Fraunces', bodyFont: 'Nunito Sans',
+  heroWeight: 400, heroStyle: 'italic', labelTracking: '0.14em',
+  dark: false, noiseOpacity: 0.025,
+  gradientHero: 'radial-gradient(ellipse 70% 50% at 50% 35%, #ffffff 0%, #f7f0e8 100%)',
+  gradientText: 'linear-gradient(135deg, #e07830 0%, #c4621a 50%, #d87030 100%)',
+  meshGradient: 'radial-gradient(ellipse 70% 50% at 25% 30%, rgba(196,98,26,0.10) 0%, transparent 60%), radial-gradient(ellipse 50% 40% at 75% 70%, rgba(196,98,26,0.07) 0%, transparent 55%)',
+  cardShadow: '0 2px 16px rgba(42,26,10,0.10)', cardShadowHover: '0 8px 32px rgba(42,26,10,0.16), 0 0 0 1px rgba(196,98,26,0.14)',
+};
+
+const VOID_TOKENS: PluginTokens = {
+  bg: '#000000', surface: '#0a0a0a', surfaceAlt: '#111111', surfaceCard: '#080808',
+  text: '#ffffff', textMuted: '#888888', textSubtle: '#444444',
+  accent: '#8b5cf6', accentDim: '#7c3aed', accentRgb: '139,92,246',
+  glowColor: 'rgba(139,92,246,0.35)', border: '#1a1a1a', borderSubtle: '#141414',
+  heroFont: 'Syne', bodyFont: 'DM Mono',
+  heroWeight: 800, heroStyle: 'normal', labelTracking: '0.2em',
+  dark: true, noiseOpacity: 0.04,
+  gradientHero: 'radial-gradient(ellipse 80% 60% at 50% 30%, #111111 0%, #000000 100%)',
+  gradientText: 'linear-gradient(135deg, #b080ff 0%, #8b5cf6 50%, #c0a0ff 100%)',
+  meshGradient: 'radial-gradient(ellipse 80% 60% at 15% 20%, rgba(139,92,246,0.18) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 85% 75%, rgba(139,92,246,0.12) 0%, transparent 50%)',
+  cardShadow: '0 4px 24px rgba(0,0,0,0.70)', cardShadowHover: '0 8px 40px rgba(0,0,0,0.90), 0 0 28px rgba(139,92,246,0.30)',
+};
+
 // ── Plugin registry ──────────────────────────────────────────────────────────
 
 export const PLUGINS: PluginMeta[] = [
@@ -551,6 +691,115 @@ export const PLUGINS: PluginMeta[] = [
       { family: 'Inter', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap' },
     ],
   },
+  {
+    id: 'rose',
+    name: 'Rose Editorial',
+    description: 'Deep rose with blush pink, bold feminine authority',
+    character: 'Vogue meets Condé Nast',
+    tokens: ROSE_TOKENS,
+    fonts: [
+      { family: 'Playfair Display', url: 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&display=swap' },
+      { family: 'Jost', url: 'https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'chalk',
+    name: 'Chalk Academic',
+    description: 'Warm cream with graphite, clean and scholarly',
+    character: 'Harvard meets The Atlantic',
+    tokens: CHALK_TOKENS,
+    fonts: [
+      { family: 'Libre Baskerville', url: 'https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap' },
+      { family: 'Nunito Sans', url: 'https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'dusk',
+    name: 'Dusk Cinematic',
+    description: 'Deep purple twilight with amber warmth',
+    character: 'A24 meets Monocle',
+    tokens: DUSK_TOKENS,
+    fonts: [
+      { family: 'Cormorant Garamond', url: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap' },
+      { family: 'DM Sans', url: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'copper',
+    name: 'Copper Artisan',
+    description: 'Dark espresso with rich copper, handcrafted premium',
+    character: 'Hermès meets Kinfolk',
+    tokens: COPPER_TOKENS,
+    fonts: [
+      { family: 'Fraunces', url: 'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap' },
+      { family: 'Source Serif 4', url: 'https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@300;400;600&display=swap' },
+    ],
+  },
+  {
+    id: 'arctic',
+    name: 'Arctic Precision',
+    description: 'Ice blue and white, ultra-clean technical authority',
+    character: 'Linear meets Figma Docs',
+    tokens: ARCTIC_TOKENS,
+    fonts: [
+      { family: 'Inter', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap' },
+    ],
+  },
+  {
+    id: 'ember',
+    name: 'Ember Intensity',
+    description: 'Pure black with electric red-orange, high-stakes energy',
+    character: 'YCombinator meets Red Bull',
+    tokens: EMBER_TOKENS,
+    fonts: [
+      { family: 'Syne', url: 'https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&display=swap' },
+      { family: 'DM Sans', url: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'lavender',
+    name: 'Lavender Fields',
+    description: 'Soft lavender with deep violet, romantic editorial',
+    character: 'Aesop meets Letterboxd',
+    tokens: LAVENDER_TOKENS,
+    fonts: [
+      { family: 'Lora', url: 'https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap' },
+      { family: 'Libre Franklin', url: 'https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'steel',
+    name: 'Steel Authority',
+    description: 'Dark steel blue with chrome highlights, industrial command',
+    character: 'Boeing meets Palantir',
+    tokens: STEEL_TOKENS,
+    fonts: [
+      { family: 'Space Grotesk', url: 'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap' },
+      { family: 'Inter', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'terra',
+    name: 'Terra Warmth',
+    description: 'Terracotta and warm sand, Mediterranean vitality',
+    character: 'Olive meets Massimo Bottura',
+    tokens: TERRA_TOKENS,
+    fonts: [
+      { family: 'Fraunces', url: 'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap' },
+      { family: 'Nunito Sans', url: 'https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600&display=swap' },
+    ],
+  },
+  {
+    id: 'void',
+    name: 'Void Minimal',
+    description: 'Pure black with electric violet, ultra-modern presence',
+    character: 'Apple WWDC meets Nothing Phone',
+    tokens: VOID_TOKENS,
+    fonts: [
+      { family: 'Syne', url: 'https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&display=swap' },
+      { family: 'DM Mono', url: 'https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap' },
+    ],
+  },
 ];
 
 // ── Default theme IDs (shown in main grid without expanding) ──────────────────
@@ -693,6 +942,86 @@ export const THEME_REGISTRY: ThemeDefinition[] = [
     cssVariables: { '--theme-bg': '#020d18', '--theme-surface': '#061828', '--theme-text': '#dff2ff', '--theme-accent': '#0ea5c9', '--theme-border': '#0a2a3d' },
     fontPairing: { heading: 'Syne', body: 'Inter' },
     character: 'MIT Technology Review meets Salesforce — deep teal gradient, white type, data-confident. Authoritative and forward-looking.',
+  },
+  {
+    id: 'rose', label: 'Rose Editorial', description: 'Deep rose with blush pink, bold feminine authority',
+    category: 'bold',
+    previewColors: { background: '#1a0810', surface: '#240f18', text: '#ffeef5', accent: '#e8457a', accent2: '#c02258', border: '#350f20' },
+    cssVariables: { '--theme-bg': '#1a0810', '--theme-surface': '#240f18', '--theme-text': '#ffeef5', '--theme-accent': '#e8457a', '--theme-border': '#350f20' },
+    fontPairing: { heading: 'Playfair Display', body: 'Jost' },
+    character: 'Vogue meets Condé Nast — bold feminine authority, deep rose backgrounds, blush pink accents. Prose is decisive and glamorous.',
+  },
+  {
+    id: 'chalk', label: 'Chalk Academic', description: 'Warm cream with graphite, clean and scholarly',
+    category: 'minimal',
+    previewColors: { background: '#fafaf8', surface: '#ffffff', text: '#1c1c1a', accent: '#4b5563', accent2: '#374151', border: '#e5e5e2' },
+    cssVariables: { '--theme-bg': '#fafaf8', '--theme-surface': '#ffffff', '--theme-text': '#1c1c1a', '--theme-accent': '#4b5563', '--theme-border': '#e5e5e2' },
+    fontPairing: { heading: 'Libre Baskerville', body: 'Nunito Sans' },
+    character: 'Harvard meets The Atlantic — warm cream, graphite type, scholarly restraint. Every claim is evidence-backed. Zero decoration.',
+  },
+  {
+    id: 'dusk', label: 'Dusk Cinematic', description: 'Deep purple twilight with amber warmth',
+    category: 'dark',
+    previewColors: { background: '#0d0820', surface: '#140d2e', text: '#ede8ff', accent: '#a855f7', accent2: '#7c3aed', border: '#1f1445' },
+    cssVariables: { '--theme-bg': '#0d0820', '--theme-surface': '#140d2e', '--theme-text': '#ede8ff', '--theme-accent': '#a855f7', '--theme-border': '#1f1445' },
+    fontPairing: { heading: 'Cormorant Garamond', body: 'DM Sans' },
+    character: 'A24 meets Monocle — cinematic twilight purple, soft violet glow. Atmospheric, poetic, and unhurried. Every word feels intentional.',
+  },
+  {
+    id: 'copper', label: 'Copper Artisan', description: 'Dark espresso with rich copper, handcrafted premium',
+    category: 'premium',
+    previewColors: { background: '#0d0805', surface: '#180f08', text: '#f5ede6', accent: '#b87333', accent2: '#8b5523', border: '#2a1a10' },
+    cssVariables: { '--theme-bg': '#0d0805', '--theme-surface': '#180f08', '--theme-text': '#f5ede6', '--theme-accent': '#b87333', '--theme-border': '#2a1a10' },
+    fontPairing: { heading: 'Fraunces', body: 'Source Serif 4' },
+    character: 'Hermès meets Kinfolk — dark espresso, burnished copper highlights. Artisanal, warm, and deliberately slow. Prose never rushes.',
+  },
+  {
+    id: 'arctic', label: 'Arctic Precision', description: 'Ice blue and white, ultra-clean technical authority',
+    category: 'minimal',
+    previewColors: { background: '#f0f7ff', surface: '#ffffff', text: '#0d1b2e', accent: '#1e6ec8', accent2: '#1453a0', border: '#c8dff5' },
+    cssVariables: { '--theme-bg': '#f0f7ff', '--theme-surface': '#ffffff', '--theme-text': '#0d1b2e', '--theme-accent': '#1e6ec8', '--theme-border': '#c8dff5' },
+    fontPairing: { heading: 'Inter', body: 'Inter' },
+    character: 'Linear meets Figma Docs — icy blue-white, crisp navy text, precise grid. Technical authority without decoration. Copy is sharp and exact.',
+  },
+  {
+    id: 'ember', label: 'Ember Intensity', description: 'Pure black with electric red-orange, high-stakes energy',
+    category: 'bold',
+    previewColors: { background: '#0a0300', surface: '#160700', text: '#fff5ee', accent: '#ff4500', accent2: '#cc2200', border: '#2a0a00' },
+    cssVariables: { '--theme-bg': '#0a0300', '--theme-surface': '#160700', '--theme-text': '#fff5ee', '--theme-accent': '#ff4500', '--theme-border': '#2a0a00' },
+    fontPairing: { heading: 'Syne', body: 'DM Sans' },
+    character: 'YCombinator meets Red Bull — near-black with electric red-orange. Urgency baked into every line. Copy is bold, direct, and zero-fluff.',
+  },
+  {
+    id: 'lavender', label: 'Lavender Fields', description: 'Soft lavender with deep violet, romantic editorial',
+    category: 'light',
+    previewColors: { background: '#f8f5ff', surface: '#ffffff', text: '#1a1228', accent: '#7c3aed', accent2: '#6d28d9', border: '#e0d8f8' },
+    cssVariables: { '--theme-bg': '#f8f5ff', '--theme-surface': '#ffffff', '--theme-text': '#1a1228', '--theme-accent': '#7c3aed', '--theme-border': '#e0d8f8' },
+    fontPairing: { heading: 'Lora', body: 'Libre Franklin' },
+    character: 'Aesop meets Letterboxd — soft lavender fields, deep violet accents, generous leading. Thoughtful and literary. Never loud, always felt.',
+  },
+  {
+    id: 'steel', label: 'Steel Authority', description: 'Dark steel blue with chrome highlights, industrial command',
+    category: 'dark',
+    previewColors: { background: '#0c1420', surface: '#132030', text: '#ccd8e8', accent: '#7ba7d4', accent2: '#5a88b5', border: '#1e2e42' },
+    cssVariables: { '--theme-bg': '#0c1420', '--theme-surface': '#132030', '--theme-text': '#ccd8e8', '--theme-accent': '#7ba7d4', '--theme-border': '#1e2e42' },
+    fontPairing: { heading: 'Space Grotesk', body: 'Inter' },
+    character: 'Boeing meets Palantir — dark steel, chrome-blue highlights, structured authority. Data talks louder than adjectives. Copy is compressed and factual.',
+  },
+  {
+    id: 'terra', label: 'Terra Warmth', description: 'Terracotta and warm sand, Mediterranean vitality',
+    category: 'nature',
+    previewColors: { background: '#f7f0e8', surface: '#ffffff', text: '#2a1a0a', accent: '#c4621a', accent2: '#a0481a', border: '#ddd0c0' },
+    cssVariables: { '--theme-bg': '#f7f0e8', '--theme-surface': '#ffffff', '--theme-text': '#2a1a0a', '--theme-accent': '#c4621a', '--theme-border': '#ddd0c0' },
+    fontPairing: { heading: 'Fraunces', body: 'Nunito Sans' },
+    character: 'Olive meets Massimo Bottura — warm terracotta, sandy surfaces, Mediterranean rhythm. Grounded, human, and full of life. Prose breathes.',
+  },
+  {
+    id: 'void', label: 'Void Minimal', description: 'Pure black with electric violet, ultra-modern presence',
+    category: 'dark',
+    previewColors: { background: '#000000', surface: '#0a0a0a', text: '#ffffff', accent: '#8b5cf6', accent2: '#7c3aed', border: '#1a1a1a' },
+    cssVariables: { '--theme-bg': '#000000', '--theme-surface': '#0a0a0a', '--theme-text': '#ffffff', '--theme-accent': '#8b5cf6', '--theme-border': '#1a1a1a' },
+    fontPairing: { heading: 'Syne', body: 'DM Mono' },
+    character: 'Apple WWDC meets Nothing Phone — pure black canvas, electric violet pulse. Confident silence. One idea per sentence. Minimal is the message.',
   },
 ];
 

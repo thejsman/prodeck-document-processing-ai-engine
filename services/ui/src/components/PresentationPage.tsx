@@ -408,10 +408,13 @@ export function PresentationPage() {
       localStorage.setItem("ms_activeTab", tab);
   };
 
-  // Unified preview handler — opens ThemeFullPreview for any theme
+  // Unified preview handler — opens ThemeFullPreview and closes ThemeModal
   const handlePreview = (id: string) => {
     const theme = THEME_REGISTRY.find((t) => t.id === id);
-    if (theme) setPreviewTheme(theme);
+    if (theme) {
+      setIsThemeModalOpen(false);
+      setPreviewTheme(theme);
+    }
   };
 
   // Persist selected theme to localStorage
@@ -907,6 +910,7 @@ export function PresentationPage() {
     selectedProposal,
     addEntry,
     pdfFriendly,
+    referenceFile,
   ]);
 
   // ── Preview loading state ──────────────────────────────────────────────────
