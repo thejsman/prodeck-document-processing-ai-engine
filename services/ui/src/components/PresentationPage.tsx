@@ -335,7 +335,7 @@ export function PresentationPage() {
 
   // Step 3
   const [designBrief, setDesignBrief] = useState("");
-  const [brandImagePrompt, setBrandImagePrompt] = useState<string>("");
+  const [referenceFile, setReferenceFile] = useState<{ base64: string; mediaType: string; fileName: string; dominantColors?: string[] } | null>(null);
   const [synthStatus, setSynthStatus] = useState<
     null | "scanning" | "building" | "ready"
   >(null);
@@ -375,6 +375,8 @@ export function PresentationPage() {
   const currentHistoryIdRef = useRef<string | null>(null);
   const layoutASTRef = useRef<LayoutAST | null>(null);
   const generationStartedAtRef = useRef<number>(_snap?.generationStartedAt ?? 0);
+  // Holds reference CSS vars + font URL from Pass 0.5 so they survive the complete-event brandConfig merge
+  const referenceCssVarsRef = useRef<{ cssVars: Record<string, string>; googleFontsUrl?: string } | null>(null);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
@@ -684,6 +686,7 @@ export function PresentationPage() {
     setStreamingSections([]);
     setStreamingTotal(0);
     setPlanSectionTypes([]);
+    referenceCssVarsRef.current = null;
     setLayoutAST({
       proposalId,
       generatedAt: new Date().toISOString(),
@@ -740,6 +743,7 @@ export function PresentationPage() {
             }
           : {}),
         ...(pdfFriendly ? { pdfFriendly: true } : {}),
+        ...(referenceFile ? { referenceFile } : {}),
         signal: abortCtrl.signal,
         onEvent: (event: StreamEvent) => {
           console.log(
@@ -758,9 +762,34 @@ export function PresentationPage() {
               { text: "Generating sections...", done: false },
             ]);
           } else if (event.type === "plan") {
-            const planEvent = event as { type: "plan"; totalSections: number; sectionTypes?: string[] };
+            const planEvent = event as { type: "plan"; totalSections: number; sectionTypes?: string[]; referenceCssVars?: Record<string, string> };
             setStreamingTotal(planEvent.totalSections);
             if (planEvent.sectionTypes) setPlanSectionTypes(planEvent.sectionTypes);
+            // If Pass 0.5 extracted design tokens from attached image, inject them as CSS overrides
+            if (planEvent.referenceCssVars) {
+              // Build a Google Fonts URL from the extracted font names so they actually load
+              const headingFont = planEvent.referenceCssVars['--ms-font-heading']?.match(/['"]?([^'",]+)['"]?/)?.[1]?.trim();
+              const bodyFont = planEvent.referenceCssVars['--ms-font-body']?.match(/['"]?([^'",]+)['"]?/)?.[1]?.trim();
+              const uniqueFonts = [...new Set([headingFont, bodyFont].filter(Boolean))] as string[];
+              const googleFontsUrl = uniqueFonts.length > 0
+                ? `https://fonts.googleapis.com/css2?${uniqueFonts.map(f => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
+                : undefined;
+
+              referenceCssVarsRef.current = { cssVars: planEvent.referenceCssVars, googleFontsUrl };
+
+              setLayoutAST((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  brand: {
+                    ...prev.brand,
+                    overrideTheme: true,
+                    extractedCssVariables: planEvent.referenceCssVars,
+                    ...(googleFontsUrl ? { googleFontsUrl } : {}),
+                  },
+                };
+              });
+            }
             setProgress([
               { text: "Hero generated ✓", done: true },
               { text: `Generating ${planEvent.totalSections} sections...`, done: true },
@@ -815,8 +844,17 @@ export function PresentationPage() {
             const raw = (event as { type: "complete"; ast: unknown }).ast;
             if (raw && typeof raw === "object") {
               const ast = raw as LayoutAST;
-              // Merge UI brand on top of agent brand — preserves overrideTheme, extractedCssVariables etc.
+              // Merge UI brand on top of agent brand, then re-apply reference CSS vars last so
+              // brandConfig (plugin theme + primaryColor) cannot overwrite the extracted tokens.
               ast.brand = { ...(ast.brand ?? {}), ...brandConfig };
+              if (referenceCssVarsRef.current) {
+                ast.brand = {
+                  ...ast.brand,
+                  overrideTheme: true,
+                  extractedCssVariables: referenceCssVarsRef.current.cssVars,
+                  ...(referenceCssVarsRef.current.googleFontsUrl ? { googleFontsUrl: referenceCssVarsRef.current.googleFontsUrl } : {}),
+                };
+              }
               ast.plugin = selectedPlugin ?? "ivory";
               setLayoutAST(ast);
               const saved = addEntry(ast);
@@ -1961,6 +1999,140 @@ export function PresentationPage() {
                           lineHeight: 1.6,
                         }}
                       />
+
+                      {/* Reference file attachment */}
+                      <input
+                        id="ref-file-input"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,application/pdf"
+                        style={{ display: "none" }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 4 * 1024 * 1024) {
+                            alert("File must be under 4 MB");
+                            e.target.value = "";
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const base64 = reader.result as string;
+                            // Extract dominant colors via canvas for accurate hex sampling
+                            if (file.type.startsWith("image/")) {
+                              const img = new Image();
+                              img.onload = () => {
+                                try {
+                                  const canvas = document.createElement("canvas");
+                                  const MAX = 120; // downsample for speed
+                                  const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+                                  canvas.width = Math.round(img.width * scale);
+                                  canvas.height = Math.round(img.height * scale);
+                                  const ctx = canvas.getContext("2d");
+                                  if (!ctx) { setReferenceFile({ base64, mediaType: file.type, fileName: file.name }); return; }
+                                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                  // Quantize: bucket RGB into 24-step bins, count occurrences
+                                  const toHex = (v: number) => {
+                                    // clamp 0-255 then convert — prevents overflow to 3-char hex
+                                    const clamped = Math.min(255, Math.max(0, v));
+                                    return clamped.toString(16).padStart(2, "0");
+                                  };
+                                  const buckets = new Map<string, { r: number; g: number; b: number; count: number }>();
+                                  for (let i = 0; i < data.length; i += 4) {
+                                    const a = data[i + 3];
+                                    if (a < 128) continue; // skip transparent
+                                    // Clamp to 255 before quantizing to avoid overflow
+                                    const r = Math.min(255, Math.round(data[i] / 24) * 24);
+                                    const g = Math.min(255, Math.round(data[i + 1] / 24) * 24);
+                                    const b = Math.min(255, Math.round(data[i + 2] / 24) * 24);
+                                    const key = `${r},${g},${b}`;
+                                    const entry = buckets.get(key);
+                                    if (entry) { entry.count++; } else { buckets.set(key, { r, g, b, count: 1 }); }
+                                  }
+                                  // Sort by frequency, take top 10
+                                  const sorted = [...buckets.values()].sort((a, b) => b.count - a.count);
+                                  // Separate light colors (potential backgrounds) from brand colors
+                                  const lightColors: string[] = [];
+                                  const brandColors: string[] = [];
+                                  for (const { r, g, b } of sorted.slice(0, 12)) {
+                                    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                                    const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+                                    if (lum > 180) { lightColors.push(hex); } // light/cream/white
+                                    else if (lum > 15) { brandColors.push(hex); } // skip near-black
+                                  }
+                                  // dominantColors: background candidates first, then brand colors
+                                  const dominantColors = [...lightColors.slice(0, 3), ...brandColors.slice(0, 6)];
+                                  setReferenceFile({ base64, mediaType: file.type, fileName: file.name, dominantColors });
+                                } catch {
+                                  setReferenceFile({ base64, mediaType: file.type, fileName: file.name });
+                                }
+                              };
+                              img.src = base64;
+                            } else {
+                              setReferenceFile({ base64, mediaType: file.type, fileName: file.name });
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = "";
+                        }}
+                      />
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById("ref-file-input")?.click()}
+                          style={{
+                            fontSize: 12,
+                            padding: "4px 10px",
+                            background: "transparent",
+                            border: "1px solid var(--color-border, #333)",
+                            borderRadius: 6,
+                            color: "var(--color-text-muted, #888)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          📎 Attach design reference
+                        </button>
+                        {referenceFile && (
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            padding: "3px 8px",
+                            background: "var(--color-surface, #1a1a1a)",
+                            borderRadius: 6,
+                            border: "1px solid var(--color-border, #333)",
+                          }}>
+                            {referenceFile.mediaType.startsWith("image/") ? (
+                              <img
+                                src={referenceFile.base64}
+                                alt="ref"
+                                style={{ width: 24, height: 24, objectFit: "cover", borderRadius: 3 }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: 16 }}>📄</span>
+                            )}
+                            <span style={{
+                              fontSize: 12,
+                              color: "var(--color-text-muted, #888)",
+                              maxWidth: 140,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {referenceFile.fileName}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setReferenceFile(null)}
+                              style={{
+                                background: "none", border: "none", cursor: "pointer",
+                                color: "var(--color-text-muted, #888)", fontSize: 14, lineHeight: 1,
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
                       <p className="muted" style={{ marginTop: 4 }}>
                         Drives colors, fonts, section structure, layout
                         variants, and motion. The more specific you are, the

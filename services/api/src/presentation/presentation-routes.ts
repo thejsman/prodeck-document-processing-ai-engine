@@ -516,6 +516,7 @@ export function registerPresentationRoutes(
       designBrief?: string;
       preSynthesizedDesignSystem?: Record<string, unknown>;
       pdfFriendly?: boolean;
+      referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
     } | undefined;
 
     // Load markdown from body or saved file
@@ -572,9 +573,10 @@ export function registerPresentationRoutes(
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
           ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
+          ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
-            send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes });
+            send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });
           },
           // Section callback — fires after each section's LLM call completes; kicks off image fetch immediately
           onSectionComplete: (section: Record<string, unknown>) => {

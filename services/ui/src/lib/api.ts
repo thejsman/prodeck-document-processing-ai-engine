@@ -676,6 +676,7 @@ export interface GenerateStreamOptions {
   designBrief?: string;
   preSynthesizedDesignSystem?: Record<string, unknown>;
   pdfFriendly?: boolean;
+  referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -698,6 +699,7 @@ export async function generateMicrositeStream(
       ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
       ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
       ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
+      ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
     }),
     signal: opts.signal,
   });
