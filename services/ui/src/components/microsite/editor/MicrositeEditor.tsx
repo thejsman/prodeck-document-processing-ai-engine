@@ -339,27 +339,9 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     ctx.clearSectionAITrigger();
   }, [ctx.pendingSectionAI, ctx]);
 
-  // Cmd+K / Ctrl+K focuses floating bar — handled via a custom event from FloatingAIBar
-  useEffect(() => {
-    function handleCmdK(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        document.getElementById('mse-floating-ai-input')?.focus();
-      }
-    }
-    document.addEventListener('keydown', handleCmdK);
-    return () => document.removeEventListener('keydown', handleCmdK);
-  }, []);
-
   const handleSectionAiAction = useCallback((sectionId: string, instruction: string) => {
     setPanelInstruction(instruction);
     setPanelTargetSectionId(sectionId);
-    setShowDesignPanel(true);
-  }, []);
-
-  const handleFloatingAISubmit = useCallback((instruction: string) => {
-    setPanelInstruction(instruction);
-    setPanelTargetSectionId(undefined);
     setShowDesignPanel(true);
   }, []);
 
@@ -575,7 +557,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         }}>
           <EditorCanvas onAiAction={handleSectionAiAction} />
         </div>
-        <FloatingAIBar onSubmit={handleFloatingAISubmit} />
       </div>
 
       {/* Publish modal */}

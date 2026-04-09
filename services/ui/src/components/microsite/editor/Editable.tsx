@@ -386,7 +386,7 @@ export function Editable({
       )}
 
       {/* Inline size badge — shown on hover when this field controls a scale */}
-      {ctx && sizeKey && (hovered || isSelected) && !editing && (() => {
+      {ctx && sizeKey && hovered && !editing && (() => {
         const STEP = 0.25;
         const MIN = 0.5;
         const MAX = 2.0;
