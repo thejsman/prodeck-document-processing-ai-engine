@@ -7,8 +7,9 @@ import { Microsite } from '../Microsite';
 import { DesignAgentPanel } from './DesignAgentPanel';
 import { PublishModal } from './PublishModal';
 import { ThemeModal } from '../ThemeModal';
-import { resolveTokens } from '../../../lib/presentation/pluginRegistry';
-import { THEME_REGISTRY } from '../../../lib/presentation/pluginRegistry';
+import { ThemePreviewModal } from '../ThemePreviewModal';
+import { resolveTokens, getPlugin, THEME_REGISTRY } from '../../../lib/presentation/pluginRegistry';
+import type { PluginMeta } from '../../../types/presentation';
 
 // Popular themes shown in quick picker (first 8)
 const QUICK_THEMES = THEME_REGISTRY.slice(0, 8);
@@ -305,6 +306,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [previewPlugin, setPreviewPlugin] = useState<PluginMeta | null>(null);
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [panelInstruction, setPanelInstruction] = useState('');
   const [panelTargetSectionId, setPanelTargetSectionId] = useState<string | undefined>(undefined);
@@ -591,8 +593,22 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         <ThemeModal
           selectedPlugin={ctx.ast.plugin}
           onSelect={id => { if (id) { handleThemeSelect(id); setShowThemeModal(false); } }}
-          onPreview={() => {}}
+          onPreview={id => { try { setPreviewPlugin(getPlugin(id)); } catch { /* unknown id */ } }}
           onClose={() => setShowThemeModal(false)}
+        />
+      )}
+
+      {/* Theme full preview */}
+      {previewPlugin && (
+        <ThemePreviewModal
+          plugin={previewPlugin}
+          brand={ctx.ast.brand}
+          onClose={() => setPreviewPlugin(null)}
+          onApply={() => {
+            handleThemeSelect(previewPlugin.id);
+            setPreviewPlugin(null);
+            setShowThemeModal(false);
+          }}
         />
       )}
     </div>
