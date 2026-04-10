@@ -4,7 +4,7 @@ import type { PluginTokens, StatsContent } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
 import { AnimatedCounter } from "../shared/AnimatedCounter";
-import { Label, Body } from "../shared/Typography";
+import { Label, Body, inlineMarkdownToHtml, hasMarkdown } from "../shared/Typography";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 import { useMicrositeEffects } from "../shared/MicrositeEffectsContext";
@@ -74,9 +74,10 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
                 textAlign: "center",
                 marginBottom: 56,
               }}
-            >
-              {content.headline}
-            </h2>
+              {...(hasMarkdown(content.headline ?? '')
+                ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.headline ?? '') } }
+                : { children: content.headline })}
+            />
           </InlineEditable>
         </Reveal>
 

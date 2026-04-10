@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import type { PluginTokens } from '../../../types/presentation';
 
 /**
@@ -33,8 +34,26 @@ export function hasMarkdown(text: string): boolean {
 
 /** Renders a string that may contain inline markup as a React element with dangerouslySetInnerHTML. */
 function RichChild({ children, tag: Tag, style }: { children: React.ReactNode; tag: keyof React.JSX.IntrinsicElements; style?: React.CSSProperties }) {
-  if (typeof children === 'string' && hasMarkdown(children)) {
-    return <Tag style={style} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtml(children) }} />;
+  // Plain string — fast path
+  if (typeof children === 'string') {
+    if (hasMarkdown(children)) {
+      return <Tag style={style} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtml(children) }} />;
+    }
+    return <Tag style={style}>{children}</Tag>;
+  }
+  // Mixed children array (e.g. string + <TypingCursor/>) — process each string item inline
+  const childArray = React.Children.toArray(children);
+  const hasAnyMarkdown = childArray.some(c => typeof c === 'string' && hasMarkdown(c));
+  if (hasAnyMarkdown) {
+    return (
+      <Tag style={style}>
+        {childArray.map((child, i) =>
+          typeof child === 'string' && hasMarkdown(child)
+            ? <span key={i} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtml(child) }} />
+            : child
+        )}
+      </Tag>
+    );
   }
   return <Tag style={style}>{children}</Tag>;
 }

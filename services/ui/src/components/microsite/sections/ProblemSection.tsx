@@ -3,7 +3,7 @@
 import type { PluginTokens, ProblemContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Label, Body } from '../shared/Typography';
+import { Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -76,9 +76,11 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
               WebkitTextFillColor: 'transparent',
               backgroundClip: 'text',
               color: 'transparent',
-            }}>
-              {content.headline}
-            </h2>
+            }}
+              {...(hasMarkdown(content.headline ?? '')
+                ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.headline ?? '') } }
+                : { children: content.headline })}
+            />
           </InlineEditable>
         </Reveal>
 
