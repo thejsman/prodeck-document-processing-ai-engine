@@ -5,15 +5,42 @@
  * the microsite-generator-agent.
  *
  * States driven by this file:
- *   checking_proposal    — locate the target proposal in the namespace
- *   generating_microsite — run microsite-generator-agent on the proposal
+ *   checking_proposal        — locate the target proposal in the namespace
+ *   collecting_design_inputs — gather brand/design preferences from the user
+ *   generating_microsite     — run microsite-generator-agent on the proposal
  */
 
 import path from 'node:path';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { MicrositeGeneratorAgent } from '@ai-engine/agent-microsite-generator';
 import { toolRegistry } from '@ai-engine/core';
+import { llmGenerateFn } from '../agent-routes.js';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DEFAULT_INSTRUCTIONS = [
+  'Generate a comprehensive microsite using all content from the proposal.',
+  'Include as many sections as the content supports — aim for 10 or more.',
+  'Map all source headings to the most specific section type available.',
+  'Use diagrams in approach, timeline, security, techstack, and testing sections.',
+].join(' ');
+
+const SKIP_PATTERN = /^(generate|go|skip|use defaults?|proceed|yes|y|ok|okay|sure)$/i;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface MicrositeDesignInputs {
+  companyName?: string;
+  primaryColor?: string;
+  designStyle?: string;
+  pdfFriendly?: boolean;
+  customInstructions?: string;
+}
 
 // ---------------------------------------------------------------------------
 // Proposal discovery
@@ -98,7 +125,7 @@ export async function handleCheckingProposal(ctx: HandlerContext): Promise<Handl
         instance.context.proposalArtifactId = proposals[idx].fileName;
         instance.context.awaitingMicrositeProposalSelection = undefined;
         return {
-          message: `Using **${proposals[idx].fileName}**. Converting to microsite now…`,
+          message: `Using **${proposals[idx].fileName}**.`,
           stateSignal: 'READY',
         };
       }
@@ -110,7 +137,7 @@ export async function handleCheckingProposal(ctx: HandlerContext): Promise<Handl
       instance.context.proposalArtifactId = matched.fileName;
       instance.context.awaitingMicrositeProposalSelection = undefined;
       return {
-        message: `Using **${matched.fileName}**. Converting to microsite now…`,
+        message: `Using **${matched.fileName}**.`,
         stateSignal: 'READY',
       };
     }
@@ -121,7 +148,7 @@ export async function handleCheckingProposal(ctx: HandlerContext): Promise<Handl
       instance.context.proposalArtifactId = proposals[0].fileName;
       instance.context.awaitingMicrositeProposalSelection = undefined;
       return {
-        message: `Using **${proposals[0].fileName}**. Converting to microsite now…`,
+        message: `Using **${proposals[0].fileName}**.`,
         stateSignal: 'READY',
       };
     }
@@ -162,6 +189,92 @@ export async function handleCheckingProposal(ctx: HandlerContext): Promise<Handl
 }
 
 // ---------------------------------------------------------------------------
+// collecting_design_inputs handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Ask the user for brand and design preferences before generation.
+ *
+ * Flow:
+ *   1. First call — show the design questions form.
+ *   2. If user says "generate" / "skip" — signal READY with empty inputs.
+ *   3. Otherwise — use LLM to parse the reply into structured design inputs,
+ *      store in context.micrositeDesignInputs, signal READY.
+ */
+export async function handleCollectingDesignInputs(ctx: HandlerContext): Promise<HandlerResult> {
+  const { instance, incomingMessage } = ctx;
+
+  // Skip shortcut — user wants to proceed with defaults
+  if (SKIP_PATTERN.test(incomingMessage.trim())) {
+    instance.context.micrositeDesignInputs = {};
+    return { message: '', stateSignal: 'READY' };
+  }
+
+  // First visit — show the question form
+  if (!instance.context.awaitingMicrositeDesignInputs) {
+    instance.context.awaitingMicrositeDesignInputs = true;
+    return {
+      message: [
+        'Before I generate the microsite, a few quick questions to tailor the design:',
+        '',
+        '1. **Brand name** — What company or product name should be featured?',
+        '2. **Brand color** — Primary color (hex or name, e.g. `#1a73e8` or `navy`). Skip if unsure.',
+        '3. **Style** — `professional` / `bold` / `minimal` / `editorial` (default: professional)',
+        '4. **PDF-friendly?** — yes / no (optimises layout for PDF export, default: no)',
+        '5. **Custom instructions** — Anything specific to include or emphasise? (or skip)',
+        '',
+        'You can answer all at once, skip any question, or just say **"generate"** to use defaults.',
+      ].join('\n'),
+    };
+  }
+
+  // User has replied — parse with LLM
+  const parsePrompt = [
+    'Extract microsite design preferences from the following user message.',
+    'Return a JSON object with these optional fields:',
+    '  companyName: string',
+    '  primaryColor: string (hex or CSS color name, normalise to hex if possible)',
+    '  designStyle: "professional" | "bold" | "minimal" | "editorial"',
+    '  pdfFriendly: boolean',
+    '  customInstructions: string (verbatim instructions for the microsite generator)',
+    '',
+    'Rules:',
+    '- Only include a field if the user clearly provided a value for it.',
+    '- If a field is absent or the user said "skip", omit it from the object.',
+    '- Return only the raw JSON object, no markdown fences.',
+    '',
+    `User message: ${incomingMessage}`,
+  ].join('\n');
+
+  let designInputs: MicrositeDesignInputs = {};
+  try {
+    const raw = await llmGenerateFn(parsePrompt);
+    // Strip any accidental markdown fences
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    designInputs = JSON.parse(cleaned) as MicrositeDesignInputs;
+  } catch {
+    // Parsing failed — use the raw message as custom instructions and proceed
+    designInputs = { customInstructions: incomingMessage };
+  }
+
+  instance.context.micrositeDesignInputs = designInputs;
+  instance.context.awaitingMicrositeDesignInputs = undefined;
+
+  const confirmParts: string[] = ['Got it! Here\'s what I\'ll use:'];
+  if (designInputs.companyName) confirmParts.push(`- **Brand name**: ${designInputs.companyName}`);
+  if (designInputs.primaryColor) confirmParts.push(`- **Brand color**: ${designInputs.primaryColor}`);
+  if (designInputs.designStyle) confirmParts.push(`- **Style**: ${designInputs.designStyle}`);
+  if (designInputs.pdfFriendly) confirmParts.push('- **PDF-friendly**: yes');
+  if (designInputs.customInstructions) confirmParts.push(`- **Instructions**: ${designInputs.customInstructions}`);
+  if (confirmParts.length === 1) confirmParts.push('- Using default settings');
+
+  return {
+    message: confirmParts.join('\n'),
+    stateSignal: 'READY',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // generating_microsite handler
 // ---------------------------------------------------------------------------
 
@@ -172,16 +285,18 @@ export async function handleCheckingProposal(ctx: HandlerContext): Promise<Handl
  *   1. Emit phase "Loading proposal".
  *   2. Read the proposal markdown from the namespace proposals directory.
  *   3. Emit phase "Generating microsite".
- *   4. Invoke MicrositeGeneratorAgent.run() with the proposal content.
+ *   4. Invoke MicrositeGeneratorAgent.run() with proposal + collected design inputs.
+ *      Sections are streamed to the client in real-time via onSectionComplete.
  *   5. Emit phase "Microsite ready".
- *   6. Store micrositeArtifactId in context.
+ *   6. Store micrositeArtifactId and layout AST in context.
  *   7. Signal DONE.
  */
 export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, onPhase, onChunk } = ctx;
+  const { workdir, namespace, instance, onPhase, onChunk, onSection } = ctx;
 
   const artifactId = instance.context.proposalArtifactId as string;
   const proposalPath = path.join(workdir, 'namespaces', namespace, 'proposals', artifactId);
+  const design = (instance.context.micrositeDesignInputs ?? {}) as MicrositeDesignInputs;
 
   // ── Load proposal markdown ───────────────────────────────────────
   onPhase('Loading proposal');
@@ -210,18 +325,34 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
 
   const agent = new MicrositeGeneratorAgent();
 
+  let sectionIndex = 0;
+
   let agentOutput: { markdown?: string; json?: unknown; assets?: string[] };
   try {
     agentOutput = await agent.run({
       namespace,
       metadata: {
         proposalMarkdown,
-        customInstructions: [
-          'Generate a comprehensive microsite using all content from the proposal.',
-          'Include as many sections as the content supports — aim for 10 or more.',
-          'Map all source headings to the most specific section type available.',
-          'Use diagrams in approach, timeline, security, techstack, and testing sections.',
-        ].join(' '),
+        customInstructions: design.customInstructions ?? DEFAULT_INSTRUCTIONS,
+        designBrief: design.designStyle
+          ? `Design style: ${design.designStyle}. Make it visually compelling and on-brand.`
+          : undefined,
+        brand: {
+          companyName: design.companyName,
+          primaryColor: design.primaryColor,
+        },
+        pdfFriendly: design.pdfFriendly ?? false,
+        onSectionComplete: (section: unknown) => {
+          const s = section as Record<string, unknown>;
+          const sectionType = (s.sectionType as string | undefined) ?? 'section';
+          const artifactSectionId = `microsite-section-${++sectionIndex}-${Date.now()}`;
+          if (onSection) {
+            onSection(sectionType, JSON.stringify(section), artifactSectionId);
+          } else {
+            // Fallback: emit a brief chunk so the user sees progress
+            onChunk(`\n_Section ready: ${sectionType}_`);
+          }
+        },
       },
       tools: toolRegistry,
     });
@@ -245,12 +376,18 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
   instance.context.micrositeArtifactId = micrositeArtifactId;
   instance.context.micrositeLayoutAST = agentOutput.json ?? null;
 
-  // Emit a brief summary chunk for the chat
+  // Persist AST to disk so the microsite history endpoint can find it
+  if (agentOutput.json) {
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    await mkdir(path.dirname(astPath), { recursive: true });
+    await writeFile(astPath, JSON.stringify(agentOutput.json, null, 2), 'utf-8').catch(() => { /* non-fatal */ });
+  }
+
   const assetCount = agentOutput.assets?.length ?? 0;
   const summary = [
     '## Microsite Generated',
     '',
-    `Your proposal has been converted into a presentation microsite.`,
+    'Your proposal has been converted into a presentation microsite.',
     assetCount > 0 ? `\n${assetCount} asset(s) saved to your namespace.` : '',
     '',
     'The microsite is now available in your workspace. You can view and edit it from the UI.',
@@ -262,7 +399,7 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
     message: summary,
     stateSignal: 'DONE',
     actions: {
-      micrositeArtifactId,
+      openMicrositeUrl: '/presentation',
       sourceProposal: artifactId,
     },
   };

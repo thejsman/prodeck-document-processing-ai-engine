@@ -318,7 +318,7 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
     '- Do NOT infer or assume values not stated by the user.',
     '',
     'Reply in EXACTLY this two-line format, nothing else:',
-    'UPDATES: {"field_name":"extracted_value_or_omit_field_if_not_stated"}',
+    'UPDATES: {"industry":"Software","budget":"$50,000"}  ← example only; use actual field names: industry, timeline, budget',
     'RESPONSE: your conversational reply to the user',
     '',
     'Use {} for UPDATES if the user provided no new field values.',
@@ -334,17 +334,31 @@ export async function handleCollectingInputs(ctx: HandlerContext): Promise<Handl
   const readyMatch = /READY:\s*true/i.test(raw);
 
   // ── Apply explicit user-provided updates ──────────────────────
+  // Only accept keys that are known required fields — prevents LLM from
+  // storing placeholder names like "field_name" or "extracted_value" when
+  // it misreads the format example.
+  const VALID_KEYS = new Set([...REQUIRED_FIELDS]);
   if (updatesMatch) {
     try {
       const updates = JSON.parse(updatesMatch[1]) as Record<string, string>;
       for (const [k, v] of Object.entries(updates)) {
-        if (v && typeof v === 'string') requirements[k] = v;
+        if (v && typeof v === 'string' && VALID_KEYS.has(k as (typeof REQUIRED_FIELDS)[number])) {
+          requirements[k] = v;
+        }
       }
       instance.context.proposalRequirements = requirements;
     } catch {
       // Ignore malformed updates
     }
   }
+
+  // ── Strip any stale garbage keys (e.g. from prior bad LLM responses) ──
+  for (const k of Object.keys(requirements)) {
+    if (!VALID_KEYS.has(k as (typeof REQUIRED_FIELDS)[number])) {
+      delete requirements[k];
+    }
+  }
+  instance.context.proposalRequirements = requirements;
 
   // ── Auto-fill remaining fields from high-confidence RFP extraction ──
   // Only fills fields the user hasn't provided yet, and only with ≥0.85 confidence.

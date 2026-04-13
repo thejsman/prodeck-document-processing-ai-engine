@@ -83,14 +83,25 @@ export function ProposalPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey, searchParams]);
 
-  // Derive the current proposal file name from document metadata
+  // Derive the current proposal file name from document metadata.
+  // Returns "namespace::filename.md" for namespace-scoped proposals so the API
+  // can resolve the correct path — otherwise returns the plain filename.
   function currentFileName(): string | null {
     if (!currentDocument) return null;
     const meta = currentDocument.metadata as Record<string, unknown>;
     const outputFile = (meta.output_file ?? meta.output_path) as string | undefined;
     if (!outputFile) return null;
-    // Split on both forward and back slashes to handle Windows paths
-    return outputFile.split(/[\\/]/).pop() ?? null;
+    // Normalise separators and split into parts
+    const parts = outputFile.replace(/\\/g, '/').split('/');
+    const fileName = parts.pop() ?? null;
+    if (!fileName) return null;
+    // Detect namespace: path ends with …/namespaces/<ns>/proposals/<file>
+    const proposalsIdx = parts.lastIndexOf('proposals');
+    if (proposalsIdx > 0) {
+      const ns = parts[proposalsIdx - 1];
+      if (ns && ns !== 'namespaces') return `${ns}::${fileName}`;
+    }
+    return fileName;
   }
 
   async function handleGenerate(

@@ -429,9 +429,15 @@ export default function ChatPage() {
                             </div>
                           )}
                           <div className="proposal-done-actions">
-                            <a href="/proposal" className="proposal-done-link proposal-done-link--primary">
-                              Open in editor
-                            </a>
+                            {doneActions?.openMicrositeUrl ? (
+                              <a href={doneActions.openMicrositeUrl} className="proposal-done-link proposal-done-link--primary">
+                                View microsite
+                              </a>
+                            ) : (
+                              <a href="/proposal" className="proposal-done-link proposal-done-link--primary">
+                                Open in editor
+                              </a>
+                            )}
                             {doneActions?.openProposalUrl && (
                               <a href={doneActions.openProposalUrl} className="proposal-done-link">
                                 View proposal

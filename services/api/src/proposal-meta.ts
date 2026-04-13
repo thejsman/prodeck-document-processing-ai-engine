@@ -9,7 +9,8 @@
  * separated from I/O (readMeta, writeMeta, ensureMeta) for testability.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +80,9 @@ export async function writeMeta(
   meta: ProposalMeta,
 ): Promise<void> {
   meta.updatedAt = new Date().toISOString();
-  await writeFile(metaPathFor(mdPath), JSON.stringify(meta, null, 2), 'utf-8');
+  const metaPath = metaPathFor(mdPath);
+  await mkdir(path.dirname(metaPath), { recursive: true });
+  await writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
 }
 
 export async function ensureMeta(mdPath: string): Promise<ProposalMeta> {

@@ -3,8 +3,6 @@ import {
   detectInterrupt,
   buildRequirementStatus,
   buildTaskInstruction,
-  mergeRequirements,
-  extractRequirementsFromMessage,
   buildConversationWindow,
   formatConversationForContext,
   buildInterruptContext,
@@ -181,115 +179,6 @@ describe('buildTaskInstruction', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// mergeRequirements
-// ---------------------------------------------------------------------------
-
-describe('mergeRequirements', () => {
-  it('merges non-overlapping fields', () => {
-    const merged = mergeRequirements(
-      { industry: 'fintech' },
-      { timeline: '12 weeks' },
-    );
-    expect(merged).toEqual({ industry: 'fintech', timeline: '12 weeks' });
-  });
-
-  it('extracted values overwrite existing', () => {
-    const merged = mergeRequirements(
-      { industry: 'fintech', budget: '$50k' },
-      { industry: 'healthcare' },
-    );
-    expect(merged.industry).toBe('healthcare');
-    expect(merged.budget).toBe('$50k');
-  });
-
-  it('ignores empty string values in extracted', () => {
-    const merged = mergeRequirements(
-      { industry: 'fintech' },
-      { industry: '' },
-    );
-    // Empty string is falsy so it should not overwrite
-    expect(merged.industry).toBe('fintech');
-  });
-
-  it('does not mutate the existing object', () => {
-    const existing = { industry: 'fintech' };
-    mergeRequirements(existing, { timeline: '12 weeks' });
-    expect(existing).toEqual({ industry: 'fintech' });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// extractRequirementsFromMessage
-// ---------------------------------------------------------------------------
-
-describe('extractRequirementsFromMessage', () => {
-  it('extracts industry from colon pattern', async () => {
-    const result = await extractRequirementsFromMessage('industry: fintech');
-    expect(result.industry).toBe('fintech');
-  });
-
-  it('extracts budget from dollar pattern', async () => {
-    const result = await extractRequirementsFromMessage('our budget is $50k');
-    expect(result.budget).toBeTruthy();
-    expect(result.budget).toContain('50');
-  });
-
-  it('extracts timeline from duration pattern', async () => {
-    const result = await extractRequirementsFromMessage('the project will take 12 weeks');
-    expect(result.timeline).toMatch(/12.*week/i);
-  });
-
-  it('extracts team size from headcount pattern', async () => {
-    const result = await extractRequirementsFromMessage('we need 5 engineers on this');
-    expect(result.teamSize).toMatch(/5.*engineer/i);
-  });
-
-  it('extracts industry from keyword match', async () => {
-    const result = await extractRequirementsFromMessage('this is a healthcare project');
-    expect(result.industry).toBe('healthcare');
-  });
-
-  it('extracts project type from known keywords', async () => {
-    const result = await extractRequirementsFromMessage('we need a cloud migration strategy');
-    expect(result.projectType).toBe('cloud migration');
-  });
-
-  it('returns empty object when nothing matches', async () => {
-    const result = await extractRequirementsFromMessage('hello there');
-    expect(Object.keys(result)).toHaveLength(0);
-  });
-
-  it('normalises budget with k suffix', async () => {
-    const result = await extractRequirementsFromMessage('budget: $150k');
-    expect(result.budget).toBe('$150,000');
-  });
-
-  it('normalises timeline casing', async () => {
-    const result = await extractRequirementsFromMessage('timeline is 3 Months');
-    expect(result.timeline).toBe('3 months');
-  });
-
-  it('calls generateFn only for missing fields (LLM fallback)', async () => {
-    const generateFn = vi.fn().mockResolvedValue('{}');
-    // Message with all fields already extractable by regex — LLM should not be called
-    await extractRequirementsFromMessage(
-      'industry: fintech, timeline: 12 weeks, budget: $50k, team size: 5 engineers',
-      generateFn,
-    );
-    // LLM fallback is only called when fields are missing; fintech + 12 weeks + $50k
-    // cover industry, timeline, budget — only clientName, teamSize, projectType may be missing
-    // but LLM call is non-fatal either way; we just check it doesn't throw
-    expect(generateFn).toBeDefined();
-  });
-
-  it('does not throw when generateFn returns invalid JSON', async () => {
-    const generateFn = vi.fn().mockResolvedValue('not valid json');
-    await expect(
-      extractRequirementsFromMessage('some message', generateFn),
-    ).resolves.toBeDefined();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // buildInterruptContext

@@ -51,7 +51,7 @@ import {
   setAwaitingInput,
   type WorkflowInstance,
 } from '../workflows/workflow-instance.service.js';
-import { handleCheckingProposal, handleGeneratingMicrosite } from '../workflows/microsite-generation.handlers.js';
+import { handleCheckingProposal, handleCollectingDesignInputs, handleGeneratingMicrosite } from '../workflows/microsite-generation.handlers.js';
 import { emitChatSessionEvent } from './chat-session-bus.js';
 import {
   handleCollectingRfp,
@@ -156,6 +156,7 @@ const STATE_HANDLERS: Record<string, HandlerFn> = {
   saving_template: handleSavingTemplate,
   // microsite_generation
   checking_proposal: handleCheckingProposal,
+  collecting_design_inputs: handleCollectingDesignInputs,
   generating_microsite: handleGeneratingMicrosite,
 };
 
