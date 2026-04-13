@@ -20,6 +20,17 @@ from qdrant_vector_store import QdrantVectorStore
 CHUNK_SIZE = 500
 TOP_K = 5
 
+# Source-document audit log — written alongside the FAISS index files.
+_DOC_LOG = None
+
+def _doc_log(storage_dir, message):
+    """Append a line to the source-document audit log for this namespace."""
+    global _DOC_LOG
+    log_path = os.path.join(storage_dir, "doc_usage.log")
+    with open(log_path, "a", encoding="utf-8") as f:
+        import datetime
+        f.write(f"[{datetime.datetime.utcnow().isoformat()}] {message}\n")
+
 
 def create_vector_store(vector_store_config, storage_dir, namespace):
     """Factory: return the correct VectorStore implementation.
@@ -120,7 +131,10 @@ def search_chunks(question, storage_dir, provider, namespace="default", top_k=5,
         store.load()
 
     query_embedding = provider.embed(question)
-    return store.search_with_scores(query_embedding, top_k)
+    results = store.search_with_scores(query_embedding, top_k)
+    sources = list(dict.fromkeys(c.get("document", "unknown") for c in results if isinstance(c, dict)))
+    _doc_log(storage_dir, f"search query={repr(question)} sources={sources}")
+    return results
 
 
 STREAM_SENTINEL = "\n<<<RESULT_JSON>>>\n"
@@ -160,6 +174,10 @@ def query_index(question, storage_dir, provider, namespace="default", stream=Fal
 
     if not retrieved:
         raise ValueError("Vector store retrieval returned no valid chunks")
+
+    raw_chunks = store.search_with_scores(query_embedding, TOP_K) if hasattr(store, "search_with_scores") else []
+    sources = list(dict.fromkeys(c.get("document", "unknown") for c in raw_chunks if isinstance(c, dict)))
+    _doc_log(storage_dir, f"query query={repr(question)} sources={sources}")
 
     context_block = "\n\n".join(retrieved)
     prompt = (

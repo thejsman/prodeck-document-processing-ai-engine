@@ -601,6 +601,13 @@ export function PresentationPage() {
         setProposals(
           all.filter((p) => {
             if (p.status !== "approved") return false;
+            // fileName is "namespace::file.md" for namespace-scoped proposals.
+            // Match by namespace prefix first; fall back to client name heuristic
+            // for legacy proposals that have no namespace prefix.
+            const sep = p.fileName.indexOf("::");
+            if (sep !== -1) {
+              return p.fileName.slice(0, sep).toLowerCase() === selectedNamespace.toLowerCase();
+            }
             const clientKey = p.client.toLowerCase().replace(/[^a-z0-9]/g, "");
             return clientKey.includes(nsKey) || nsKey.includes(clientKey);
           }),
