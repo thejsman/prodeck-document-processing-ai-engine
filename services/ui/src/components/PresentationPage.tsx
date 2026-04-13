@@ -921,12 +921,18 @@ export function PresentationPage() {
   ]);
 
   // ── Preview loading state ──────────────────────────────────────────────────
-  // If not actively loading and still no AST, fall back to upload step
-  if (step === "preview" && !loadingAST && !layoutAST) {
-    clearSnapshot();
-    setStep("upload");
-    return null;
-  }
+  // If not actively loading and still no AST, fall back to upload step.
+  // Must be in a useEffect — calling setStep during render causes an infinite loop.
+  useEffect(() => {
+    if (step === "preview" && !loadingAST && !layoutAST) {
+      clearSnapshot();
+      setStep("upload");
+    }
+  }, [step, loadingAST, layoutAST]);
+
+  // While the effect above transitions back to upload, render nothing
+  if (step === "preview" && !loadingAST && !layoutAST) return null;
+
   if (step === "preview" && loadingAST) {
     return (
       <div
