@@ -52,6 +52,13 @@ export function useEditContext(): EditContextValue | null {
   return useContext(EditContext);
 }
 
+/** Renders children with edit context set to null — use to prevent editor UI
+ *  (AddSectionButton, SectionEditOverlay) from appearing in preview contexts
+ *  that are portalled inside the EditProvider tree. */
+export function EditContextBlocker({ children }: { children: ReactNode }) {
+  return <EditContext.Provider value={null}>{children}</EditContext.Provider>;
+}
+
 // ── Deep-get helper ──────────────────────────────────────────────────────────
 
 function getDeep(obj: unknown, path: string): unknown {

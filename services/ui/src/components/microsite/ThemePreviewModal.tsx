@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, BrandConfig, PluginMeta } from '../../types/presentation';
 import { Microsite } from './Microsite';
+import { EditContextBlocker } from './editor/EditContext';
 
 interface Props {
   plugin: PluginMeta;
@@ -141,10 +142,19 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  if (typeof window === 'undefined') return null;
+
   return (
     <>
-      {/* Fullscreen microsite preview — Microsite renders at zIndex 9999 */}
-      <Microsite ast={mockAst} />
+      {/* Fullscreen microsite preview — portalled above ThemeModal (zIndex 50001) */}
+      {createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60000, overflowY: 'auto', background: '#000' }}>
+          <EditContextBlocker>
+            <Microsite ast={mockAst} />
+          </EditContextBlocker>
+        </div>,
+        document.body,
+      )}
 
       {/* Top control bar — portalled above microsite (zIndex 100001) */}
       {createPortal(
