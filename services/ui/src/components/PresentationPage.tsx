@@ -9,9 +9,11 @@ import {
   fetchProposalContent,
   fetchMicrositeContent,
   generateMicrositeStream,
+  extractUrlDesign,
   type StreamEvent,
   type ProposalFile,
   type SynthesizedDesignSystem,
+  type ReferenceDesign,
 } from "@/lib/api";
 import type {
   LayoutAST,
@@ -336,6 +338,10 @@ export function PresentationPage() {
   // Step 3
   const [designBrief, setDesignBrief] = useState("");
   const [referenceFile, setReferenceFile] = useState<{ base64: string; mediaType: string; fileName: string; dominantColors?: string[] } | null>(null);
+  const [urlInput, setUrlInput] = useState("");
+  const [urlReferenceDesign, setUrlReferenceDesign] = useState<ReferenceDesign | null>(null);
+  const [urlExtractionState, setUrlExtractionState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const urlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [synthStatus, setSynthStatus] = useState<
     null | "scanning" | "building" | "ready"
   >(null);
@@ -754,6 +760,8 @@ export function PresentationPage() {
           : {}),
         ...(pdfFriendly ? { pdfFriendly: true } : {}),
         ...(referenceFile ? { referenceFile } : {}),
+        // URL reference design — file tokens take priority if both provided
+        ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
         signal: abortCtrl.signal,
         onEvent: (event: StreamEvent) => {
           console.log(
@@ -918,6 +926,7 @@ export function PresentationPage() {
     addEntry,
     pdfFriendly,
     referenceFile,
+    urlReferenceDesign,
   ]);
 
   // ── Preview loading state ──────────────────────────────────────────────────
@@ -2174,6 +2183,100 @@ export function PresentationPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* URL design reference input */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <span style={{
+                            position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)",
+                            fontSize: 13, color: "var(--color-text-muted, #888)", pointerEvents: "none",
+                          }}>🌐</span>
+                          <input
+                            type="url"
+                            placeholder="Paste a website URL to extract design tokens"
+                            value={urlInput}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setUrlInput(val);
+                              if (!val.trim()) {
+                                setUrlReferenceDesign(null);
+                                setUrlExtractionState("idle");
+                                if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                                return;
+                              }
+                              setUrlExtractionState("loading");
+                              if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                              urlDebounceRef.current = setTimeout(async () => {
+                                try {
+                                  const result = await extractUrlDesign(apiKey, val.trim());
+                                  if (result.tokens) {
+                                    setUrlReferenceDesign(result.tokens);
+                                    setUrlExtractionState("success");
+                                  } else {
+                                    setUrlReferenceDesign(null);
+                                    setUrlExtractionState("error");
+                                  }
+                                } catch {
+                                  setUrlReferenceDesign(null);
+                                  setUrlExtractionState("error");
+                                }
+                              }, 800);
+                            }}
+                            style={{
+                              width: "100%", fontSize: 12, padding: "5px 32px 5px 28px",
+                              background: "var(--color-surface, #1a1a1a)",
+                              border: "1px solid var(--color-border, #333)",
+                              borderRadius: 6, color: "var(--color-text, #fff)",
+                              outline: "none", boxSizing: "border-box",
+                            }}
+                          />
+                          {urlInput && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUrlInput("");
+                                setUrlReferenceDesign(null);
+                                setUrlExtractionState("idle");
+                                if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                              }}
+                              style={{
+                                position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                                background: "none", border: "none", cursor: "pointer",
+                                color: "var(--color-text-muted, #888)", fontSize: 13, lineHeight: 1, padding: 2,
+                              }}
+                            >✕</button>
+                          )}
+                        </div>
+                        {urlExtractionState === "loading" && (
+                          <span style={{ fontSize: 13, color: "var(--color-text-muted, #888)", whiteSpace: "nowrap" }}>extracting…</span>
+                        )}
+                        {urlExtractionState === "success" && urlReferenceDesign && (
+                          <span style={{ fontSize: 13, color: "#4ade80", whiteSpace: "nowrap" }} title={urlReferenceDesign.style.vibe}>✓ tokens ready</span>
+                        )}
+                        {urlExtractionState === "error" && (
+                          <span style={{ fontSize: 13, color: "#f87171", whiteSpace: "nowrap" }}>⚠ could not extract</span>
+                        )}
+                      </div>
+                      {urlReferenceDesign && (
+                        <div style={{
+                          marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center",
+                        }}>
+                          {[
+                            urlReferenceDesign.colors.primary,
+                            urlReferenceDesign.colors.secondary,
+                            urlReferenceDesign.colors.accent,
+                            urlReferenceDesign.colors.background,
+                          ].filter(Boolean).map((color, i) => (
+                            <span key={i} style={{
+                              width: 16, height: 16, borderRadius: 3, background: color,
+                              border: "1px solid var(--color-border, #333)", display: "inline-block",
+                            }} title={color} />
+                          ))}
+                          <span style={{ fontSize: 11, color: "var(--color-text-muted, #888)", marginLeft: 4 }}>
+                            {urlReferenceDesign.typography.headingFont} · {urlReferenceDesign.style.borderRadius}
+                          </span>
+                        </div>
+                      )}
 
                       <p className="muted" style={{ marginTop: 4 }}>
                         Drives colors, fonts, section structure, layout

@@ -185,6 +185,143 @@ export function registerPresentationRoutes(
     return reply.header('Access-Control-Allow-Origin', '*').type('image/jpeg').send(stream);
   });
 
+  // POST /presentations/extract-url-design
+  // Fetches a website URL server-side, scrapes its CSS, then uses the LLM to extract
+  // a ReferenceDesign token object (colors, typography, style) for use in microsite generation.
+  app.post('/presentations/extract-url-design', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { url?: string } | undefined;
+    const rawUrl = body?.url?.trim();
+
+    if (!rawUrl) return reply.code(400).send({ error: 'url is required', tokens: null });
+
+    // Validate URL — only http/https allowed
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') throw new Error('bad protocol');
+    } catch {
+      return reply.code(400).send({ error: 'invalid_url', tokens: null });
+    }
+
+    // ── Step 1: Fetch HTML with 8s timeout ────────────────────────────────
+    let html: string;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      const res = await fetch(parsedUrl.toString(), {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; Prodeck/1.0; +https://prodeck.ai)',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+      });
+      clearTimeout(timer);
+      if (!res.ok) return reply.code(200).send({ error: `fetch_failed_${res.status}`, tokens: null });
+      html = await res.text();
+    } catch (err) {
+      const msg = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'fetch_failed';
+      return reply.code(200).send({ error: msg, tokens: null });
+    }
+
+    // ── Step 2: Extract CSS from HTML ─────────────────────────────────────
+    const origin = parsedUrl.origin;
+
+    // <style> blocks
+    const styleBlocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]).join('\n');
+
+    // meta theme-color
+    const themeColorMatch = html.match(/<meta[^>]*name=["']theme-color["'][^>]*content=["']([^"']+)["']/i)
+      ?? html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*name=["']theme-color["']/i);
+    const themeColorBlock = themeColorMatch ? `/* meta theme-color: ${themeColorMatch[1]} */\n:root { --theme-color: ${themeColorMatch[1]}; }\n` : '';
+
+    // Google Fonts links
+    const gFontLinks = [...html.matchAll(/<link[^>]*href=["']([^"']*fonts\.googleapis\.com[^"']*)["'][^>]*>/gi)]
+      .map(m => `/* Google Font: ${m[1]} */`).join('\n');
+
+    // Linked stylesheets (up to 3, skip fonts.googleapis.com and data: URIs)
+    const sheetHrefs = [...html.matchAll(/<link[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*/gi)]
+      .map(m => m[1])
+      .filter(h => !h.includes('fonts.googleapis.com') && !h.startsWith('data:'))
+      .slice(0, 3);
+
+    const sheetCss = (await Promise.all(sheetHrefs.map(async (href) => {
+      try {
+        const absolute = href.startsWith('http') ? href : (href.startsWith('//') ? `https:${href}` : `${origin}${href.startsWith('/') ? '' : '/'}${href}`);
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 4_000);
+        const r = await fetch(absolute, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } });
+        clearTimeout(t);
+        if (!r.ok) return '';
+        return await r.text();
+      } catch { return ''; }
+    }))).join('\n');
+
+    // Combine all CSS, truncate to 8000 chars for LLM budget
+    const combinedCss = [themeColorBlock, gFontLinks, styleBlocks, sheetCss]
+      .join('\n').replace(/\s+/g, ' ').slice(0, 8_000);
+
+    if (!combinedCss.trim()) return reply.code(200).send({ error: 'no_css_found', tokens: null });
+
+    // ── Step 3: LLM extraction ────────────────────────────────────────────
+    const extractionPrompt = `You are a design analyst. Below is CSS extracted from a website.
+Analyze it to identify the dominant color palette, typography choices, and overall visual style.
+Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
+
+JSON schema:
+{
+  "colors": {
+    "primary": "#hex",
+    "secondary": "#hex",
+    "accent": "#hex",
+    "background": "#hex",
+    "surface": "#hex",
+    "text": "#hex",
+    "textMuted": "#hex"
+  },
+  "typography": {
+    "headingFont": "font name or stack",
+    "bodyFont": "font name or stack",
+    "headingWeight": "700",
+    "bodyWeight": "400",
+    "headingStyle": "serif | sans-serif | display",
+    "mood": "modern | classic | bold | minimal | playful"
+  },
+  "style": {
+    "borderRadius": "sharp | soft | rounded",
+    "spacing": "compact | comfortable | spacious",
+    "vibe": "one sentence describing the overall design vibe"
+  }
+}
+
+CSS to analyse:
+${combinedCss}`;
+
+    try {
+      const raw = await llmGenerateFn(extractionPrompt);
+      const jsonStart = raw.indexOf('{');
+      const jsonEnd = raw.lastIndexOf('}');
+      if (jsonStart === -1 || jsonEnd <= jsonStart) {
+        console.warn('[extract-url-design] LLM returned no JSON');
+        return reply.code(200).send({ error: 'parse_failed', tokens: null });
+      }
+      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+      const colors = parsed.colors as Record<string, string> | undefined;
+      const typography = parsed.typography as Record<string, string> | undefined;
+      const style = parsed.style as Record<string, string> | undefined;
+      if (!colors?.primary || !typography?.headingFont || !style?.vibe) {
+        console.warn('[extract-url-design] LLM returned incomplete tokens');
+        return reply.code(200).send({ error: 'incomplete_tokens', tokens: null });
+      }
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}`);
+      return reply.code(200).send({ tokens: parsed });
+    } catch (err) {
+      console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
+      return reply.code(200).send({ error: 'parse_failed', tokens: null });
+    }
+  });
+
   // POST /presentations/synthesize-style
   // Runs Pass -1 only: synthesize a design system from an inspiration image (and optional text prompt).
   // Returns the raw design-system tokens + font URLs — the caller can store these and pass them
@@ -536,6 +673,7 @@ export function registerPresentationRoutes(
       preSynthesizedDesignSystem?: Record<string, unknown>;
       pdfFriendly?: boolean;
       referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
+      urlReferenceDesign?: Record<string, unknown> | null;
     } | undefined;
 
     // Load markdown from body or saved file
@@ -591,6 +729,7 @@ export function registerPresentationRoutes(
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
           ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
           ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
+          ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
             send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });

@@ -667,6 +667,24 @@ export type StreamEvent =
   | { type: 'complete'; ast: unknown }
   | { type: 'error'; message: string };
 
+export interface ReferenceDesign {
+  colors: {
+    primary: string; secondary: string; accent: string;
+    background: string; surface: string; text: string; textMuted: string;
+  };
+  typography: {
+    headingFont: string; bodyFont: string;
+    headingWeight: string; bodyWeight: string;
+    headingStyle: 'serif' | 'sans-serif' | 'display';
+    mood: 'modern' | 'classic' | 'bold' | 'minimal' | 'playful';
+  };
+  style: {
+    borderRadius: 'sharp' | 'soft' | 'rounded';
+    spacing: 'compact' | 'comfortable' | 'spacious';
+    vibe: string;
+  };
+}
+
 export interface GenerateStreamOptions {
   proposalMarkdown: string;
   plugin?: string | null;
@@ -677,6 +695,7 @@ export interface GenerateStreamOptions {
   preSynthesizedDesignSystem?: Record<string, unknown>;
   pdfFriendly?: boolean;
   referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
+  urlReferenceDesign?: ReferenceDesign | null;
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -700,6 +719,7 @@ export async function generateMicrositeStream(
       ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
       ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
       ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
+      ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
     }),
     signal: opts.signal,
   });
@@ -851,4 +871,25 @@ export async function editProposalSection(
     body: JSON.stringify(req),
   });
   return handleResponse<ProposalSectionEditResult>(res);
+}
+
+// ---------------------------------------------------------------------------
+// URL Design Extraction
+// ---------------------------------------------------------------------------
+
+export async function extractUrlDesign(
+  apiKey: string,
+  url: string,
+): Promise<{ tokens: ReferenceDesign | null; error?: string }> {
+  try {
+    const res = await fetch('/api/microsite/extract-url-design', {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) return { tokens: null, error: 'request_failed' };
+    return res.json() as Promise<{ tokens: ReferenceDesign | null; error?: string }>;
+  } catch {
+    return { tokens: null, error: 'network_error' };
+  }
 }

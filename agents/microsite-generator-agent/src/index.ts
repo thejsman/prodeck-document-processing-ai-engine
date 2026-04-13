@@ -302,7 +302,7 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 
 // ── Section plan prompt (Pass 0) ─────────────────────────────────────────────
 
-function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
+function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string, referenceDesign?: ReferenceDesign | null): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
   // Only treat customInstructions as a structural override if it explicitly requests a section
@@ -318,7 +318,8 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
   const styleHintBlock = (customInstructions && !hasStructuralInstruction)
     ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 400)}\n`
     : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '');
-  return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
+  const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
+  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
 ${styleHint}
 RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instructions):
 - Output a JSON array of ALL sections — target 12-13 sections, minimum 10
@@ -457,7 +458,7 @@ Return ONLY valid JSON matching this exact schema — no markdown, no explanatio
 
 // ── Brief extraction prompt ──────────────────────────────────────────────────
 
-function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string): string {
+function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string, referenceDesign?: ReferenceDesign | null): string {
   const hint = brandHint?.companyName
     ? `\nIMPORTANT: The proposing company is "${brandHint.companyName}"${brandHint.tagline ? ` (tagline: "${brandHint.tagline}")` : ''}. Use this exact name for "proposingCompany" and in all generated copy.\n`
     : '';
@@ -466,8 +467,9 @@ function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; 
   const overrideBlock = customInstructions
     ? `\n⚡ OVERRIDE DIRECTIVE — HIGHEST PRIORITY (apply before extracting any field):\n${customInstructions}\n`
     : '';
+  const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
   return `You are a senior proposal strategist. Extract a structured brief from this proposal. Return ONLY valid JSON. No markdown, no explanation, no code fences.
-${overrideBlock}${hint}${styleHint}
+${overrideBlock}${refShortBlock}${hint}${styleHint}
 Extract this proposal into a brief:
 
 ${markdown}
@@ -566,7 +568,7 @@ Respond ONLY with valid JSON. No preamble, no backticks, no explanation.
 }
 
 function formatReferenceDesignBlock(tokens: ReferenceDesign): string {
-  return `## REFERENCE DESIGN TOKENS (extracted from user-attached file — follow closely)
+  return `## REFERENCE DESIGN TOKENS (follow closely for all sections)
 Primary color: ${tokens.colors.primary}
 Secondary color: ${tokens.colors.secondary}
 Accent: ${tokens.colors.accent}
@@ -2573,7 +2575,9 @@ export class MicrositeGeneratorAgent implements Agent {
     const brandImage = (meta.brandImage as string | undefined) ?? '';
     const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
     const referenceFile = (meta.referenceFile as ReferenceFile | undefined) ?? null;
+    const urlReferenceDesign = (meta.urlReferenceDesign as ReferenceDesign | undefined) ?? null;
     console.log(`[microsite-agent] referenceFile: ${referenceFile ? `fileName=${referenceFile.fileName}, mediaType=${referenceFile.mediaType}, dominantColors=${referenceFile.dominantColors?.length ?? 0}` : 'NOT attached'}`);
+    console.log(`[microsite-agent] urlReferenceDesign: ${urlReferenceDesign ? `vibe="${urlReferenceDesign.style.vibe}", primary=${urlReferenceDesign.colors.primary}` : 'NOT provided'}`);
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -2672,7 +2676,7 @@ export class MicrositeGeneratorAgent implements Agent {
         generateTool.run({
           query: isFullOverride
             ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
-            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
+            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions, undefined, urlReferenceDesign),
           content: '',
         }).catch(() => null),
 
@@ -2681,7 +2685,7 @@ export class MicrositeGeneratorAgent implements Agent {
           generateTool.run({
             query: isFullOverride
               ? buildOverrideSectionPlanPrompt(planningMarkdown, fullDesignPrompt)
-              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions),
+              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions, urlReferenceDesign),
             content: '',
           }),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
@@ -2695,6 +2699,9 @@ export class MicrositeGeneratorAgent implements Agent {
 
       // Await hero — it started before the warm-up so it's almost certainly already done
       await heroPromise;
+
+      // Merge file-based and URL-based reference design tokens — file attachment takes priority
+      const finalReferenceDesign: ReferenceDesign | null = referenceDesign ?? urlReferenceDesign;
 
       // Resolve design system result
       let designSystemResult: { customCharacter: string; rawTokens: Record<string, unknown> } | null = null;
@@ -3016,7 +3023,7 @@ export class MicrositeGeneratorAgent implements Agent {
         onPlanReady?.({
           totalSections: pass2Sections.length,
           sectionTypes: pass2Sections.map(s => s.type),
-          ...(referenceDesign ? { referenceCssVars: referenceDesignToCssVars(referenceDesign) } : {}),
+          ...(finalReferenceDesign ? { referenceCssVars: referenceDesignToCssVars(finalReferenceDesign) } : {}),
         });
 
         // Skip hero in Pass 2 if already streamed by speculative call (heroAlreadyStreamed set in .then() above)
@@ -3046,7 +3053,7 @@ export class MicrositeGeneratorAgent implements Agent {
               console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
               const prompt = isFullOverride
                 ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel)
-                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, referenceDesign);
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, finalReferenceDesign);
               try {
                 const timeoutMs = 90_000;
                 const result = await Promise.race([
@@ -3217,20 +3224,21 @@ export class MicrositeGeneratorAgent implements Agent {
           };
         }
 
-        // Apply reference design tokens to brand when Pass 0.5 extracted them
+        // Apply reference design tokens to brand when Pass 0.5 (file or URL) extracted them
         // and no full design prompt (extractedTokens) was provided.
-        if (referenceDesign && !extractedTokens && layoutAST) {
+        if (finalReferenceDesign && !extractedTokens && layoutAST) {
           const ast = layoutAST as Record<string, unknown>;
           const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
-          const cssVars = referenceDesignToCssVars(referenceDesign);
+          const cssVars = referenceDesignToCssVars(finalReferenceDesign);
+          const tokenSource = referenceDesign ? 'file attachment' : 'reference URL';
           ast.brand = {
             ...existingBrand,
-            primaryColor: referenceDesign.colors.primary,
-            secondaryColor: referenceDesign.colors.secondary,
+            primaryColor: finalReferenceDesign.colors.primary,
+            secondaryColor: finalReferenceDesign.colors.secondary,
             overrideTheme: true,
             extractedCssVariables: cssVars,
           };
-          console.log(`[microsite-agent] Pass 0.5: applied reference design to brand — primary=${referenceDesign.colors.primary}, bg=${referenceDesign.colors.background}`);
+          console.log(`[microsite-agent] Pass 0.5: applied reference design (${tokenSource}) to brand — primary=${finalReferenceDesign.colors.primary}, bg=${finalReferenceDesign.colors.background}`);
         }
 
         // Section count validation
