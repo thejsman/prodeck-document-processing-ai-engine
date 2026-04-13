@@ -60,6 +60,7 @@ workdir/
 
 .env.*
 
+.codex
 # images generated locally
 images/
 

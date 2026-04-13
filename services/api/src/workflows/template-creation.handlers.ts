@@ -461,7 +461,7 @@ export async function handleNameTemplate(ctx: HandlerContext): Promise<HandlerRe
  * On success signals DONE and surfaces a link to the Proposals page.
  */
 export async function handleSavingTemplate(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, instance, onPhase } = ctx;
+  const { workdir, namespace, instance, onPhase } = ctx;
 
   onPhase('Saving template');
 
@@ -475,13 +475,34 @@ export async function handleSavingTemplate(ctx: HandlerContext): Promise<Handler
     };
   }
 
+  // ── 1. Save YAML to workdir/data/templates/ (consumed by Python plugin) ──
   const templateDir = path.join(workdir, 'data', 'templates');
   await mkdir(templateDir, { recursive: true });
 
   const yamlContent = buildTemplateYaml(draft);
   const filePath = path.join(templateDir, `${slug}.yaml`);
-
   await writeFile(filePath, yamlContent, 'utf-8');
+
+  // ── 2. Save JSON sidecar to namespace templates/ (used by recommendation engine) ──
+  const nsTemplatesDir = path.join(workdir, 'namespaces', namespace, 'templates');
+  await mkdir(nsTemplatesDir, { recursive: true });
+
+  const tagText = `${draft.name} ${draft.description}`.toLowerCase();
+  const tags = [...new Set(
+    tagText.split(/[\s,.\-_/]+/).filter((w) => w.length > 3).slice(0, 10),
+  )];
+
+  const templateJson = {
+    id: slug,
+    name: draft.name,
+    tags,
+    structure: draft.sections.map((s) => s.title),
+  };
+  await writeFile(
+    path.join(nsTemplatesDir, `${slug}.json`),
+    JSON.stringify(templateJson, null, 2),
+    'utf-8',
+  );
 
   instance.context.savedTemplatePath = filePath;
 

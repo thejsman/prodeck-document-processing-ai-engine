@@ -9,8 +9,10 @@
  *   collecting_rfp        — wait for user to upload RFP document (input)
  *   collecting_inputs     — gather required fields: industry, timeline, budget (input)
  *   recommend_template    — analyse RFP context and recommend a template (agent)
+ *   confirm_generation    — show summary, ask user to confirm before generation (input)
  *   generating_outline    — LLM generates structured outline from RFP (agent)
- *   generating_sections   — LLM expands outline into full proposal draft (tool)
+ *   generating_sections   — plugin expands outline into full proposal draft (tool)
+ *   qa_review             — detect cross-section contradictions, offer fix (input)
  *   completed             — terminal state, proposal artifact persisted (system)
  */
 
@@ -47,9 +49,19 @@ export const ProposalWorkflow: WorkflowDefinition = {
     recommend_template: {
       kind: 'input',
       transitions: {
-        DONE: 'generating_outline',
+        DONE: 'confirm_generation',
         /** User chose to pick a different template — re-enter as input. */
         CHOOSE: 'recommend_template',
+      },
+    },
+
+    confirm_generation: {
+      kind: 'input',
+      transitions: {
+        /** User confirmed — proceed to outline + section generation. */
+        CONFIRM: 'generating_outline',
+        /** User declined — go back to input collection. */
+        DECLINE: 'collecting_inputs',
       },
     },
 
@@ -60,6 +72,11 @@ export const ProposalWorkflow: WorkflowDefinition = {
 
     generating_sections: {
       kind: 'tool',
+      transitions: { DONE: 'qa_review' },
+    },
+
+    qa_review: {
+      kind: 'input',
       transitions: { DONE: 'completed' },
     },
 

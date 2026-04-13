@@ -91,6 +91,9 @@ export function markdownToBlocks(markdown: string): ProposalBlock[] {
         type: 'paragraph',
         text: paraLines.join('\n'),
       });
+    } else {
+      // Safety: no parser consumed this line — skip it to prevent infinite loop
+      i++;
     }
   }
 

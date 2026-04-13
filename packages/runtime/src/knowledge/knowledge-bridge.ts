@@ -286,8 +286,15 @@ export interface SearchChunksParams {
   readonly vectorStoreConfig?: VectorStoreConfig;
 }
 
+export interface RetrievedChunk {
+  readonly text: string;
+  readonly score: number;
+  /** Document filename — present when the namespace was ingested with source metadata. */
+  readonly document?: string;
+}
+
 export interface SearchChunksResult {
-  readonly chunks: ReadonlyArray<{ text: string; score: number }>;
+  readonly chunks: ReadonlyArray<RetrievedChunk>;
 }
 
 /**

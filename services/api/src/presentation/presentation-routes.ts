@@ -41,6 +41,24 @@ import {
   downloadImageToFile,
 } from '../image-routes.js';
 
+/**
+ * Resolve a proposal fileName to an absolute path.
+ * Handles three forms:
+ *   "ns::file.md"        → workdir/namespaces/ns/proposals/file.md  (new canonical)
+ *   "file.md"            → workdir/namespaces/<namespace>/proposals/file.md (inferred from context)
+ *   fallback             → workdir/output/file.md  (legacy)
+ */
+function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
+  const sep = fileName.indexOf('::');
+  if (sep !== -1) {
+    return path.join(workdir, 'namespaces', fileName.slice(0, sep), 'proposals', fileName.slice(sep + 2));
+  }
+  if (contextNamespace) {
+    return path.join(workdir, 'namespaces', contextNamespace, 'proposals', fileName);
+  }
+  return path.join(workdir, 'output', fileName);
+}
+
 function checkNamespaceAccess(
   auth: AuthContext,
   namespace: string,
@@ -294,7 +312,7 @@ export function registerPresentationRoutes(
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     // Validate proposal status
-    const mdPath = path.join(workdir, 'output', fileName);
+    const mdPath = resolveProposalMdPath(workdir, fileName, namespace);
     const meta = await readMeta(mdPath);
     if (!meta) {
       return reply.code(404).send({ error: `Proposal not found: ${fileName}` });
@@ -408,7 +426,7 @@ export function registerPresentationRoutes(
         }
         throw err;
       }
-      const mdPath = path.join(workdir, 'output', presentation.fileName);
+      const mdPath = resolveProposalMdPath(workdir, presentation.fileName, namespace);
       try {
         markdown = await readFile(mdPath, 'utf-8');
       } catch {
@@ -526,7 +544,7 @@ export function registerPresentationRoutes(
       try {
         let presentation: Awaited<ReturnType<typeof getPresentation>>;
         try { presentation = await getPresentation(workdir, namespace, proposalId); } catch { return send({ type: 'error', message: 'Presentation not found' }); }
-        const mdPath = path.join(workdir, 'output', presentation.fileName);
+        const mdPath = resolveProposalMdPath(workdir, presentation.fileName, namespace);
         markdown = await readFile(mdPath, 'utf-8');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

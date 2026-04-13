@@ -57,7 +57,23 @@ function attachProviderInfo(req: FastifyRequest, info: ProviderInfo): void {
 const TEMPLATE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function sanitizeFileName(name: string): boolean {
-  return /^[\w\s\-().]+\.md$/.test(name);
+  // Allow plain filenames and namespace-prefixed ones: "ns::file.md"
+  return /^[\w\s\-().]+\.md$/.test(name) || /^[\w-]+::[\w\s\-().]+\.md$/.test(name);
+}
+
+/**
+ * Resolve a fileName (plain or "namespace::file.md") to an absolute path.
+ * All proposals now live under workdir/namespaces/<ns>/proposals/.
+ * Plain filenames (no namespace prefix) fall back to the legacy output dir.
+ */
+function resolveProposalPath(fileName: string, workdir: string, legacyOutputDir: string): string {
+  const sep = fileName.indexOf('::');
+  if (sep !== -1) {
+    const ns = fileName.slice(0, sep);
+    const file = fileName.slice(sep + 2);
+    return path.join(workdir, 'namespaces', ns, 'proposals', file);
+  }
+  return path.join(legacyOutputDir, fileName);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +115,12 @@ export function registerProposalRoutes(
   workdir: string,
   policyConfig: ProviderPolicyConfig | null,
 ): void {
-  const outputDir = path.join(workdir, 'output');
+  // Canonical proposal storage: workdir/namespaces/<ns>/proposals/
+  // All routes that need a per-namespace output dir call proposalDir(ns).
+  const proposalDir = (ns: string) =>
+    path.join(workdir, 'namespaces', ns, 'proposals');
+  // Legacy path kept only for the diff endpoint (backward compat during transition)
+  const legacyOutputDir = path.join(workdir, 'output');
   const templateDir = path.join(workdir, 'data', 'templates');
 
   // POST /generate-proposal
@@ -127,12 +148,15 @@ export function registerProposalRoutes(
 
       const client = body.client;
       const industry = body.industry ?? 'General';
-      const namespace = body.namespace ?? null;
+      const namespace = body.namespace ?? 'default';
       const template = body.template ?? 'default';
       const overwrite = body.overwrite ?? false;
       const pricing = body.pricing ?? null;
       const tone = body.tone ?? null;
       const memory = body.memory ?? null;
+
+      const outputDir = proposalDir(namespace);
+      await mkdir(outputDir, { recursive: true });
 
       // Determine expected output file path for finalized / lock checks
       const safeName = client
@@ -424,32 +448,51 @@ export function registerProposalRoutes(
     '/proposals',
     async (_req: FastifyRequest, reply: FastifyReply) => {
       try {
-        const entries = await readdir(outputDir);
-        const mdFiles = entries.filter((f) => f.endsWith('.md'));
         const proposals: ProposalFile[] = [];
 
-        for (const file of mdFiles) {
-          const filePath = path.join(outputDir, file);
-          const fileStat = await stat(filePath);
-
-          const match = file.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
-          const clientName = match
-            ? match[1].replace(/_/g, ' ')
-            : file.replace(/\.md$/, '');
-          const version = match?.[2] ? parseInt(match[2], 10) : null;
-
-          const meta = await readMeta(filePath);
-
-          proposals.push({
-            fileName: file,
-            client: clientName,
-            version,
-            createdAt: fileStat.mtime.toISOString(),
-            sizeBytes: fileStat.size,
-            status: meta?.status ?? null,
-            lockedSections: meta?.lockedSections ?? [],
-          });
+        // Helper: scan one directory for proposal .md files
+        async function scanProposalDir(dir: string, namespace?: string): Promise<void> {
+          let entries: string[];
+          try {
+            entries = await readdir(dir);
+          } catch {
+            return; // directory doesn't exist yet
+          }
+          const mdFiles = entries.filter(
+            (f) => f.endsWith('.md') && !f.startsWith('.'),
+          );
+          for (const file of mdFiles) {
+            const filePath = path.join(dir, file);
+            const fileStat = await stat(filePath);
+            const match = file.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
+            const clientName = match
+              ? match[1].replace(/_/g, ' ')
+              : file.replace(/\.md$/, '');
+            const version = match?.[2] ? parseInt(match[2], 10) : null;
+            const meta = await readMeta(filePath);
+            proposals.push({
+              fileName: namespace ? `${namespace}::${file}` : file,
+              client: clientName,
+              version,
+              createdAt: fileStat.mtime.toISOString(),
+              sizeBytes: fileStat.size,
+              status: meta?.status ?? null,
+              lockedSections: meta?.lockedSections ?? [],
+            });
+          }
         }
+
+        // Scan all namespace proposal dirs: workdir/namespaces/*/proposals/
+        const nsRoot = path.join(workdir, 'namespaces');
+        let namespaces: string[] = [];
+        try { namespaces = await readdir(nsRoot); } catch { /* not yet created */ }
+        for (const ns of namespaces) {
+          const nsProposalsDir = path.join(nsRoot, ns, 'proposals');
+          await scanProposalDir(nsProposalsDir, ns);
+        }
+
+        // Also scan legacy output dir so old proposals remain accessible during transition
+        await scanProposalDir(legacyOutputDir);
 
         proposals.sort(
           (a, b) =>
@@ -472,7 +515,7 @@ export function registerProposalRoutes(
         return reply.code(400).send({ error: 'Invalid file name' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await readMeta(filePath);
       if (!meta) {
         return reply.code(404).send({ error: 'No metadata found' });
@@ -497,7 +540,7 @@ export function registerProposalRoutes(
           .send({ error: 'Missing required field: section' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await ensureMeta(filePath);
 
       if (meta.status === 'finalized') {
@@ -531,7 +574,7 @@ export function registerProposalRoutes(
           .send({ error: 'Missing required field: section' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await ensureMeta(filePath);
 
       if (meta.status === 'finalized') {
@@ -565,7 +608,7 @@ export function registerProposalRoutes(
           .send({ error: 'Missing required field: status' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await ensureMeta(filePath);
       const newStatus = body.status as ProposalStatus;
 
@@ -591,7 +634,7 @@ export function registerProposalRoutes(
         return reply.code(400).send({ error: 'Invalid file name' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
 
       try {
         const [content, fileStat] = await Promise.all([
@@ -599,10 +642,12 @@ export function registerProposalRoutes(
           stat(filePath),
         ]);
 
-        const match = fileName.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
+        // Strip optional namespace prefix before extracting client name
+        const baseName = fileName.includes('::') ? fileName.split('::')[1] : fileName;
+        const match = baseName.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
         const client = match
           ? match[1].replace(/_/g, ' ')
-          : fileName.replace(/\.md$/, '');
+          : baseName.replace(/\.md$/, '');
 
         return reply.send({
           document: {
@@ -633,7 +678,7 @@ export function registerProposalRoutes(
         return reply.code(400).send({ error: 'Missing required field: content' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
 
       // Verify the file exists
       try {
@@ -697,11 +742,11 @@ export function registerProposalRoutes(
 
       try {
         const contentA = await readFile(
-          path.join(outputDir, body.fileA),
+          resolveProposalPath(body.fileA, workdir, legacyOutputDir),
           'utf-8',
         );
         const contentB = await readFile(
-          path.join(outputDir, body.fileB),
+          resolveProposalPath(body.fileB, workdir, legacyOutputDir),
           'utf-8',
         );
         const diffs = diffSections(contentA, contentB);

@@ -31,7 +31,7 @@ import {
   chatSessionBus,
   type ChatSessionEvent,
 } from './chat/chat-session-bus.js';
-import { loadHistory } from './chat/chat-history.service.js';
+import { loadHistory, clearHistory } from './chat/chat-history.service.js';
 import { scanNamespace } from './namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions, type TemplateInsight } from './namespace/insight-rules.js';
 import { recommendTemplate } from './templates/template-recommendation.service.js';
@@ -215,6 +215,29 @@ export function registerChatRoutes(
 
       const history = await loadHistory(workdir, namespace.trim(), chatSessionId.trim());
       return reply.send({ messages: history?.messages ?? [] });
+    },
+  );
+
+  // ── DELETE /chat/session/:chatSessionId/history ──────────────────
+  //
+  // Clears the persisted message history for a session.
+  // Query param: namespace (required)
+  //
+  app.delete(
+    '/chat/session/:chatSessionId/history',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { chatSessionId } = req.params as { chatSessionId: string };
+      const { namespace } = req.query as { namespace?: string };
+
+      if (!chatSessionId?.trim()) {
+        return reply.code(400).send({ error: 'Missing chatSessionId param' });
+      }
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing namespace query param' });
+      }
+
+      await clearHistory(workdir, namespace.trim(), chatSessionId.trim());
+      return reply.code(204).send();
     },
   );
 

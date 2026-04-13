@@ -12,24 +12,29 @@
  * the injected workdir path.
  *
  * Tool-Request Loop v2:
- *   The generating_outline and generating_sections handlers now use
- *   AgentExecutor to enable the LLM to autonomously call tools (e.g.
- *   search-documents) during generation.  Tool execution traces are emitted
- *   via onToolEvent for SSE streaming to the client.
+ *   The generating_outline handler uses AgentExecutor to enable the LLM to
+ *   autonomously call tools (e.g. search-documents) during outline generation.
+ *   Tool execution traces are emitted via onToolEvent for SSE streaming.
+ *   Section content generation is delegated to @ai-engine/plugin-proposal-generator.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
+import {
+  buildFactMap,
+  detectContradictions,
+  buildQAMessage,
+  parseSectionsFromMarkdown,
+  type Contradiction,
+} from '../proposals/proposal-qa.js';
 import path from 'node:path';
 import type { ToolOutput } from '@ai-engine/core';
 import { toolRegistry } from '@ai-engine/core';
+import { spawnProposalGenerator } from '@ai-engine/plugin-proposal-generator';
+import { ensureTemplateYaml } from '../templates/template-yaml-bridge.js';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
-import {
-  extractRequirementsFromKnowledge,
-  type ExtractedField,
-  type ExtractedProposalInputs,
-} from '../ingestion/extract-proposal-inputs.js';
+import { extractRequirementsFromKnowledge } from '../ingestion/extract-proposal-inputs.js';
 import { loadFilesIndex } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
@@ -96,107 +101,20 @@ export interface HandlerContext {
 // ---------------------------------------------------------------------------
 
 const REQUIRED_FIELDS = ['industry', 'timeline', 'budget'] as const;
-type RequiredField = typeof REQUIRED_FIELDS[number];
+
+function getEffectiveRequirements(context: WorkflowInstance['context']): Record<string, string> {
+  // Priority: confirmedRequirements > proposalRequirements (merged flat map)
+  return {
+    ...(context.proposalRequirements as Record<string, string> | undefined ?? {}),
+    ...(context.confirmedRequirements as Record<string, string> | undefined ?? {}),
+  };
+}
 
 function isReadyForGeneration(context: WorkflowInstance['context']): boolean {
-  const reqs = context.proposalRequirements as Record<string, string> | undefined;
-  return REQUIRED_FIELDS.every((field) => Boolean(reqs?.[field]));
+  const reqs = getEffectiveRequirements(context);
+  return REQUIRED_FIELDS.every((field) => Boolean(reqs[field]));
 }
 
-function getMissingFields(context: WorkflowInstance['context']): RequiredField[] {
-  const reqs = context.proposalRequirements as Record<string, string> | undefined;
-  return REQUIRED_FIELDS.filter((field) => !reqs?.[field]);
-}
-
-const REQUIREMENT_QUESTIONS: Record<RequiredField, string> = {
-  industry: 'What industry is this proposal for?',
-  timeline: 'What timeline are you targeting?',
-  budget: 'Do you have a budget range in mind?',
-};
-
-/**
- * Build the requirement-asking message.
- * Acknowledges already-confirmed fields so the user feels heard and the
- * conversation feels continuous rather than starting from scratch each turn.
- */
-function buildRequirementPrompt(
-  missing: RequiredField[],
-  confirmed: Record<string, string>,
-): string {
-  const confirmedEntries = REQUIRED_FIELDS
-    .filter((f) => confirmed[f])
-    .map((f) => `• **${f}**: ${confirmed[f]}`);
-
-  const parts: string[] = [];
-
-  if (confirmedEntries.length > 0) {
-    parts.push('I already have:');
-    parts.push(...confirmedEntries);
-    parts.push('');
-  }
-
-  parts.push('I still need:');
-  parts.push(...missing.map((m) => `• ${m}`));
-  parts.push('');
-  parts.push(REQUIREMENT_QUESTIONS[missing[0]]);
-
-  return parts.join('\n');
-}
-
-/**
- * Decide how to handle an extracted field based on its confidence score.
- *
- *   ≥ 0.85  →  auto_fill  (silently populate, briefly inform user)
- *   ≥ 0.60  →  confirm    (ask user to confirm before accepting)
- *   < 0.60  →  ask        (discard extraction, ask manually — already filtered at extraction time)
- */
-type FieldDecision = 'auto_fill' | 'confirm' | 'ask';
-
-function resolveField(field: ExtractedField): FieldDecision {
-  if (field.confidence >= 0.85) return 'auto_fill';
-  if (field.confidence >= 0.6) return 'confirm';
-  return 'ask';
-}
-
-/**
- * Ask the user to confirm a medium-confidence extracted value.
- * Acknowledges already-confirmed fields and shows the supporting evidence.
- */
-function buildConfirmationPrompt(
-  field: RequiredField,
-  extracted: ExtractedField,
-  allMissing: RequiredField[],
-  confirmed: Record<string, string>,
-): string {
-  const { value, evidence } = extracted;
-  const confirmedEntries = REQUIRED_FIELDS
-    .filter((f) => confirmed[f])
-    .map((f) => `• **${f}**: ${confirmed[f]}`);
-
-  const parts: string[] = [];
-
-  if (confirmedEntries.length > 0) {
-    parts.push('I already have:');
-    parts.push(...confirmedEntries);
-    parts.push('');
-  }
-
-  const evidenceLine = evidence ? `\n\n> "${evidence}"` : '';
-  const otherMissing = allMissing.filter((f) => f !== field);
-  const suffix = otherMissing.length > 0
-    ? `\n\nI'll also need: ${otherMissing.join(', ')}.`
-    : '';
-
-  parts.push(
-    `I found that the **${field}** is **${value}** based on your documents.${evidenceLine}`,
-    '',
-    `Should I use this?${suffix}`,
-    '',
-    'Reply **yes** to confirm, **no** to skip, or type a different value.',
-  );
-
-  return parts.join('\n');
-}
 
 // ---------------------------------------------------------------------------
 // Tool descriptors available to proposal generation handlers
@@ -337,107 +255,133 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 // ---------------------------------------------------------------------------
 
 /**
- * Gate proposal generation until all required fields are collected.
+ * Collect proposal requirements through a fully LLM-driven conversation.
  *
- * Confidence-aware flow:
- *   1. On first entry, run extractRequirementsFromKnowledge and cache results.
- *   2. Process any pending confirmation response (yes / no / custom value).
- *   3. Auto-fill all high-confidence fields (≥ 0.85) not yet processed,
- *      collecting their names for a brief summary message.
- *   4. If all REQUIRED_FIELDS are satisfied → signal READY.
- *   5. For the next missing field:
- *        - Medium confidence (0.60–0.84) → ask for confirmation with evidence.
- *        - No extraction or declined     → ask manually (fallback).
+ * The LLM receives the conversation history and current requirements state
+ * and decides how to respond — extracting values, answering questions,
+ * applying corrections — returning structured JSON with updates and a reply.
+ * No regex, no keyword lists, no sticky state machines.
  */
 export async function handleCollectingInputs(ctx: HandlerContext): Promise<HandlerResult> {
-  const { workdir, namespace, instance, incomingMessage } = ctx;
+  const { workdir, namespace, instance, incomingMessage, conversationContext } = ctx;
 
-  // ── Run extraction once on first entry ───────────────────────
-  if (!instance.context.extractionDone) {
+  // ── Run RFP extraction once as seed context ───────────────────
+  if (!instance.context.rfpExtractionDone) {
     try {
-      instance.context.extractedRequirements = await extractRequirementsFromKnowledge(
-        workdir,
-        namespace,
-      );
+      instance.context.rfpExtractedRequirements = await extractRequirementsFromKnowledge(workdir, namespace);
     } catch {
-      instance.context.extractedRequirements = {};
+      instance.context.rfpExtractedRequirements = {};
     }
-    instance.context.extractionDone = true;
+    instance.context.rfpExtractionDone = true;
   }
 
-  const extracted = (instance.context.extractedRequirements ?? {}) as ExtractedProposalInputs;
-  const declined = (instance.context.declinedFields ?? []) as string[];
+  if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
+  const requirements = instance.context.proposalRequirements as Record<string, string>;
 
-  // ── Process pending confirmation response ────────────────────
-  const pending = instance.context.awaitingConfirmation as
-    | { field: string; value: string }
-    | undefined;
-
-  if (pending) {
-    instance.context.awaitingConfirmation = undefined;
-    const lower = incomingMessage.toLowerCase().trim();
-    const isYes = lower === 'yes' || lower === 'y' || lower.startsWith('yes,') || lower.startsWith('yes ');
-    const isNo = lower === 'no' || lower === 'n' || lower.startsWith('no,') || lower.startsWith('no ');
-
-    if (isYes) {
-      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
-      (instance.context.proposalRequirements as Record<string, string>)[pending.field] = pending.value;
-    } else if (isNo) {
-      instance.context.declinedFields = [...declined, pending.field];
-    } else {
-      // Custom override — treat the full message as the value
-      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
-      (instance.context.proposalRequirements as Record<string, string>)[pending.field] =
-        incomingMessage.trim();
-    }
-  }
-
-  // ── Auto-fill all high-confidence fields (≥ 0.85) ────────────
-  const autoFilled: string[] = [];
-  const updatedDeclined = (instance.context.declinedFields ?? []) as string[];
-
-  for (const field of getMissingFields(instance.context)) {
-    const entry = extracted[field];
-    if (!entry || updatedDeclined.includes(field)) continue;
-    if (resolveField(entry) === 'auto_fill') {
-      if (!instance.context.proposalRequirements) instance.context.proposalRequirements = {};
-      (instance.context.proposalRequirements as Record<string, string>)[field] = entry.value;
-      autoFilled.push(`**${field}**: ${entry.value}`);
-    }
-  }
-
-  // ── Ready check ───────────────────────────────────────────────
+  // ── Already complete — skip LLM call ─────────────────────────
   if (isReadyForGeneration(instance.context)) {
-    const autoFillNote = autoFilled.length > 0
-      ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
-      : '';
     return {
-      message: `${autoFillNote}Great — I have everything I need. I'll now recommend a template for your proposal.`,
+      message: "Great — I have everything I need. I'll now recommend a template for your proposal.",
       stateSignal: 'READY',
     };
   }
 
-  // ── Next missing field: confirm or ask ────────────────────────
-  const missing = getMissingFields(instance.context);
-  const nextField = missing[0];
-  const nextEntry = extracted[nextField];
-  const autoFillPrefix = autoFilled.length > 0
-    ? `I've filled in the following from your documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
-    : '';
+  // ── Format conversation history (include current message) ────
+  const historyLines = (conversationContext?.conversationWindow ?? [])
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`);
+  historyLines.push(`User: ${incomingMessage}`);
+  const history = historyLines.join('\n');
 
-  const confirmed = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
+  const currentValues = Object.entries(requirements)
+    .map(([k, v]) => `  ${k}: ${v}`)
+    .join('\n') || '  (none yet)';
 
-  if (nextEntry && !updatedDeclined.includes(nextField) && resolveField(nextEntry) === 'confirm') {
-    instance.context.awaitingConfirmation = { field: nextField, value: nextEntry.value };
-    return {
-      message: autoFillPrefix + buildConfirmationPrompt(nextField, nextEntry, missing, confirmed),
-    };
+  // RFP hints are NOT given to the LLM — they are applied separately below
+  // with explicit user-visible confirmation. Giving them to the LLM caused it
+  // to silently set READY:true after only one user message.
+  const prompt = [
+    'You are collecting proposal requirements through a natural conversation.',
+    'Required fields: industry, timeline, budget.',
+    '',
+    'Currently collected:',
+    currentValues,
+    '',
+    'Conversation so far (most recent message is last):',
+    history,
+    '',
+    'Instructions:',
+    '- Respond to the LAST user message only.',
+    '- Extract values the user explicitly stated in THIS message.',
+    '- If correcting a previously given value, use the correction.',
+    '- If asking a question or for examples, answer helpfully then re-ask the same field.',
+    '- Ask for one missing field at a time. Be natural and conversational.',
+    '- Do NOT infer or assume values not stated by the user.',
+    '',
+    'Reply in EXACTLY this two-line format, nothing else:',
+    'UPDATES: {"field_name":"extracted_value_or_omit_field_if_not_stated"}',
+    'RESPONSE: your conversational reply to the user',
+    '',
+    'Use {} for UPDATES if the user provided no new field values.',
+    'Set a field in UPDATES only if the user said it explicitly in this message.',
+    'READY: true  (add this third line ONLY when industry, timeline, AND budget are all in "Currently collected")',
+  ].filter(Boolean).join('\n');
+
+  const raw = await llmGenerateFn(prompt);
+
+  // ── Parse the two-part response ───────────────────────────────
+  const updatesMatch = raw.match(/UPDATES:\s*(\{[^}]*\})/);
+  const responseMatch = raw.match(/RESPONSE:\s*([\s\S]+?)(?:\nREADY:|$)/);
+  const readyMatch = /READY:\s*true/i.test(raw);
+
+  // ── Apply explicit user-provided updates ──────────────────────
+  if (updatesMatch) {
+    try {
+      const updates = JSON.parse(updatesMatch[1]) as Record<string, string>;
+      for (const [k, v] of Object.entries(updates)) {
+        if (v && typeof v === 'string') requirements[k] = v;
+      }
+      instance.context.proposalRequirements = requirements;
+    } catch {
+      // Ignore malformed updates
+    }
   }
 
-  // No usable extraction — ask manually
-  return {
-    message: autoFillPrefix + buildRequirementPrompt(missing, confirmed),
-  };
+  // ── Auto-fill remaining fields from high-confidence RFP extraction ──
+  // Only fills fields the user hasn't provided yet, and only with ≥0.85 confidence.
+  // This runs AFTER user input is applied so user corrections always win.
+  const rfpRaw = (instance.context.rfpExtractedRequirements ?? {}) as Record<string, { value: string; confidence: number }>;
+  const autoFilled: string[] = [];
+  for (const field of REQUIRED_FIELDS) {
+    if (requirements[field]) continue; // already have it
+    const rfpEntry = rfpRaw[field];
+    if (rfpEntry?.value && (rfpEntry.confidence ?? 0) >= 0.85) {
+      requirements[field] = rfpEntry.value;
+      autoFilled.push(`**${field}**: ${rfpEntry.value}`);
+    }
+  }
+  if (autoFilled.length > 0) {
+    instance.context.proposalRequirements = requirements;
+  }
+
+  // ── Ready check ───────────────────────────────────────────────
+  // Only trust READY:true from LLM if requirements are actually complete.
+  if (isReadyForGeneration(instance.context)) {
+    const autoNote = autoFilled.length > 0
+      ? `I found these from your RFP documents:\n${autoFilled.map((l) => `• ${l}`).join('\n')}\n\n`
+      : '';
+    const llmReply = responseMatch?.[1]?.trim();
+    const reply = autoNote + (llmReply && !readyMatch ? llmReply + '\n\n' : '') +
+      "I have everything I need. I'll now recommend a template for your proposal.";
+    return { message: reply, stateSignal: 'READY' };
+  }
+
+  // ── Return the conversational reply ──────────────────────────
+  if (responseMatch?.[1]?.trim()) {
+    return { message: responseMatch[1].trim() };
+  }
+
+  const missing = REQUIRED_FIELDS.filter((f) => !requirements[f]);
+  return { message: `What is the ${missing[0]} for this proposal?` };
 }
 
 // ---------------------------------------------------------------------------
@@ -472,9 +416,9 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
       instance.context.selectedTemplate = undefined;
       // Fall through to re-run the analysis below
     } else {
-      // User confirmed — proceed to outline generation
+      // User confirmed template — move to final confirmation step
       instance.context.awaitingTemplateConfirmation = undefined;
-      return { message: 'Great! Proceeding to outline generation.', stateSignal: 'DONE' };
+      return { message: 'Template confirmed.', stateSignal: 'DONE' };
     }
   }
 
@@ -590,10 +534,11 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
     .map((line) => line.replace(/^\d+[\.\)]\s*/, '').trim())
     .filter((line) => line.length > 0);
 
-  // Store as a synthetic template in context
+  // Store as a synthetic template in context, named after the namespace
+  const nsTemplateSlug = namespace.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   instance.context.selectedTemplate = {
-    id: 'generated-custom',
-    name: 'Custom (Generated from RFP)',
+    id: nsTemplateSlug,
+    name: namespace,
     tags: [],
     structure: generatedStructure.length > 0 ? generatedStructure : [
       'Executive Summary',
@@ -610,7 +555,7 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
   const message = [
     recommendation.reasoning,
     '',
-    'I\'ve generated a custom proposal structure tailored to the RFP:',
+    `I've generated a proposal structure for **${namespace}**:`,
     '',
     ...((instance.context.selectedTemplate as { structure: string[] }).structure).map(
       (s: string, i: number) => `${i + 1}. ${s}`,
@@ -621,6 +566,85 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
 
   // Pause — wait for user to confirm the custom structure before proceeding
   instance.context.awaitingTemplateConfirmation = true;
+
+  return { message };
+}
+
+// ---------------------------------------------------------------------------
+// confirm_generation handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Pause before generation begins and ask the user for explicit confirmation.
+ *
+ * Shows a summary of everything collected so far (requirements, template,
+ * detected context) so the user can verify before any LLM or plugin work runs.
+ *
+ * Flow:
+ *   1. On first entry: build summary, set awaitingGenerationConfirm = true, wait.
+ *   2. On user reply:
+ *        - yes / confirm / proceed → signal CONFIRM → generating_outline
+ *        - no / cancel / stop      → signal DECLINE → collecting_inputs
+ */
+export async function handleConfirmGeneration(ctx: HandlerContext): Promise<HandlerResult> {
+  const { instance, incomingMessage, onChunk } = ctx;
+
+  // ── Second entry: user is responding to the confirmation prompt ──────────
+  if (instance.context.awaitingGenerationConfirm) {
+    instance.context.awaitingGenerationConfirm = undefined;
+
+    const lower = incomingMessage.toLowerCase().trim();
+    const isDecline =
+      lower.startsWith('no') ||
+      lower.includes('cancel') ||
+      lower.includes('stop') ||
+      lower.includes('wait') ||
+      lower.includes('change');
+
+    if (isDecline) {
+      return {
+        message: "No problem — let me know what you'd like to adjust.",
+        stateSignal: 'DECLINE',
+      };
+    }
+
+    return {
+      message: "Great — starting proposal generation now.",
+      stateSignal: 'CONFIRM',
+    };
+  }
+
+  // ── First entry: build summary and ask for confirmation ──────────────────
+  const reqs = getEffectiveRequirements(instance.context);
+  const template = instance.context.selectedTemplate as
+    | { name?: string; structure?: string[] }
+    | undefined;
+
+  const lines: string[] = [
+    "I have everything I need to generate your proposal. Here's a summary of what I'll use:",
+    '',
+  ];
+
+  if (reqs.client)   lines.push(`• **Client:** ${reqs.client}`);
+  if (reqs.industry) lines.push(`• **Industry:** ${reqs.industry}`);
+  if (reqs.timeline) lines.push(`• **Timeline:** ${reqs.timeline}`);
+  if (reqs.budget)   lines.push(`• **Budget:** ${reqs.budget}`);
+
+  if (template?.name) {
+    lines.push(`• **Template:** ${template.name}`);
+  }
+  if (template?.structure && template.structure.length > 0) {
+    lines.push('• **Sections:**');
+    template.structure.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
+  }
+
+  lines.push('');
+  lines.push('Reply **yes** to generate the proposal, or **no** to make changes.');
+
+  const message = lines.join('\n');
+  onChunk(message);
+
+  instance.context.awaitingGenerationConfirm = true;
 
   return { message };
 }
@@ -649,7 +673,7 @@ export async function handleRecommendTemplate(ctx: HandlerContext): Promise<Hand
 export async function handleGeneratingOutline(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, onPhase, onChunk, onToolEvent } = ctx;
 
-  onPhase('Analyzing RFP');
+  onPhase('Planning proposal structure');
 
   // Read RFP document content
   let rfpContent = '';
@@ -658,7 +682,7 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
     rfpContent = await readFile(rfpPath, 'utf-8').catch(() => '');
   }
 
-  onPhase('Generating proposal structure');
+  onPhase('Building section outline (step 1 of 2)');
 
   // Use selected template structure from recommendation step (if available)
   const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
@@ -727,297 +751,242 @@ export async function handleGeneratingOutline(ctx: HandlerContext): Promise<Hand
 }
 
 // ---------------------------------------------------------------------------
-// generating_sections handler — cross-section coherence
+// generating_sections handler
 // ---------------------------------------------------------------------------
 
 /**
- * Accumulated state built up as each section is generated.
- * Passed into the next section's prompt so the LLM stays coherent.
- */
-interface ProposalState {
-  /** Concrete facts / claims established in prior sections. */
-  keyPoints: string[];
-  /** Timeline value set by an earlier section (locked — STEP 5 safety rule). */
-  timeline: string | null;
-  /** Pricing/budget value set by an earlier section (locked). */
-  pricing: string | null;
-  /** Writing tone established by the first section that set one. */
-  tone: string | null;
-}
-
-/**
- * Merge a newly extracted section summary into the running ProposalState.
- * STEP 5 safety rule: existing timeline/pricing are never overridden.
- */
-function mergeSectionSummary(
-  state: ProposalState,
-  summary: Partial<ProposalState>,
-): ProposalState {
-  const existingNormalized = new Set(
-    state.keyPoints.map((p) => p.toLowerCase().trim()),
-  );
-  const newPoints = (summary.keyPoints ?? []).filter(
-    (p) => !existingNormalized.has(p.toLowerCase().trim()),
-  );
-  return {
-    keyPoints: [...state.keyPoints, ...newPoints],
-    timeline: state.timeline ?? summary.timeline ?? null,   // prefer existing
-    pricing:  state.pricing  ?? summary.pricing  ?? null,   // prefer existing
-    tone:     state.tone     ?? summary.tone     ?? null,   // first wins
-  };
-}
-
-/**
- * Call the LLM to extract a structured summary from a completed section.
- * Non-fatal — returns empty summary on any failure.
- */
-async function extractSectionSummary(
-  sectionName: string,
-  content: string,
-): Promise<Partial<ProposalState>> {
-  const prompt = [
-    `You just read the "${sectionName}" section of a proposal.`,
-    'Extract a structured summary for use in subsequent sections to maintain coherence.',
-    '',
-    'Return JSON with:',
-    '- keyPoints: array of 1–3 key concrete facts or claims stated in this section',
-    '- timeline: the timeline value if explicitly stated, or null',
-    '- pricing: the pricing/budget value if explicitly stated, or null',
-    '- tone: one word describing the writing tone (e.g. "confident", "consultative"), or null',
-    '',
-    'Rules:',
-    '- Only include values explicitly stated — do NOT infer',
-    '- keyPoints must be specific facts, not vague summaries',
-    '- Output ONLY raw JSON — no markdown fences, no commentary',
-    '',
-    `Section content:\n${content.slice(0, 2000)}`,
-  ].join('\n');
-
-  try {
-    const raw = await llmGenerateFn(prompt);
-    const cleaned = raw
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```\s*$/, '')
-      .trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    return {
-      keyPoints: Array.isArray(parsed.keyPoints)
-        ? (parsed.keyPoints as unknown[]).filter((x): x is string => typeof x === 'string')
-        : [],
-      timeline: typeof parsed.timeline === 'string' ? parsed.timeline : null,
-      pricing:  typeof parsed.pricing  === 'string' ? parsed.pricing  : null,
-      tone:     typeof parsed.tone     === 'string' ? parsed.tone     : null,
-    };
-  } catch {
-    return { keyPoints: [] };
-  }
-}
-
-/**
- * When keyPoints exceeds 10 entries, ask the LLM to compress them into 3–5
- * bullets so the coherence context block stays concise (STEP 6).
- */
-async function compressKeyPoints(keyPoints: string[]): Promise<string[]> {
-  const prompt = [
-    'The following is a list of key points from a proposal being written.',
-    'Summarize them into 3–5 concise, non-redundant bullets that preserve all important facts.',
-    'Output ONLY the bullet items — one per line, no leading dashes or bullets.',
-    '',
-    keyPoints.map((p) => `- ${p}`).join('\n'),
-  ].join('\n');
-
-  try {
-    const raw = await llmGenerateFn(prompt);
-    const compressed = raw
-      .split('\n')
-      .map((l) => l.replace(/^[-•*]\s*/, '').trim())
-      .filter((l) => l.length > 0)
-      .slice(0, 5);
-    return compressed.length > 0 ? compressed : keyPoints.slice(0, 5);
-  } catch {
-    return keyPoints.slice(0, 5);
-  }
-}
-
-/**
- * Build a focused prompt for a single proposal section.
- * Injects coherence context from previously generated sections (STEP 4).
- */
-function buildSectionPrompt(
-  section: string,
-  allSections: string[],
-  requirements: Record<string, string>,
-  outline: string,
-  proposalState: ProposalState,
-): string {
-  const reqLines = REQUIRED_FIELDS
-    .filter((f) => requirements[f])
-    .map((f) => `- ${f}: ${requirements[f]}`)
-    .join('\n');
-
-  const parts = [
-    `You are a professional proposal writer writing the **${section}** section.`,
-    '',
-    'Confirmed proposal inputs:',
-    reqLines || '(none specified)',
-    '',
-    'Full section list for context:',
-    ...allSections.map((s, i) =>
-      `${i + 1}. ${s === section ? `**${s}** ← you are writing this` : s}`),
-    '',
-  ];
-
-  if (outline) {
-    parts.push(`Proposal outline:\n${outline}\n`, '');
-  }
-
-  // Coherence block — only injected once there are prior sections
-  const hasPriorContext = proposalState.keyPoints.length > 0
-    || proposalState.timeline
-    || proposalState.pricing
-    || proposalState.tone;
-
-  if (hasPriorContext) {
-    parts.push('Context from previous sections:');
-    if (proposalState.timeline) parts.push(`- Timeline: ${proposalState.timeline}`);
-    if (proposalState.pricing)  parts.push(`- Pricing:  ${proposalState.pricing}`);
-    if (proposalState.tone)     parts.push(`- Tone:     ${proposalState.tone}`);
-    if (proposalState.keyPoints.length > 0) {
-      parts.push('- Key points already established:');
-      proposalState.keyPoints.forEach((p) => parts.push(`  • ${p}`));
-    }
-    parts.push(
-      '',
-      'Coherence rules:',
-      '- Do NOT contradict the timeline, pricing, or key points above',
-      '- Do NOT repeat these points verbatim — reference them only if adding new value',
-      '- Maintain the established tone',
-      '',
-    );
-  }
-
-  parts.push(
-    'Writing rules:',
-    '- Write this section in full — no placeholders or "[TBD]"',
-    '- Be specific, actionable, and persuasive',
-    '- Output ONLY the section body — the heading will be added automatically',
-    '- 2–4 focused paragraphs, professional tone',
-  );
-
-  return parts.join('\n');
-}
-
-/**
- * Expand the outline into a full proposal draft, generating one section at a
- * time so the client receives progressive phase events and structured output.
+ * Expand the outline into a full proposal draft using the canonical
+ * @ai-engine/plugin-proposal-generator Python plugin.
  *
  * Flow:
- *   1. Resolve section list from selectedTemplate (or default).
- *   2. For each section:
- *        a. Emit phase "Writing: <section name>".
- *        b. Call LLM with a focused per-section prompt.
- *        c. Emit the formatted section content via onChunk.
- *   3. Save the assembled draft.
- *   4. Signal DONE.
+ *   1. Resolve the selected template → ensure a YAML file exists for it
+ *   2. Call spawnProposalGenerator — writes the file to the namespace
+ *      proposals directory and returns the full markdown
+ *   3. Validation guard — throw if no artifact was saved
+ *   4. Create initial version snapshot
+ *   5. Update context.proposalArtifactId
+ *   6. Parse sections from markdown and emit as structured blocks (STEP 7)
+ *   7. QA pass — detect cross-section contradictions
  */
 export async function handleGeneratingSections(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, onPhase, onChunk, onSection } = ctx;
 
-  const selectedTemplate = instance.context.selectedTemplate as { structure?: string[] } | undefined;
-  const sections = selectedTemplate?.structure ?? [
-    'Executive Summary',
-    'Problem Statement',
-    'Proposed Solution',
-    'Technical Approach',
-    'Timeline & Milestones',
-    'Team & Credentials',
-    'Budget Estimate',
-    'Next Steps',
-  ];
+  const requirements = getEffectiveRequirements(instance.context);
 
-  const requirements = (instance.context.proposalRequirements ?? {}) as Record<string, string>;
-  const outline = (instance.context.outline as string | undefined) ?? '';
+  // ── Resolve template ────────────────────────────────────────────
+  const selectedTemplate = instance.context.selectedTemplate as
+    | { id?: string; name?: string; structure?: string[] }
+    | undefined;
 
-  // Pre-compute fileName so it can be included in onSection events during streaming.
-  const timestamp = Date.now();
-  const fileName = `chat-draft-${timestamp}.md`;
-
-  // Seed proposalState from confirmed requirements so the first section
-  // already has timeline and pricing locked (STEP 5 safety rule).
-  let proposalState: ProposalState = {
-    keyPoints: [],
-    timeline: requirements.timeline ?? null,
-    pricing:  requirements.budget   ?? null,
-    tone:     null,
-  };
-
-  let proposalMarkdown = '';
-
-  for (const section of sections) {
-    onPhase(`Writing: ${section}`);
-
-    const sectionPrompt = buildSectionPrompt(
-      section, sections, requirements, outline, proposalState,
-    );
-
-    try {
-      const content = await llmGenerateFn(sectionPrompt);
-      const formatted = `## ${section}\n\n${content.trim()}\n\n`;
-
-      // Prefer structured section events when the caller supports them;
-      // fall back to raw chunk for non-section-aware paths (e.g. resume).
-      if (onSection) {
-        onSection(section, content.trim(), fileName);
-      } else {
-        onChunk(formatted);
-      }
-      proposalMarkdown += formatted;
-
-      // Extract summary from the completed section and update proposalState
-      const summary = await extractSectionSummary(section, content);
-      let merged = mergeSectionSummary(proposalState, summary);
-
-      // STEP 6: Compress keyPoints when they exceed 10 entries
-      if (merged.keyPoints.length > 10) {
-        merged = { ...merged, keyPoints: await compressKeyPoints(merged.keyPoints) };
-      }
-
-      proposalState = merged;
-    } catch {
-      // Non-fatal — include a placeholder and continue with remaining sections
-      const placeholder = `## ${section}\n\n_(Section generation failed — please edit manually)_\n\n`;
-      if (onSection) {
-        onSection(section, '_(Section generation failed — please edit manually)_', fileName);
-      } else {
-        onChunk(placeholder);
-      }
-      proposalMarkdown += placeholder;
-    }
+  // Ensure a YAML file exists for the selected template so the plugin can
+  // use it. Falls back to 'default' if no template was selected.
+  let templateSlug = 'default';
+  if (selectedTemplate?.id && selectedTemplate.structure) {
+    onPhase('Preparing template');
+    templateSlug = await ensureTemplateYaml(workdir, {
+      id: selectedTemplate.id,
+      name: selectedTemplate.name ?? selectedTemplate.id,
+      tags: [],
+      structure: selectedTemplate.structure,
+    });
   }
 
-  // Persist final proposalState so it's available for inspection / future edits
-  instance.context.proposalState = proposalState;
-
-  // Persist the artifact
+  // ── Run the Python proposal generator plugin ────────────────────
   const proposalsDir = path.join(workdir, 'namespaces', namespace, 'proposals');
   await mkdir(proposalsDir, { recursive: true });
-  await writeFile(path.join(proposalsDir, fileName), proposalMarkdown, 'utf-8');
 
-  instance.context.proposalArtifactId = fileName;
+  onPhase('Generating proposal');
 
-  // Auto-snapshot: create initial version (v1.0) for the new proposal
+  const document = await spawnProposalGenerator({
+    workdir,
+    outputDir: proposalsDir,
+    client: requirements.client ?? namespace,
+    industry: requirements.industry ?? 'General',
+    namespace,
+    template: templateSlug,
+    templateDir: path.join(workdir, 'data', 'templates'),
+    overwrite: false,
+    pricing: null,
+    tone: null,
+    memory: null,
+  });
+
+  // ── Validation guard ────────────────────────────────────────────
+  const meta = document.metadata as Record<string, unknown>;
+  const outputFile = (meta.output_path ?? meta.output_file) as string | undefined;
+  if (!outputFile) throw new Error('Proposal not saved — plugin returned no output_path');
+
+  const artifactId = path.basename(outputFile);
+  const proposalMarkdown = document.content;
+
+  // ── Version creation ────────────────────────────────────────────
   try {
-    const version = await createInitialVersion(workdir, namespace, fileName, 'system');
+    const version = await createInitialVersion(workdir, namespace, artifactId, 'system');
     onPhase(`Saved as version ${version.versionLabel}`);
   } catch {
-    // Non-fatal — version tracking failure should not block proposal delivery
+    // Non-fatal — version tracking must not block proposal delivery
+  }
+
+  // ── Context update ──────────────────────────────────────────────
+  instance.context.proposalArtifactId = artifactId;
+
+  // ── Emit structured section blocks (STEP 7) ─────────────────────
+  // The Python plugin returns the full markdown at once. Parse it into
+  // sections and emit each one so the frontend renders interactive blocks.
+  const parsedSections = parseSectionsFromMarkdown(proposalMarkdown);
+  if (onSection && parsedSections.length > 0) {
+    for (const sec of parsedSections) {
+      onSection(sec.name, sec.content, artifactId);
+    }
+  } else {
+    onChunk(proposalMarkdown);
+  }
+
+  // ── QA pass ─────────────────────────────────────────────────────
+  onPhase('Checking proposal consistency');
+  try {
+    const factMap = await buildFactMap(parsedSections);
+    const contradictions = detectContradictions(factMap, requirements);
+    instance.context.qaContradictions = contradictions;
+    instance.context.qaArtifactPath = outputFile;
+  } catch {
+    instance.context.qaContradictions = [];
   }
 
   return {
     message: proposalMarkdown,
     stateSignal: 'DONE',
     actions: {
-      openProposalUrl: `/proposals/${namespace}/${fileName}`,
+      openProposalUrl: `/proposals/${namespace}/${artifactId}`,
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Proposal ready message builder
+// ---------------------------------------------------------------------------
+
+function buildProposalReadyMessage(
+  instance: WorkflowInstance,
+  namespace: string,
+  artifactId: string,
+): string {
+  const template = instance.context.selectedTemplate as { structure?: string[] } | undefined;
+  const sections = template?.structure ?? [];
+
+  const parts = [
+    `Your proposal **${artifactId}** is ready for **${namespace}**.`,
+  ];
+
+  if (sections.length > 0) {
+    parts.push('', '**Sections generated:**');
+    parts.push(...sections.map((s, i) => `${i + 1}. ${s}`));
+  }
+
+  parts.push(
+    '',
+    'You can ask me to improve any section — for example:',
+    '- "Make the Executive Summary more compelling"',
+    '- "Add more detail to the pricing section"',
+    '- "Rewrite the technical approach to emphasise our cloud experience"',
+  );
+
+  return parts.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// qa_review handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Surface cross-section contradictions and optionally auto-fix them.
+ *
+ * Flow:
+ *   1. On entry: if contradictions exist, ask the user whether to fix them.
+ *      If no contradictions → signal DONE immediately (clean proposal).
+ *   2. On user reply:
+ *      - yes / y / fix    → apply canonical values to the artifact on disk,
+ *                           create a new version snapshot, signal DONE.
+ *      - no  / skip       → signal DONE without changes.
+ *      - anything else    → re-ask (one retry).
+ */
+export async function handleQaReview(ctx: HandlerContext): Promise<HandlerResult> {
+  const { workdir, namespace, instance, incomingMessage } = ctx;
+
+  const contradictions = (instance.context.qaContradictions ?? []) as Contradiction[];
+  const artifactPath = instance.context.qaArtifactPath as string | undefined;
+  const artifactId   = instance.context.proposalArtifactId as string | undefined;
+
+  // ── Guard: no proposal was actually generated ─────────────────
+  // If the generation step failed or was skipped, artifactId will be absent.
+  // Do not claim "looks consistent" — that message only makes sense after a
+  // real proposal has been saved.
+  if (!artifactId) {
+    return {
+      message: 'No proposal was generated yet.',
+      stateSignal: 'DONE',
+    };
+  }
+
+  // ── No contradictions → proceed immediately ───────────────────
+  if (contradictions.length === 0) {
+    return {
+      message: buildProposalReadyMessage(instance, namespace, artifactId),
+      stateSignal: 'DONE',
+      actions: { openProposalUrl: `/proposals/${namespace}/${artifactId}` },
+    };
+  }
+
+  // ── First entry: surface the QA findings ─────────────────────
+  if (!instance.context.awaitingQaConfirmation) {
+    instance.context.awaitingQaConfirmation = true;
+    return { message: buildQAMessage(contradictions) };
+  }
+
+  // ── Process user response ─────────────────────────────────────
+  instance.context.awaitingQaConfirmation = undefined;
+
+  const lower = incomingMessage.toLowerCase().trim();
+  const isYes = lower === 'yes' || lower === 'y'
+    || lower.startsWith('yes')
+    || lower.includes('fix')
+    || lower.includes('sure')
+    || lower.includes('go ahead');
+
+  if (isYes && artifactPath) {
+    try {
+      const { applyQAFixes } = await import('../proposals/proposal-qa.js');
+      await applyQAFixes(artifactPath, contradictions);
+
+      // Create a new version snapshot for the QA-fixed proposal
+      if (artifactId) {
+        try {
+          await createInitialVersion(workdir, namespace, artifactId, 'qa-fix');
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      instance.context.qaContradictions = [];
+
+      return {
+        message: `I've aligned the inconsistent values across all sections.\n\n${buildProposalReadyMessage(instance, namespace, artifactId)}`,
+        stateSignal: 'DONE',
+        actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
+      };
+    } catch {
+      return {
+        message: 'I wasn\'t able to apply the fixes automatically. You can edit sections manually.',
+        stateSignal: 'DONE',
+        actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
+      };
+    }
+  }
+
+  // User declined fixes
+  return {
+    message: buildProposalReadyMessage(instance, namespace, artifactId),
+    stateSignal: 'DONE',
+    actions: artifactId ? { openProposalUrl: `/proposals/${namespace}/${artifactId}` } : {},
   };
 }

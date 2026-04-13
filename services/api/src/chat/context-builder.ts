@@ -111,7 +111,7 @@ export async function generateConversationSummary(
 // STEP 3 — Proposal requirements initialisation (handled by caller)
 // ---------------------------------------------------------------------------
 // Callers ensure instance.context.proposalRequirements is always an object.
-// This module reads and enriches it via extractRequirementsFromMessage below.
+// This module reads the requirement status for inclusion in LLM prompts.
 
 // ---------------------------------------------------------------------------
 // STEP 4 — Requirement status block
@@ -145,231 +145,15 @@ export function buildRequirementStatus(requirements: Record<string, string>): st
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// STEP 1 — Input normalisation
-// ---------------------------------------------------------------------------
-
-function normalizeInput(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/\n/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// ---------------------------------------------------------------------------
-// STEP 2 — Field pattern definitions
-// ---------------------------------------------------------------------------
-
-const FIELD_PATTERNS: Record<string, string[]> = {
-  industry:    ['industry', 'domain', 'sector'],
-  timeline:    ['timeline', 'duration', 'time'],
-  budget:      ['budget', 'cost', 'price'],
-  teamSize:    ['team size', 'team', 'members'],
-  clientName:  ['client', 'customer'],
-  projectType: ['project type', 'type', 'project'],
-};
-
-// ---------------------------------------------------------------------------
-// STEP 3 — Generic field extractor (colon and "is/=" patterns)
-// ---------------------------------------------------------------------------
-
-function extractField(text: string, keys: string[]): string | null {
-  for (const key of keys) {
-    const escaped = key.replace(/\s+/g, '\\s+');
-
-    // key: value  or  key = value
-    const colonMatch = new RegExp(`${escaped}\\s*[:=]\\s*([^,\\n]+)`).exec(text);
-    if (colonMatch) return colonMatch[1].trim();
-
-    // key is value  or  key = value (with "is" keyword)
-    const isMatch = new RegExp(`${escaped}\\s+(is|=)\\s+([^,\\n]+)`).exec(text);
-    if (isMatch) return isMatch[2].trim();
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// STEP 7 — Validation normalisation
-// ---------------------------------------------------------------------------
-
-function normalizeFieldValue(field: string, value: string): string {
-  const v = value.trim();
-
-  if (field === 'industry') {
-    if (/^tech(nology)?$/i.test(v)) return 'technology';
-  }
-
-  if (field === 'budget') {
-    // "$1500" → "$1,500" — keep as string with comma formatting
-    const plain = v.replace(/,/g, '');
-    const numMatch = /^\$?([\d.]+)\s*([kKmM]?)$/.exec(plain);
-    if (numMatch) {
-      let amount = parseFloat(numMatch[1]);
-      const suffix = numMatch[2].toLowerCase();
-      if (suffix === 'k') amount *= 1000;
-      if (suffix === 'm') amount *= 1_000_000;
-      return `$${amount.toLocaleString('en-US')}`;
-    }
-  }
-
-  if (field === 'timeline') {
-    // "12 weeks" → "12 weeks" (already structured), normalise casing
-    const durationMatch = /^(\d+)\s*(weeks?|months?|days?|quarters?)$/i.exec(v);
-    if (durationMatch) {
-      return `${durationMatch[1]} ${durationMatch[2].toLowerCase()}`;
-    }
-  }
-
-  return v;
-}
-
-// ---------------------------------------------------------------------------
-// STEP 6 — Merge strategy
-// ---------------------------------------------------------------------------
-
-export function mergeRequirements(
-  existing: Record<string, string>,
-  extracted: Record<string, string>,
-): Record<string, string> {
-  const updated = { ...existing };
-  for (const key in extracted) {
-    if (extracted[key]) updated[key] = extracted[key];
-  }
-  return updated;
-}
-
-// ---------------------------------------------------------------------------
-// STEP 7 — Requirement extraction from incoming message
-// ---------------------------------------------------------------------------
-
-const INDUSTRIES = [
-  'fintech', 'finance', 'banking', 'healthcare', 'health', 'retail',
-  'ecommerce', 'e-commerce', 'logistics', 'education', 'government',
-  'telecom', 'insurance', 'real estate', 'manufacturing', 'energy',
-  'media', 'saas', 'enterprise', 'technology', 'tech',
-];
-
-const PROJECT_TYPES: Record<string, string> = {
-  'cloud migration': 'cloud migration',
-  'migration': 'cloud migration',
-  'digital transformation': 'digital transformation',
-  'modernisation': 'modernisation',
-  'modernization': 'modernisation',
-  'integration': 'system integration',
-  'data platform': 'data platform',
-  'analytics': 'analytics',
-  'security': 'security',
-  'compliance': 'compliance',
-  'mobile app': 'mobile application',
-  'web app': 'web application',
-  'api': 'API development',
-};
-
-/**
- * Extract structured requirement signals from a free-text user message.
- *
- * Strategy (in order):
- *   1. Colon/is patterns  (e.g. "industry: fintech", "budget is $50k")
- *   2. Keyword/regex fallback for each field
- *   3. LLM fallback for any fields still missing (requires generateFn)
- *
- * Returns a partial Record — only fields that were detected.
- * Callers merge this into the session's proposalRequirements.
- */
-export async function extractRequirementsFromMessage(
-  message: string,
-  generateFn?: GenerateFn,
-): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
-  const normalized = normalizeInput(message);
-
-  // --- STEP 3 — Colon/is pattern extraction for all fields ---
-  for (const [field, keys] of Object.entries(FIELD_PATTERNS)) {
-    const extracted = extractField(normalized, keys);
-    if (extracted) {
-      result[field] = normalizeFieldValue(field, extracted);
-    }
-  }
-
-  // --- STEP 2 fallback — keyword/regex extraction for fields still missing ---
-
-  if (!result.industry) {
-    for (const ind of INDUSTRIES) {
-      if (normalized.includes(ind)) {
-        result.industry = normalizeFieldValue('industry', ind);
-        break;
-      }
-    }
-  }
-
-  if (!result.timeline) {
-    const timelineMatch = message.match(/(\d+)\s*(weeks?|months?|days?|quarters?)/i);
-    if (timelineMatch) result.timeline = normalizeFieldValue('timeline', timelineMatch[0]);
-  }
-
-  if (!result.budget) {
-    const budgetMatch = message.match(/\$[\d,]+\s*[kKmM]?|\$[\d,.]+\s*(k|m|million|thousand)/i);
-    if (budgetMatch) result.budget = normalizeFieldValue('budget', budgetMatch[0].trim());
-  }
-
-  if (!result.teamSize) {
-    const teamMatch = message.match(
-      /(\d+)\s*(person|people|engineers?|developers?|team members?|consultants?)/i,
-    );
-    if (teamMatch) result.teamSize = teamMatch[0].trim();
-  }
-
-  if (!result.projectType) {
-    for (const [keyword, label] of Object.entries(PROJECT_TYPES)) {
-      if (normalized.includes(keyword)) {
-        result.projectType = label;
-        break;
-      }
-    }
-  }
-
-  // --- STEP 5 — LLM fallback for fields still missing ---
-  const missingFields = Object.keys(FIELD_PATTERNS).filter((k) => !result[k]);
-
-  if (missingFields.length > 0 && generateFn) {
-    try {
-      const prompt = [
-        'Extract structured fields from the following user message.',
-        `Fields to extract: ${missingFields.join(', ')}.`,
-        'Return a JSON object with only the fields that are clearly present.',
-        'Use null for any field not found. Return JSON only, no explanation.',
-        '',
-        `Message: "${message}"`,
-      ].join('\n');
-
-      const raw = await generateFn(prompt);
-      const cleaned = raw
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/, '')
-        .trim();
-      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-
-      for (const field of missingFields) {
-        const val = parsed[field];
-        if (typeof val === 'string' && val.trim()) {
-          result[field] = normalizeFieldValue(field, val.trim());
-        }
-      }
-    } catch {
-      // Non-fatal — proceed with what regex found
-    }
-  }
-
-  // --- STEP 8 — Debug logging ---
-  console.log({ input: message, extracted: result });
-
-  return result;
-}
 
 // ---------------------------------------------------------------------------
 // STEP 6 — System prompt
 // ---------------------------------------------------------------------------
+
+/** States where the requirement status block is relevant and should be shown. */
+const REQUIREMENT_STATES = new Set([
+  'collecting_rfp', 'collecting_inputs', 'recommend_template',
+]);
 
 function buildSystemPrompt(
   workflowState: string,
@@ -377,26 +161,32 @@ function buildSystemPrompt(
   conversationSummary?: string,
 ): string {
   const parts = [
-    'You are an AI proposal assistant guiding a structured workflow.',
-    '',
-    `Current workflow state: ${workflowState}`,
-    '',
-    'Proposal inputs:',
-    requirementStatus,
+    'You are an AI assistant that helps users create proposals and answer questions about their documents.',
   ];
 
   if (conversationSummary) {
     parts.push('', 'Conversation context:', conversationSummary);
   }
 
-  parts.push(
-    '',
-    'Rules:',
-    '- If required inputs are missing, ask for them one at a time',
-    '- Do NOT generate the proposal until inputs are sufficient',
-    '- Answer user questions using available knowledge',
-    '- After answering a question, return to workflow progression',
-  );
+  // Only inject the requirement block when the workflow is actively collecting inputs.
+  // For general queries, completed states, and non-proposal workflows this block
+  // is irrelevant and causes the LLM to ask for industry/timeline/budget when it
+  // should just answer the question.
+  if (REQUIREMENT_STATES.has(workflowState)) {
+    parts.push(
+      '',
+      `Current workflow state: ${workflowState}`,
+      '',
+      'Proposal inputs gathered so far:',
+      requirementStatus,
+      '',
+      'Rules:',
+      '- If required inputs are missing, ask for them one at a time',
+      '- Do NOT generate the proposal until inputs are sufficient',
+      '- Answer user questions using available knowledge',
+      '- After answering a question, return to workflow progression',
+    );
+  }
 
   return parts.join('\n');
 }
@@ -413,10 +203,11 @@ const GENERATING_STATES = new Set([
   'generating_outline', 'generating_sections',
   'analyzing_rfp', 'generating_template',
   'gap_analysis', 'go_no_go',
+  'analyzing', 'applying_fix',
 ]);
 
 const REVIEW_STATES = new Set([
-  'recommend_template', 'review_template', 'name_template',
+  'recommend_template', 'review_template', 'name_template', 'qa_review', 'reviewing',
 ]);
 
 /**
@@ -457,25 +248,133 @@ const QUESTION_STARTERS = [
   'is there ', 'are there ', 'does ', 'do you ',
   'tell me ', 'explain ', 'help me understand ',
   'what\'s ', 'whats ', 'how\'s ',
+  // Broad knowledge queries — deliberately NOT including list/search/show/find
+  // as those overlap with workflow trigger patterns (e.g. "list versions")
+  'summarize ', 'summarise ', 'summary of ',
+  'what are ', 'what is ',
 ];
+
+/**
+ * Short messages that are workflow confirmations/affirmatives — never treat
+ * these as interrupts even if they superficially look like questions.
+ *
+ * Also includes confusion expressions (e.g. "what?", "huh?") that end with
+ * "?" but are not knowledge queries — they should fall through to the workflow
+ * handler so it can re-explain the current step.
+ */
+const WORKFLOW_AFFIRMATIVES = new Set([
+  'yes', 'y', 'no', 'n',
+  'proceed', 'continue', 'go ahead', 'go on',
+  'ok', 'okay', 'sure', 'alright', 'fine', 'great',
+  'use this', 'use that', 'use it', 'accept', 'confirm',
+  'approve', 'approved', 'looks good', 'looks great', 'perfect',
+  'that works', 'sounds good', 'sounds great',
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+  'next', 'skip', 'back', 'done',
+  // Confusion expressions — not knowledge queries
+  'what?', 'huh?', 'sorry?', 'pardon?', 'excuse me?',
+  'what do you mean?', "i don't understand", 'i dont understand',
+  'can you repeat?', 'come again?', 'repeat that',
+]);
 
 /**
  * Detect whether an incoming message is an off-workflow question.
  *
- * Heuristic: ends with "?" OR starts with a common question word/phrase.
- * The intent router already handles workflow triggers; this catches everything
- * else that looks like a question rather than a workflow action.
+ * Returns true only when the message is clearly a knowledge query, NOT a
+ * workflow confirmation or a message so short it could be anything.
+ *
+ * Rules (all must pass for an interrupt):
+ *   1. Not a known workflow affirmative/confirmation
+ *   2. Not very short (< 20 chars) unless it ends with '?'
+ *   3. Ends with '?' OR starts with a question word/phrase
  */
 export function detectInterrupt(message: string): boolean {
   const trimmed = message.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Never interrupt on workflow affirmatives
+  if (WORKFLOW_AFFIRMATIVES.has(lower)) return false;
+
+  // Short messages that don't end with '?' are almost always confirmations
+  if (trimmed.length < 20 && !trimmed.endsWith('?')) return false;
+
   if (trimmed.endsWith('?')) return true;
 
-  const lower = trimmed.toLowerCase();
   for (const starter of QUESTION_STARTERS) {
     if (lower.startsWith(starter)) return true;
   }
 
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Interrupt context builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a rich context string for interrupt answers.
+ *
+ * Includes:
+ *   - Recent conversation (last 4 messages from the conversation window)
+ *   - Current workflow state
+ *   - Relevant workflow artifacts (template info, proposal artifact, requirements)
+ *
+ * This string is injected into `answerFromKnowledge` so the LLM can answer
+ * questions like "is there a matching template?" using what was just shown
+ * in the conversation, rather than blindly searching the knowledge base.
+ */
+export function buildInterruptContext(
+  workflowState: string,
+  conversationContext: LLMContext,
+  workflowCtx: Record<string, unknown>,
+): string {
+  const parts: string[] = [];
+
+  parts.push(`Current workflow state: ${workflowState}`);
+
+  // Recent conversation (last 4 messages)
+  const recentMessages = conversationContext.conversationWindow.slice(-4);
+  if (recentMessages.length > 0) {
+    parts.push('', 'Recent conversation:');
+    for (const msg of recentMessages) {
+      parts.push(`${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`);
+    }
+  }
+
+  // Template recommendation (shown during recommend_template state)
+  const templateRec = workflowCtx.templateRecommendation as Record<string, unknown> | undefined;
+  if (templateRec) {
+    const confidence = typeof templateRec.confidence === 'number'
+      ? `${(templateRec.confidence * 100).toFixed(0)}%`
+      : 'unknown';
+    const reasoning = typeof templateRec.reasoning === 'string' ? templateRec.reasoning : '';
+    parts.push('', `Template match confidence: ${confidence}`);
+    if (reasoning) parts.push(`Template reasoning: ${reasoning}`);
+  }
+
+  // Selected template info
+  const selectedTemplate = workflowCtx.selectedTemplate as Record<string, unknown> | undefined;
+  if (selectedTemplate) {
+    const name = typeof selectedTemplate.name === 'string' ? selectedTemplate.name : 'Unknown';
+    const structure = Array.isArray(selectedTemplate.structure)
+      ? (selectedTemplate.structure as string[]).join(', ')
+      : '';
+    parts.push('', `Selected template: ${name}`);
+    if (structure) parts.push(`Template sections: ${structure}`);
+  }
+
+  // Proposal artifact (if one has been saved)
+  if (typeof workflowCtx.proposalArtifactId === 'string') {
+    parts.push('', `Generated proposal: ${workflowCtx.proposalArtifactId}`);
+  }
+
+  // Requirements gathered so far
+  const reqs = workflowCtx.proposalRequirements as Record<string, string> | undefined;
+  if (reqs && Object.keys(reqs).length > 0) {
+    parts.push('', 'Requirements gathered:', buildRequirementStatus(reqs));
+  }
+
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------

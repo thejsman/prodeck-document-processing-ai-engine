@@ -103,7 +103,27 @@ class FaissVectorStore(VectorStore):
                 f"but chunks.json has {len(self._chunks)} entries"
             )
 
+    @staticmethod
+    def _chunk_text(entry):
+        """Extract plain text from a chunk entry (string or {text, document} object)."""
+        if isinstance(entry, dict):
+            return entry.get("text", "")
+        return entry
+
+    @staticmethod
+    def _chunk_document(entry):
+        """Extract document name from a chunk entry; returns None for plain strings."""
+        if isinstance(entry, dict):
+            return entry.get("document")
+        return None
+
     def add(self, texts, embeddings):
+        """Add chunks with their embeddings.
+
+        Args:
+            texts: List of chunk strings OR list of {"text": str, "document": str} dicts.
+            embeddings: List of embedding vectors (each a list of floats).
+        """
         vectors = np.array(embeddings, dtype=np.float32)
 
         if vectors.ndim != 2 or vectors.shape[0] != len(texts):
@@ -139,17 +159,20 @@ class FaissVectorStore(VectorStore):
         results = []
         for idx in indices[0]:
             if 0 <= idx < len(self._chunks):
-                results.append(self._chunks[idx])
+                results.append(self._chunk_text(self._chunks[idx]))
         return results
 
     def search_with_scores(self, query_embedding, top_k):
-        """Return top-k chunks as dicts with 'text' and 'score' keys.
+        """Return top-k chunks as dicts with 'text', 'score', and optional 'document' keys.
 
         Scores are cosine-similarity values in [-1, 1] (IndexFlatIP on
         L2-normalised vectors).  Higher is more similar.
 
+        The 'document' field is present when chunks were ingested with source metadata
+        (new format).  It is absent for legacy plain-string chunks.
+
         Returns:
-            List of {"text": str, "score": float} dicts ordered by score descending.
+            List of {"text": str, "score": float, "document"?: str} dicts.
         """
         if self._index is None or self._index.ntotal == 0:
             return []
@@ -163,7 +186,12 @@ class FaissVectorStore(VectorStore):
         results = []
         for score, idx in zip(scores[0], indices[0]):
             if 0 <= idx < len(self._chunks):
-                results.append({"text": self._chunks[idx], "score": float(score)})
+                entry = self._chunks[idx]
+                result = {"text": self._chunk_text(entry), "score": float(score)}
+                doc = self._chunk_document(entry)
+                if doc:
+                    result["document"] = doc
+                results.append(result)
         return results
 
     def persist(self):

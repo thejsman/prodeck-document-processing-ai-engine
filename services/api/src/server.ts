@@ -22,6 +22,8 @@ import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js'
 import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
+import { registerTraceRoutes } from './trace/trace-routes.js';
+import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
 import {
   workflowEventBus,
   type IngestionCompletedEvent,
@@ -105,6 +107,8 @@ export async function createServer(opts: ServerOptions) {
   registerTemplateAgentRoutes(app);
   registerAgentRoutes(app, opts.workdir, policyConfig);
   registerChatRoutes(app, opts.workdir, policyConfig);
+  registerTraceRoutes(app);
+  registerExecutionStreamRoutes(app);
   registerAssetRoutes(app, opts.workdir);
   registerStreamUploadRoutes(app, opts.workdir);
   registerImageRoutes(app, opts.workdir);

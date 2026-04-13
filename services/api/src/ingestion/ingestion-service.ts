@@ -48,6 +48,7 @@ export async function loadFilesIndex(
 ): Promise<IngestionFile[]> {
   try {
     const raw = await readFile(filesIndexPath(workdir, namespace), 'utf-8');
+    if (!raw.trim()) return [];
     return JSON.parse(raw) as IngestionFile[];
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];

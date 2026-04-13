@@ -82,10 +82,13 @@ def ingest_documents(documents, storage_dir, provider, store=None):
     total_chunks = 0
     for doc in documents:
         content = doc["content"]
-        chunks = split_chunks(content, CHUNK_SIZE)
-        if not chunks:
+        file_name = doc.get("fileName", "")
+        raw_chunks = split_chunks(content, CHUNK_SIZE)
+        if not raw_chunks:
             continue
-        embeddings = embed_texts(chunks, provider)
+        # Store chunks as {text, document} objects so search results carry source metadata.
+        chunks = [{"text": c, "document": file_name} for c in raw_chunks]
+        embeddings = embed_texts(raw_chunks, provider)
         store.add(chunks, embeddings)
         total_chunks += len(chunks)
 
@@ -189,6 +192,11 @@ def main():
 
         # Build the vector store once and pass it to all operations.
         store = create_vector_store(vector_store_config, storage_dir, namespace)
+
+        # Load existing index data so search/query operations can use it.
+        # ingest_documents also calls store.load() internally (harmless double-load).
+        if operation != "ingest":
+            store.load()
 
         if operation == "ingest":
             documents = input_data.get("documents", [])

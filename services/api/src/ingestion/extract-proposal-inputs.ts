@@ -33,6 +33,8 @@ export interface ExtractedField {
    * <0.60 → discard and ask manually.
    */
   confidence: number;
+  /** Always "rfp" — distinguishes these entries from chat-derived inputs. */
+  source: 'rfp';
   /** Exact phrase or sentence from the document that supports this value. */
   evidence?: string;
 }
@@ -156,7 +158,7 @@ export async function extractRequirementsFromKnowledge(
       // Discard low-confidence extractions — handler will ask manually instead
       if (!value || confidence < 0.6) continue;
 
-      result[field] = { value, confidence, evidence };
+      result[field] = { value, confidence, source: 'rfp', evidence };
     }
 
     return result;
