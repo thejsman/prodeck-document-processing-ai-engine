@@ -144,13 +144,15 @@ export function HeroSection({
   // ── Shared blocks ─────────────────────────────────────────────────────────
 
   // Editable wrapper — no-op when sectionId is absent (outside editor)
-  function E({ field, label, children, display }: {
+  function E({ field, label, children, display, value, multiline }: {
     field: string; label: string; children: React.ReactNode;
     display?: 'block' | 'inline' | 'flex' | 'inline-block';
+    value?: string;
+    multiline?: boolean;
   }) {
     if (!sectionId) return <>{children}</>;
     return (
-      <Editable sectionId={sectionId} fieldPath={field} elementType="text" label={label} display={display}>
+      <Editable sectionId={sectionId} fieldPath={field} elementType="text" label={label} display={display} value={value} multiline={multiline}>
         {children}
       </Editable>
     );
@@ -158,7 +160,7 @@ export function HeroSection({
 
   const eyebrow = content.eyebrow?.trim() && (
     <R>
-      <E field="eyebrow" label="Eyebrow">
+      <E field="eyebrow" label="Eyebrow" value={content.eyebrow}>
         <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
           {content.eyebrow}
           <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
@@ -169,7 +171,7 @@ export function HeroSection({
 
   const headline = (
     <R delay={60}>
-      <E field="headline" label="Headline">
+      <E field="headline" label="Headline" value={content.headline}>
         <Display tokens={tokens} gradient style={{ marginBottom: 18 }}>
           {content.headline}
           <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
@@ -182,7 +184,7 @@ export function HeroSection({
     <>
       {content.subheadline?.trim() && (
         <R delay={120}>
-          <E field="subheadline" label="Subheadline">
+          <E field="subheadline" label="Subheadline" value={content.subheadline} multiline>
             <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7 }}>
               {content.subheadline}
               <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
@@ -192,7 +194,7 @@ export function HeroSection({
       )}
       {content.body?.trim() && (
         <R delay={180}>
-          <E field="body" label="Body">
+          <E field="body" label="Body" value={content.body} multiline>
             <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28 }}>
               {content.body}
               <TypingCursor visible={twCtx?.activeField === 'body' && (twCtx?.showCursor ?? false)} />
@@ -223,14 +225,14 @@ export function HeroSection({
   const ctaRow = showCTA && (
     <R delay={280} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
       {content.ctaPrimary?.trim() && (
-        <E field="ctaPrimary" label="Primary CTA" display="inline-block">
+        <E field="ctaPrimary" label="Primary CTA" display="inline-block" value={content.ctaPrimary}>
           <CTAButton tokens={tokens} targetSectionId={primaryTarget}>
             {content.ctaPrimary}
           </CTAButton>
         </E>
       )}
       {content.ctaSecondary?.trim() && (
-        <E field="ctaSecondary" label="Secondary CTA" display="inline-block">
+        <E field="ctaSecondary" label="Secondary CTA" display="inline-block" value={content.ctaSecondary}>
           <CTAButton tokens={tokens} variant="secondary" targetSectionId={secondaryTarget} showArrow={false}>
             {content.ctaSecondary}
           </CTAButton>
@@ -412,37 +414,45 @@ export function HeroSection({
           {/* Eyebrow as plain label — no pill */}
           {content.eyebrow?.trim() && (
             <R>
-              <Label tokens={tokens} style={{ display: 'block', marginBottom: 20 }}>
-                {content.eyebrow}
-              </Label>
+              <E field="eyebrow" label="Eyebrow" value={content.eyebrow}>
+                <Label tokens={tokens} style={{ display: 'block', marginBottom: 20 }}>
+                  {content.eyebrow}
+                </Label>
+              </E>
             </R>
           )}
           <R delay={60}>
-            <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
-              lineHeight: 1.05,
-              marginBottom: 32,
-            }}>
-              {content.headline}
-            </Display>
+            <E field="headline" label="Headline" value={content.headline}>
+              <Display tokens={tokens} gradient style={{
+                fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
+                lineHeight: 1.05,
+                marginBottom: 32,
+              }}>
+                {content.headline}
+              </Display>
+            </E>
           </R>
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 540, lineHeight: 1.8, marginBottom: 12 }}>
-                {content.subheadline}
-              </Body>
+              <E field="subheadline" label="Subheadline" value={content.subheadline} multiline>
+                <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 540, lineHeight: 1.8, marginBottom: 12 }}>
+                  {content.subheadline}
+                </Body>
+              </E>
             </R>
           )}
           {content.body?.trim() && (
             <R delay={180}>
-              <Body tokens={tokens} style={{
-                maxWidth: 520, lineHeight: 2,
-                marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
-                borderLeft: `2px solid ${tokens.border}`,
-                paddingLeft: 18,
-              }}>
-                {content.body}
-              </Body>
+              <E field="body" label="Body" value={content.body} multiline>
+                <Body tokens={tokens} style={{
+                  maxWidth: 520, lineHeight: 2,
+                  marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
+                  borderLeft: `2px solid ${tokens.border}`,
+                  paddingLeft: 18,
+                }}>
+                  {content.body}
+                </Body>
+              </E>
             </R>
           )}
           {outcomePills}
@@ -478,9 +488,11 @@ export function HeroSection({
           {headline}
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ maxWidth: 540, margin: '0 auto 36px', lineHeight: 1.7 }}>
-                {content.subheadline}
-              </Body>
+              <E field="subheadline" label="Subheadline" value={content.subheadline} multiline>
+                <Body tokens={tokens} style={{ maxWidth: 540, margin: '0 auto 36px', lineHeight: 1.7 }}>
+                  {content.subheadline}
+                </Body>
+              </E>
             </R>
           )}
           {cards.length > 0 && (
@@ -541,19 +553,23 @@ export function HeroSection({
         <div style={{ ...container, maxWidth: 800 }}>
           {eyebrow}
           <R delay={60}>
-            <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
-              lineHeight: 1.02,
-              marginBottom: 24,
-            }}>
-              {content.headline}
-            </Display>
+            <E field="headline" label="Headline" value={content.headline}>
+              <Display tokens={tokens} gradient style={{
+                fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
+                lineHeight: 1.02,
+                marginBottom: 24,
+              }}>
+                {content.headline}
+              </Display>
+            </E>
           </R>
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
-                {content.subheadline}
-              </Body>
+              <E field="subheadline" label="Subheadline" value={content.subheadline} multiline>
+                <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
+                  {content.subheadline}
+                </Body>
+              </E>
             </R>
           )}
           {outcomePills}
