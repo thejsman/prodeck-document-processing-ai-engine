@@ -340,7 +340,7 @@ export function PresentationPage() {
   const [referenceFile, setReferenceFile] = useState<{ base64: string; mediaType: string; fileName: string; dominantColors?: string[] } | null>(null);
   const [urlInput, setUrlInput] = useState("");
   const [urlReferenceDesign, setUrlReferenceDesign] = useState<ReferenceDesign | null>(null);
-  const [urlExtractionState, setUrlExtractionState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [urlExtractionState, setUrlExtractionState] = useState<"idle" | "loading" | "success" | "error" | "blocked">("idle");
   const urlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [synthStatus, setSynthStatus] = useState<
     null | "scanning" | "building" | "ready"
@@ -680,13 +680,68 @@ export function PresentationPage() {
     // Build stable refs before any state updates
     const proposalId =
       selectedProposal?.fileName.replace(/\.md$/, "") ?? selectedNamespace;
-    const brandConfig = {
+    // Build base brand config from brand setup
+    const baseBrandConfig = {
       companyName: brand.companyName,
       tagline: brand.tagline,
       logoUrl: brand.logoUrl,
       logoText: brand.logoText,
       primaryColor: brand.primaryColor,
       secondaryColor: brand.secondaryColor,
+    };
+
+    // If URL design was extracted, convert its colors/typography into CSS variable overrides
+    // so the microsite renders the extracted design from the very first skeleton frame.
+    // The existing Pass 0.5 (image attachment) path still takes priority — it re-applies
+    // extractedCssVariables at stream-complete time, overwriting these.
+    const urlDesignOverride = (() => {
+      if (!urlReferenceDesign) return {};
+      const bg = urlReferenceDesign.colors.background;
+      const isDark = (() => {
+        const hex = bg.replace('#', '');
+        if (hex.length < 6) return false;
+        const r = parseInt(hex.slice(0, 2), 16) / 255;
+        const g = parseInt(hex.slice(2, 4), 16) / 255;
+        const b = parseInt(hex.slice(4, 6), 16) / 255;
+        const toLinear = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        const lum = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+        return lum < 0.179;
+      })();
+      const radiusMap: Record<string, string> = { sharp: '4px', soft: '8px', rounded: '16px' };
+      const cssVars: Record<string, string> = {
+        '--ms-bg':           bg,
+        '--ms-bg2':          urlReferenceDesign.colors.surface,
+        '--ms-bg3':          urlReferenceDesign.colors.surface,
+        '--ms-surface':      urlReferenceDesign.colors.surface,
+        '--ms-accent':       urlReferenceDesign.colors.primary,
+        '--ms-accent2':      urlReferenceDesign.colors.secondary,
+        '--ms-text':         urlReferenceDesign.colors.text,
+        '--ms-text2':        urlReferenceDesign.colors.textMuted,
+        '--ms-text3':        urlReferenceDesign.colors.textMuted,
+        '--ms-border':       urlReferenceDesign.colors.surface,
+        '--ms-is-dark':      isDark ? '1' : '0',
+        '--ms-font-heading': urlReferenceDesign.typography.headingFont,
+        '--ms-font-body':    urlReferenceDesign.typography.bodyFont,
+        '--ms-r-card':       radiusMap[urlReferenceDesign.style.borderRadius] ?? '8px',
+      };
+      // Build Google Fonts URL for the extracted fonts
+      const uniqueFonts = [...new Set([
+        urlReferenceDesign.typography.headingFont,
+        urlReferenceDesign.typography.bodyFont,
+      ].filter(Boolean))] as string[];
+      const googleFontsUrl = uniqueFonts.length > 0
+        ? `https://fonts.googleapis.com/css2?${uniqueFonts.map(f => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
+        : undefined;
+      return {
+        overrideTheme: true as const,
+        extractedCssVariables: cssVars,
+        ...(googleFontsUrl ? { googleFontsUrl } : {}),
+      };
+    })();
+
+    const brandConfig = {
+      ...baseBrandConfig,
+      ...urlDesignOverride,
     };
 
     // ── Immediately switch to preview with an empty AST + skeletons ──────────
@@ -2214,7 +2269,7 @@ export function PresentationPage() {
                                     setUrlExtractionState("success");
                                   } else {
                                     setUrlReferenceDesign(null);
-                                    setUrlExtractionState("error");
+                                    setUrlExtractionState(result.error === "blocked_by_bot_protection" ? "blocked" : "error");
                                   }
                                 } catch {
                                   setUrlReferenceDesign(null);
@@ -2255,6 +2310,9 @@ export function PresentationPage() {
                         )}
                         {urlExtractionState === "error" && (
                           <span style={{ fontSize: 13, color: "#f87171", whiteSpace: "nowrap" }}>⚠ could not extract</span>
+                        )}
+                        {urlExtractionState === "blocked" && (
+                          <span style={{ fontSize: 13, color: "#fb923c", whiteSpace: "nowrap" }} title="This site uses bot protection (e.g. Cloudflare) that blocks server-side CSS fetching. Try another URL or use the brand color fields instead.">⊘ blocked by site</span>
                         )}
                       </div>
                       {urlReferenceDesign && (
@@ -2536,9 +2594,10 @@ export function PresentationPage() {
                         setStep("generate");
                         setTimeout(runPipeline, 100);
                       }}
-                      style={{ minWidth: 140, width: "auto" }}
+                      disabled={urlExtractionState === "loading"}
+                      style={{ minWidth: 140, width: "auto", opacity: urlExtractionState === "loading" ? 0.5 : 1, cursor: urlExtractionState === "loading" ? "not-allowed" : "pointer" }}
                     >
-                      ⚡ Generate Microsite
+                      {urlExtractionState === "loading" ? "Extracting design…" : "⚡ Generate Microsite"}
                     </button>
                   </div>
                 )}

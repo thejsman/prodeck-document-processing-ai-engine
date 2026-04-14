@@ -88,6 +88,10 @@ export function HeroSection({
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
   useEffect(() => { setActiveImageUrl(imageUrl); }, [imageUrl]);
 
+  // Hoist hasBgImage early — used to suppress gradient text when an image fills the background
+  // (URL-extracted tokens.text is more readable on image+scrim than a color gradient)
+  const hasBgImage = !!activeImageUrl;
+
   const resolvedVariant = variant ?? 'centered';
   const showCTA = ui?.showCTA !== false && !!(content.ctaPrimary?.trim() || content.ctaSecondary?.trim());
   const mediaPos = ui?.mediaPosition ?? 'right';
@@ -154,10 +158,13 @@ export function HeroSection({
     </R>
   );
 
+  // When the hero has a background image, suppress gradient text so the URL-extracted
+  // tokens.text color (e.g. #f6f3f0 from jackwatkins.co) is used instead of the
+  // plugin default or brand-setup gradient.
   const headline = (
     <R delay={60}>
       <InlineEditable field="headline" label="Headline" value={content.headline}>
-        <Display tokens={tokens} gradient style={{ marginBottom: 18 }}>
+        <Display tokens={tokens} gradient={!hasBgImage} style={{ marginBottom: 18, ...(hasBgImage ? { color: tokens.text } : {}) }}>
           {content.headline}
           <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
         </Display>
@@ -278,16 +285,17 @@ export function HeroSection({
 
   // ── Shared section shell ──────────────────────────────────────────────────
 
-  // Full-width background image — activeImageUrl clears itself on load error (e.g. expired DALL-E SAS tokens)
-  const hasBgImage = !!activeImageUrl;
+  // bgScrim — dark overlay on top of hero background image
   const bgScrim = tokens.dark ? 'rgba(0,0,0,0.62)' : 'rgba(15,15,20,0.55)';
 
   const sectionStyle: React.CSSProperties = {
     position: 'relative',
     padding: 'clamp(4rem, 8vw, 7rem) 2rem',
+    // No gradient on the hero background — solid fill only.
+    // The gradient moves to the heading text instead (Display gradient={!hasBgImage}).
     background: hasBgImage
       ? `url(${activeImageUrl}) center center / cover no-repeat`
-      : getSectionGradient('hero', tokens),
+      : tokens.bg,
     overflow: 'hidden',
   };
 
