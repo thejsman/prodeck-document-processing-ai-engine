@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, isValidElement, cloneElement } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditContext, type EditSelection } from './EditContext';
 
@@ -70,6 +71,105 @@ function prefixLines(
   return before + prefixed + val.slice(end);
 }
 
+// ── Markup parser ─────────────────────────────────────────────────────────────
+// Supports: [c=#hex]colored[/c]  **bold**  _italic_
+
+export function hasMarkup(text: string): boolean {
+  return /\[c=#?[a-zA-Z0-9]+\]|\*\*[^*]|(?<![_])_[^_]/.test(text);
+}
+
+export function parseMarkup(text: string): ReactNode {
+  if (typeof text !== 'string' || !hasMarkup(text)) return text;
+  // Single regex capturing three alternatives in order
+  const TOKEN = /\[c=(#?[a-zA-Z0-9]+)\]([\s\S]*?)\[\/c\]|\*\*([\s\S]*?)\*\*|(?<![_\w])_([\s\S]*?)_(?![_\w])/g;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while ((m = TOKEN.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m[1] !== undefined) {
+      // Color: [c=#hex]text[/c]
+      parts.push(<span key={k++} style={{ color: m[1] }}>{parseMarkup(m[2])}</span>);
+    } else if (m[3] !== undefined) {
+      // Bold: **text**
+      parts.push(<strong key={k++} style={{ fontWeight: 700 }}>{parseMarkup(m[3])}</strong>);
+    } else if (m[4] !== undefined) {
+      // Italic: _text_
+      parts.push(<em key={k++}>{parseMarkup(m[4])}</em>);
+    }
+    last = TOKEN.lastIndex;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  if (parts.length === 0) return text;
+  if (parts.length === 1) return parts[0];
+  return <>{parts}</>;
+}
+
+/** Walk the children tree and replace any node that is exactly `rawValue`
+ *  with the formatted version. Handles the common section pattern:
+ *  <StyledEl>{rawValue}</StyledEl>  →  <StyledEl>{formatted}</StyledEl>  */
+function injectFormatted(node: ReactNode, raw: string, formatted: ReactNode): ReactNode {
+  if (node === raw) return formatted;
+  if (!isValidElement(node)) return node;
+  const el = node as React.ReactElement<{ children?: ReactNode }>;
+  const ch = el.props.children;
+  if (ch === raw) return cloneElement(el, {}, formatted);
+  if (Array.isArray(ch)) return cloneElement(el, {}, ...ch.map(c => injectFormatted(c, raw, formatted)));
+  if (ch !== null && ch !== undefined) return cloneElement(el, {}, injectFormatted(ch, raw, formatted));
+  return node;
+}
+
+// ── Color region system ───────────────────────────────────────────────────────
+// Colors are tracked as ranges on the PLAIN text, separate from the draft.
+// This means the input always shows clean text and selections are always
+// in plain-text coordinates — no more broken nested markup.
+
+type ColorRegion = { start: number; end: number; color: string };
+
+/** Parse a raw markup value into plain text + color regions. */
+function parseColoredValue(raw: string): { text: string; regions: ColorRegion[] } {
+  const regions: ColorRegion[] = [];
+  let text = '';
+  const TOKEN = /\[c=(#?[a-zA-Z0-9]+)\]([\s\S]*?)\[\/c\]/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = TOKEN.exec(raw)) !== null) {
+    text += raw.slice(last, m.index);
+    const start = text.length;
+    // Recursively strip nested color tags in the inner content
+    const nested = parseColoredValue(m[2]);
+    text += nested.text;
+    regions.push({ start, end: text.length, color: m[1] });
+    for (const r of nested.regions) regions.push({ start: start + r.start, end: start + r.end, color: r.color });
+    last = TOKEN.lastIndex;
+  }
+  text += raw.slice(last);
+  return { text, regions };
+}
+
+/** Rebuild a markup string from plain text + color regions.
+ *  Uses a char-level color map so overlapping regions always resolve cleanly. */
+function buildColoredValue(text: string, regions: ColorRegion[]): string {
+  if (regions.length === 0) return text;
+  // Build char → color map (later regions overwrite earlier ones)
+  const map = new Array<string | undefined>(text.length);
+  for (const { start, end, color } of regions) {
+    for (let i = start; i < end && i < text.length; i++) map[i] = color;
+  }
+  let result = '';
+  let i = 0;
+  while (i < text.length) {
+    const c = map[i];
+    if (!c) { result += text[i++]; continue; }
+    let j = i;
+    while (j < text.length && map[j] === c) j++;
+    result += `[c=${c}]${text.slice(i, j)}[/c]`;
+    i = j;
+  }
+  return result;
+}
+
 // Auto-grow textarea height based on content
 function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = 'auto';
@@ -104,7 +204,12 @@ export function Editable({
 }: Props) {
   const ctx = useEditContext();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? '');
+  // draft = PLAIN TEXT only (no markup tags). Colors are tracked in colorRegionsRef.
+  // This ensures the input always shows clean text and selection positions are
+  // always in plain-text coordinates — eliminating nested markup bugs.
+  const [draft, setDraft] = useState(() => parseColoredValue(value ?? '').text);
+  const colorRegionsRef = useRef<ColorRegion[]>(parseColoredValue(value ?? '').regions);
+  const [colorVersion, setColorVersion] = useState(0); // triggers re-render when regions change
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashSelected, setSlashSelected] = useState(0);
@@ -112,6 +217,9 @@ export function Editable({
   const [inputRect, setInputRect] = useState<DOMRect | null>(null);
   const [hovered, setHovered] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+  // Saved selection — updated on every selection/key/mouse event so that
+  // clicking a toolbar button (which causes onBlur) doesn't lose the range.
+  const savedSelRef = useRef({ start: 0, end: 0 });
   const filteredCmdsRef = useRef<typeof SLASH_COMMANDS>([]);
   const applySlashCommandRef = useRef<(cmdId: string) => void>(() => {});
   const toolbarWidth = 380; // estimated toolbar width for clamping
@@ -125,8 +233,15 @@ export function Editable({
 
   useEffect(() => setMounted(true), []);
 
-  // Sync draft when value prop changes externally
-  useEffect(() => { setDraft(value ?? ''); }, [value]);
+  // Sync draft + color regions when value changes externally (e.g. AI edit)
+  // Only sync when NOT actively editing (don't overwrite in-progress work).
+  useEffect(() => {
+    if (editing) return;
+    const { text, regions } = parseColoredValue(value ?? '');
+    setDraft(text);
+    colorRegionsRef.current = regions;
+    setColorVersion(v => v + 1);
+  }, [value, editing]);
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -187,13 +302,18 @@ export function Editable({
   const canInlineEdit = value !== undefined;
 
   const commit = () => {
-    if (draft !== value) ctx.updateField(sectionId, fieldPath, draft);
+    const builtValue = buildColoredValue(draft, colorRegionsRef.current);
+    if (builtValue !== value) ctx.updateField(sectionId, fieldPath, builtValue);
     setEditing(false);
     setSlashOpen(false);
   };
 
   const cancel = () => {
-    setDraft(value ?? '');
+    // Restore plain text + regions from the original (committed) value
+    const { text, regions } = parseColoredValue(value ?? '');
+    setDraft(text);
+    colorRegionsRef.current = regions;
+    setColorVersion(v => v + 1);
     setEditing(false);
     setSlashOpen(false);
   };
@@ -210,6 +330,22 @@ export function Editable({
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     const val = e.target.value;
+    // Adjust color regions to account for text insertion/deletion.
+    // cursorPos is where the edit happened; delta is the length change.
+    const cursorPos = e.target.selectionStart ?? val.length;
+    const delta = val.length - draft.length;
+    if (delta !== 0 && colorRegionsRef.current.length > 0) {
+      const editPos = delta > 0 ? cursorPos - delta : cursorPos;
+      colorRegionsRef.current = colorRegionsRef.current
+        .map(r => {
+          if (r.end <= editPos) return r; // before edit — unchanged
+          if (r.start >= editPos) return { ...r, start: r.start + delta, end: r.end + delta }; // after edit — shift
+          // Region spans the edit point — shrink/grow end
+          return { ...r, end: Math.max(r.start, r.end + delta) };
+        })
+        .filter(r => r.start < r.end && r.end > 0); // drop zero-length regions
+      setColorVersion(v => v + 1);
+    }
     setDraft(val);
     if (multiline && e.target instanceof HTMLTextAreaElement) autoGrow(e.target);
     // Detect slash command: '/' at start or after newline/space
@@ -236,9 +372,21 @@ export function Editable({
     const textBefore = draft.slice(0, pos);
     const slashIdx = textBefore.lastIndexOf('/');
     if (slashIdx === -1) { setSlashOpen(false); return; }
-    const before = draft.slice(0, slashIdx);
-    const after = draft.slice(pos);
-    setDraft(before + cmd.apply('') + after);
+    const replacement = cmd.apply('');
+    const newVal = draft.slice(0, slashIdx) + replacement + draft.slice(pos);
+    // Adjust color regions for the text replaced (slashIdx..pos → replacement)
+    const delta = newVal.length - draft.length;
+    if (delta !== 0 && colorRegionsRef.current.length > 0) {
+      colorRegionsRef.current = colorRegionsRef.current
+        .map(r => {
+          if (r.end <= slashIdx) return r;
+          if (r.start >= pos) return { ...r, start: r.start + delta, end: r.end + delta };
+          return { ...r, end: Math.max(r.start, r.end + delta) };
+        })
+        .filter(r => r.start < r.end && r.end > 0);
+      setColorVersion(v => v + 1);
+    }
+    setDraft(newVal);
     setSlashOpen(false);
     setTimeout(() => inputRef.current?.focus(), 0);
   };
@@ -246,13 +394,45 @@ export function Editable({
   const applyFormat = (type: 'bold' | 'italic' | 'bullet') => {
     const el = inputRef.current;
     if (!el) return;
-    const start = el.selectionStart ?? 0;
-    const end = el.selectionEnd ?? 0;
+    // Use saved selection so toolbar clicks don't lose the range
+    const { start, end } = savedSelRef.current;
+    // Temporarily restore selection so wrapSelection / prefixLines read it
+    el.focus();
+    el.setSelectionRange(start, end);
     let newVal = draft;
     let cursorOffset = 0;
-    if (type === 'bold') { newVal = wrapSelection(el, '**', '**', 'bold text'); cursorOffset = 2; }
-    if (type === 'italic') { newVal = wrapSelection(el, '_', '_', 'italic text'); cursorOffset = 1; }
-    if (type === 'bullet') { newVal = prefixLines(el, '•'); cursorOffset = 2; }
+    if (type === 'bold')   { newVal = wrapSelection(el, '**', '**', 'bold text');  cursorOffset = 2; }
+    if (type === 'italic') { newVal = wrapSelection(el, '_', '_', 'italic text');   cursorOffset = 1; }
+    if (type === 'bullet') { newVal = prefixLines(el, '•');                          cursorOffset = 2; }
+
+    // Keep color region positions in sync with the text change.
+    // Bold/italic: two insertions (prefix at `start`, suffix at `end`).
+    // Bullet: single prefix insertion at `start`.
+    if (newVal !== draft && colorRegionsRef.current.length > 0) {
+      if (type === 'bold' || type === 'italic') {
+        const pLen = type === 'bold' ? 2 : 1; // prefix + suffix length (same for both)
+        colorRegionsRef.current = colorRegionsRef.current.map(r => {
+          // Step 1 — prefix inserted at `start`
+          let rs = r.start >= start ? r.start + pLen : r.start;
+          let re = r.end   >  start ? r.end   + pLen : r.end;
+          // Step 2 — suffix inserted at `end + pLen` (original `end` shifted by pLen)
+          const insertAt = end + pLen;
+          rs = rs >= insertAt ? rs + pLen : rs;
+          re = re >  insertAt ? re + pLen : re;
+          return { ...r, start: rs, end: re };
+        });
+      } else {
+        // Bullet prefix: inserted at `start`, all regions at or after shift by delta
+        const delta = newVal.length - draft.length;
+        colorRegionsRef.current = colorRegionsRef.current.map(r => {
+          if (r.end <= start) return r;
+          if (r.start >= start) return { ...r, start: r.start + delta, end: r.end + delta };
+          return { ...r, end: r.end + delta };
+        }).filter(r => r.start < r.end);
+      }
+      setColorVersion(v => v + 1);
+    }
+
     setDraft(newVal);
     setTimeout(() => {
       if (!inputRef.current) return;
@@ -265,25 +445,43 @@ export function Editable({
   const applyColor = (color: string) => {
     const el = inputRef.current;
     if (!el) return;
-    const newVal = wrapSelection(el, `[c=${color}]`, '[/c]', 'text');
-    setDraft(newVal);
-    setTimeout(() => inputRef.current?.focus(), 0);
+    // Use saved selection — clicking the swatch button clears the browser selection
+    const { start, end } = savedSelRef.current;
+    if (start === end) { el.focus(); return; }
+    // Draft is PLAIN TEXT — colors live in colorRegionsRef.
+    // Remove any existing regions overlapping [start, end], then add the new one.
+    colorRegionsRef.current = colorRegionsRef.current.filter(r => r.end <= start || r.start >= end);
+    colorRegionsRef.current = [...colorRegionsRef.current, { start, end, color }];
+    setColorVersion(v => v + 1);
+    setTimeout(() => { el.focus(); el.setSelectionRange(end, end); }, 0);
   };
 
   const clearFormatting = () => {
     const el = inputRef.current;
     if (!el) return;
-    const start = el.selectionStart ?? 0;
-    const end = el.selectionEnd ?? 0;
-    const selected = el.value.slice(start, end);
-    if (!selected) return;
+    const { start, end } = savedSelRef.current;
+    if (start === end) return;
+    // Remove color regions overlapping [start, end]
+    colorRegionsRef.current = colorRegionsRef.current.filter(r => r.end <= start || r.start >= end);
+    setColorVersion(v => v + 1);
+    // Also strip inline bold/italic from the PLAIN TEXT draft
+    const selected = draft.slice(start, end);
     const stripped = selected
-      .replace(/\[c=#?[a-zA-Z0-9]+\](.*?)\[\/c\]/gs, '$1')
       .replace(/\*\*(.*?)\*\*/gs, '$1')
       .replace(/_(.+?)_/gs, '$1');
-    const newVal = el.value.slice(0, start) + stripped + el.value.slice(end);
-    setDraft(newVal);
-    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(start, start + stripped.length); }, 0);
+    if (stripped !== selected) {
+      setDraft(draft.slice(0, start) + stripped + draft.slice(end));
+      // Shift any regions that start after `end` to account for the shorter text.
+      // (Regions overlapping [start, end] were already removed above.)
+      const delta = stripped.length - selected.length; // always negative
+      if (delta !== 0 && colorRegionsRef.current.length > 0) {
+        colorRegionsRef.current = colorRegionsRef.current.map(r =>
+          r.start >= end ? { ...r, start: r.start + delta, end: r.end + delta } : r
+        );
+        setColorVersion(v => v + 1);
+      }
+    }
+    setTimeout(() => { el.focus(); el.setSelectionRange(start, start + stripped.length); }, 0);
   };
 
   const filteredCmds = slashOpen
@@ -295,6 +493,9 @@ export function Editable({
   // Keep refs in sync so the memoized handleSlashKeyDown always sees current values
   filteredCmdsRef.current = filteredCmds;
   applySlashCommandRef.current = applySlashCommand;
+
+  // colorVersion is intentionally consumed here to trigger re-renders when color regions change
+  void colorVersion;
 
   // Compute clamped toolbar position
   const toolbarPos = inputRect
@@ -345,7 +546,7 @@ export function Editable({
       style={{
         display,
         position: 'relative',
-        cursor: editing ? 'default' : 'text',
+        cursor: editing ? 'text' : canInlineEdit ? 'text' : 'pointer',
         outline: (isSelected && !editing)
           ? `2px solid ${ACCENT}`
           : '2px solid transparent',
@@ -356,8 +557,8 @@ export function Editable({
       onMouseEnter={e => {
         setHovered(true);
         if (!isSelected && !editing) {
-          (e.currentTarget as HTMLElement).style.outlineColor = `${ACCENT}55`;
-          (e.currentTarget as HTMLElement).style.outlineOffset = '3px';
+          (e.currentTarget as HTMLElement).style.outlineColor = `${ACCENT}77`;
+          (e.currentTarget as HTMLElement).style.outlineOffset = '2px';
         }
       }}
       onMouseLeave={e => {
@@ -620,6 +821,9 @@ export function Editable({
               rows={Math.max(2, draft.split('\n').length)}
               onChange={handleChange}
               onBlur={commit}
+              onSelect={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
+              onKeyUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
+              onMouseUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onKeyDown={e => {
                 handleSlashKeyDown(e);
                 if (e.key === 'Escape' && !slashOpen) { e.preventDefault(); cancel(); }
@@ -637,6 +841,9 @@ export function Editable({
               value={draft}
               onChange={handleChange}
               onBlur={commit}
+              onSelect={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
+              onKeyUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
+              onMouseUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onKeyDown={e => {
                 if (e.key === 'Enter') { e.preventDefault(); commit(); }
                 if (e.key === 'Escape') { e.preventDefault(); cancel(); }
@@ -648,6 +855,34 @@ export function Editable({
               style={{ ...editorBaseStyle, height: '1.6em' }}
             />
           )}
+
+          {/* Color preview strip — shows formatted output when color regions exist */}
+          {colorRegionsRef.current.length > 0 && (() => {
+            const builtPreview = buildColoredValue(draft, colorRegionsRef.current);
+            return (
+              <div style={{
+                position: 'absolute',
+                bottom: -26,
+                left: 0,
+                right: 0,
+                padding: '3px 8px',
+                background: 'rgba(6,10,20,0.88)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '0 0 6px 6px',
+                fontSize: 11,
+                color: '#e2e8f0',
+                fontFamily: 'inherit',
+                pointerEvents: 'none',
+                zIndex: 1001,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                borderTop: '1px solid rgba(99,102,241,0.2)',
+              }}>
+                {parseMarkup(builtPreview)}
+              </div>
+            );
+          })()}
 
           {/* Slash command menu — portal, clamped to viewport */}
           {slashOpen && filteredCmds.length > 0 && inputRect && mounted && createPortal(
@@ -717,7 +952,10 @@ export function Editable({
         </>
       )}
 
-      {children}
+      {/* Render formatted markup (e.g. [c=#ef4444]text[/c]) as real colored spans */}
+      {value !== undefined && hasMarkup(value)
+        ? injectFormatted(children, value, parseMarkup(value))
+        : children}
     </div>
   );
 }

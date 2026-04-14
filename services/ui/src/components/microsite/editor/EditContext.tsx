@@ -29,6 +29,8 @@ export interface EditContextValue {
   canUndo: boolean;
   canRedo: boolean;
   pendingSectionAI: { sectionId: string; instruction: string } | null;
+  lockedSections: Set<string>;
+  hiddenSections: Set<string>;
   selectElement: (s: EditSelection) => void;
   selectSection: (sectionId: string) => void;
   clearSelection: () => void;
@@ -40,6 +42,10 @@ export interface EditContextValue {
   updateSection: (sectionId: string, newContent: unknown) => void;
   addSection: (afterIndex: number, newSection: LayoutAST['sections'][number]) => void;
   removeSection: (sectionId: string) => void;
+  duplicateSection: (sectionId: string) => void;
+  lockSection: (sectionId: string) => void;
+  unlockSection: (sectionId: string) => void;
+  toggleSectionVisibility: (sectionId: string) => void;
   undo: () => void;
   redo: () => void;
   triggerSectionAI: (sectionId: string, instruction: string) => void;
@@ -115,6 +121,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     initialAst.sections?.[0]?.id ?? null,
   );
   const [pendingSectionAI, setPendingSectionAI] = useState<{ sectionId: string; instruction: string } | null>(null);
+  const [lockedSections, setLockedSections] = useState<Set<string>>(new Set());
+  const [hiddenSections, setHiddenSections] = useState<Set<string>>(new Set());
 
   // Undo / redo stacks (hold snapshots before each mutation)
   const undoStack = useRef<LayoutAST[]>([]);
@@ -315,6 +323,41 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
     [notify],
   );
 
+  const duplicateSection = useCallback(
+    (sectionId: string) => {
+      setAst(prev => {
+        snapshotRefs(prev);
+        const idx = prev.sections.findIndex(s => s.id === sectionId);
+        if (idx === -1) return prev;
+        const clone = JSON.parse(JSON.stringify(prev.sections[idx])) as typeof prev.sections[number];
+        clone.id = `${clone.sectionType}-${Date.now()}`;
+        const sections = [...prev.sections];
+        sections.splice(idx + 1, 0, clone);
+        const next: LayoutAST = { ...prev, sections: sections as typeof prev.sections };
+        notify(next);
+        return next;
+      });
+      setHistoryVersion(v => v + 1);
+    },
+    [notify],
+  );
+
+  const lockSection = useCallback((sectionId: string) => {
+    setLockedSections(prev => new Set([...prev, sectionId]));
+  }, []);
+
+  const unlockSection = useCallback((sectionId: string) => {
+    setLockedSections(prev => { const next = new Set(prev); next.delete(sectionId); return next; });
+  }, []);
+
+  const toggleSectionVisibility = useCallback((sectionId: string) => {
+    setHiddenSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId); else next.add(sectionId);
+      return next;
+    });
+  }, []);
+
   const triggerSectionAI = useCallback((sectionId: string, instruction: string) => {
     setPendingSectionAI({ sectionId, instruction });
   }, []);
@@ -350,6 +393,8 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         canUndo,
         canRedo,
         pendingSectionAI,
+        lockedSections,
+        hiddenSections,
         selectElement,
         selectSection,
         clearSelection,
@@ -361,6 +406,10 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
         updateSection,
         addSection,
         removeSection,
+        duplicateSection,
+        lockSection,
+        unlockSection,
+        toggleSectionVisibility,
         undo,
         redo,
         triggerSectionAI,

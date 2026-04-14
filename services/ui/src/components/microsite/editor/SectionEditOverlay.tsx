@@ -1269,15 +1269,41 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
       onClick={() => ctx.selectSection(section.id)}
       style={{
         position: 'relative',
-        outline: isActive ? `2px solid ${ACCENT}` : hovered ? `2px solid ${ACCENT}44` : '2px solid transparent',
+        outline: isActive ? `2px solid ${ACCENT}` : hovered ? `2px solid ${ACCENT}55` : '2px solid transparent',
         outlineOffset: -2,
-        transition: 'outline-color 0.15s',
-        cursor: 'default',
+        transition: 'outline-color 0.15s, box-shadow 0.15s',
+        cursor: 'pointer',
+        boxShadow: isActive ? `inset 0 0 0 1px ${ACCENT}22` : 'none',
       }}
     >
       {children}
 
-      {/* Hover toolbar */}
+      {/* "Click text to edit" hint — shown below toolbar when section first becomes active */}
+      {isActive && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 8,
+            zIndex: 20000,
+            background: 'rgba(99,102,241,0.9)',
+            color: '#fff',
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '3px 9px',
+            borderRadius: 100,
+            pointerEvents: 'none',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            letterSpacing: '0.03em',
+            whiteSpace: 'nowrap',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          ✎ Click any text to edit
+        </div>
+      )}
+
+      {/* Toolbar — always visible when active, visible on hover too */}
       {(hovered || isActive) && (
         <div
           ref={toolbarRef}
@@ -1334,10 +1360,14 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                     <span style={{ fontSize: 10, fontWeight: 700, color: ACCENT, letterSpacing: '0.07em', textTransform: 'uppercase' }}>✦ AI Actions</span>
                   </div>
                   {[
-                    { icon: '✎', label: 'Rewrite',  desc: 'Improve copy',         instruction: 'Rewrite this section with improved copy' },
-                    { icon: '✂', label: 'Shorten',  desc: 'Make concise',         instruction: 'Make this section more concise' },
-                    { icon: '↕', label: 'Expand',   desc: 'Add more detail',      instruction: 'Expand this section with more detail' },
-                    { icon: '◈', label: 'Restyle',  desc: 'New visual treatment', instruction: 'Restyle this section — make it more visually striking' },
+                    { icon: '✎', label: 'Rewrite',       desc: 'Improve copy',              instruction: 'Rewrite this section with improved copy' },
+                    { icon: '✂', label: 'Shorten',       desc: 'Make concise',              instruction: 'Make this section more concise — 3 bullet points max' },
+                    { icon: '↕', label: 'Expand',        desc: 'Add more detail',           instruction: 'Expand this section with more detail and supporting evidence' },
+                    { icon: '💼', label: 'C-Suite tone',  desc: 'Executive-friendly',        instruction: 'Rewrite this section for a C-suite executive audience — strategic, concise, outcome-focused' },
+                    { icon: '🔥', label: 'More urgent',   desc: 'Increase urgency',          instruction: 'Rewrite this section to feel more urgent and compelling' },
+                    { icon: '📊', label: 'Add stats',     desc: 'Insert data points',        instruction: 'Enhance this section by adding relevant statistics, percentages, or data points' },
+                    { icon: '◈', label: 'Restyle',       desc: 'New visual treatment',      instruction: 'Restyle this section — make it more visually striking' },
+                    { icon: '🌍', label: 'Simplify',      desc: 'Plain language',            instruction: 'Rewrite this section in plain, simple language anyone can understand' },
                   ].map(({ icon, label, desc, instruction }) => (
                     <button
                       key={label}
@@ -1452,6 +1482,24 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
               title="Move section down"
             >↓</button>
           )}
+
+          {/* Duplicate section */}
+          <button
+            onClick={() => ctx.duplicateSection(section.id)}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 100,
+              border: 'none',
+              background: 'rgba(255,255,255,0.9)',
+              color: '#475569',
+              fontSize: 12,
+              cursor: 'pointer',
+              backdropFilter: 'blur(8px)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              fontWeight: 700,
+            }}
+            title="Duplicate section (Ctrl+D)"
+          >⊕</button>
 
           {/* Delete section */}
           {totalSections > 1 && (
