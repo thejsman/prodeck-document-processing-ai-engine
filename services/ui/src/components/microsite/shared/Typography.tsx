@@ -15,7 +15,7 @@ export function inlineMarkdownToHtml(text: string): string {
     const color = c1 ?? c2;
     const inner = t1 ?? t2;
     const idx = colorSpans.length;
-    colorSpans.push(`<span style="color:${color}">${inner}</span>`);
+    colorSpans.push(`<span style="color:${color};-webkit-text-fill-color:${color}">${inner}</span>`);
     return `\x00${idx}\x00`;
   });
   let html = withPlaceholders

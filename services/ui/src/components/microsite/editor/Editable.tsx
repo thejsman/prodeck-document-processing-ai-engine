@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback, isValidElement, cloneElement } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditContext, type EditSelection } from './EditContext';
@@ -90,7 +90,9 @@ export function parseMarkup(text: string): ReactNode {
     if (m.index > last) parts.push(text.slice(last, m.index));
     if (m[1] !== undefined) {
       // Color: [c=#hex]text[/c]
-      parts.push(<span key={k++} style={{ color: m[1] }}>{parseMarkup(m[2])}</span>);
+      // WebkitTextFillColor must be set explicitly so it overrides any parent
+      // gradient-text rule (which sets WebkitTextFillColor: transparent).
+      parts.push(<span key={k++} style={{ color: m[1], WebkitTextFillColor: m[1] }}>{parseMarkup(m[2])}</span>);
     } else if (m[3] !== undefined) {
       // Bold: **text**
       parts.push(<strong key={k++} style={{ fontWeight: 700 }}>{parseMarkup(m[3])}</strong>);
@@ -104,20 +106,6 @@ export function parseMarkup(text: string): ReactNode {
   if (parts.length === 0) return text;
   if (parts.length === 1) return parts[0];
   return <>{parts}</>;
-}
-
-/** Walk the children tree and replace any node that is exactly `rawValue`
- *  with the formatted version. Handles the common section pattern:
- *  <StyledEl>{rawValue}</StyledEl>  →  <StyledEl>{formatted}</StyledEl>  */
-function injectFormatted(node: ReactNode, raw: string, formatted: ReactNode): ReactNode {
-  if (node === raw) return formatted;
-  if (!isValidElement(node)) return node;
-  const el = node as React.ReactElement<{ children?: ReactNode }>;
-  const ch = el.props.children;
-  if (ch === raw) return cloneElement(el, {}, formatted);
-  if (Array.isArray(ch)) return cloneElement(el, {}, ...ch.map(c => injectFormatted(c, raw, formatted)));
-  if (ch !== null && ch !== undefined) return cloneElement(el, {}, injectFormatted(ch, raw, formatted));
-  return node;
 }
 
 // ── Color region system ───────────────────────────────────────────────────────
@@ -292,7 +280,8 @@ export function Editable({
     }
   }, [slashOpen, slashSelected]);
 
-  // Outside editor — render children as-is
+  // Outside editor — Typography's RichChild handles markup strings
+  // (bold, italic, [c=color]) via dangerouslySetInnerHTML automatically.
   if (!ctx) return <>{children}</>;
 
   const isSelected =
@@ -952,10 +941,8 @@ export function Editable({
         </>
       )}
 
-      {/* Render formatted markup (e.g. [c=#ef4444]text[/c]) as real colored spans */}
-      {value !== undefined && hasMarkup(value)
-        ? injectFormatted(children, value, parseMarkup(value))
-        : children}
+      {/* Children contain the raw markup string — Typography's RichChild renders it */}
+      {children}
     </div>
   );
 }
