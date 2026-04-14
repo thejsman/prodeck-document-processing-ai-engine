@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { LayoutAST } from '../../../types/presentation';
 import { EditProvider, useEditContext } from './EditContext';
 import { Microsite } from '../Microsite';
@@ -8,6 +8,8 @@ import { DesignAgentPanel } from './DesignAgentPanel';
 import { PublishModal } from './PublishModal';
 import { ThemeModal } from '../ThemeModal';
 import { ThemePreviewModal } from '../ThemePreviewModal';
+import { SectionOutline } from './SectionOutline';
+import { CommandPalette, type PaletteCommand } from './CommandPalette';
 import { resolveTokens, getPlugin, THEME_REGISTRY } from '../../../lib/presentation/pluginRegistry';
 import type { PluginMeta } from '../../../types/presentation';
 
@@ -310,21 +312,103 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [panelInstruction, setPanelInstruction] = useState('');
   const [panelTargetSectionId, setPanelTargetSectionId] = useState<string | undefined>(undefined);
+  const [showOutline, setShowOutline] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
+  const savedAstRef = useRef<string>(JSON.stringify(ctx.ast));
   const themeBtnRef = useRef<HTMLDivElement>(null);
 
   const currentTheme = THEME_REGISTRY.find(t => t.id === ctx.ast.plugin);
+
+  // Track dirty state
+  useEffect(() => {
+    const current = JSON.stringify(ctx.ast);
+    setIsDirty(current !== savedAstRef.current);
+  }, [ctx.ast]);
+
+  // Auto-save every 60s when dirty
+  useEffect(() => {
+    if (!isDirty) return;
+    const timer = setTimeout(() => {
+      onExport(ctx.ast);
+      savedAstRef.current = JSON.stringify(ctx.ast);
+      setIsDirty(false);
+      const now = new Date();
+      setLastSavedLabel(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+    }, 60_000);
+    return () => clearTimeout(timer);
+  }, [isDirty, ctx.ast, onExport]);
+
+  // Warn on accidental navigation when dirty
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (!isDirty) return;
+      e.preventDefault();
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   // Use a ref so the stable handleKeyDown callback always calls the latest ctx
   // without re-attaching the listener on every render.
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
+  const showPaletteRef = useRef(showPalette);
+  showPaletteRef.current = showPalette;
 
-  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
+  // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); ctxRef.current.undo(); }
-    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); ctxRef.current.redo(); }
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod) return;
+
+    // Cmd+K — command palette
+    if (e.key === 'k') { e.preventDefault(); showPaletteRef.current ? setShowPalette(false) : setShowPalette(true); return; }
+
+    // Undo / Redo
+    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); ctxRef.current.undo(); return; }
+    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); ctxRef.current.redo(); return; }
+
+    // Section shortcuts — only when a section is active
+    const activeId = ctxRef.current.activeSectionId;
+    if (!activeId) return;
+    const sections = ctxRef.current.ast.sections;
+    const idx = sections.findIndex(s => s.id === activeId);
+    if (idx === -1) return;
+
+    // Ctrl+D — duplicate
+    if (e.key === 'd') { e.preventDefault(); ctxRef.current.duplicateSection(activeId); return; }
+
+    // Ctrl+↑ — move up
+    if (e.key === 'ArrowUp' && idx > 0) { e.preventDefault(); ctxRef.current.moveArrayItem('__sections__', '__sections__', idx, idx - 1); return; }
+
+    // Ctrl+↓ — move down
+    if (e.key === 'ArrowDown' && idx < sections.length - 1) { e.preventDefault(); ctxRef.current.moveArrayItem('__sections__', '__sections__', idx, idx + 1); return; }
+
+    // Ctrl+Delete — delete section (guard: at least 2 sections)
+    if (e.key === 'Delete' && sections.length > 1) {
+      e.preventDefault();
+      if (confirm(`Delete "${sections[idx].sectionType}" section? This can be undone with Ctrl+Z.`)) {
+        ctxRef.current.removeSection(activeId);
+      }
+    }
   }, []);
+
+  // Ctrl+S save shortcut
+  const handleSaveShortcut = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      onExport(ctxRef.current.ast);
+      savedAstRef.current = JSON.stringify(ctxRef.current.ast);
+      setIsDirty(false);
+      setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    }
+  }, [onExport]);
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleSaveShortcut);
+    return () => document.removeEventListener('keydown', handleSaveShortcut);
+  }, [handleSaveShortcut]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -346,6 +430,41 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     setPanelTargetSectionId(sectionId);
     setShowDesignPanel(true);
   }, []);
+
+  // Build command palette commands
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const activeId = ctx.activeSectionId;
+    const sections = ctx.ast.sections;
+    const idx = activeId ? sections.findIndex(s => s.id === activeId) : -1;
+
+    const cmds: PaletteCommand[] = [
+      { id: 'undo',    label: 'Undo',              icon: '↩', shortcut: 'Ctrl+Z',      action: () => ctx.undo(),  description: ctx.canUndo ? 'Revert last change' : 'Nothing to undo' },
+      { id: 'redo',    label: 'Redo',              icon: '↪', shortcut: 'Ctrl+Y',      action: () => ctx.redo(),  description: ctx.canRedo ? 'Re-apply last change' : 'Nothing to redo' },
+      { id: 'outline', label: 'Toggle Outline',    icon: '☰', action: () => setShowOutline(v => !v), description: 'Show/hide section navigator' },
+      { id: 'design',  label: 'Open Design AI',    icon: '✦', action: () => setShowDesignPanel(true), description: 'AI-powered design editing' },
+      { id: 'publish', label: 'Publish / Export',  icon: '↑', action: () => setShowPublishModal(true) },
+      { id: 'save',    label: 'Save',              icon: '💾', shortcut: 'Ctrl+S',      action: () => { onExport(ctx.ast); savedAstRef.current = JSON.stringify(ctx.ast); setIsDirty(false); setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); } },
+      { id: 'theme',   label: 'Browse Themes',     icon: '🎨', action: () => setShowThemeModal(true) },
+      ...VIEWPORT_OPTIONS.map(opt => ({
+        id: `viewport-${opt.id}`,
+        label: `Viewport: ${opt.label}`,
+        icon: opt.icon,
+        action: () => setViewport(opt.id),
+      })),
+    ];
+
+    if (activeId && idx !== -1) {
+      cmds.push(
+        { id: 'duplicate', label: 'Duplicate Section',  icon: '⊕', shortcut: 'Ctrl+D',      action: () => ctx.duplicateSection(activeId), description: `Duplicate "${sections[idx].sectionType}"` },
+        { id: 'move-up',   label: 'Move Section Up',    icon: '↑',  shortcut: 'Ctrl+↑',      action: () => { if (idx > 0) ctx.moveArrayItem('__sections__', '__sections__', idx, idx - 1); } },
+        { id: 'move-down', label: 'Move Section Down',  icon: '↓',  shortcut: 'Ctrl+↓',      action: () => { if (idx < sections.length - 1) ctx.moveArrayItem('__sections__', '__sections__', idx, idx + 1); } },
+        { id: 'delete',    label: 'Delete Section',     icon: '✕',  shortcut: 'Ctrl+Delete',  action: () => { if (sections.length > 1 && confirm(`Delete section?`)) ctx.removeSection(activeId); } },
+        { id: 'lock',      label: ctx.lockedSections.has(activeId) ? 'Unlock Section' : 'Lock Section', icon: '🔒', action: () => ctx.lockedSections.has(activeId) ? ctx.unlockSection(activeId) : ctx.lockSection(activeId) },
+      );
+    }
+
+    return cmds;
+  }, [ctx, onExport]);
 
   function handleThemeSelect(id: string) {
     ctx.replaceAst({
@@ -410,11 +529,30 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
       {/* Top bar */}
       <div className="mse-topbar">
-        {/* Left: back + title + live badge */}
+        {/* Left: back + outline toggle + title + live badge */}
         <div className="mse-left">
           <button className="mse-back-btn" onClick={onClose}>← <span className="mse-btn-label">Back</span></button>
+          <button
+            className="mse-back-btn"
+            onClick={() => setShowOutline(v => !v)}
+            title="Toggle section outline (☰)"
+            style={{ background: showOutline ? '#f5f3ff' : '#fff', color: showOutline ? '#6366f1' : '#64748b' }}
+          >☰</button>
           <span className="mse-title">Microsite Editor</span>
           <span className="mse-badge">Live Preview</span>
+          {isDirty && (
+            <span
+              title="Unsaved changes — auto-saves in 60s"
+              style={{
+                width: 8, height: 8, borderRadius: '50%', background: '#f59e0b',
+                display: 'inline-block', flexShrink: 0,
+                boxShadow: '0 0 0 2px rgba(245,158,11,0.2)',
+              }}
+            />
+          )}
+          {lastSavedLabel && !isDirty && (
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>Saved {lastSavedLabel}</span>
+          )}
         </div>
 
         {/* Right: action buttons */}
@@ -518,6 +656,15 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           >
             ✦ <span className="mse-btn-label">Design </span>AI
           </button>
+          {/* Cmd+K palette trigger */}
+          <button
+            className="mse-action-btn"
+            onClick={() => setShowPalette(true)}
+            title="Command palette (Ctrl+K)"
+            style={{ border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}
+          >
+            ⌕ <span className="mse-btn-label">Commands</span>
+          </button>
           <button
             className="mse-action-btn"
             onClick={() => setShowPublishModal(true)}
@@ -527,37 +674,56 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           </button>
           <button
             className="mse-action-btn"
-            onClick={() => onExport(ctx.ast)}
-            style={{ border: 'none', background: '#6366f1', color: '#fff' }}
+            onClick={() => {
+              onExport(ctx.ast);
+              savedAstRef.current = JSON.stringify(ctx.ast);
+              setIsDirty(false);
+              setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            }}
+            style={{
+              border: 'none',
+              background: isDirty ? '#6366f1' : '#e2e8f0',
+              color: isDirty ? '#fff' : '#94a3b8',
+              transition: 'background 0.2s, color 0.2s',
+            }}
           >
-            Save
+            {isDirty ? 'Save●' : 'Saved'}
           </button>
         </div>
       </div>
 
-      {/* Canvas with viewport simulation */}
-      <div style={{
-        flex: 1,
-        overflow: 'hidden',
-        display: 'flex',
-        justifyContent: 'center',
-        background: viewport !== 'desktop' ? '#e2e8f0' : '#f1f5f9',
-        transition: 'background 0.2s',
-        padding: viewport !== 'desktop' ? '16px 0' : 0,
-        position: 'relative',
-      }}>
+      {/* Canvas + optional outline panel */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+
+        {/* Left: Section outline */}
+        {showOutline && (
+          <SectionOutline onClose={() => setShowOutline(false)} />
+        )}
+
+        {/* Right: viewport-simulated canvas */}
         <div style={{
-          width: VIEWPORT_OPTIONS.find(v => v.id === viewport)?.width ?? '100%',
-          maxWidth: viewport === 'desktop' ? '100%' : undefined,
-          height: viewport !== 'desktop' ? 'calc(100% - 0px)' : '100%',
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          boxShadow: viewport !== 'desktop' ? '0 4px 32px rgba(0,0,0,0.22)' : 'none',
-          borderRadius: viewport !== 'desktop' ? 12 : 0,
-          transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
-          flexShrink: 0,
+          flex: 1,
+          overflow: 'hidden',
+          display: 'flex',
+          justifyContent: 'center',
+          background: viewport !== 'desktop' ? '#e2e8f0' : '#f1f5f9',
+          transition: 'background 0.2s',
+          padding: viewport !== 'desktop' ? '16px 0' : 0,
+          position: 'relative',
         }}>
-          <EditorCanvas onAiAction={handleSectionAiAction} />
+          <div style={{
+            width: VIEWPORT_OPTIONS.find(v => v.id === viewport)?.width ?? '100%',
+            maxWidth: viewport === 'desktop' ? '100%' : undefined,
+            height: viewport !== 'desktop' ? 'calc(100% - 0px)' : '100%',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            boxShadow: viewport !== 'desktop' ? '0 4px 32px rgba(0,0,0,0.22)' : 'none',
+            borderRadius: viewport !== 'desktop' ? 12 : 0,
+            transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
+            flexShrink: 0,
+          }}>
+            <EditorCanvas onAiAction={handleSectionAiAction} />
+          </div>
         </div>
       </div>
 
@@ -609,6 +775,14 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
             setPreviewPlugin(null);
             setShowThemeModal(false);
           }}
+        />
+      )}
+
+      {/* Command palette */}
+      {showPalette && (
+        <CommandPalette
+          commands={paletteCommands}
+          onClose={() => setShowPalette(false)}
         />
       )}
     </div>
