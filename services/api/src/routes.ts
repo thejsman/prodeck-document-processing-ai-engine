@@ -16,6 +16,10 @@ import { ConfigResolver } from '@ai-engine/core';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
 import { appendChatTurn } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
+import { processDocument } from './ingestion/ingest-orchestrator.js';
+import { ContextService } from './chat/context.service.js';
+import { llmGenerateFn } from './agent-routes.js';
+import { emitExecution } from './execution-events.js';
 import {
   resolvePolicy,
   executeWithPolicy,
@@ -159,19 +163,68 @@ export function registerRoutes(
       return reply.send({ documents: 0, chunks: 0 });
     }
 
+    let ingestResult: unknown;
+
     if (policyConfig) {
       const policy = resolvePolicy(policyConfig, namespace, 'ingest');
       const { result, usedFallback, provider } = await executeWithPolicy(
         policy,
         () => ingestDocuments({ documents, storageDir, namespace }),
       );
-
       attachProviderInfo(req, { provider, usedFallback, policySource: policy.source });
-      return reply.send(result);
+      ingestResult = result;
+    } else {
+      ingestResult = await ingestDocuments({ documents, storageDir, namespace });
     }
 
-    const result = await ingestDocuments({ documents, storageDir, namespace });
-    return reply.send(result);
+    // ── Ingest V2: run context enrichment pipeline after FAISS ──
+    if (process.env.INGEST_V2 === 'true') {
+      const contextService = new ContextService(workdir);
+      for (const doc of documents) {
+        try {
+          const v2Result = await processDocument(
+            namespace,
+            doc.fileName,
+            doc.content,
+            llmGenerateFn,
+            contextService,
+            // faissIndexFn omitted — FAISS already ran above
+          );
+
+          emitExecution({
+            executionId: `doc-processed-${namespace}-${doc.fileName}-${Date.now()}`,
+            status: 'COMPLETED',
+            type: 'document_processed',
+            title: doc.fileName,
+            message: JSON.stringify({
+              fileName: v2Result.fileName,
+              type: v2Result.documentType,
+              fieldsExtracted: v2Result.fieldsExtracted,
+              knowledgeEntries: v2Result.knowledgeEntriesCreated,
+              noiseRatio: 0,
+            }),
+          });
+
+          if (v2Result.fieldsExtracted.length > 0 || v2Result.knowledgeEntriesCreated > 0) {
+            emitExecution({
+              executionId: `ctx-updated-${namespace}-${doc.fileName}-${Date.now()}`,
+              status: 'COMPLETED',
+              type: 'context_updated',
+              title: namespace,
+              message: JSON.stringify({
+                fieldsUpdated: v2Result.fieldsExtracted,
+                knowledgeAdded: v2Result.knowledgeEntriesCreated,
+                source: doc.fileName,
+              }),
+            });
+          }
+        } catch (err) {
+          console.warn(`[IngestV2] processDocument failed for ${doc.fileName}:`, err);
+        }
+      }
+    }
+
+    return reply.send(ingestResult);
   });
 
   // POST /query

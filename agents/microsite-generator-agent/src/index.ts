@@ -3430,14 +3430,14 @@ export class MicrositeGeneratorAgent implements Agent {
     let tool;
     try { tool = tools.get('save-asset'); } catch { return []; }
     const files: string[] = [];
-    const md = await tool.run({ content: markdown, metadata: { fileName: `presentations/${namespace}/index.md` } });
+    const md = await tool.run({ namespace, content: markdown, metadata: { fileName: `presentations/${namespace}/index.md` } });
     if (md.files) files.push(...md.files);
     if (layoutAST) {
-      const ast = await tool.run({ content: JSON.stringify(layoutAST, null, 2), metadata: { fileName: `presentations/${namespace}/site-ast.json` } });
+      const ast = await tool.run({ namespace, content: JSON.stringify(layoutAST, null, 2), metadata: { fileName: `presentations/${namespace}/site-ast.json` } });
       if (ast.files) files.push(...ast.files);
     }
     if (diagram) {
-      const d = await tool.run({ content: diagram, metadata: { fileName: `presentations/${namespace}/assets/architecture.mmd` } });
+      const d = await tool.run({ namespace, content: diagram, metadata: { fileName: `presentations/${namespace}/assets/architecture.mmd` } });
       if (d.files) files.push(...d.files);
     }
     return files;
