@@ -113,11 +113,14 @@ export function registerChatRoutes(
               reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
             },
             onDone: (response) => {
+              // Convert actionCards array to the actions Record format useSSE expects
+              const actions: Record<string, string> = {};
+              for (const card of response.actionCards) {
+                if (card.type === 'view_proposal') actions.openProposalUrl = card.href;
+                if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
+              }
               reply.raw.write(
-                `event: done\ndata: ${JSON.stringify({
-                  message: response.text,
-                  actionCards: response.actionCards,
-                })}\n\n`,
+                `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,
               );
             },
             onToolEvent: (event: ToolEvent) => {

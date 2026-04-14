@@ -232,6 +232,11 @@ export class Planner {
             normalized['question'] = normalized['message']
             delete normalized['message']
           }
+          // Normalize CALL_TOOL: LLM sometimes uses "name" instead of "tool"
+          if (normalized['type'] === 'CALL_TOOL' && !normalized['tool'] && normalized['name']) {
+            normalized['tool'] = normalized['name']
+            delete normalized['name']
+          }
           // Normalize UPDATE_REQUIREMENTS: LLM sometimes puts fields directly on the action
           // instead of nesting them under "data"
           if (normalized['type'] === 'UPDATE_REQUIREMENTS' && !normalized['data']) {
