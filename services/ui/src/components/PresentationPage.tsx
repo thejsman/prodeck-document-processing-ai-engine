@@ -595,12 +595,18 @@ export function PresentationPage() {
   useEffect(() => {
     if (step !== "upload" || !apiKey || !selectedNamespace) return;
     setProposalsLoading(true);
-    const nsKey = selectedNamespace.toLowerCase().replace(/[^a-z0-9]/g, "");
     fetchProposals(apiKey)
       .then((all) =>
         setProposals(
           all.filter((p) => {
             if (p.status !== "approved") return false;
+            // Namespace-scoped proposals have fileName like "km-digital::file.md"
+            if (p.fileName.includes("::")) {
+              const fileNs = p.fileName.split("::")[0];
+              return fileNs === selectedNamespace;
+            }
+            // Legacy proposals (no namespace prefix): fall back to fuzzy client name match
+            const nsKey = selectedNamespace.toLowerCase().replace(/[^a-z0-9]/g, "");
             const clientKey = p.client.toLowerCase().replace(/[^a-z0-9]/g, "");
             return clientKey.includes(nsKey) || nsKey.includes(clientKey);
           }),

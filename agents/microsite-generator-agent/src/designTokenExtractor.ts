@@ -99,6 +99,10 @@ const ACCENT_ENTRIES: Array<[string, string]> = [
 ]
 
 const FONT_MAP: Record<string, { family: string; url: string }> = {
+  'Roboto':            { family: 'Roboto',            url: 'Roboto:wght@300;400;500;700' },
+  'Open Sans':         { family: 'Open Sans',         url: 'Open+Sans:wght@300;400;500;600;700' },
+  'Montserrat':        { family: 'Montserrat',        url: 'Montserrat:wght@300;400;500;600;700;800' },
+  'Lato':              { family: 'Lato',              url: 'Lato:wght@300;400;700' },
   'Nunito':            { family: 'Nunito',            url: 'Nunito:wght@400;600;700;800' },
   'Poppins':           { family: 'Poppins',           url: 'Poppins:wght@400;500;600;700' },
   'Baloo 2':           { family: 'Baloo 2',           url: 'Baloo+2:wght@400;600;700;800' },
