@@ -22,6 +22,10 @@ COPY services/ services/
 
 RUN pnpm install --frozen-lockfile
 
+# Ensure public dir exists — Next.js doesn't create it if absent, but the
+# runtime stage copies it unconditionally so it must be present after build.
+RUN mkdir -p /app/services/ui/public
+
 # API_URL must be set at build time — Next.js bakes rewrites into the build output
 ENV API_URL=http://api:3000
 RUN pnpm build
