@@ -29,7 +29,7 @@ export function ChatEmptyState({ namespace, onSuggestion, insights }: Props) {
 
       {hasDynamicInsights && (
         <div className="chat-empty-insights">
-          <p className="chat-empty-insights-label">Namespace insights</p>
+          <p className="chat-empty-insights-label">Project insights</p>
           <ul className="chat-empty-insights-list">
             {insights.map((s) => (
               <li key={s} className="chat-empty-insights-item">{s}</li>

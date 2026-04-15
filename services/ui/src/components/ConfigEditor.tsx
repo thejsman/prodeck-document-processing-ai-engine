@@ -137,7 +137,7 @@ export function ConfigEditor() {
       <div className="card">
         <div className="memory-editor-toolbar">
           <div className="form-group" style={{ marginBottom: 0, flex: 1, maxWidth: 280 }}>
-            <label htmlFor="config-ns">Namespace</label>
+            <label htmlFor="config-ns">Project</label>
             <select
               id="config-ns"
               className="select"

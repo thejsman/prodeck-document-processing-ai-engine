@@ -34,7 +34,7 @@ export function NamespaceManager() {
 
     try {
       const name = await createNamespace(apiKey, newName.trim());
-      setSuccess(`Namespace "${name}" created`);
+      setSuccess(`Project "${name}" created`);
       setNewName('');
       refresh();
       setTimeout(() => setSuccess(''), 3000);
@@ -49,7 +49,7 @@ export function NamespaceManager() {
     <div className="ns-manager">
       {/* Create form */}
       <div className="card">
-        <h2>Create Namespace</h2>
+        <h2>Create Project</h2>
         <form onSubmit={handleCreate} className="ns-manager-form">
           <div className="ns-manager-input-row">
             <div className="form-group" style={{ marginBottom: 0, flex: 1 }}>
@@ -82,14 +82,14 @@ export function NamespaceManager() {
 
       {/* Namespace list */}
       <div className="card">
-        <h2>Namespaces {!isLoading && <span className="badge">{namespaces.length}</span>}</h2>
+        <h2>Projects {!isLoading && <span className="badge">{namespaces.length}</span>}</h2>
         {isLoading ? (
-          <p className="loading">Loading namespaces…</p>
+          <p className="loading">Loading projects…</p>
         ) : nsError ? (
           <p className="error">{nsError}</p>
         ) : namespaces.length === 0 ? (
           <div className="placeholder" style={{ minHeight: 120 }}>
-            <p className="muted">No namespaces yet. Create one above.</p>
+            <p className="muted">No projects yet. Create one above.</p>
           </div>
         ) : (
           <ul className="ns-list">

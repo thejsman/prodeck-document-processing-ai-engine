@@ -265,7 +265,7 @@ export function FileUploader() {
       {/* Namespace selector */}
       <div className="card">
         <div className="form-group">
-          <label>Namespace</label>
+          <label>Project</label>
           <select
             className="select"
             value={namespace}

@@ -1013,7 +1013,7 @@ export function PresentationPage() {
           }}
         >
           <div>
-            <h1>Presentation Builder</h1>
+            <h1>Microsite Builder</h1>
             <p className="muted" style={{ marginTop: 4 }}>
               Transform a proposal into a high-end presentation microsite
             </p>
@@ -1265,7 +1265,7 @@ export function PresentationPage() {
                   <div>
                     {/* Namespace */}
                     <div className="form-group">
-                      <label>Namespace</label>
+                      <label>Project</label>
                       <div style={{ position: "relative" }}>
                         <select
                           className="select"

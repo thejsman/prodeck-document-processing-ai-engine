@@ -41,9 +41,9 @@ export function NamespaceSelector({ value, onChange }: Props) {
 
   return (
     <div className="form-group">
-      <label>Namespace (for RAG context)</label>
+      <label>Project (for RAG context)</label>
       {loading ? (
-        <p className="loading">Loading namespaces...</p>
+        <p className="loading">Loading projects...</p>
       ) : error ? (
         <p className="error">{error}</p>
       ) : (
