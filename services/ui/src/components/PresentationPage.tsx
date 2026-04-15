@@ -1536,6 +1536,7 @@ export function PresentationPage() {
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "space-between",
+                                    gap: 8,
                                     marginBottom: 4,
                                   }}
                                 >
@@ -1544,7 +1545,12 @@ export function PresentationPage() {
                                       fontWeight: 600,
                                       fontSize: 13,
                                       color: "var(--color-text)",
-                                    }}
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
+                                      overflow: "hidden",
+                                      minWidth: 0,
+                                    } as React.CSSProperties}
                                   >
                                     {p.client || p.fileName}
                                   </span>
@@ -1555,6 +1561,7 @@ export function PresentationPage() {
                                       color: "var(--color-success)",
                                       border: "none",
                                       fontSize: 11,
+                                      flexShrink: 0,
                                     }}
                                   >
                                     approved
@@ -1562,7 +1569,15 @@ export function PresentationPage() {
                                 </div>
                                 <p
                                   className="muted"
-                                  style={{ fontSize: 11, marginBottom: 0 }}
+                                  style={{
+                                    fontSize: 11,
+                                    marginBottom: 0,
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    overflow: "hidden",
+                                    wordBreak: "break-all",
+                                  } as React.CSSProperties}
                                 >
                                   {p.fileName}
                                 </p>
