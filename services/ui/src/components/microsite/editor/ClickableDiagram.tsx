@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useSectionId } from "./SectionIdContext";
 import { useEditContext } from "./EditContext";
 import { DiagramModal } from "./SectionEditOverlay";
@@ -128,12 +129,13 @@ export function ClickableDiagram({
         )}
       </div>
 
-      {showModal && (
+      {showModal && createPortal(
         <DiagramModal
           section={section}
           diagram={diagram}
           onClose={() => setShowModal(false)}
-        />
+        />,
+        document.body,
       )}
     </>
   );

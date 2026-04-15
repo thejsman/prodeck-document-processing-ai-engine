@@ -6,6 +6,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Mermaid v11 is ESM-only — webpack must transpile it to avoid production
+  // build failures where the mermaid chunk loads but evaluates incorrectly.
+  transpilePackages: ["mermaid"],
   // LLM-backed routes (proposal generation, RAG query) can take several minutes
   // on local hardware. The default Next.js proxy timeout is 30s which causes
   // ECONNRESET before the Python subprocess finishes.

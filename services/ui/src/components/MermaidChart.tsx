@@ -128,7 +128,8 @@ export function MermaidChart({ chart, tokens }: Props) {
           setSvg(rendered);
           setError('');
         }
-      } catch {
+      } catch (err) {
+        console.error('[MermaidChart] render failed:', err);
         if (!cancelled) {
           setError('render-failed');
           setSvg('');
