@@ -125,7 +125,7 @@ ${relevantKnowledge.map((k) => `[${k.category}] ${k.content}`).join('\n')}
 - Documents: ${chatContext.ingestedDocuments.map((d) => d.fileName).join(', ') || 'none'}
 
 ## Rules
-1. Each action MUST use the field name "type" (not "action"). Use ONLY these values: ASK, UPDATE_REQUIREMENTS, CALL_TOOL, RESPOND. ASK actions: { "type": "ASK", "question": "..." } (field is "question", not "message"). UPDATE_REQUIREMENTS actions: { "type": "UPDATE_REQUIREMENTS", "data": { "clientName": "...", ... } } (fields go inside "data", not on the action directly)
+1. Each action MUST use the field name "type" (not "action"). Use ONLY these type values: ASK, UPDATE_REQUIREMENTS, CALL_TOOL, RESPOND. Examples: ASK: { "type": "ASK", "question": "..." } (field is "question", not "message"). RESPOND: { "type": "RESPOND", "message": "..." } (field is "message", not "question"). CALL_TOOL: { "type": "CALL_TOOL", "tool": "search_documents", "params": { "query": "..." } } — NEVER use the tool name as the "type" value. UPDATE_REQUIREMENTS: { "type": "UPDATE_REQUIREMENTS", "data": { "clientName": "...", ... } } (fields go inside "data", not on the action directly)
 2. Use ONLY the tool names listed above
 3. If user provides info to save, include UPDATE_REQUIREMENTS before CALL_TOOL
 4. For MODIFY_PROPOSAL, use edit_proposal_section tool
@@ -200,6 +200,25 @@ export function buildFallbackPlan(
 }
 
 // ---------------------------------------------------------------------------
+// Tool-type alias map — normalises LLM-returned tool names used as action types
+// e.g. { "type": "SEARCH_DOCUMENTS", "query": "..." }
+//   →  { "type": "CALL_TOOL", "tool": "search_documents", "params": { "query": "..." } }
+// ---------------------------------------------------------------------------
+
+const TOOL_TYPE_ALIASES: Record<string, string> = {
+  SEARCH_DOCUMENTS: 'search_documents',
+  GENERATE_PROPOSAL: 'generate_proposal',
+  GENERATE_TEMPLATE: 'generate_template',
+  MODIFY_TEMPLATE: 'modify_template',
+  GENERATE_MICROSITE: 'generate_microsite',
+  EDIT_PROPOSAL_SECTION: 'edit_proposal_section',
+  LIST_PROPOSALS: 'list_proposals',
+  LIST_TEMPLATES: 'list_templates',
+  GET_PROPOSAL_STATUS: 'get_proposal_status',
+  SET_PROPOSAL_STATUS: 'set_proposal_status',
+}
+
+// ---------------------------------------------------------------------------
 // Planner
 // ---------------------------------------------------------------------------
 
@@ -232,6 +251,11 @@ export class Planner {
             normalized['question'] = normalized['message']
             delete normalized['message']
           }
+          // Normalize RESPOND: LLM sometimes uses "question" instead of "message"
+          if (normalized['type'] === 'RESPOND' && !normalized['message'] && normalized['question']) {
+            normalized['message'] = normalized['question']
+            delete normalized['question']
+          }
           // Normalize CALL_TOOL: LLM sometimes uses "name" instead of "tool"
           if (normalized['type'] === 'CALL_TOOL' && !normalized['tool'] && normalized['name']) {
             normalized['tool'] = normalized['name']
@@ -246,6 +270,23 @@ export class Planner {
             for (const key of Object.keys(rest)) {
               delete normalized[key]
             }
+          }
+          // Normalize tool-name-as-type: LLM sometimes uses the tool name directly as the
+          // action type (e.g. { "type": "SEARCH_DOCUMENTS", "query": "..." })
+          if (typeof normalized['type'] === 'string' && TOOL_TYPE_ALIASES[normalized['type']]) {
+            const toolName = TOOL_TYPE_ALIASES[normalized['type']]
+            if (!normalized['params']) {
+              const params: Record<string, unknown> = {}
+              for (const k of Object.keys(normalized)) {
+                if (k !== 'type' && k !== 'tool' && k !== 'action') {
+                  params[k] = normalized[k]
+                  delete normalized[k]
+                }
+              }
+              normalized['params'] = params
+            }
+            normalized['type'] = 'CALL_TOOL'
+            normalized['tool'] = toolName
           }
           return normalized
         }) as AgentPlan['actions']
