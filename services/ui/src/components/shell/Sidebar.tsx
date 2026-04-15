@@ -27,7 +27,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/proposal', label: 'Proposals', icon: '◧' },
       { href: '/proposal/templates', label: 'Templates', icon: '☰' },
-      { href: '/presentation', label: 'Presentation', icon: '▣' },
+      { href: '/presentation', label: 'Microsite', icon: '▣' },
       { href: '/ingest', label: 'Ingest', icon: '⬆' },
     ],
   },

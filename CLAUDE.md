@@ -2,10 +2,67 @@
 ## AI Engine – Engineering & Architecture Standard
 
 **Status:** Authoritative
-**Scope:** This file defines non-negotiable architectural and coding rules for this repository.
+**Scope:** Non-negotiable architectural and coding rules for this repository.
 **Audience:** Humans and AI coding agents contributing to this project.
 
 If something here conflicts with convenience, speed, or preference, this file wins.
+
+---
+
+## ⚠️ Active Development: Chat V2
+
+**Chat V2 is currently being rewritten.** Before touching anything in `services/api/src/chat/` or `services/api/src/ingestion/`, read this section in full.
+
+### Authoritative Spec
+`docs/chat-redevelopment-spec-v3.md` governs all Chat V2 decisions.
+- Read the relevant section of this spec **before writing any code**
+- If the spec and a prompt disagree, **the spec wins**
+- If you are unsure about a design decision, **check the spec**
+
+Architecture: **Deterministic Orchestration Engine with LLM-Assisted Reasoning**
+
+### Frozen Paths — DO NOT MODIFY
+These are stable and must not be changed during V2 development:
+
+```
+plugins/processor-proposal-generator/
+agents/microsite-generator-agent/
+agents/proposal-section-agent/
+services/ui/src/components/ProposalPage.tsx
+services/api/src/proposal-routes.ts
+packages/core/
+```
+
+### Active Paths (V2 Work Only)
+```
+services/api/src/chat/       ← new chat pipeline
+services/api/src/ingestion/  ← new ingestion pipeline
+{workdir}/namespaces/{namespace}/context.json  ← namespace truth source
+```
+
+### Golden Rules (Spec Section 0)
+1. Chat NEVER generates final artifacts — all generation goes through tools
+2. LLM output is ALWAYS validated before execution (Zod schemas)
+3. Deterministic layers override LLM decisions
+4. `context.json` (Namespace Context) = single source of truth
+5. No execution without readiness check passing
+6. Raw documents are never extracted directly — preprocessing first
+7. No general-purpose answers — off-topic gets deterministic decline
+8. All generation flows go through **existing** tool APIs (do not recreate)
+
+### Two Pipelines (Spec Section 1)
+
+**Chat Pipeline** — 9 stages:
+```
+Intent → Extract → Merge → Readiness → Plan → Validate → Execute → Respond → Persist
+```
+
+**Ingestion Pipeline** — 8 steps:
+```
+Detect Type → Preprocess → Validate → Extract → Knowledge → Validate → Merge → Index
+```
+
+> The old `ChatOrchestrator` / `WorkflowInstance` / state-machine system described in `docs/chat-workflows.md` is the **V1 system being replaced**. Do not extend it. Do not use it as a reference for new Chat V2 code.
 
 ---
 
@@ -47,10 +104,7 @@ The following are **forbidden** in `packages/core`:
 - Global state
 - Time-based logic without injection
 
-Core logic must be:
-- Deterministic
-- Testable
-- Side-effect free
+Core logic must be deterministic, testable, and side-effect free.
 
 ---
 
@@ -68,8 +122,6 @@ No magic behavior.
 ## 3. Repository Structure Contract
 
 The repository is a **pnpm monorepo**.
-
-High-level layout:
 
 ```
 packages/
@@ -122,11 +174,7 @@ Violating package boundaries is not allowed.
 - Domain errors
 - Agent, Tool, and Planner interfaces
 
-Must not depend on:
-- CLI
-- Runtime
-- Providers
-- Plugins directly
+Must not depend on: CLI, Runtime, Providers, or Plugins directly.
 
 ---
 
@@ -146,8 +194,7 @@ This is the boundary between pure logic and the real world.
 - Plugin manifest specification
 - Version compatibility checks
 
-This package is **public-facing**.
-Breaking changes require a major version bump.
+This package is **public-facing**. Breaking changes require a major version bump.
 
 ---
 
@@ -413,7 +460,7 @@ This pattern keeps core logic pure while allowing runtime to wire real implement
 | `ai-engine eval --dataset <file>` | Evaluate retrieval and generation quality |
 | `ai-engine generate-proposal --client <n>` | Generate a structured proposal |
 | `ai-engine namespaces` | List available namespaces |
-| `ai-engine agent run <name> --namespace <ns>` | Run a named agent |
+| `ai-engine agent run <n> --namespace <ns>` | Run a named agent |
 | `ai-engine tools list` | List available tools |
 | `ai-engine planner simulate --task <desc>` | Simulate a tool execution plan |
 
@@ -492,8 +539,7 @@ Per-namespace provider routing via `withProviderEnv` / `executeWithPolicy`.
 - Routes: `/agent/run`, `/agent/list`, `/tools/list`, ingest, query, proposals
 - Auth hooks, audit hooks, multipart upload support
 - Wires concrete tool implementations with real side effects
-- Chat workflow system: stateful multi-turn workflows driven by `ChatOrchestrator`
-- See `docs/chat-workflows.md` for the full chat system reference
+- Chat V2 entry point: `services/api/src/chat/` (see the Chat V2 section at the top of this file)
 
 ### `services/ui`
 - Next.js frontend
@@ -502,77 +548,6 @@ Per-namespace provider routing via `withProviderEnv` / `executeWithPolicy`.
 - Chat page renders inline editable proposal section blocks (`ProposalSectionBlock`)
 
 Services are **adapters** — they wire runtime dependencies and expose them over HTTP/UI.
-
----
-
-## 15a. Chat Workflow System
-
-The chat interface drives multi-turn AI workflows through a state machine.
-
-### Architecture
-
-```
-POST /chat/message
-  ↓
-ChatOrchestrator.processMessage()
-  ↓
-routeIntent() → WorkflowInstance (loaded or created)
-  ↓
-Execution loop: STATE_HANDLERS[state](ctx) → HandlerResult
-  ↓
-Transition: result.stateSignal → next state (workflow DSL)
-  ↓
-SSE stream: onPhase / onChunk / onSection callbacks → client
-```
-
-### HandlerContext
-
-Every state handler receives a `HandlerContext`:
-
-```typescript
-interface HandlerContext {
-  workdir: string;
-  namespace: string;
-  instance: WorkflowInstance;      // mutable — handlers update instance.context
-  incomingMessage: string;
-  onPhase: (phase: string) => void;
-  onChunk: (chunk: string) => void;
-  onSection?: (section: string, content: string, artifactId: string) => void;
-  onToolEvent?: (event: ToolTraceEvent) => void;
-  conversationContext?: LLMContext;
-}
-```
-
-### SSE Event Types
-
-| Event name | Payload | Purpose |
-|------------|---------|---------|
-| `phase` | `{ phase: string }` | Progress label shown while processing |
-| *(default)* | `string` (JSON) | Raw token chunks |
-| `proposal_section` | `{ section, content, artifactId }` | One complete proposal section block |
-| `done` | `{ message, actions }` | Workflow completed |
-| `error` | `{ error }` | Unrecoverable error |
-| `tool_progress` | `ToolProgressPayload` | Tool execution trace |
-| `namespace_insight` | `{ suggestions }` | Namespace-level suggestions |
-
-### Proposal Section Blocks
-
-When `handleGeneratingSections` runs, each section is emitted via `onSection` (not `onChunk`) so the frontend renders interactive blocks.
-
-Rules:
-- `onSection` is optional in `HandlerContext` — handlers must fall back to `onChunk` when absent
-- Each block carries `{ section, content, artifactId }` — enough to issue an edit without extra context
-- `POST /chat/proposal/section/edit` accepts `{ namespace, artifactId, section, instruction?, newContent? }` and always creates a version snapshot
-
-### Adding a New Workflow
-
-1. Define a `WorkflowDefinition` with states and transitions
-2. Write state handler functions (`HandlerFn`)
-3. Register the workflow in `WORKFLOW_REGISTRY` (chat-orchestrator.ts)
-4. Register handlers in `STATE_HANDLERS` (chat-orchestrator.ts)
-5. Add intent trigger patterns to `intent-router.ts`
-
-See `docs/chat-workflows.md` for the complete reference.
 
 ---
 

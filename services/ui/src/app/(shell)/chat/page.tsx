@@ -12,6 +12,8 @@ import { ChatContextPanel } from '@/components/chat/ChatContextPanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
 import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
 import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
+import { useExecutionStore } from '@/core/execution/execution-store';
+import { startExecutionTransport } from '@/core/execution/execution-transport';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -95,11 +97,64 @@ export default function ChatPage() {
 
   const { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, startStream, reset } = useSSE(apiKey, '/api/chat/message');
 
+  const addExecution = useExecutionStore((s) => s.addExecution);
+  const updateExecution = useExecutionStore((s) => s.updateExecution);
+  const removeExecution = useExecutionStore((s) => s.removeExecution);
+
+  // Tracks the execution ID registered in the store for the current stream's generation task
+  const chatExecIdRef = useRef<string | null>(null);
+
   // Once a phase label arrives in a stream, stay in "proposal stream" mode
   // for the rest of that stream so the progress bar never flickers back to dots.
   const hadPhaseRef = useRef(false);
   if (isStreaming && phase) hadPhaseRef.current = true;
   if (!isStreaming) hadPhaseRef.current = false;
+
+  // Reactive signal: which generation tool is running (null if none).
+  // Derived from toolEvents (state) so JSX re-renders when it arrives.
+  // Computed early so it can be referenced in the useEffect below.
+  const generationTool = toolEvents.find(
+    (ev) => ev.tool === 'generate_proposal' || ev.tool === 'generate_microsite',
+  )?.tool ?? null;
+
+  // True when this stream included a proposal/microsite generation (V2 path).
+  // Stays true after streaming ends so the completion footer renders.
+  const hadGenerationTool = toolEvents.some(
+    (ev) => ev.tool === 'generate_proposal' || ev.tool === 'generate_microsite',
+  );
+
+  // Register a task in the execution store when a proposal/microsite generation tool starts.
+  // This makes it show in the "Active Tasks" sidebar and enables the completion notification.
+  //
+  // Two detection paths:
+  //   V2 (CHAT_V2=true): tool_progress SSE events → generationTool is set
+  //   V1 (legacy):       proposal_section SSE events → sections.length > 0 (no tool events emitted)
+  useEffect(() => {
+    if (!isStreaming || chatExecIdRef.current !== null) return;
+
+    let execType: 'proposal' | 'microsite' | null = null;
+
+    if (generationTool) {
+      // V2 path — tool event identifies the generation type
+      execType = generationTool === 'generate_microsite' ? 'microsite' : 'proposal';
+    } else if (sections.length > 0) {
+      // V1 path — proposal_section events indicate proposal generation (V1 has no chat microsite)
+      execType = 'proposal';
+    }
+
+    if (!execType) return;
+
+    const execId = crypto.randomUUID();
+    chatExecIdRef.current = execId;
+
+    addExecution({
+      id: execId,
+      type: execType,
+      status: 'running',
+      title: execType === 'microsite' ? 'Generating microsite' : 'Generating proposal',
+    });
+    startExecutionTransport(apiKey); // idempotent — no-op if already connected
+  }, [generationTool, sections.length, isStreaming, addExecution, apiKey]);
 
   const fetchInsights = useCallback((ns: string) => {
     fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
@@ -115,6 +170,12 @@ export default function ChatPage() {
     const ns = namespace || 'default';
     const sessionId = getOrCreateSessionId(ns);
     chatSessionIdRef.current = sessionId;
+
+    // Cancel any in-flight generation execution from the previous namespace
+    if (chatExecIdRef.current !== null) {
+      removeExecution(chatExecIdRef.current);
+      chatExecIdRef.current = null;
+    }
 
     // Clear current chat state immediately so the old namespace's messages
     // and insights don't linger while the new namespace's data loads.
@@ -135,9 +196,10 @@ export default function ChatPage() {
 
     fetchInsights(ns);
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [namespace, apiKey, fetchInsights, reset]);
+  }, [namespace, apiKey, fetchInsights, reset, removeExecution]);
 
-  // Refresh insights and restore focus after each query completes (isStreaming: true → false)
+  // Refresh insights and restore focus after each query completes (isStreaming: true → false).
+  // Also finalizes any chat-initiated execution in the store so the notification fires.
   const wasStreamingRef = useRef(false);
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming) {
@@ -145,9 +207,19 @@ export default function ChatPage() {
       // Re-focus the composer so the user can type immediately after the AI replies.
       // setTimeout defers until after React finishes re-enabling the disabled textarea.
       setTimeout(() => textareaRef.current?.focus(), 0);
+
+      if (chatExecIdRef.current !== null) {
+        const execId = chatExecIdRef.current;
+        if (error) {
+          updateExecution(execId, { status: 'failed', errorMessage: error });
+        } else {
+          updateExecution(execId, { status: 'completed' });
+        }
+        chatExecIdRef.current = null;
+      }
     }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming, namespace, fetchInsights]);
+  }, [isStreaming, namespace, fetchInsights, error, updateExecution]);
 
   // Typewriter: gradually reveal chunks so tokens appear one by one
   // even when the OS pipe delivers them in bulk batches.
@@ -213,6 +285,11 @@ export default function ChatPage() {
           sections: sections.length > 0 ? [...sections] : undefined,
         },
       ]);
+      // Cancel any in-flight generation execution from the previous stream
+      if (chatExecIdRef.current !== null) {
+        removeExecution(chatExecIdRef.current);
+        chatExecIdRef.current = null;
+      }
       reset();
     }
 
@@ -233,7 +310,7 @@ export default function ChatPage() {
       }
       startStream({ message: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     });
-  }, [input, isStreaming, chunks, sections, namespace, apiKey, reset, startStream]);
+  }, [input, isStreaming, chunks, sections, namespace, apiKey, reset, startStream, removeExecution]);
 
   function handleClear() {
     // Rotate to a new session ID so the fresh chat has clean history
@@ -241,6 +318,11 @@ export default function ChatPage() {
     const newId = crypto.randomUUID();
     localStorage.setItem(`chat-session-id-${ns}`, newId);
     chatSessionIdRef.current = newId;
+    // Cancel any in-flight generation execution
+    if (chatExecIdRef.current !== null) {
+      removeExecution(chatExecIdRef.current);
+      chatExecIdRef.current = null;
+    }
     setMessages([]);
     reset();
     setDisplayed('');
@@ -375,7 +457,7 @@ export default function ChatPage() {
                 ))}
 
                 {/* ── Proposal generation: progress bar + sections + done card ── */}
-                {(isProposalStream || (!isStreaming && sections.length > 0)) && (
+                {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool))) && (
                   <div
                     className="chat-v2-message chat-v2-message--assistant"
                     style={{ '--msg-i': messages.length } as React.CSSProperties}
@@ -393,7 +475,24 @@ export default function ChatPage() {
                         />
                       )}
 
-                      {/* Section blocks */}
+                      {/* In-progress card — V2 path: tool event detected but no sections stream */}
+                      {isStreaming && generationTool !== null && sections.length === 0 && (
+                        <div className="chat-gen-progress">
+                          <span className="chat-gen-progress__spinner" aria-hidden="true" />
+                          <div className="chat-gen-progress__body">
+                            <span className="chat-gen-progress__label">
+                              {generationTool === 'generate_microsite'
+                                ? 'Generating microsite'
+                                : 'Generating proposal'}…
+                            </span>
+                            <span className="chat-gen-progress__hint">
+                              Track progress in Active Tasks →
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Section blocks — V1 path streams sections one by one */}
                       {sections.length > 0 && (
                         <div className="proposal-sections-wrap">
                           {sections.map((s) => (
@@ -406,22 +505,39 @@ export default function ChatPage() {
                               apiKey={apiKey}
                             />
                           ))}
+                          {/* After sections: in-progress card if type known, skeleton otherwise */}
                           {isStreaming && (
-                            <div className="psb psb--skeleton">
-                              <div className="psb-header">
-                                <div className="psb-skeleton-title" />
+                            generationTool !== null ? (
+                              <div className="chat-gen-progress">
+                                <span className="chat-gen-progress__spinner" aria-hidden="true" />
+                                <div className="chat-gen-progress__body">
+                                  <span className="chat-gen-progress__label">
+                                    {generationTool === 'generate_microsite'
+                                      ? 'Generating microsite'
+                                      : 'Generating proposal'}…
+                                  </span>
+                                  <span className="chat-gen-progress__hint">
+                                    Track progress in Active Tasks →
+                                  </span>
+                                </div>
                               </div>
-                              <div className="psb-skeleton-lines">
-                                <div className="psb-skeleton-line" />
-                                <div className="psb-skeleton-line psb-skeleton-line--short" />
+                            ) : (
+                              <div className="psb psb--skeleton">
+                                <div className="psb-header">
+                                  <div className="psb-skeleton-title" />
+                                </div>
+                                <div className="psb-skeleton-lines">
+                                  <div className="psb-skeleton-line" />
+                                  <div className="psb-skeleton-line psb-skeleton-line--short" />
+                                </div>
                               </div>
-                            </div>
+                            )
                           )}
                         </div>
                       )}
 
                       {/* Completion message + improvement prompts + link */}
-                      {!isStreaming && sections.length > 0 && (
+                      {!isStreaming && (sections.length > 0 || hadGenerationTool) && (
                         <div className="proposal-done-footer">
                           {chunks && (
                             <div className="prose proposal-done-message">

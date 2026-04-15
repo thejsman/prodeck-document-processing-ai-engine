@@ -31,7 +31,7 @@ export function Topbar({ onMenuClick }: Props) {
       {!isPresentation && (
         <div className="topbar-center">
           <label className="topbar-ns-label" htmlFor="global-namespace">
-            Namespace
+            Project
           </label>
           <select
             id="global-namespace"

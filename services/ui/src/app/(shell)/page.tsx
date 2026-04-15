@@ -78,7 +78,7 @@ export default function DashboardPage() {
 
           {/* Namespace summary */}
           <div className="dash-ns-card card">
-            <h3 className="dash-ns-title">Namespaces</h3>
+            <h3 className="dash-ns-title">Projects</h3>
             {nsLoading ? (
               <span className="muted">Loading…</span>
             ) : namespaces.length === 0 ? (

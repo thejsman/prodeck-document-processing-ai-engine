@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "zod": "^3.23.8",
     "@ai-engine/agent-design-editor": "workspace:*",
     "@ai-engine/agent-microsite-generator": "workspace:*",
     "@ai-engine/agent-proposal-section": "workspace:*",

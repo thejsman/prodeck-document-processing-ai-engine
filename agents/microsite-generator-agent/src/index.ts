@@ -192,12 +192,16 @@ BUTTON STYLE:
 
 HERO WEIGHT rules: 300 (thin/editorial), 400 (regular), 600 (semibold), 700 (bold), 800 (extrabold), 900 (black/monumental)
 
-FONT RULES: heroFont and bodyFont MUST be real Google Fonts.
-- dark/editorial: Cormorant Garamond, Playfair Display, DM Serif Display, Libre Baskerville
-- modern/bold: Syne, Space Grotesk, DM Sans, Inter, Outfit
-- warm/humanist: Fraunces, Lora, Nunito Sans, Source Serif 4
-- technical/data: IBM Plex Sans, Roboto Mono, JetBrains Mono
-- playful/children: Baloo 2, Fredoka, Lilita One, Bubblegum Sans, Nunito, Quicksand, Comfortaa
+FONT RULES: heroFont and bodyFont MUST be chosen from this approved list only:
+- Roboto: technical, data-driven, enterprise, SaaS, engineering, B2B software
+- Open Sans: professional, business, consulting, finance, government, healthcare
+- Montserrat: modern, bold, creative agencies, fashion, lifestyle, marketing
+- Lato: warm, approachable, startups, e-commerce, retail, education
+- Poppins: friendly, tech startups, product companies, fintech, mobile apps, creative
+
+Choose heroFont and bodyFont independently based on the project's industry and tone.
+heroFont pairs: Montserrat+Open Sans (modern/bold), Roboto+Open Sans (technical), Open Sans+Lato (professional), Poppins+Lato (friendly), Lato+Open Sans (warm/approachable).
+Do NOT use any font outside this approved list.
 
 USER BRAND BRIEF:
 ${brandLanguagePrompt}
@@ -3517,14 +3521,14 @@ export class MicrositeGeneratorAgent implements Agent {
     let tool;
     try { tool = tools.get('save-asset'); } catch { return []; }
     const files: string[] = [];
-    const md = await tool.run({ content: markdown, metadata: { fileName: `presentations/${namespace}/index.md` } });
+    const md = await tool.run({ namespace, content: markdown, metadata: { fileName: `presentations/${namespace}/index.md` } });
     if (md.files) files.push(...md.files);
     if (layoutAST) {
-      const ast = await tool.run({ content: JSON.stringify(layoutAST, null, 2), metadata: { fileName: `presentations/${namespace}/site-ast.json` } });
+      const ast = await tool.run({ namespace, content: JSON.stringify(layoutAST, null, 2), metadata: { fileName: `presentations/${namespace}/site-ast.json` } });
       if (ast.files) files.push(...ast.files);
     }
     if (diagram) {
-      const d = await tool.run({ content: diagram, metadata: { fileName: `presentations/${namespace}/assets/architecture.mmd` } });
+      const d = await tool.run({ namespace, content: diagram, metadata: { fileName: `presentations/${namespace}/assets/architecture.mmd` } });
       if (d.files) files.push(...d.files);
     }
     return files;

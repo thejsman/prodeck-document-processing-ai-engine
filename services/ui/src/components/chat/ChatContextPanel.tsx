@@ -122,7 +122,7 @@ export function ChatContextPanel({ namespace, insights }: Props) {
 
       {/* Namespace */}
       <div className="chat-ctx-section">
-        <h4 className="chat-ctx-title">Namespace</h4>
+        <h4 className="chat-ctx-title">Project</h4>
         <span className="chat-ctx-ns-badge">{namespace || 'default'}</span>
         <Link href="/ingest" className="chat-ctx-link" style={{ display: 'block', marginTop: 8 }}>
           Add documents →

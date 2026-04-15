@@ -3,13 +3,19 @@
 import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import { useExecutionStore } from "@/core/execution/execution-store"
-import type { ExecutionItem, ExecutionStatus, ExecutionType } from "@/core/execution/execution-types"
+import type { ExecutionItem, ExecutionType } from "@/core/execution/execution-types"
 
 // ── Helpers ───────────────────────────────────────────────────────
 
 const ARTIFACT_ROUTES: Partial<Record<ExecutionType, string>> = {
   proposal: "/proposals",
   microsite: "/microsites",
+}
+
+// Routes to use for active (in-progress) items that don't have an artifactId yet
+const ACTIVE_ROUTES: Partial<Record<ExecutionType, string>> = {
+  proposal: "/proposal",
+  microsite: "/presentation",
 }
 
 const RUNNING_LABELS: Partial<Record<ExecutionType, string>> = {
@@ -50,33 +56,41 @@ function formatRelativeTime(ts: number): string {
 function ActiveSection({
   items,
   onView,
+  onOpen,
 }: {
   items: ExecutionItem[]
   onView: (id: string) => void
+  onOpen: (route: string) => void
 }) {
   if (items.length === 0) return null
   return (
     <div className="exec-drawer-section">
       <div className="exec-drawer-section-title">Active</div>
-      {items.map((item) => (
-        <div key={item.id} className="exec-drawer-item">
-          <div className="exec-drawer-item-row">
-            <span className="exec-drawer-spinner" aria-hidden="true" />
-            <div className="exec-drawer-item-body">
-              <div className="exec-drawer-item-title">
-                {item.title ?? item.type}
+      {items.map((item) => {
+        const activeRoute = ACTIVE_ROUTES[item.type] ?? null
+        return (
+          <div key={item.id} className="exec-drawer-item">
+            <div className="exec-drawer-item-row">
+              <span className="exec-drawer-spinner" aria-hidden="true" />
+              <div className="exec-drawer-item-body">
+                <div className="exec-drawer-item-title">
+                  {item.title ?? item.type}
+                </div>
+                <div className="exec-drawer-item-sub">
+                  {activeStatusLabel(item)}
+                </div>
               </div>
-              <div className="exec-drawer-item-sub">
-                {activeStatusLabel(item)}
-              </div>
+              <button
+                className="btn btn-sm"
+                onClick={() => activeRoute ? onOpen(activeRoute) : onView(item.id)}
+              >
+                View
+              </button>
             </div>
-            <button className="btn btn-sm" onClick={() => onView(item.id)}>
-              View
-            </button>
+            <div className="exec-drawer-item-bar" aria-hidden="true" />
           </div>
-          <div className="exec-drawer-item-bar" aria-hidden="true" />
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -233,7 +247,7 @@ export function ExecutionDrawer() {
             </div>
           ) : (
             <>
-              <ActiveSection items={activeList} onView={handleView} />
+              <ActiveSection items={activeList} onView={handleView} onOpen={handleOpen} />
               <CompletedSection
                 items={completedList}
                 onOpen={handleOpen}

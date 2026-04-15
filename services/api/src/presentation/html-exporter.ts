@@ -53,7 +53,7 @@ const PLUGIN_TOKENS: Record<string, PluginTokens> = {
     text: '#E8E4DC', textMuted: '#9A9590', textSubtle: '#5A5550',
     accent: '#C8A96E', accentDim: '#8B7744', accentRgb: '200,169,110',
     glowColor: 'rgba(200,169,110,0.28)', border: '#2A2520', borderSubtle: '#1E1B18',
-    heroFont: 'Cormorant Garamond', bodyFont: 'DM Sans',
+    heroFont: 'Montserrat', bodyFont: 'Open Sans',
     heroWeight: 300, heroStyle: 'italic', labelTracking: '0.18em',
     dark: true, noiseOpacity: 0.03,
     gradientHero: 'radial-gradient(ellipse 80% 60% at 50% 40%, #1A1510 0%, #080808 100%)',
@@ -67,7 +67,7 @@ const PLUGIN_TOKENS: Record<string, PluginTokens> = {
     text: '#1A1612', textMuted: '#6B6560', textSubtle: '#A09890',
     accent: '#1A1612', accentDim: '#3A3530', accentRgb: '26,22,18',
     glowColor: 'rgba(26,22,18,0.15)', border: '#DDD8D0', borderSubtle: '#E8E4DC',
-    heroFont: 'Playfair Display', bodyFont: 'Libre Franklin',
+    heroFont: 'Open Sans', bodyFont: 'Lato',
     heroWeight: 700, heroStyle: 'normal', labelTracking: '0.15em',
     dark: false, noiseOpacity: 0.025,
     gradientHero: 'radial-gradient(ellipse 70% 50% at 50% 35%, #FFFFFF 0%, #F8F5EF 100%)',
@@ -81,7 +81,7 @@ const PLUGIN_TOKENS: Record<string, PluginTokens> = {
     text: '#E4ECF7', textMuted: '#8AA4C8', textSubtle: '#4A6A8F',
     accent: '#4FA3E8', accentDim: '#2D6CA8', accentRgb: '79,163,232',
     glowColor: 'rgba(79,163,232,0.3)', border: '#1A3558', borderSubtle: '#122A48',
-    heroFont: 'Syne', bodyFont: 'DM Sans',
+    heroFont: 'Roboto', bodyFont: 'Open Sans',
     heroWeight: 800, heroStyle: 'normal', labelTracking: '0.2em',
     dark: true, noiseOpacity: 0.035,
     gradientHero: 'radial-gradient(ellipse 80% 60% at 50% 30%, #0C2650 0%, #01112A 100%)',
@@ -95,7 +95,7 @@ const PLUGIN_TOKENS: Record<string, PluginTokens> = {
     text: '#2A3228', textMuted: '#5A6858', textSubtle: '#8A9888',
     accent: '#4A6741', accentDim: '#3A5230', accentRgb: '74,103,65',
     glowColor: 'rgba(74,103,65,0.25)', border: '#D0CEC5', borderSubtle: '#E0DDD5',
-    heroFont: 'Fraunces', bodyFont: 'Nunito Sans',
+    heroFont: 'Poppins', bodyFont: 'Lato',
     heroWeight: 300, heroStyle: 'italic', labelTracking: '0.16em',
     dark: false, noiseOpacity: 0.02,
     gradientHero: 'radial-gradient(ellipse 70% 50% at 50% 40%, #FAFAF7 0%, #F2F0EB 100%)',
@@ -108,20 +108,20 @@ const PLUGIN_TOKENS: Record<string, PluginTokens> = {
 
 const PLUGIN_FONTS: Record<string, { family: string; url: string }[]> = {
   obsidian: [
-    { family: 'Cormorant Garamond', url: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap' },
-    { family: 'DM Sans', url: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap' },
+    { family: 'Montserrat', url: 'https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap' },
+    { family: 'Open Sans', url: 'https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&display=swap' },
   ],
   ivory: [
-    { family: 'Playfair Display', url: 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&display=swap' },
-    { family: 'Libre Franklin', url: 'https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@300;400;500;600&display=swap' },
+    { family: 'Open Sans', url: 'https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&display=swap' },
+    { family: 'Lato', url: 'https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap' },
   ],
   cobalt: [
-    { family: 'Syne', url: 'https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&display=swap' },
-    { family: 'DM Sans', url: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap' },
+    { family: 'Roboto', url: 'https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap' },
+    { family: 'Open Sans', url: 'https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&display=swap' },
   ],
   sage: [
-    { family: 'Fraunces', url: 'https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap' },
-    { family: 'Nunito Sans', url: 'https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;500;600&display=swap' },
+    { family: 'Poppins', url: 'https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap' },
+    { family: 'Lato', url: 'https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap' },
   ],
 };
 

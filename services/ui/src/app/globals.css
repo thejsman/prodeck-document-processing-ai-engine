@@ -6098,3 +6098,48 @@ body {
   color: var(--fg-muted, var(--muted));
   flex: 1;
 }
+
+/* ── Chat generation in-progress card ──────────────────────────── */
+
+.chat-gen-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--primary-soft, #2a3f8f);
+  background: var(--panel, #121826);
+  margin-top: 8px;
+}
+
+.chat-gen-progress__spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--primary-soft, #2a3f8f);
+  border-top-color: var(--primary, #5b8cff);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: chat-gen-spin 0.7s linear infinite;
+}
+
+@keyframes chat-gen-spin {
+  to { transform: rotate(360deg); }
+}
+
+.chat-gen-progress__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-gen-progress__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text, #e5e7eb);
+}
+
+.chat-gen-progress__hint {
+  font-size: 11px;
+  color: var(--muted, #9ca3af);
+}

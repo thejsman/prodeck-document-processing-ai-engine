@@ -46,6 +46,9 @@ import {
   type IngestionFailedEvent,
 } from '../workflows/workflow-event-bus.js';
 import type { IngestionJob } from './ingestion-queue.js';
+import { processDocument } from './ingest-orchestrator.js';
+import { ContextService } from '../chat/context.service.js';
+import { llmGenerateFn } from '../agent-routes.js';
 
 const MAX_RETRIES = 2;
 
@@ -161,6 +164,49 @@ export async function processJob(
 
       emitExecution({ executionId: job.id, status: 'COMPLETED', type: 'ingestion', title: job.fileName });
       console.log(`[TraceLive] execution completed — job ${job.id}`);
+
+      // ── Ingest V2: context enrichment pipeline ──────────────────
+      if (process.env.INGEST_V2 === 'true') {
+        const contextService = new ContextService(workdir);
+        const uploadsDir = path.join(workdir, 'namespaces', namespace, 'uploads');
+        const filesToProcess = allFiles ?? [fileName];
+
+        for (const f of filesToProcess) {
+          try {
+            const content = await readFile(path.join(uploadsDir, f), 'utf-8');
+            const v2Result = await processDocument(namespace, f, content, llmGenerateFn, contextService);
+
+            emitExecution({
+              executionId: `doc-processed-${namespace}-${f}-${Date.now()}`,
+              status: 'COMPLETED',
+              type: 'document_processed',
+              title: f,
+              message: JSON.stringify({
+                fileName: v2Result.fileName,
+                type: v2Result.documentType,
+                fieldsExtracted: v2Result.fieldsExtracted,
+                knowledgeEntries: v2Result.knowledgeEntriesCreated,
+              }),
+            });
+
+            if (v2Result.fieldsExtracted.length > 0 || v2Result.knowledgeEntriesCreated > 0) {
+              emitExecution({
+                executionId: `ctx-updated-${namespace}-${f}-${Date.now()}`,
+                status: 'COMPLETED',
+                type: 'context_updated',
+                title: namespace,
+                message: JSON.stringify({
+                  fieldsUpdated: v2Result.fieldsExtracted,
+                  knowledgeAdded: v2Result.knowledgeEntriesCreated,
+                  source: f,
+                }),
+              });
+            }
+          } catch (err) {
+            console.warn(`[IngestV2] processDocument failed for ${f}:`, err);
+          }
+        }
+      }
 
       // Notify workflow resume service (STEP 2) — fire-and-forget
       const completedEvent: IngestionCompletedEvent = {

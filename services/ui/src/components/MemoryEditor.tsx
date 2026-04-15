@@ -137,7 +137,7 @@ export function MemoryEditor() {
       <div className="card">
         <div className="memory-editor-toolbar">
           <div className="form-group" style={{ marginBottom: 0, flex: 1, maxWidth: 280 }}>
-            <label htmlFor="memory-ns">Namespace</label>
+            <label htmlFor="memory-ns">Project</label>
             <select
               id="memory-ns"
               className="select"

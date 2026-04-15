@@ -29,6 +29,8 @@ services:
       - PORT=3000
       - API_KEYS_PATH=/app/config/api_keys.json
       - AUDIT_LOG_PATH=/engine/audit.log
+      - CHAT_V2=${CHAT_V2:-false}
+      - INGEST_V2=${INGEST_V2:-false}
     volumes:
       - engine_data:/engine
       - ${API_KEYS_HOST_PATH:-../config/api_keys.km-digital.json}:/app/config/api_keys.json:ro

@@ -27,6 +27,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ChatOrchestrator } from './chat/chat-orchestrator.js';
+import { runChatAgent } from './chat/chat-agent.js';
+import type { ToolEvent } from './chat/tool-router.js';
 import {
   chatSessionBus,
   type ChatSessionEvent,
@@ -94,6 +96,56 @@ export function registerChatRoutes(
         'X-Accel-Buffering': 'no',
       });
 
+      // ── Chat V2 feature flag path ─────────────────────────────
+      if (process.env.CHAT_V2 === 'true') {
+        try {
+          await runChatAgent({
+            message,
+            namespace,
+            chatSessionId,
+            workdir,
+            generateFn: llmGenerateFn,
+            policyConfig,
+            onPhase: (phase: string) => {
+              reply.raw.write(`event: phase\ndata: ${JSON.stringify({ phase })}\n\n`);
+            },
+            onChunk: (chunk: string) => {
+              reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            },
+            onDone: (response) => {
+              // Convert actionCards array to the actions Record format useSSE expects
+              const actions: Record<string, string> = {};
+              for (const card of response.actionCards) {
+                if (card.type === 'view_proposal') actions.openProposalUrl = card.href;
+                if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
+              }
+              reply.raw.write(
+                `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,
+              );
+            },
+            onToolEvent: (event: ToolEvent) => {
+              reply.raw.write(
+                `event: tool_progress\ndata: ${JSON.stringify({
+                  tool: event.tool,
+                  status: event.phase,
+                  durationMs: event.durationMs,
+                  ...(event.phase === 'error' ? { error: event.message } : {}),
+                })}\n\n`,
+              );
+            },
+          });
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          reply.raw.write(
+            `event: error\ndata: ${JSON.stringify({ error: errorMessage })}\n\n`,
+          );
+        } finally {
+          reply.raw.end();
+        }
+        return;
+      }
+
+      // ── V1 path (existing) ────────────────────────────────────
       try {
         const result = await orchestrator.processMessage({
           message,
@@ -138,6 +190,26 @@ export function registerChatRoutes(
     }
 
     // ── Non-streaming JSON response ─────────────────────────────
+
+    // ── Chat V2 feature flag path ─────────────────────────────
+    if (process.env.CHAT_V2 === 'true') {
+      try {
+        const response = await runChatAgent({
+          message,
+          namespace,
+          chatSessionId,
+          workdir,
+          generateFn: llmGenerateFn,
+          policyConfig,
+        });
+        return reply.send({ message: response.text, actions: {} });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        return reply.code(502).send({ error: `Chat orchestration failed: ${errorMessage}` });
+      }
+    }
+
+    // ── V1 path (existing) ────────────────────────────────────
     try {
       const result = await orchestrator.processMessage({
         message,

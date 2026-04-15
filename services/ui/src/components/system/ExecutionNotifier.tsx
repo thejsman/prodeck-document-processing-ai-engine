@@ -20,6 +20,12 @@ const ARTIFACT_ROUTES: Partial<Record<ExecutionType, string>> = {
   microsite: "/microsites",
 }
 
+// Fallback routes for executions without a specific artifactId (e.g. chat-triggered)
+const FALLBACK_ROUTES: Partial<Record<ExecutionType, string>> = {
+  proposal:  "/proposal",
+  microsite: "/presentation",
+}
+
 export function ExecutionNotifier() {
   const router = useRouter()
   const executions = useExecutionStore((s) => s.executions)
@@ -40,7 +46,7 @@ export function ExecutionNotifier() {
           const route =
             baseRoute && item.artifactId
               ? `${baseRoute}/${item.artifactId}`
-              : null
+              : FALLBACK_ROUTES[item.type] ?? null
 
           const traceRoute = `/executions/${item.id}`
           toast.success(title, {
