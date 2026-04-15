@@ -61,13 +61,13 @@ function safeParseJSON<T>(raw: string): T | null {
 // ---------------------------------------------------------------------------
 
 const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
-  GENERATE_PROPOSAL: ['requirement', 'preference', 'constraint', 'context', 'decision', 'relationship'],
-  MODIFY_PROPOSAL: ['requirement', 'preference', 'concern'],
-  GENERATE_MICROSITE: ['preference', 'context', 'relationship'],
-  GENERATE_TEMPLATE: ['requirement', 'context'],
-  MODIFY_TEMPLATE: ['requirement'],
-  UPDATE_REQUIREMENTS: ['requirement', 'context'],
-  QUERY: ['requirement', 'context', 'history', 'concern', 'decision'],
+  GENERATE_PROPOSAL: ['problem', 'opportunity', 'preference', 'constraint', 'context', 'decision'],
+  MODIFY_PROPOSAL: ['problem', 'opportunity', 'preference', 'constraint'],
+  GENERATE_MICROSITE: ['preference', 'context'],
+  GENERATE_TEMPLATE: ['problem', 'opportunity', 'context'],
+  MODIFY_TEMPLATE: ['problem', 'opportunity'],
+  UPDATE_REQUIREMENTS: ['problem', 'opportunity', 'context'],
+  QUERY: ['problem', 'opportunity', 'context', 'constraint', 'decision'],
   STATUS_CHECK: [],
   INGEST_GUIDANCE: [],
   GREETING: ['context'],
@@ -255,6 +255,33 @@ export class Planner {
           if (normalized['type'] === 'RESPOND' && !normalized['message'] && normalized['question']) {
             normalized['message'] = normalized['question']
             delete normalized['question']
+          }
+          // Normalize RESPOND: LLM sometimes returns an object instead of a string for message
+          if (
+            normalized['type'] === 'RESPOND' &&
+            normalized['message'] !== undefined &&
+            typeof normalized['message'] !== 'string'
+          ) {
+            const msg = normalized['message']
+            if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
+              const lines: string[] = []
+              for (const [k, v] of Object.entries(msg as Record<string, unknown>)) {
+                const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())
+                if (Array.isArray(v)) {
+                  lines.push(`**${label}:** ${v.join(', ')}`)
+                } else if (v && typeof v === 'object' && 'value' in (v as object)) {
+                  // RequirementField-like: { value, confidence, ... }
+                  const raw = (v as { value: unknown }).value
+                  const display = Array.isArray(raw) ? raw.join(', ') : String(raw)
+                  lines.push(`**${label}:** ${display}`)
+                } else {
+                  lines.push(`**${label}:** ${String(v)}`)
+                }
+              }
+              normalized['message'] = lines.join('\n').slice(0, 1990)
+            } else {
+              normalized['message'] = JSON.stringify(msg).slice(0, 1990)
+            }
           }
           // Normalize CALL_TOOL: LLM sometimes uses "name" instead of "tool"
           if (normalized['type'] === 'CALL_TOOL' && !normalized['tool'] && normalized['name']) {

@@ -19,7 +19,7 @@
 //
 // DO NOT add HTTP endpoints here. Wire via chat-routes.ts (next prompt).
 
-import { readdir, stat } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { GenerateFn } from '@ai-engine/planner';
 import type { ProviderPolicyConfig } from '../provider-policy.js';
@@ -175,7 +175,7 @@ async function extractFromMessage(
 ): Promise<ExtractionResult> {
   const empty: ExtractionResult = { fields: {}, knowledge: [], raw: '' };
 
-  if (intent === 'GREETING' || message.length < 10) return empty;
+  if (intent === 'GREETING' || message.length < 4) return empty;
 
   const existingKeys = nsContext
     ? Object.keys(nsContext.requirements.fields).join(', ') || 'none'
