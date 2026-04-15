@@ -9,15 +9,12 @@ import { VALID_REQUIREMENT_KEYS } from './requirement-extractor.js';
 export const KnowledgeEntrySchema = z.object({
   content: z.string().min(5).max(500),
   category: z.enum([
-    'requirement',
-    'preference',
-    'constraint',
-    'context',
-    'history',
-    'concern',
+    'problem',
+    'opportunity',
     'decision',
-    'action_item',
-    'relationship',
+    'constraint',
+    'preference',
+    'context',
   ]),
   confidence: z.number().min(0.3).max(1.0),
 });

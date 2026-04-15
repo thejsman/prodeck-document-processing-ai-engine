@@ -1,5 +1,40 @@
 import type { DocumentType, ExtractionResult, RequirementKey } from '../chat/context.types.js';
 import type { PreprocessedDocument, LLMGenerateFn } from './document-preprocessor.js';
+import { z } from 'zod';
+
+const ExtractionSchema = z.object({
+  clientName: z.string().optional(),
+  industry: z.string().optional(),
+  projectType: z.string().optional(),
+  budget: z.string().optional(),
+  timeline: z.string().optional(),
+  teamSize: z.number().optional(),
+  technicalStack: z.array(z.string()).optional(),
+  keyObjectives: z.array(z.string()).optional(),
+  constraints: z.array(z.string()).optional(),
+  deliverables: z.array(z.string()).optional(),
+  stakeholders: z.array(z.string()).optional(),
+  contactName: z.string().optional(),
+});
+
+function normalizeValue(key: RequirementKey, value: unknown) {
+  if (key === 'teamSize' && typeof value === 'string') {
+    const num = parseInt(value.replace(/\D/g, ''), 10);
+    return isNaN(num) ? undefined : num;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter(Boolean);
+  }
+
+  return value;
+}
+
+function computeFieldConfidence(value: unknown, base: number) {
+  if (Array.isArray(value) && value.length === 0) return base - 0.2;
+  if (typeof value === 'string' && value.length < 3) return base - 0.2;
+  return base;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -35,7 +70,10 @@ const CONFIDENCE_BY_DOC_TYPE: Record<DocumentType, number> = {
 // ---------------------------------------------------------------------------
 
 function safeParseJSON<T>(raw: string): T | null {
-  const stripped = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+  const stripped = raw
+    .replace(/^```(?:json)?\s*/m, '')
+    .replace(/\s*```\s*$/m, '')
+    .trim();
   try {
     return JSON.parse(stripped) as T;
   } catch {
@@ -66,50 +104,53 @@ export async function extractRequirementsFromPreprocessed(
   llmFn: LLMGenerateFn,
 ): Promise<ExtractionResult> {
   const cleanContent = preprocessed.sections
-    .map(
-      (s) =>
-        `## ${s.topic}\n${s.summary}\nFacts: ${s.keyFacts.join('; ')}\nDecisions: ${s.decisions.join('; ')}`,
-    )
+    .map((s) => `## ${s.topic}\n${s.summary}\nFacts: ${s.keyFacts.join('; ')}\nDecisions: ${s.decisions.join('; ')}`)
     .join('\n\n');
 
   const participantContext =
-    preprocessed.participants
-      ?.map((p) => `${p.name} — ${p.role} at ${p.organization}`)
-      .join('\n') ?? 'No participants identified';
+    preprocessed.participants?.map((p) => `${p.name} — ${p.role} at ${p.organization}`).join('\n') ??
+    'No participants identified';
 
   const baseConfidence = CONFIDENCE_BY_DOC_TYPE[docType];
 
   const prompt = `
-Extract structured project/client information from this preprocessed document summary.
-This content has already been cleaned and structured — extract only facts that are
-clearly stated or strongly implied.
+You are an information extraction system.
 
-Return ONLY a JSON object. Omit fields not mentioned. Do NOT guess or infer
-values that are not supported by the content.
+Extract ONLY explicitly stated facts from the document.
+DO NOT infer, guess, or assume missing values.
 
-Extractable fields:
-- clientName (string)
-- industry (string)
-- projectType (string)
-- budget (string, include currency and qualifiers like "approximately")
-- timeline (string)
-- teamSize (number)
-- technicalStack (string[])
-- keyObjectives (string[])
-- constraints (string[])
-- deliverables (string[])
-- stakeholders (string[])
-- contactName (string)
+Return STRICT JSON only. No explanations.
 
-Participants identified:
+Schema:
+{
+  "clientName": string,
+  "industry": string,
+  "projectType": string,
+  "budget": string,
+  "timeline": string,
+  "teamSize": number,
+  "technicalStack": string[],
+  "keyObjectives": string[],
+  "constraints": string[],
+  "deliverables": string[],
+  "stakeholders": string[],
+  "contactName": string
+}
+
+Rules:
+- Omit fields not present
+- teamSize MUST be a number (not text)
+- Arrays MUST be arrays (not comma-separated strings)
+- If unsure, omit the field
+- DO NOT hallucinate
+
+Participants:
 ${participantContext}
 
-Document summary:
----
+Content:
 ${cleanContent}
----
 
-JSON output (empty {} if nothing to extract):
+Return JSON only:
 `;
 
   let raw = '';
@@ -120,19 +161,34 @@ JSON output (empty {} if nothing to extract):
     return { fields: {}, knowledge: [], raw: '' };
   }
 
-  const parsed = safeParseJSON<Record<string, unknown>>(raw);
+  let parsed = safeParseJSON(raw);
 
-  if (!parsed || typeof parsed !== 'object') {
-    return { fields: {}, knowledge: [], raw: raw ?? '' };
+  if (!parsed) {
+    const retryPrompt = prompt + '\n\nFix your output. Return valid JSON only.';
+    try {
+      raw = await llmFn(retryPrompt);
+    } catch {
+      // ignore retry failure, fall through to empty result
+    }
+    parsed = safeParseJSON(raw);
+  }
+
+  const validated = ExtractionSchema.safeParse(parsed);
+
+  if (!validated.success) {
+    return { fields: {}, knowledge: [], raw };
   }
 
   const fields: ExtractionResult['fields'] = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    if (value === null || value === undefined) continue;
+  for (const [key, value] of Object.entries(validated.data)) {
     if (!VALID_REQUIREMENT_KEYS.includes(key as RequirementKey)) continue;
+
+    const normalized = normalizeValue(key as RequirementKey, value);
+    if (normalized === undefined) continue;
+
     fields[key as RequirementKey] = {
-      value,
-      confidence: baseConfidence,
+      value: normalized,
+      confidence: computeFieldConfidence(normalized, baseConfidence),
       source: 'document',
       updatedAt: new Date().toISOString(),
     };

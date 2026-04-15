@@ -138,7 +138,8 @@ export async function recoverInterruptedJobs(
   const nsRoot = path.join(workdir, 'namespaces');
   let namespaces: string[];
   try {
-    namespaces = await readdir(nsRoot);
+    const entries = await readdir(nsRoot, { withFileTypes: true });
+    namespaces = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
     return; // no namespaces dir yet
   }

@@ -7,15 +7,12 @@ import type { PreprocessedDocument, LLMGenerateFn } from './document-preprocesso
 // ---------------------------------------------------------------------------
 
 export const VALID_KNOWLEDGE_CATEGORIES: KnowledgeCategory[] = [
-  'requirement',
-  'preference',
-  'constraint',
-  'context',
-  'history',
-  'concern',
+  'problem',
+  'opportunity',
   'decision',
-  'action_item',
-  'relationship',
+  'constraint',
+  'preference',
+  'context',
 ];
 
 // Confidence cap per document type — informal sources can't exceed their cap
@@ -31,6 +28,17 @@ const CONFIDENCE_CAP_BY_DOC_TYPE: Record<DocumentType, number> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function scoreImportance(category: KnowledgeCategory): number {
+  switch (category) {
+    case 'problem': return 5;
+    case 'opportunity': return 5;
+    case 'decision': return 4;
+    case 'constraint': return 3;
+    case 'preference': return 2;
+    case 'context': return 1;
+  }
+}
 
 function safeParseJSON<T>(raw: string): T | null {
   const stripped = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
@@ -75,38 +83,36 @@ export async function extractKnowledge(
     .join('\n\n');
 
   const prompt = `
-Extract knowledge entries from this document summary. Each entry should be a single
-atomic fact, preference, concern, decision, or piece of context that would be useful
-when writing a proposal or planning a project for this client.
+You are extracting high-value business intelligence from a client conversation.
 
-Categories to use:
-- requirement: explicit client need
-- preference: client preference or opinion
-- constraint: limitation or blocker
-- context: background info about the company/project
-- history: past interactions or previous work
-- concern: risk, worry, or unresolved issue
-- decision: firm decision that was made
-- action_item: specific next step with an owner
-- relationship: people, roles, and reporting structures
+Extract ONLY information that is useful for:
+- building a proposal
+- identifying problems
+- identifying opportunities
+- improving workflows
+- increasing revenue
 
-RULES:
-1. Each entry must be a complete, standalone sentence
-2. Do not include small talk or personal information
-3. Mark confidence 0.7 for explicitly stated facts, 0.5 for inferred/implied ones
-4. Maximum 25 entries — prioritize the most useful information
-5. If the same fact appears in a structured requirement field, still include it
-   as knowledge if the context adds nuance
+Prioritize:
+1. Problems / pain points
+2. Opportunities / automation ideas
+3. Decisions / strategy direction
+4. Constraints / risks
+5. Context (lowest priority)
+
+Rules:
+- Each entry must be actionable or strategically useful
+- Ignore casual conversation and filler
+- Do NOT extract generic or obvious statements
+- Do NOT infer beyond what is stated
 
 Document summary:
 ---
 ${cleanContent}
 ---
 
-Respond with ONLY a JSON array:
+Return JSON array:
 [
-  { "content": "...", "category": "requirement", "confidence": 0.7 },
-  { "content": "...", "category": "preference", "confidence": 0.5 }
+  { "content": "...", "category": "problem|opportunity|decision|constraint|preference|context", "confidence": 0.7 }
 ]
 `;
 
@@ -122,7 +128,10 @@ Respond with ONLY a JSON array:
     raw,
   );
 
-  if (!parsed || !Array.isArray(parsed)) return [];
+  if (!parsed || !Array.isArray(parsed)) {
+    console.warn('[KnowledgeExtractor] Failed to parse LLM response as JSON array for:', fileName, '| raw:', raw.slice(0, 200));
+    return [];
+  }
 
   const now = new Date().toISOString();
   const confidenceCap = CONFIDENCE_CAP_BY_DOC_TYPE[docType];
@@ -137,11 +146,12 @@ Respond with ONLY a JSON array:
         e.confidence >= 0.3 &&
         e.confidence <= 1.0,
     )
-    .slice(0, 25)
+    .slice(0, 40)
     .map((e) => ({
       id: randomUUID(),
       content: e.content,
       category: e.category as KnowledgeCategory,
+      importance: scoreImportance(e.category as KnowledgeCategory),
       source: {
         type: 'document' as const,
         fileName,

@@ -26,20 +26,18 @@ export interface StructuredRequirements {
 }
 
 export type KnowledgeCategory =
-  | 'requirement'
-  | 'preference'
-  | 'constraint'
-  | 'context'
-  | 'history'
-  | 'concern'
+  | 'problem'
+  | 'opportunity'
   | 'decision'
-  | 'action_item'
-  | 'relationship';
+  | 'constraint'
+  | 'preference'
+  | 'context';
 
 export interface KnowledgeEntry {
   id: string;
   content: string;
   category: KnowledgeCategory;
+  importance: number; // 1–5 derived from category
   source: {
     type: 'document' | 'chat' | 'manual';
     fileName?: string;
