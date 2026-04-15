@@ -1,0 +1,17 @@
+{
+  "artifactId": "acme_proposal_v1.md",
+  "currentVersionId": "9db30255-56f3-4a79-9e6b-f85759f7dd61",
+  "versions": [
+    {
+      "id": "9db30255-56f3-4a79-9e6b-f85759f7dd61",
+      "artifactId": "acme_proposal_v1.md",
+      "namespace": "acme",
+      "versionLabel": "v1.0",
+      "parentVersionId": null,
+      "storageUri": "v1.0.md",
+      "createdAt": "2026-04-13T11:46:16.205Z",
+      "createdBy": "system",
+      "summary": "Initial version"
+    }
+  ]
+}

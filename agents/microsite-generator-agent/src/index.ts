@@ -306,7 +306,7 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 
 // ── Section plan prompt (Pass 0) ─────────────────────────────────────────────
 
-function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string): string {
+function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string, referenceDesign?: ReferenceDesign | null): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
   // Only treat customInstructions as a structural override if it explicitly requests a section
@@ -322,7 +322,8 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
   const styleHintBlock = (customInstructions && !hasStructuralInstruction)
     ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 400)}\n`
     : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '');
-  return `${overrideBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
+  const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
+  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
 ${styleHint}
 RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instructions):
 - Output a JSON array of ALL sections — target 12-13 sections, minimum 10
@@ -461,7 +462,7 @@ Return ONLY valid JSON matching this exact schema — no markdown, no explanatio
 
 // ── Brief extraction prompt ──────────────────────────────────────────────────
 
-function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string): string {
+function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; tagline?: string }, plugin?: string, customInstructions?: string, characterOverride?: string, referenceDesign?: ReferenceDesign | null): string {
   const hint = brandHint?.companyName
     ? `\nIMPORTANT: The proposing company is "${brandHint.companyName}"${brandHint.tagline ? ` (tagline: "${brandHint.tagline}")` : ''}. Use this exact name for "proposingCompany" and in all generated copy.\n`
     : '';
@@ -470,8 +471,9 @@ function buildBriefPrompt(markdown: string, brandHint?: { companyName?: string; 
   const overrideBlock = customInstructions
     ? `\n⚡ OVERRIDE DIRECTIVE — HIGHEST PRIORITY (apply before extracting any field):\n${customInstructions}\n`
     : '';
+  const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
   return `You are a senior proposal strategist. Extract a structured brief from this proposal. Return ONLY valid JSON. No markdown, no explanation, no code fences.
-${overrideBlock}${hint}${styleHint}
+${overrideBlock}${refShortBlock}${hint}${styleHint}
 Extract this proposal into a brief:
 
 ${markdown}
@@ -570,7 +572,7 @@ Respond ONLY with valid JSON. No preamble, no backticks, no explanation.
 }
 
 function formatReferenceDesignBlock(tokens: ReferenceDesign): string {
-  return `## REFERENCE DESIGN TOKENS (extracted from user-attached file — follow closely)
+  return `## REFERENCE DESIGN TOKENS (follow closely for all sections)
 Primary color: ${tokens.colors.primary}
 Secondary color: ${tokens.colors.secondary}
 Accent: ${tokens.colors.accent}
@@ -601,41 +603,120 @@ function hexLuminance(hex: string): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+/** Compute a hue-distance metric between two hex colors (0–180) to judge how distinct they are */
+function hexHueDifference(hex1: string, hex2: string): number {
+  const toHue = (hex: string): number => {
+    const h = hex.replace('#', '');
+    if (h.length < 6) return 0;
+    const r = parseInt(h.slice(0, 2), 16) / 255;
+    const g = parseInt(h.slice(2, 4), 16) / 255;
+    const b = parseInt(h.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    if (max === min) return 0;
+    const d = max - min;
+    let h2 = max === r ? (g - b) / d + (g < b ? 6 : 0)
+           : max === g ? (b - r) / d + 2
+           :             (r - g) / d + 4;
+    return (h2 / 6) * 360;
+  };
+  const d = Math.abs(toHue(hex1) - toHue(hex2));
+  return Math.min(d, 360 - d); // 0-180
+}
+
 function referenceDesignToCssVars(tokens: ReferenceDesign): Record<string, string> {
-  const headingFamily = `'${tokens.typography.headingFont}', sans-serif`;
-  const bodyFamily = `'${tokens.typography.bodyFont}', sans-serif`;
+  // Strip surrounding quotes LLMs sometimes include in font names (e.g. "'Inter'" → "Inter")
+  const stripQuotes = (s: string) => s.replace(/^['"`]+|['"`]+$/g, '').trim();
+  const headingFamily = `'${stripQuotes(tokens.typography.headingFont)}', sans-serif`;
+  const bodyFamily    = `'${stripQuotes(tokens.typography.bodyFont)}', sans-serif`;
+
+  const borderRadiusVal = tokens.style.borderRadius === 'sharp' ? '0px'
+    : tokens.style.borderRadius === 'soft' ? '8px' : '16px';
 
   // Determine if the background is light or dark to fix text contrast
   const bgLum = hexLuminance(tokens.colors.background);
   const isLightBg = bgLum > 128;
 
-  // On a light background: use dark text. On dark: use the extracted text color.
-  const textColor     = isLightBg ? '#1a1a1a' : tokens.colors.text;
-  const textMuted     = isLightBg ? '#555555' : tokens.colors.textMuted;
-  const borderColor   = isLightBg ? '#e0e0e0' : `${tokens.colors.text}22`;
-  const surfaceColor  = isLightBg
-    ? tokens.colors.surface === tokens.colors.background
-      ? '#ffffff'
-      : tokens.colors.surface
-    : tokens.colors.surface;
+  // Build hero gradient: use primary→secondary when the two colors are hue-distinct (≥ 30°).
+  // For monochromatic brands, fall back to a subtle radial glow on the background.
+  const sec = tokens.colors.secondary;
+  const pri = tokens.colors.primary;
+  const bg  = tokens.colors.background;
+  const hueDist = (pri && sec) ? hexHueDifference(pri, sec) : 0;
+  const hasDistinctSecondary = hueDist >= 30;
+
+  const gradientHero = hasDistinctSecondary
+    ? isLightBg
+      ? `linear-gradient(135deg, ${pri}18 0%, ${sec}18 100%)`  // subtle tint on light bg
+      : `radial-gradient(ellipse 100% 80% at 50% 20%, ${pri} 0%, ${sec} 55%, ${bg} 100%)`
+    : isLightBg
+      ? `radial-gradient(ellipse 70% 50% at 50% 35%, #ffffff 0%, ${bg} 100%)`
+      : `radial-gradient(ellipse 90% 70% at 50% 20%, ${pri}cc 0%, ${bg} 100%)`;
+
+  // Headline text gradient: primary→secondary when hue-distinct, otherwise solid accent
+  const gradientText = hasDistinctSecondary
+    ? `linear-gradient(135deg, ${pri} 0%, ${sec} 100%)`
+    : `linear-gradient(135deg, ${pri} 0%, ${pri}cc 100%)`;
+
+  if (isLightBg) {
+    // ── Light background theme ────────────────────────────────────────────────
+    const surfaceColor = tokens.colors.surface && tokens.colors.surface !== tokens.colors.background
+      ? tokens.colors.surface
+      : '#ffffff';
+    return {
+      '--ms-bg':             bg,
+      '--ms-bg2':            surfaceColor,
+      '--ms-bg3':            surfaceColor,
+      '--ms-surface':        surfaceColor,
+      '--ms-accent':         pri,
+      '--ms-hero-accent':    pri,
+      '--ms-accent2':        sec,
+      '--ms-gradient-hero':  gradientHero,
+      '--ms-gradient-text':  gradientText,
+      '--ms-text':           '#1a1a1a',
+      '--ms-text2':          '#555555',
+      '--ms-text3':          '#777777',
+      '--ms-border':         '#e0e0e0',
+      '--ms-font-heading':   headingFamily,
+      '--ms-font-body':      bodyFamily,
+      '--ms-r-card':         borderRadiusVal,
+      '--ms-is-dark':        '0',
+    };
+  }
+
+  // ── Dark background theme ───────────────────────────────────────────────────
+  // Derive a slightly lighter surface from the background rather than trusting
+  // the extracted surface (which is often #fff scraped from a light sub-section).
+  const surfaceLum = hexLuminance(tokens.colors.surface ?? '#ffffff');
+  const darkSurface = surfaceLum < 80
+    ? tokens.colors.surface          // already a dark color — keep it
+    : '#1a1a1a';                     // fallback: near-black surface
+
+  // Ensure text colors are always light on dark backgrounds
+  const textColor  = hexLuminance(tokens.colors.text ?? '#ffffff') > 128
+    ? tokens.colors.text             // already light — keep it
+    : '#f0f0f0';                     // fallback: near-white
+  const textMuted  = hexLuminance(tokens.colors.textMuted ?? '#aaaaaa') > 80
+    ? tokens.colors.textMuted
+    : '#aaaaaa';
 
   return {
-    '--ms-bg':           tokens.colors.background,
-    '--ms-bg2':          surfaceColor,
-    '--ms-bg3':          surfaceColor,
-    '--ms-surface':      surfaceColor,
-    '--ms-accent':       tokens.colors.primary,
-    '--ms-hero-accent':  tokens.colors.primary,
-    '--ms-accent2':      tokens.colors.secondary,
-    '--ms-text':         textColor,
-    '--ms-text2':        textMuted,
-    '--ms-text3':        textMuted,
-    '--ms-border':       borderColor,
-    '--ms-font-heading': headingFamily,
-    '--ms-font-body':    bodyFamily,
-    '--ms-r-card':       tokens.style.borderRadius === 'sharp' ? '0px' : tokens.style.borderRadius === 'soft' ? '8px' : '16px',
-    // Signal light/dark mode so Microsite.tsx resolves the correct base token set
-    '--ms-is-dark':      isLightBg ? '0' : '1',
+    '--ms-bg':             bg,
+    '--ms-bg2':            darkSurface,
+    '--ms-bg3':            darkSurface,
+    '--ms-surface':        darkSurface,
+    '--ms-accent':         pri,
+    '--ms-hero-accent':    pri,
+    '--ms-accent2':        sec,
+    '--ms-gradient-hero':  gradientHero,
+    '--ms-gradient-text':  gradientText,
+    '--ms-text':           textColor,
+    '--ms-text2':          textMuted,
+    '--ms-text3':          textMuted,
+    '--ms-border':         'rgba(255,255,255,0.12)',
+    '--ms-font-heading':   headingFamily,
+    '--ms-font-body':      bodyFamily,
+    '--ms-r-card':         borderRadiusVal,
+    '--ms-is-dark':        '1',
   };
 }
 
@@ -2577,7 +2658,9 @@ export class MicrositeGeneratorAgent implements Agent {
     const brandImage = (meta.brandImage as string | undefined) ?? '';
     const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
     const referenceFile = (meta.referenceFile as ReferenceFile | undefined) ?? null;
+    const urlReferenceDesign = (meta.urlReferenceDesign as ReferenceDesign | undefined) ?? null;
     console.log(`[microsite-agent] referenceFile: ${referenceFile ? `fileName=${referenceFile.fileName}, mediaType=${referenceFile.mediaType}, dominantColors=${referenceFile.dominantColors?.length ?? 0}` : 'NOT attached'}`);
+    console.log(`[microsite-agent] urlReferenceDesign: ${urlReferenceDesign ? `vibe="${urlReferenceDesign.style.vibe}", primary=${urlReferenceDesign.colors.primary}` : 'NOT provided'}`);
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -2676,7 +2759,7 @@ export class MicrositeGeneratorAgent implements Agent {
         generateTool.run({
           query: isFullOverride
             ? buildOverrideBriefPrompt(proposalMarkdown, fullDesignPrompt, { companyName: metaBrand.companyName as string, tagline: metaBrand.tagline as string })
-            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions),
+            : buildBriefPrompt(proposalMarkdown, { companyName: metaBrand.companyName as string | undefined, tagline: metaBrand.tagline as string | undefined }, metaPlugin, customInstructions, undefined, urlReferenceDesign),
           content: '',
         }).catch(() => null),
 
@@ -2685,7 +2768,7 @@ export class MicrositeGeneratorAgent implements Agent {
           generateTool.run({
             query: isFullOverride
               ? buildOverrideSectionPlanPrompt(planningMarkdown, fullDesignPrompt)
-              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions),
+              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions, urlReferenceDesign),
             content: '',
           }),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
@@ -2699,6 +2782,9 @@ export class MicrositeGeneratorAgent implements Agent {
 
       // Await hero — it started before the warm-up so it's almost certainly already done
       await heroPromise;
+
+      // Merge file-based and URL-based reference design tokens — file attachment takes priority
+      const finalReferenceDesign: ReferenceDesign | null = referenceDesign ?? urlReferenceDesign;
 
       // Resolve design system result
       let designSystemResult: { customCharacter: string; rawTokens: Record<string, unknown> } | null = null;
@@ -3020,7 +3106,7 @@ export class MicrositeGeneratorAgent implements Agent {
         onPlanReady?.({
           totalSections: pass2Sections.length,
           sectionTypes: pass2Sections.map(s => s.type),
-          ...(referenceDesign ? { referenceCssVars: referenceDesignToCssVars(referenceDesign) } : {}),
+          ...(finalReferenceDesign ? { referenceCssVars: referenceDesignToCssVars(finalReferenceDesign) } : {}),
         });
 
         // Skip hero in Pass 2 if already streamed by speculative call (heroAlreadyStreamed set in .then() above)
@@ -3050,7 +3136,7 @@ export class MicrositeGeneratorAgent implements Agent {
               console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
               const prompt = isFullOverride
                 ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel)
-                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, referenceDesign);
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, finalReferenceDesign);
               try {
                 const timeoutMs = 90_000;
                 const result = await Promise.race([
@@ -3221,20 +3307,21 @@ export class MicrositeGeneratorAgent implements Agent {
           };
         }
 
-        // Apply reference design tokens to brand when Pass 0.5 extracted them
+        // Apply reference design tokens to brand when Pass 0.5 (file or URL) extracted them
         // and no full design prompt (extractedTokens) was provided.
-        if (referenceDesign && !extractedTokens && layoutAST) {
+        if (finalReferenceDesign && !extractedTokens && layoutAST) {
           const ast = layoutAST as Record<string, unknown>;
           const existingBrand = (ast.brand as Record<string, unknown>) ?? {};
-          const cssVars = referenceDesignToCssVars(referenceDesign);
+          const cssVars = referenceDesignToCssVars(finalReferenceDesign);
+          const tokenSource = referenceDesign ? 'file attachment' : 'reference URL';
           ast.brand = {
             ...existingBrand,
-            primaryColor: referenceDesign.colors.primary,
-            secondaryColor: referenceDesign.colors.secondary,
+            primaryColor: finalReferenceDesign.colors.primary,
+            secondaryColor: finalReferenceDesign.colors.secondary,
             overrideTheme: true,
             extractedCssVariables: cssVars,
           };
-          console.log(`[microsite-agent] Pass 0.5: applied reference design to brand — primary=${referenceDesign.colors.primary}, bg=${referenceDesign.colors.background}`);
+          console.log(`[microsite-agent] Pass 0.5: applied reference design (${tokenSource}) to brand — primary=${finalReferenceDesign.colors.primary}, bg=${finalReferenceDesign.colors.background}`);
         }
 
         // Section count validation

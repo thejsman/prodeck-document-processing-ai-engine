@@ -9,9 +9,11 @@ import {
   fetchProposalContent,
   fetchMicrositeContent,
   generateMicrositeStream,
+  extractUrlDesign,
   type StreamEvent,
   type ProposalFile,
   type SynthesizedDesignSystem,
+  type ReferenceDesign,
 } from "@/lib/api";
 import type {
   LayoutAST,
@@ -33,7 +35,10 @@ import { ThemeModal } from "./microsite/ThemeModal";
 import { ThemeFullPreview } from "./microsite/ThemeFullPreview";
 import { ThemePreviewCard } from "./microsite/ThemePreviewCard";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
-import { useMicrositeHistory, getHistoryCount } from "@/lib/useMicrositeHistory";
+import {
+  useMicrositeHistory,
+  getHistoryCount,
+} from "@/lib/useMicrositeHistory";
 
 // ── Pipeline steps ───────────────────────────────────────────────────────────
 type StepId = "upload" | "brand" | "plugin" | "generate" | "preview";
@@ -335,7 +340,19 @@ export function PresentationPage() {
 
   // Step 3
   const [designBrief, setDesignBrief] = useState("");
-  const [referenceFile, setReferenceFile] = useState<{ base64: string; mediaType: string; fileName: string; dominantColors?: string[] } | null>(null);
+  const [referenceFile, setReferenceFile] = useState<{
+    base64: string;
+    mediaType: string;
+    fileName: string;
+    dominantColors?: string[];
+  } | null>(null);
+  const [urlInput, setUrlInput] = useState("");
+  const [urlReferenceDesign, setUrlReferenceDesign] =
+    useState<ReferenceDesign | null>(null);
+  const [urlExtractionState, setUrlExtractionState] = useState<
+    "idle" | "loading" | "success" | "error" | "blocked"
+  >("idle");
+  const urlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [synthStatus, setSynthStatus] = useState<
     null | "scanning" | "building" | "ready"
   >(null);
@@ -374,14 +391,21 @@ export function PresentationPage() {
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentHistoryIdRef = useRef<string | null>(null);
   const layoutASTRef = useRef<LayoutAST | null>(null);
-  const generationStartedAtRef = useRef<number>(_snap?.generationStartedAt ?? 0);
+  const generationStartedAtRef = useRef<number>(
+    _snap?.generationStartedAt ?? 0,
+  );
   // Holds reference CSS vars + font URL from Pass 0.5 so they survive the complete-event brandConfig merge
-  const referenceCssVarsRef = useRef<{ cssVars: Record<string, string>; googleFontsUrl?: string } | null>(null);
+  const referenceCssVarsRef = useRef<{
+    cssVars: Record<string, string>;
+    googleFontsUrl?: string;
+  } | null>(null);
 
   // Step 5
   const [layoutAST, setLayoutAST] = useState<LayoutAST | null>(null);
   // Keep ref in sync so finally block can read latest AST without stale closure
-  useEffect(() => { layoutASTRef.current = layoutAST; }, [layoutAST]);
+  useEffect(() => {
+    layoutASTRef.current = layoutAST;
+  }, [layoutAST]);
   const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal
@@ -400,7 +424,9 @@ export function PresentationPage() {
   // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
   const { addEntry } = useMicrositeHistory(selectedNamespace, apiKey);
   // Count reported directly from MicrositeHistory (combined local + server, always accurate)
-  const [totalHistoryCount, setTotalHistoryCount] = useState(() => getHistoryCount());
+  const [totalHistoryCount, setTotalHistoryCount] = useState(() =>
+    getHistoryCount(),
+  );
 
   const handleTabChange = (tab: "generate" | "history") => {
     setActiveTab(tab);
@@ -491,9 +517,7 @@ export function PresentationPage() {
       try {
         const { ast, savedAt } = await fetchMicrositeContent(key, ns, pid);
         if (stopped) return;
-        const isNew = savedAt
-          ? new Date(savedAt).getTime() > startedAt
-          : false;
+        const isNew = savedAt ? new Date(savedAt).getTime() > startedAt : false;
         if (
           ast &&
           typeof ast === "object" &&
@@ -508,18 +532,27 @@ export function PresentationPage() {
           }
           setProgress((p) =>
             p.map((x, i) =>
-              i === p.length - 1 ? { ...x, text: "Microsite ready!", done: true } : x,
+              i === p.length - 1
+                ? { ...x, text: "Microsite ready!", done: true }
+                : x,
             ),
           );
           stopped = true;
-          setTimeout(() => { clearSnapshot(); setStep("preview"); }, 600);
+          setTimeout(() => {
+            clearSnapshot();
+            setStep("preview");
+          }, 600);
         } else {
           pollCount++;
           if (pollCount < MAX_POLLS) {
             setProgress((p) =>
               p.map((x, i) =>
                 i === p.length - 1
-                  ? { ...x, text: `Still generating… (${pollCount * 5}s)`, done: false }
+                  ? {
+                      ...x,
+                      text: `Still generating… (${pollCount * 5}s)`,
+                      done: false,
+                    }
                   : x,
               ),
             );
@@ -528,7 +561,11 @@ export function PresentationPage() {
             setProgress((p) =>
               p.map((x, i) =>
                 i === p.length - 1
-                  ? { ...x, text: "Generation was interrupted — click Generate to restart.", done: false }
+                  ? {
+                      ...x,
+                      text: "Generation was interrupted — click Generate to restart.",
+                      done: false,
+                    }
                   : x,
               ),
             );
@@ -539,7 +576,11 @@ export function PresentationPage() {
           setProgress((p) =>
             p.map((x, i) =>
               i === p.length - 1
-                ? { ...x, text: "Generation was interrupted — click Generate to restart.", done: false }
+                ? {
+                    ...x,
+                    text: "Generation was interrupted — click Generate to restart.",
+                    done: false,
+                  }
                 : x,
             ),
           );
@@ -548,7 +589,9 @@ export function PresentationPage() {
     }
 
     poll();
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasGenerating]);
 
@@ -606,7 +649,9 @@ export function PresentationPage() {
               return fileNs === selectedNamespace;
             }
             // Legacy proposals (no namespace prefix): fall back to fuzzy client name match
-            const nsKey = selectedNamespace.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const nsKey = selectedNamespace
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "");
             const clientKey = p.client.toLowerCase().replace(/[^a-z0-9]/g, "");
             return clientKey.includes(nsKey) || nsKey.includes(clientKey);
           }),
@@ -673,13 +718,80 @@ export function PresentationPage() {
     // Build stable refs before any state updates
     const proposalId =
       selectedProposal?.fileName.replace(/\.md$/, "") ?? selectedNamespace;
-    const brandConfig = {
+    // Build base brand config from brand setup
+    const baseBrandConfig = {
       companyName: brand.companyName,
       tagline: brand.tagline,
       logoUrl: brand.logoUrl,
       logoText: brand.logoText,
       primaryColor: brand.primaryColor,
       secondaryColor: brand.secondaryColor,
+    };
+
+    // If URL design was extracted, convert its colors/typography into CSS variable overrides
+    // so the microsite renders the extracted design from the very first skeleton frame.
+    // The existing Pass 0.5 (image attachment) path still takes priority — it re-applies
+    // extractedCssVariables at stream-complete time, overwriting these.
+    const urlDesignOverride = (() => {
+      if (!urlReferenceDesign) return {};
+      const bg = urlReferenceDesign.colors.background;
+      const isDark = (() => {
+        const hex = bg.replace("#", "");
+        if (hex.length < 6) return false;
+        const r = parseInt(hex.slice(0, 2), 16) / 255;
+        const g = parseInt(hex.slice(2, 4), 16) / 255;
+        const b = parseInt(hex.slice(4, 6), 16) / 255;
+        const toLinear = (c: number) =>
+          c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        const lum =
+          0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+        return lum < 0.179;
+      })();
+      const radiusMap: Record<string, string> = {
+        sharp: "4px",
+        soft: "8px",
+        rounded: "16px",
+      };
+      const cssVars: Record<string, string> = {
+        "--ms-bg": bg,
+        "--ms-bg2": urlReferenceDesign.colors.surface,
+        "--ms-bg3": urlReferenceDesign.colors.surface,
+        "--ms-surface": urlReferenceDesign.colors.surface,
+        "--ms-accent": urlReferenceDesign.colors.primary,
+        "--ms-accent2": urlReferenceDesign.colors.secondary,
+        "--ms-text": urlReferenceDesign.colors.text,
+        "--ms-text2": urlReferenceDesign.colors.textMuted,
+        "--ms-text3": urlReferenceDesign.colors.textMuted,
+        "--ms-border": urlReferenceDesign.colors.surface,
+        "--ms-is-dark": isDark ? "1" : "0",
+        "--ms-font-heading": urlReferenceDesign.typography.headingFont,
+        "--ms-font-body": urlReferenceDesign.typography.bodyFont,
+        "--ms-r-card":
+          radiusMap[urlReferenceDesign.style.borderRadius] ?? "8px",
+      };
+      // Build Google Fonts URL for the extracted fonts
+      const uniqueFonts = [
+        ...new Set(
+          [
+            urlReferenceDesign.typography.headingFont,
+            urlReferenceDesign.typography.bodyFont,
+          ].filter(Boolean),
+        ),
+      ] as string[];
+      const googleFontsUrl =
+        uniqueFonts.length > 0
+          ? `https://fonts.googleapis.com/css2?${uniqueFonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, "+")}:wght@300;400;500;600;700;800`).join("&")}&display=swap`
+          : undefined;
+      return {
+        overrideTheme: true as const,
+        extractedCssVariables: cssVars,
+        ...(googleFontsUrl ? { googleFontsUrl } : {}),
+      };
+    })();
+
+    const brandConfig = {
+      ...baseBrandConfig,
+      ...urlDesignOverride,
     };
 
     // ── Immediately switch to preview with an empty AST + skeletons ──────────
@@ -753,6 +865,8 @@ export function PresentationPage() {
           : {}),
         ...(pdfFriendly ? { pdfFriendly: true } : {}),
         ...(referenceFile ? { referenceFile } : {}),
+        // URL reference design — file tokens take priority if both provided
+        ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
         signal: abortCtrl.signal,
         onEvent: (event: StreamEvent) => {
           console.log(
@@ -771,20 +885,38 @@ export function PresentationPage() {
               { text: "Generating sections...", done: false },
             ]);
           } else if (event.type === "plan") {
-            const planEvent = event as { type: "plan"; totalSections: number; sectionTypes?: string[]; referenceCssVars?: Record<string, string> };
+            const planEvent = event as {
+              type: "plan";
+              totalSections: number;
+              sectionTypes?: string[];
+              referenceCssVars?: Record<string, string>;
+            };
             setStreamingTotal(planEvent.totalSections);
-            if (planEvent.sectionTypes) setPlanSectionTypes(planEvent.sectionTypes);
+            if (planEvent.sectionTypes)
+              setPlanSectionTypes(planEvent.sectionTypes);
             // If Pass 0.5 extracted design tokens from attached image, inject them as CSS overrides
             if (planEvent.referenceCssVars) {
               // Build a Google Fonts URL from the extracted font names so they actually load
-              const headingFont = planEvent.referenceCssVars['--ms-font-heading']?.match(/['"]?([^'",]+)['"]?/)?.[1]?.trim();
-              const bodyFont = planEvent.referenceCssVars['--ms-font-body']?.match(/['"]?([^'",]+)['"]?/)?.[1]?.trim();
-              const uniqueFonts = [...new Set([headingFont, bodyFont].filter(Boolean))] as string[];
-              const googleFontsUrl = uniqueFonts.length > 0
-                ? `https://fonts.googleapis.com/css2?${uniqueFonts.map(f => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
-                : undefined;
+              const headingFont = planEvent.referenceCssVars[
+                "--ms-font-heading"
+              ]
+                ?.match(/['"]?([^'",]+)['"]?/)?.[1]
+                ?.trim();
+              const bodyFont = planEvent.referenceCssVars["--ms-font-body"]
+                ?.match(/['"]?([^'",]+)['"]?/)?.[1]
+                ?.trim();
+              const uniqueFonts = [
+                ...new Set([headingFont, bodyFont].filter(Boolean)),
+              ] as string[];
+              const googleFontsUrl =
+                uniqueFonts.length > 0
+                  ? `https://fonts.googleapis.com/css2?${uniqueFonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, "+")}:wght@300;400;500;600;700;800`).join("&")}&display=swap`
+                  : undefined;
 
-              referenceCssVarsRef.current = { cssVars: planEvent.referenceCssVars, googleFontsUrl };
+              referenceCssVarsRef.current = {
+                cssVars: planEvent.referenceCssVars,
+                googleFontsUrl,
+              };
 
               setLayoutAST((prev) => {
                 if (!prev) return prev;
@@ -801,7 +933,10 @@ export function PresentationPage() {
             }
             setProgress([
               { text: "Hero generated ✓", done: true },
-              { text: `Generating ${planEvent.totalSections} sections...`, done: true },
+              {
+                text: `Generating ${planEvent.totalSections} sections...`,
+                done: true,
+              },
             ]);
           } else if (event.type === "section") {
             const sec = event;
@@ -861,7 +996,12 @@ export function PresentationPage() {
                   ...ast.brand,
                   overrideTheme: true,
                   extractedCssVariables: referenceCssVarsRef.current.cssVars,
-                  ...(referenceCssVarsRef.current.googleFontsUrl ? { googleFontsUrl: referenceCssVarsRef.current.googleFontsUrl } : {}),
+                  ...(referenceCssVarsRef.current.googleFontsUrl
+                    ? {
+                        googleFontsUrl:
+                          referenceCssVarsRef.current.googleFontsUrl,
+                      }
+                    : {}),
                 };
               }
               ast.plugin = selectedPlugin ?? "ivory";
@@ -917,15 +1057,22 @@ export function PresentationPage() {
     addEntry,
     pdfFriendly,
     referenceFile,
+    urlReferenceDesign,
   ]);
 
   // ── Preview loading state ──────────────────────────────────────────────────
-  // If not actively loading and still no AST, fall back to upload step
-  if (step === "preview" && !loadingAST && !layoutAST) {
-    clearSnapshot();
-    setStep("upload");
-    return null;
-  }
+  // If not actively loading and still no AST, fall back to upload step.
+  // Must be in a useEffect — calling setStep during render causes an infinite loop.
+  useEffect(() => {
+    if (step === "preview" && !loadingAST && !layoutAST) {
+      clearSnapshot();
+      setStep("upload");
+    }
+  }, [step, loadingAST, layoutAST]);
+
+  // While the effect above transitions back to upload, render nothing
+  if (step === "preview" && !loadingAST && !layoutAST) return null;
+
   if (step === "preview" && loadingAST) {
     return (
       <div
@@ -1069,251 +1216,272 @@ export function PresentationPage() {
 
         {/* Generate panel — always mounted, hidden when on history tab */}
         <div style={{ display: activeTab !== "history" ? "block" : "none" }}>
-            {/* Stepper */}
+          {/* Stepper */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 0,
+              marginBottom: 32,
+              position: "relative",
+            }}
+          >
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 0,
-                marginBottom: 32,
-                position: "relative",
+                position: "absolute",
+                top: 17,
+                left: "10%",
+                right: "10%",
+                height: 2,
+                background: "var(--color-border)",
+                zIndex: 0,
               }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  top: 17,
-                  left: "10%",
-                  right: "10%",
-                  height: 2,
-                  background: "var(--color-border)",
-                  zIndex: 0,
-                }}
-              />
-              {STEPS.map((s, i) => {
-                const isActive = s.id === step;
-                const isDone = stepIdx > i;
-                return (
-                  <div
-                    key={s.id}
-                    onClick={() => isDone && setStep(s.id)}
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 8,
-                      position: "relative",
-                      zIndex: 1,
-                      cursor: isDone ? "pointer" : "default",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        flexShrink: 0,
-                        background: isActive
-                          ? "var(--color-primary)"
-                          : isDone
-                            ? "var(--color-success)"
-                            : "var(--color-surface)",
-                        border: `2px solid ${isActive ? "var(--color-primary)" : isDone ? "var(--color-success)" : "var(--color-border)"}`,
-                        color:
-                          isActive || isDone
-                            ? "#fff"
-                            : "var(--color-text-muted)",
-                        transition: "all 0.2s",
-                        boxShadow: isActive
-                          ? "0 0 0 4px rgba(37,99,235,0.15)"
-                          : "none",
-                      }}
-                    >
-                      {isDone ? "✓" : i + 1}
-                    </div>
-                    <div style={{ textAlign: "center" }}>
-                      <p
-                        style={{
-                          fontSize: 12,
-                          fontWeight: isActive ? 700 : 500,
-                          margin: 0,
-                          lineHeight: 1.3,
-                          color: isActive
-                            ? "var(--color-primary)"
-                            : isDone
-                              ? "var(--color-text)"
-                              : "var(--color-text-muted)",
-                        }}
-                      >
-                        {s.label}
-                      </p>
-                      <p
-                        style={{
-                          fontSize: 11,
-                          color: "var(--color-text-muted)",
-                          margin: 0,
-                          marginTop: 2,
-                        }}
-                      >
-                        {s.description}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Step card */}
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-              {/* Card header strip */}
-              <div
-                style={{
-                  padding: "14px 24px",
-                  borderBottom: "1px solid var(--color-border)",
-                  background: "var(--color-bg)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  justifyContent: "space-between",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            />
+            {STEPS.map((s, i) => {
+              const isActive = s.id === step;
+              const isDone = stepIdx > i;
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => isDone && setStep(s.id)}
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 8,
+                    position: "relative",
+                    zIndex: 1,
+                    cursor: isDone ? "pointer" : "default",
+                  }}
+                >
                   <div
                     style={{
-                      width: 26,
-                      height: 26,
+                      width: 36,
+                      height: 36,
                       borderRadius: "50%",
-                      background: "var(--color-primary)",
-                      color: "#fff",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: 11,
+                      fontSize: 13,
                       fontWeight: 700,
                       flexShrink: 0,
+                      background: isActive
+                        ? "var(--color-primary)"
+                        : isDone
+                          ? "var(--color-success)"
+                          : "var(--color-surface)",
+                      border: `2px solid ${isActive ? "var(--color-primary)" : isDone ? "var(--color-success)" : "var(--color-border)"}`,
+                      color:
+                        isActive || isDone ? "#fff" : "var(--color-text-muted)",
+                      transition: "all 0.2s",
+                      boxShadow: isActive
+                        ? "0 0 0 4px rgba(37,99,235,0.15)"
+                        : "none",
                     }}
                   >
-                    {stepIdx + 1}
+                    {isDone ? "✓" : i + 1}
                   </div>
-                  <div>
+                  <div style={{ textAlign: "center" }}>
                     <p
                       style={{
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: "var(--color-text)",
+                        fontSize: 12,
+                        fontWeight: isActive ? 700 : 500,
                         margin: 0,
-                        lineHeight: 1.2,
+                        lineHeight: 1.3,
+                        color: isActive
+                          ? "var(--color-primary)"
+                          : isDone
+                            ? "var(--color-text)"
+                            : "var(--color-text-muted)",
                       }}
                     >
-                      {STEPS[stepIdx].label}
+                      {s.label}
                     </p>
                     <p
                       style={{
                         fontSize: 11,
                         color: "var(--color-text-muted)",
                         margin: 0,
+                        marginTop: 2,
                       }}
                     >
-                      {STEPS[stepIdx].description}
+                      {s.description}
                     </p>
                   </div>
                 </div>
-                {step === "plugin" && (
-                  <button
-                    onClick={() => setIsThemeModalOpen(true)}
+              );
+            })}
+          </div>
+
+          {/* Step card */}
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            {/* Card header strip */}
+            <div
+              style={{
+                padding: "14px 24px",
+                borderBottom: "1px solid var(--color-border)",
+                background: "var(--color-bg)",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    background: "var(--color-primary)",
+                    color: "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}
+                >
+                  {stepIdx + 1}
+                </div>
+                <div>
+                  <p
                     style={{
-                      background: "none",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: 8,
-                      padding: "6px 12px",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--color-text-muted)",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      flexShrink: 0,
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: "var(--color-text)",
+                      margin: 0,
+                      lineHeight: 1.2,
                     }}
                   >
-                    More themes →
-                    <span
-                      style={{
-                        fontSize: 10,
-                        padding: "1px 6px",
-                        borderRadius: 100,
-                        background: "var(--color-border)",
-                        color: "var(--color-text-muted)",
-                      }}
-                    >
-                      +10
-                    </span>
-                  </button>
-                )}
+                    {STEPS[stepIdx].label}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: "var(--color-text-muted)",
+                      margin: 0,
+                    }}
+                  >
+                    {STEPS[stepIdx].description}
+                  </p>
+                </div>
               </div>
+              {step === "plugin" && (
+                <button
+                  onClick={() => setIsThemeModalOpen(true)}
+                  style={{
+                    background: "none",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 8,
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--color-text-muted)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                  }}
+                >
+                  More themes →
+                  <span
+                    style={{
+                      fontSize: 10,
+                      padding: "1px 6px",
+                      borderRadius: 100,
+                      background: "var(--color-border)",
+                      color: "var(--color-text-muted)",
+                    }}
+                  >
+                    +10
+                  </span>
+                </button>
+              )}
+            </div>
 
-              {/* Card body */}
-              <div style={{ padding: 24 }}>
-                {/* ═══ STEP 1: SELECT PROPOSAL ═══ */}
-                {step === "upload" && (
-                  <div>
-                    {/* Namespace */}
-                    <div className="form-group">
-                      <label>Project</label>
-                      <div style={{ position: "relative" }}>
-                        <select
-                          className="select"
-                          value={selectedNamespace}
-                          disabled={namespacesLoading}
-                          onChange={(e) => {
-                            setSelectedNamespace(e.target.value);
-                            localStorage.setItem(
-                              "ms_namespace",
-                              e.target.value,
-                            );
-                          }}
-                        >
-                          <option value="">
-                            {namespacesLoading
-                              ? "Loading namespaces…"
-                              : "Select a namespace…"}
-                          </option>
-                          {namespaces.map((ns) => (
-                            <option key={ns} value={ns}>
-                              {ns}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {selectedNamespace && (
-                        <p className="muted" style={{ marginTop: 4 }}>
-                          Showing approved proposals for{" "}
-                          <strong style={{ color: "var(--color-text)" }}>
-                            {selectedNamespace}
-                          </strong>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Proposal list */}
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label
-                        style={{
-                          color: selectedNamespace
-                            ? undefined
-                            : "var(--color-border)",
+            {/* Card body */}
+            <div style={{ padding: 24 }}>
+              {/* ═══ STEP 1: SELECT PROPOSAL ═══ */}
+              {step === "upload" && (
+                <div>
+                  {/* Namespace */}
+                  <div className="form-group">
+                    <label>Project</label>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        className="select"
+                        value={selectedNamespace}
+                        disabled={namespacesLoading}
+                        onChange={(e) => {
+                          setSelectedNamespace(e.target.value);
+                          localStorage.setItem("ms_namespace", e.target.value);
                         }}
                       >
-                        Proposal
-                      </label>
+                        <option value="">
+                          {namespacesLoading
+                            ? "Loading namespaces…"
+                            : "Select a namespace…"}
+                        </option>
+                        {namespaces.map((ns) => (
+                          <option key={ns} value={ns}>
+                            {ns}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedNamespace && (
+                      <p className="muted" style={{ marginTop: 4 }}>
+                        Showing approved proposals for{" "}
+                        <strong style={{ color: "var(--color-text)" }}>
+                          {selectedNamespace}
+                        </strong>
+                      </p>
+                    )}
+                  </div>
 
-                      {!selectedNamespace && (
+                  {/* Proposal list */}
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label
+                      style={{
+                        color: selectedNamespace
+                          ? undefined
+                          : "var(--color-border)",
+                      }}
+                    >
+                      Proposal
+                    </label>
+
+                    {!selectedNamespace && (
+                      <div
+                        style={{
+                          padding: "2rem",
+                          textAlign: "center",
+                          border: "1px dashed var(--color-border)",
+                          borderRadius: "var(--radius)",
+                        }}
+                      >
+                        <p className="muted">Select a namespace first</p>
+                      </div>
+                    )}
+
+                    {selectedNamespace && proposalsLoading && (
+                      <p className="loading">Loading proposals…</p>
+                    )}
+
+                    {selectedNamespace &&
+                      proposalsError &&
+                      !proposalsLoading && (
+                        <p className="error">{proposalsError}</p>
+                      )}
+
+                    {selectedNamespace &&
+                      !proposalsLoading &&
+                      !proposalsError &&
+                      proposals.length === 0 && (
                         <div
                           style={{
                             padding: "2rem",
@@ -1322,368 +1490,282 @@ export function PresentationPage() {
                             borderRadius: "var(--radius)",
                           }}
                         >
-                          <p className="muted">Select a namespace first</p>
+                          <p className="muted">
+                            No approved proposals found in{" "}
+                            <strong>{selectedNamespace}</strong>. Approve a
+                            proposal first.
+                          </p>
                         </div>
                       )}
 
-                      {selectedNamespace && proposalsLoading && (
-                        <p className="loading">Loading proposals…</p>
-                      )}
-
-                      {selectedNamespace &&
-                        proposalsError &&
-                        !proposalsLoading && (
-                          <p className="error">{proposalsError}</p>
-                        )}
-
-                      {selectedNamespace &&
-                        !proposalsLoading &&
-                        !proposalsError &&
-                        proposals.length === 0 && (
-                          <div
-                            style={{
-                              padding: "2rem",
-                              textAlign: "center",
-                              border: "1px dashed var(--color-border)",
-                              borderRadius: "var(--radius)",
-                            }}
-                          >
-                            <p className="muted">
-                              No approved proposals found in{" "}
-                              <strong>{selectedNamespace}</strong>. Approve a
-                              proposal first.
-                            </p>
-                          </div>
-                        )}
-
-                      {selectedNamespace &&
-                        !proposalsLoading &&
-                        proposals.length > 0 && (
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns:
-                                "repeat(auto-fill, minmax(240px, 1fr))",
-                              gap: "0.75rem",
-                            }}
-                          >
-                            {proposals.map((p) => {
-                              const isSelected =
-                                selectedProposal?.fileName === p.fileName;
-                              return (
-                                <button
-                                  key={p.fileName}
-                                  onClick={() => selectProposal(p)}
-                                  style={{
-                                    textAlign: "left",
-                                    padding: "12px 14px",
-                                    borderRadius: "var(--radius)",
-                                    cursor: "pointer",
-                                    border: `1px solid ${isSelected ? "var(--color-primary)" : "var(--color-border)"}`,
-                                    background: isSelected
-                                      ? "var(--color-primary-muted, rgba(99,102,241,0.15))"
-                                      : "var(--color-surface)",
-                                    boxShadow: isSelected
-                                      ? "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))"
-                                      : "var(--shadow)",
-                                    transition: "border-color 0.15s",
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      marginBottom: 4,
-                                    }}
-                                  >
-                                    <span
-                                      style={{
-                                        fontWeight: 600,
-                                        fontSize: 13,
-                                        color: "var(--color-text)",
-                                      }}
-                                    >
-                                      {p.client || p.fileName}
-                                    </span>
-                                    <span
-                                      className="badge"
-                                      style={{
-                                        background: "#16a34a18",
-                                        color: "var(--color-success)",
-                                        border: "none",
-                                        fontSize: 11,
-                                      }}
-                                    >
-                                      approved
-                                    </span>
-                                  </div>
-                                  <p
-                                    className="muted"
-                                    style={{ fontSize: 11, marginBottom: 0 }}
-                                  >
-                                    {p.fileName}
-                                  </p>
-                                  {p.createdAt && (
-                                    <p
-                                      className="muted"
-                                      style={{ fontSize: 11 }}
-                                    >
-                                      {new Date(
-                                        p.createdAt,
-                                      ).toLocaleDateString()}
-                                    </p>
-                                  )}
-                                  {isSelected && loadingContent && (
-                                    <p
-                                      className="loading"
-                                      style={{ marginTop: 4 }}
-                                    >
-                                      Loading content…
-                                    </p>
-                                  )}
-                                  {isSelected &&
-                                    !loadingContent &&
-                                    mdContent && (
-                                      <p
-                                        style={{
-                                          fontSize: 11,
-                                          color: "var(--color-success)",
-                                          marginTop: 4,
-                                        }}
-                                      >
-                                        ✓ Loaded
-                                      </p>
-                                    )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                    </div>
-                  </div>
-                )}
-
-                {/* ═══ STEP 2: BRAND SETUP ═══ */}
-                {step === "brand" && (
-                  <div>
-                    <div className="form-row">
-                      {/* Company name */}
-                      <div className="form-group">
-                        <label>Company / Logo Name</label>
-                        <input
-                          type="text"
-                          className="input"
-                          value={brand.companyName}
-                          onChange={(e) =>
-                            setBrand((b) => ({
-                              ...b,
-                              companyName: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-
-                      {/* Logo upload — PNG & SVG only */}
-                      <div className="form-group">
-                        <label>Logo (PNG or SVG)</label>
+                    {selectedNamespace &&
+                      !proposalsLoading &&
+                      proposals.length > 0 && (
                         <div
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fill, minmax(240px, 1fr))",
+                            gap: "0.75rem",
                           }}
                         >
-                          {brand.logoUrl && (
-                            <div
-                              style={{
-                                width: 48,
-                                height: 48,
-                                borderRadius: "var(--radius)",
-                                border: "1px solid var(--color-border)",
-                                overflow: "hidden",
-                                flexShrink: 0,
-                                background: "var(--color-surface)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={brand.logoUrl}
-                                alt="logo preview"
+                          {proposals.map((p) => {
+                            const isSelected =
+                              selectedProposal?.fileName === p.fileName;
+                            return (
+                              <button
+                                key={p.fileName}
+                                onClick={() => selectProposal(p)}
                                 style={{
-                                  width: "100%",
-                                  height: "100%",
-                                  objectFit: "contain",
+                                  textAlign: "left",
+                                  padding: "12px 14px",
+                                  borderRadius: "var(--radius)",
+                                  cursor: "pointer",
+                                  border: `1px solid ${isSelected ? "var(--color-primary)" : "var(--color-border)"}`,
+                                  background: isSelected
+                                    ? "var(--color-primary-muted, rgba(99,102,241,0.15))"
+                                    : "var(--color-surface)",
+                                  boxShadow: isSelected
+                                    ? "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))"
+                                    : "var(--shadow)",
+                                  transition: "border-color 0.15s",
                                 }}
-                              />
-                            </div>
-                          )}
-                          <label
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 8,
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontWeight: 600,
+                                      fontSize: 13,
+                                      color: "var(--color-text)",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
+                                      overflow: "hidden",
+                                      minWidth: 0,
+                                    } as React.CSSProperties}
+                                  >
+                                    {p.client || p.fileName}
+                                  </span>
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: "#16a34a18",
+                                      color: "var(--color-success)",
+                                      border: "none",
+                                      fontSize: 11,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    approved
+                                  </span>
+                                </div>
+                                <p
+                                  className="muted"
+                                  style={{
+                                    fontSize: 11,
+                                    marginBottom: 0,
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    overflow: "hidden",
+                                    wordBreak: "break-all",
+                                  } as React.CSSProperties}
+                                >
+                                  {p.fileName}
+                                </p>
+                                {p.createdAt && (
+                                  <p className="muted" style={{ fontSize: 11 }}>
+                                    {new Date(p.createdAt).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {isSelected && loadingContent && (
+                                  <p
+                                    className="loading"
+                                    style={{ marginTop: 4 }}
+                                  >
+                                    Loading content…
+                                  </p>
+                                )}
+                                {isSelected && !loadingContent && mdContent && (
+                                  <p
+                                    style={{
+                                      fontSize: 11,
+                                      color: "var(--color-success)",
+                                      marginTop: 4,
+                                    }}
+                                  >
+                                    ✓ Loaded
+                                  </p>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                  </div>
+                </div>
+              )}
+
+              {/* ═══ STEP 2: BRAND SETUP ═══ */}
+              {step === "brand" && (
+                <div>
+                  <div className="form-row">
+                    {/* Company name */}
+                    <div className="form-group">
+                      <label>Company / Logo Name</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={brand.companyName}
+                        onChange={(e) =>
+                          setBrand((b) => ({
+                            ...b,
+                            companyName: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {/* Logo upload — PNG & SVG only */}
+                    <div className="form-group">
+                      <label>Logo (PNG or SVG)</label>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        {brand.logoUrl && (
+                          <div
                             style={{
-                              flex: 1,
+                              width: 48,
+                              height: 48,
+                              borderRadius: "var(--radius)",
+                              border: "1px solid var(--color-border)",
+                              overflow: "hidden",
+                              flexShrink: 0,
+                              background: "var(--color-surface)",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              gap: 6,
-                              padding: "8px 10px",
-                              borderRadius: "var(--radius)",
-                              cursor: logoExtracting
-                                ? "not-allowed"
-                                : "pointer",
-                              border: "1px dashed var(--color-border)",
-                              background: "var(--color-surface)",
-                              color: "var(--color-text-muted)",
-                              fontSize: 13,
-                              opacity: logoExtracting ? 0.6 : 1,
                             }}
                           >
-                            {logoExtracting
-                              ? "⏳ Extracting colors…"
-                              : `↑ ${brand.logoUrl ? "Change logo" : "Upload logo"}`}
-                            <input
-                              type="file"
-                              accept="image/png,image/svg+xml"
-                              style={{ display: "none" }}
-                              disabled={logoExtracting}
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-                                const reader = new FileReader();
-                                reader.onload = async (ev) => {
-                                  const dataUrl = ev.target?.result as string;
-                                  setBrand((b) => ({ ...b, logoUrl: dataUrl }));
-                                  setLogoExtracting(true);
-                                  setColorsAutoExtracted(false);
-                                  try {
-                                    const { primary, secondary } =
-                                      await extractLogoColors(file, dataUrl);
-                                    setBrand((b) => ({
-                                      ...b,
-                                      primaryColor: primary,
-                                      secondaryColor: secondary,
-                                    }));
-                                    setColorsAutoExtracted(true);
-                                  } finally {
-                                    setLogoExtracting(false);
-                                  }
-                                };
-                                reader.readAsDataURL(file);
-                                e.target.value = "";
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={brand.logoUrl}
+                              alt="logo preview"
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "contain",
                               }}
                             />
-                          </label>
-                          {brand.logoUrl && !logoExtracting && (
-                            <button
-                              className="btn btn-sm"
-                              onClick={() => {
-                                setBrand((b) => ({ ...b, logoUrl: null }));
-                                setColorsAutoExtracted(false);
-                              }}
-                              title="Remove logo"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                        {colorsAutoExtracted && !logoExtracting && (
-                          <p
-                            style={{
-                              fontSize: 11,
-                              color: "var(--color-success)",
-                              marginTop: 4,
-                            }}
-                          >
-                            ✓ Colors auto-extracted from logo — you can override
-                            below
-                          </p>
+                          </div>
                         )}
-                      </div>
-                    </div>
-
-                    <div className="form-row">
-                      {/* Tagline */}
-                      <div className="form-group">
-                        <label>Tagline</label>
-                        <input
-                          type="text"
-                          className="input"
-                          value={brand.tagline}
-                          onChange={(e) =>
-                            setBrand((b) => ({ ...b, tagline: e.target.value }))
-                          }
-                        />
-                      </div>
-
-                      {/* Primary color */}
-                      <div className="form-group">
                         <label
                           style={{
+                            flex: 1,
                             display: "flex",
                             alignItems: "center",
+                            justifyContent: "center",
                             gap: 6,
+                            padding: "8px 10px",
+                            borderRadius: "var(--radius)",
+                            cursor: logoExtracting ? "not-allowed" : "pointer",
+                            border: "1px dashed var(--color-border)",
+                            background: "var(--color-surface)",
+                            color: "var(--color-text-muted)",
+                            fontSize: 13,
+                            opacity: logoExtracting ? 0.6 : 1,
                           }}
                         >
-                          Primary Color (accent)
-                          {colorsAutoExtracted && (
-                            <span
-                              className="badge"
-                              style={{
-                                fontSize: 10,
-                                background: "var(--color-success)",
-                                color: "#fff",
-                                border: "none",
-                              }}
-                            >
-                              auto
-                            </span>
-                          )}
+                          {logoExtracting
+                            ? "⏳ Extracting colors…"
+                            : `↑ ${brand.logoUrl ? "Change logo" : "Upload logo"}`}
+                          <input
+                            type="file"
+                            accept="image/png,image/svg+xml"
+                            style={{ display: "none" }}
+                            disabled={logoExtracting}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = async (ev) => {
+                                const dataUrl = ev.target?.result as string;
+                                setBrand((b) => ({ ...b, logoUrl: dataUrl }));
+                                setLogoExtracting(true);
+                                setColorsAutoExtracted(false);
+                                try {
+                                  const { primary, secondary } =
+                                    await extractLogoColors(file, dataUrl);
+                                  setBrand((b) => ({
+                                    ...b,
+                                    primaryColor: primary,
+                                    secondaryColor: secondary,
+                                  }));
+                                  setColorsAutoExtracted(true);
+                                } finally {
+                                  setLogoExtracting(false);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                              e.target.value = "";
+                            }}
+                          />
                         </label>
-                        <div
+                        {brand.logoUrl && !logoExtracting && (
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => {
+                              setBrand((b) => ({ ...b, logoUrl: null }));
+                              setColorsAutoExtracted(false);
+                            }}
+                            title="Remove logo"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      {colorsAutoExtracted && !logoExtracting && (
+                        <p
                           style={{
-                            display: "flex",
-                            gap: 8,
-                            alignItems: "center",
+                            fontSize: 11,
+                            color: "var(--color-success)",
+                            marginTop: 4,
                           }}
                         >
-                          <input
-                            type="color"
-                            value={brand.primaryColor || "#888888"}
-                            onChange={(e) => {
-                              setBrand((b) => ({
-                                ...b,
-                                primaryColor: e.target.value,
-                              }));
-                              setColorsAutoExtracted(false);
-                            }}
-                            style={{
-                              width: 38,
-                              height: 38,
-                              borderRadius: "var(--radius)",
-                              border: "1px solid var(--color-border)",
-                              padding: 2,
-                              cursor: "pointer",
-                            }}
-                          />
-                          <input
-                            type="text"
-                            className="input"
-                            value={brand.primaryColor}
-                            onChange={(e) => {
-                              setBrand((b) => ({
-                                ...b,
-                                primaryColor: e.target.value,
-                              }));
-                              setColorsAutoExtracted(false);
-                            }}
-                            style={{ fontFamily: "monospace" }}
-                          />
-                        </div>
-                      </div>
+                          ✓ Colors auto-extracted from logo — you can override
+                          below
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    {/* Tagline */}
+                    <div className="form-group">
+                      <label>Tagline</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={brand.tagline}
+                        onChange={(e) =>
+                          setBrand((b) => ({ ...b, tagline: e.target.value }))
+                        }
+                      />
                     </div>
 
+                    {/* Primary color */}
                     <div className="form-group">
                       <label
                         style={{
@@ -1692,7 +1774,7 @@ export function PresentationPage() {
                           gap: 6,
                         }}
                       >
-                        Secondary Color
+                        Primary Color (accent)
                         {colorsAutoExtracted && (
                           <span
                             className="badge"
@@ -1716,11 +1798,11 @@ export function PresentationPage() {
                       >
                         <input
                           type="color"
-                          value={brand.secondaryColor || "#888888"}
+                          value={brand.primaryColor || "#888888"}
                           onChange={(e) => {
                             setBrand((b) => ({
                               ...b,
-                              secondaryColor: e.target.value,
+                              primaryColor: e.target.value,
                             }));
                             setColorsAutoExtracted(false);
                           }}
@@ -1736,11 +1818,11 @@ export function PresentationPage() {
                         <input
                           type="text"
                           className="input"
-                          value={brand.secondaryColor}
+                          value={brand.primaryColor}
                           onChange={(e) => {
                             setBrand((b) => ({
                               ...b,
-                              secondaryColor: e.target.value,
+                              primaryColor: e.target.value,
                             }));
                             setColorsAutoExtracted(false);
                           }}
@@ -1748,665 +1830,1056 @@ export function PresentationPage() {
                         />
                       </div>
                     </div>
+                  </div>
 
-                    {/* Brand preview */}
-                    <div
-                      className="card"
+                  <div className="form-group">
+                    <label
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 12,
-                        marginTop: 8,
+                        gap: 6,
                       }}
                     >
-                      <div
-                        style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: "var(--radius)",
-                          background: brand.logoUrl
-                            ? "transparent"
-                            : brand.primaryColor || "var(--color-border)",
-                          border: "1px solid var(--color-border)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "1rem",
-                          fontWeight: 700,
-                          color: "#fff",
-                          flexShrink: 0,
-                          overflow: "hidden",
+                      Secondary Color
+                      {colorsAutoExtracted && (
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: 10,
+                            background: "var(--color-success)",
+                            color: "#fff",
+                            border: "none",
+                          }}
+                        >
+                          auto
+                        </span>
+                      )}
+                    </label>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <input
+                        type="color"
+                        value={brand.secondaryColor || "#888888"}
+                        onChange={(e) => {
+                          setBrand((b) => ({
+                            ...b,
+                            secondaryColor: e.target.value,
+                          }));
+                          setColorsAutoExtracted(false);
                         }}
-                      >
-                        {brand.logoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={brand.logoUrl}
-                            alt="logo"
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: "var(--radius)",
+                          border: "1px solid var(--color-border)",
+                          padding: 2,
+                          cursor: "pointer",
+                        }}
+                      />
+                      <input
+                        type="text"
+                        className="input"
+                        value={brand.secondaryColor}
+                        onChange={(e) => {
+                          setBrand((b) => ({
+                            ...b,
+                            secondaryColor: e.target.value,
+                          }));
+                          setColorsAutoExtracted(false);
+                        }}
+                        style={{ fontFamily: "monospace" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Brand preview */}
+                  <div
+                    className="card"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      marginTop: 8,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "var(--radius)",
+                        background: brand.logoUrl
+                          ? "transparent"
+                          : brand.primaryColor || "var(--color-border)",
+                        border: "1px solid var(--color-border)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1rem",
+                        fontWeight: 700,
+                        color: "#fff",
+                        flexShrink: 0,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {brand.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={brand.logoUrl}
+                          alt="logo"
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "contain",
+                          }}
+                        />
+                      ) : (
+                        brand.companyName?.[0] || "?"
+                      )}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontWeight: 600, fontSize: 13, margin: 0 }}>
+                        {brand.companyName || "Company Name"}
+                      </p>
+                      <p className="muted" style={{ fontSize: 12 }}>
+                        {brand.tagline || "Tagline"}
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {[brand.primaryColor, brand.secondaryColor].map((c, i) =>
+                        c ? (
+                          <div
+                            key={i}
                             style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "contain",
+                              width: 20,
+                              height: 20,
+                              borderRadius: "50%",
+                              background: c,
+                              border: "1px solid var(--color-border)",
                             }}
                           />
-                        ) : (
-                          brand.companyName?.[0] || "?"
-                        )}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontWeight: 600, fontSize: 13, margin: 0 }}>
-                          {brand.companyName || "Company Name"}
-                        </p>
-                        <p className="muted" style={{ fontSize: 12 }}>
-                          {brand.tagline || "Tagline"}
-                        </p>
-                      </div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {[brand.primaryColor, brand.secondaryColor].map(
-                          (c, i) =>
-                            c ? (
+                        ) : null,
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ═══ STEP 3: CHOOSE STYLE ═══ */}
+              {step === "plugin" && (
+                <div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, 1fr)",
+                      gap: 10,
+                    }}
+                  >
+                    {/* ── Default 4 theme cards — same ThemePreviewCard as expanded panel ── */}
+                    {THEME_REGISTRY.filter((t) =>
+                      DEFAULT_PLUGIN_IDS.includes(t.id),
+                    ).map((theme) => (
+                      <ThemePreviewCard
+                        key={theme.id}
+                        theme={theme}
+                        selected={selectedPlugin === theme.id}
+                        onSelect={handleSelectPlugin}
+                        onPreview={handlePreview}
+                        size="default"
+                      />
+                    ))}
+
+                    {/* ── No Theme card ── */}
+                    {(() => {
+                      const noThemeActive = selectedPlugin === null;
+                      return (
+                        <button
+                          key="no-theme"
+                          onClick={() =>
+                            handleSelectPlugin(
+                              noThemeActive ? "obsidian" : null,
+                            )
+                          }
+                          title="Generate without a design theme"
+                          style={{
+                            background: "none",
+                            padding: 0,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            border: `2px solid ${noThemeActive ? "var(--color-primary)" : "var(--color-border)"}`,
+                            borderRadius: 12,
+                            overflow: "hidden",
+                            boxShadow: noThemeActive
+                              ? "0 0 0 3px #bfdbfe"
+                              : "var(--shadow)",
+                            transition: "border-color 0.2s",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: 130,
+                              position: "relative",
+                              overflow: "hidden",
+                              background:
+                                "repeating-linear-gradient(45deg, var(--color-bg) 0px, var(--color-bg) 8px, var(--color-border) 8px, var(--color-border) 9px)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 32,
+                                opacity: 0.2,
+                                color: "var(--color-text)",
+                              }}
+                            >
+                              ∅
+                            </span>
+                            {noThemeActive && (
                               <div
-                                key={i}
                                 style={{
+                                  position: "absolute",
+                                  top: 7,
+                                  right: 7,
                                   width: 20,
                                   height: 20,
                                   borderRadius: "50%",
-                                  background: c,
-                                  border: "1px solid var(--color-border)",
+                                  background: "var(--color-primary)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: 10,
+                                  color: "#fff",
                                 }}
-                              />
-                            ) : null,
-                        )}
-                      </div>
-                    </div>
+                              >
+                                ✓
+                              </div>
+                            )}
+                          </div>
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              background: "var(--color-surface)",
+                              borderTop: "1px solid var(--color-border)",
+                            }}
+                          >
+                            <p
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 600,
+                                margin: "0 0 2px",
+                                color: noThemeActive
+                                  ? "var(--color-primary)"
+                                  : "var(--color-text)",
+                              }}
+                            >
+                              No Theme
+                            </p>
+                            <p
+                              className="muted"
+                              style={{
+                                fontSize: 11,
+                                lineHeight: 1.4,
+                                margin: 0,
+                              }}
+                            >
+                              Clean default layout
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })()}
                   </div>
-                )}
 
-                {/* ═══ STEP 3: CHOOSE STYLE ═══ */}
-                {step === "plugin" && (
-                  <div>
-                    <div
+                  {/* Selection hint */}
+                  <p
+                    className="muted"
+                    style={{ fontSize: 11, margin: "10px 0 0" }}
+                  >
+                    {selectedPlugin
+                      ? `Theme: ${PLUGINS.find((p) => p.id === selectedPlugin)?.name ?? selectedPlugin}`
+                      : "No theme selected"}
+                  </p>
+
+                  {/* Custom prompt */}
+                  <div
+                    className="form-group"
+                    style={{ marginTop: 24, marginBottom: 0 }}
+                  >
+                    <label
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(4, 1fr)",
-                        gap: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
                       }}
                     >
-                      {/* ── Default 4 theme cards — same ThemePreviewCard as expanded panel ── */}
-                      {THEME_REGISTRY.filter((t) =>
-                        DEFAULT_PLUGIN_IDS.includes(t.id),
-                      ).map((theme) => (
-                        <ThemePreviewCard
-                          key={theme.id}
-                          theme={theme}
-                          selected={selectedPlugin === theme.id}
-                          onSelect={handleSelectPlugin}
-                          onPreview={handlePreview}
-                          size="default"
-                        />
-                      ))}
-
-                      {/* ── No Theme card ── */}
-                      {(() => {
-                        const noThemeActive = selectedPlugin === null;
-                        return (
-                          <button
-                            key="no-theme"
-                            onClick={() =>
-                              handleSelectPlugin(
-                                noThemeActive ? "obsidian" : null,
-                              )
-                            }
-                            title="Generate without a design theme"
-                            style={{
-                              background: "none",
-                              padding: 0,
-                              cursor: "pointer",
-                              textAlign: "left",
-                              border: `2px solid ${noThemeActive ? "var(--color-primary)" : "var(--color-border)"}`,
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              boxShadow: noThemeActive
-                                ? "0 0 0 3px #bfdbfe"
-                                : "var(--shadow)",
-                              transition: "border-color 0.2s",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: 130,
-                                position: "relative",
-                                overflow: "hidden",
-                                background:
-                                  "repeating-linear-gradient(45deg, var(--color-bg) 0px, var(--color-bg) 8px, var(--color-border) 8px, var(--color-border) 9px)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              <span
-                                style={{
-                                  fontSize: 32,
-                                  opacity: 0.2,
-                                  color: "var(--color-text)",
-                                }}
-                              >
-                                ∅
-                              </span>
-                              {noThemeActive && (
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: 7,
-                                    right: 7,
-                                    width: 20,
-                                    height: 20,
-                                    borderRadius: "50%",
-                                    background: "var(--color-primary)",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: 10,
-                                    color: "#fff",
-                                  }}
-                                >
-                                  ✓
-                                </div>
-                              )}
-                            </div>
-                            <div
-                              style={{
-                                padding: "10px 12px",
-                                background: "var(--color-surface)",
-                                borderTop: "1px solid var(--color-border)",
-                              }}
-                            >
-                              <p
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: 600,
-                                  margin: "0 0 2px",
-                                  color: noThemeActive
-                                    ? "var(--color-primary)"
-                                    : "var(--color-text)",
-                                }}
-                              >
-                                No Theme
-                              </p>
-                              <p
-                                className="muted"
-                                style={{
-                                  fontSize: 11,
-                                  lineHeight: 1.4,
-                                  margin: 0,
-                                }}
-                              >
-                                Clean default layout
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Selection hint */}
-                    <p
-                      className="muted"
-                      style={{ fontSize: 11, margin: "10px 0 0" }}
-                    >
-                      {selectedPlugin
-                        ? `Theme: ${PLUGINS.find((p) => p.id === selectedPlugin)?.name ?? selectedPlugin}`
-                        : "No theme selected"}
-                    </p>
-
-                    {/* Custom prompt */}
-                    <div
-                      className="form-group"
-                      style={{ marginTop: 24, marginBottom: 0 }}
-                    >
-                      <label
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        Prompt & Design Instructions
-                        {designBrief.trim() && (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 600,
-                              padding: "2px 7px",
-                              borderRadius: 4,
-                              background: "var(--color-primary)",
-                              color: "#fff",
-                              letterSpacing: "0.03em",
-                            }}
-                          >
-                            AI-customized
-                          </span>
-                        )}
-                      </label>
-                      <textarea
-                        className="input"
-                        rows={8}
-                        placeholder={
-                          "Structure, design, and content — all in one place.\n\n" +
-                          "Examples:\n" +
-                          '• "only generate 1 section: hero"\n' +
-                          '• "make it 3 sections focused on the problem and solution"\n' +
-                          '• "remove pricing, add a benefits section after hero"\n' +
-                          '• "swap hero and challenge order"\n' +
-                          '• "make it beautiful by using images"\n' +
-                          '• "dark premium theme, no CTA in hero, add fade-in animations"'
-                        }
-                        value={designBrief}
-                        onChange={(e) => setDesignBrief(e.target.value)}
-                        style={{
-                          resize: "vertical",
-                          fontFamily: "inherit",
-                          lineHeight: 1.6,
-                        }}
-                      />
-
-                      {/* Reference file attachment */}
-                      <input
-                        id="ref-file-input"
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,application/pdf"
-                        style={{ display: "none" }}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          if (file.size > 4 * 1024 * 1024) {
-                            alert("File must be under 4 MB");
-                            e.target.value = "";
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            const base64 = reader.result as string;
-                            // Extract dominant colors via canvas for accurate hex sampling
-                            if (file.type.startsWith("image/")) {
-                              const img = new Image();
-                              img.onload = () => {
-                                try {
-                                  const canvas = document.createElement("canvas");
-                                  const MAX = 120; // downsample for speed
-                                  const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-                                  canvas.width = Math.round(img.width * scale);
-                                  canvas.height = Math.round(img.height * scale);
-                                  const ctx = canvas.getContext("2d");
-                                  if (!ctx) { setReferenceFile({ base64, mediaType: file.type, fileName: file.name }); return; }
-                                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                                  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                  const toHex = (v: number) => Math.min(255, Math.max(0, v)).toString(16).padStart(2, "0");
-                                  // Saturation helper — how vivid is a color (0=grey, 1=fully saturated)
-                                  const saturation = (r: number, g: number, b: number) => {
-                                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-                                    return max === 0 ? 0 : (max - min) / max;
-                                  };
-                                  // Bucket pixels into 24-step bins — track count AND max saturation seen
-                                  const buckets = new Map<string, { r: number; g: number; b: number; count: number; sat: number }>();
-                                  for (let i = 0; i < data.length; i += 4) {
-                                    if (data[i + 3] < 128) continue;
-                                    const r = Math.min(255, Math.round(data[i] / 24) * 24);
-                                    const g = Math.min(255, Math.round(data[i + 1] / 24) * 24);
-                                    const b = Math.min(255, Math.round(data[i + 2] / 24) * 24);
-                                    const sat = saturation(r, g, b);
-                                    const key = `${r},${g},${b}`;
-                                    const entry = buckets.get(key);
-                                    if (entry) { entry.count++; entry.sat = Math.max(entry.sat, sat); }
-                                    else { buckets.set(key, { r, g, b, count: 1, sat }); }
-                                  }
-                                  const all = [...buckets.values()];
-                                  // Sort by frequency for background/dominant detection
-                                  const byFreq = [...all].sort((a, b) => b.count - a.count);
-                                  // Sort by perceptual vividness = saturation × brightness.
-                                  // HSV saturation alone is 1.0 for near-black colors (e.g. #000018 = R0 G0 B24),
-                                  // which would rank dark navies above magenta. Multiplying by min(lum/128, 1)
-                                  // penalises dark colors so only truly bright+saturated accents rank first.
-                                  const bySat = [...all].map(c => {
-                                    const lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-                                    return { ...c, lum, vivid: c.sat * Math.min(lum / 128, 1) };
-                                  }).filter(c => c.sat > 0.35 && c.vivid > 0.2)
-                                    .sort((a, b) => b.vivid - a.vivid);
-
-                                  const lightColors: string[] = [];   // backgrounds (high luminance)
-                                  const darkColors: string[] = [];    // dark backgrounds
-                                  const brandColors: string[] = [];   // mid-tone frequent colors
-                                  const vividColors: string[] = [];   // high saturation accents
-
-                                  // Collect vivid colors first (these are neon accents regardless of frequency)
-                                  for (const { r, g, b } of bySat.slice(0, 4)) {
-                                    vividColors.push(`#${toHex(r)}${toHex(g)}${toHex(b)}`);
-                                  }
-                                  // Classify frequent colors by luminance
-                                  for (const { r, g, b } of byFreq.slice(0, 14)) {
-                                    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-                                    const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-                                    if (lum > 180) { if (lightColors.length < 3) lightColors.push(hex); }
-                                    else if (lum < 30) { if (darkColors.length < 2) darkColors.push(hex); }
-                                    else { if (brandColors.length < 4) brandColors.push(hex); }
-                                  }
-
-                                  // Determine if this is a dark-background image
-                                  const isDarkImage = lightColors.length === 0;
-                                  // Layout: [bg candidates] [vivid accents] [mid-tone brand]
-                                  const dominantColors = isDarkImage
-                                    ? [...darkColors.slice(0, 1), ...vividColors.slice(0, 4), ...brandColors.slice(0, 3)]
-                                    : [...lightColors, ...vividColors.slice(0, 3), ...brandColors.slice(0, 3)];
-                                  setReferenceFile({ base64, mediaType: file.type, fileName: file.name, dominantColors });
-                                } catch {
-                                  setReferenceFile({ base64, mediaType: file.type, fileName: file.name });
-                                }
-                              };
-                              img.src = base64;
-                            } else {
-                              setReferenceFile({ base64, mediaType: file.type, fileName: file.name });
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                          e.target.value = "";
-                        }}
-                      />
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                        <button
-                          type="button"
-                          onClick={() => document.getElementById("ref-file-input")?.click()}
+                      Prompt & Design Instructions
+                      {designBrief.trim() && (
+                        <span
                           style={{
-                            fontSize: 12,
-                            padding: "4px 10px",
-                            background: "transparent",
-                            border: "1px solid var(--color-border, #333)",
-                            borderRadius: 6,
-                            color: "var(--color-text-muted, #888)",
-                            cursor: "pointer",
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: "2px 7px",
+                            borderRadius: 4,
+                            background: "var(--color-primary)",
+                            color: "#fff",
+                            letterSpacing: "0.03em",
                           }}
                         >
-                          📎 Attach design reference
-                        </button>
-                        {referenceFile && (
-                          <div style={{
-                            display: "flex", alignItems: "center", gap: 6,
+                          AI-customized
+                        </span>
+                      )}
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={8}
+                      placeholder={
+                        "Structure, design, and content — all in one place.\n\n" +
+                        "Examples:\n" +
+                        '• "only generate 1 section: hero"\n' +
+                        '• "make it 3 sections focused on the problem and solution"\n' +
+                        '• "remove pricing, add a benefits section after hero"\n' +
+                        '• "swap hero and challenge order"\n' +
+                        '• "make it beautiful by using images"\n' +
+                        '• "dark premium theme, no CTA in hero, add fade-in animations"'
+                      }
+                      value={designBrief}
+                      onChange={(e) => setDesignBrief(e.target.value)}
+                      style={{
+                        resize: "vertical",
+                        fontFamily: "inherit",
+                        lineHeight: 1.6,
+                      }}
+                    />
+
+                    {/* Reference file attachment */}
+                    <input
+                      id="ref-file-input"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,application/pdf"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 4 * 1024 * 1024) {
+                          alert("File must be under 4 MB");
+                          e.target.value = "";
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const base64 = reader.result as string;
+                          // Extract dominant colors via canvas for accurate hex sampling
+                          if (file.type.startsWith("image/")) {
+                            const img = new Image();
+                            img.onload = () => {
+                              try {
+                                const canvas = document.createElement("canvas");
+                                const MAX = 120; // downsample for speed
+                                const scale = Math.min(
+                                  1,
+                                  MAX / Math.max(img.width, img.height),
+                                );
+                                canvas.width = Math.round(img.width * scale);
+                                canvas.height = Math.round(img.height * scale);
+                                const ctx = canvas.getContext("2d");
+                                if (!ctx) {
+                                  setReferenceFile({
+                                    base64,
+                                    mediaType: file.type,
+                                    fileName: file.name,
+                                  });
+                                  return;
+                                }
+                                ctx.drawImage(
+                                  img,
+                                  0,
+                                  0,
+                                  canvas.width,
+                                  canvas.height,
+                                );
+                                const { data } = ctx.getImageData(
+                                  0,
+                                  0,
+                                  canvas.width,
+                                  canvas.height,
+                                );
+                                const toHex = (v: number) =>
+                                  Math.min(255, Math.max(0, v))
+                                    .toString(16)
+                                    .padStart(2, "0");
+                                // Saturation helper — how vivid is a color (0=grey, 1=fully saturated)
+                                const saturation = (
+                                  r: number,
+                                  g: number,
+                                  b: number,
+                                ) => {
+                                  const max = Math.max(r, g, b),
+                                    min = Math.min(r, g, b);
+                                  return max === 0 ? 0 : (max - min) / max;
+                                };
+                                // Bucket pixels into 24-step bins — track count AND max saturation seen
+                                const buckets = new Map<
+                                  string,
+                                  {
+                                    r: number;
+                                    g: number;
+                                    b: number;
+                                    count: number;
+                                    sat: number;
+                                  }
+                                >();
+                                for (let i = 0; i < data.length; i += 4) {
+                                  if (data[i + 3] < 128) continue;
+                                  const r = Math.min(
+                                    255,
+                                    Math.round(data[i] / 24) * 24,
+                                  );
+                                  const g = Math.min(
+                                    255,
+                                    Math.round(data[i + 1] / 24) * 24,
+                                  );
+                                  const b = Math.min(
+                                    255,
+                                    Math.round(data[i + 2] / 24) * 24,
+                                  );
+                                  const sat = saturation(r, g, b);
+                                  const key = `${r},${g},${b}`;
+                                  const entry = buckets.get(key);
+                                  if (entry) {
+                                    entry.count++;
+                                    entry.sat = Math.max(entry.sat, sat);
+                                  } else {
+                                    buckets.set(key, {
+                                      r,
+                                      g,
+                                      b,
+                                      count: 1,
+                                      sat,
+                                    });
+                                  }
+                                }
+                                const all = [...buckets.values()];
+                                // Sort by frequency for background/dominant detection
+                                const byFreq = [...all].sort(
+                                  (a, b) => b.count - a.count,
+                                );
+                                // Sort by perceptual vividness = saturation × brightness.
+                                // HSV saturation alone is 1.0 for near-black colors (e.g. #000018 = R0 G0 B24),
+                                // which would rank dark navies above magenta. Multiplying by min(lum/128, 1)
+                                // penalises dark colors so only truly bright+saturated accents rank first.
+                                const bySat = [...all]
+                                  .map((c) => {
+                                    const lum =
+                                      0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+                                    return {
+                                      ...c,
+                                      lum,
+                                      vivid: c.sat * Math.min(lum / 128, 1),
+                                    };
+                                  })
+                                  .filter((c) => c.sat > 0.35 && c.vivid > 0.2)
+                                  .sort((a, b) => b.vivid - a.vivid);
+
+                                const lightColors: string[] = []; // backgrounds (high luminance)
+                                const darkColors: string[] = []; // dark backgrounds
+                                const brandColors: string[] = []; // mid-tone frequent colors
+                                const vividColors: string[] = []; // high saturation accents
+
+                                // Collect vivid colors first (these are neon accents regardless of frequency)
+                                for (const { r, g, b } of bySat.slice(0, 4)) {
+                                  vividColors.push(
+                                    `#${toHex(r)}${toHex(g)}${toHex(b)}`,
+                                  );
+                                }
+                                // Classify frequent colors by luminance
+                                for (const { r, g, b } of byFreq.slice(0, 14)) {
+                                  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                                  const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+                                  if (lum > 180) {
+                                    if (lightColors.length < 3)
+                                      lightColors.push(hex);
+                                  } else if (lum < 30) {
+                                    if (darkColors.length < 2)
+                                      darkColors.push(hex);
+                                  } else {
+                                    if (brandColors.length < 4)
+                                      brandColors.push(hex);
+                                  }
+                                }
+
+                                // Determine if this is a dark-background image
+                                const isDarkImage = lightColors.length === 0;
+                                // Layout: [bg candidates] [vivid accents] [mid-tone brand]
+                                const dominantColors = isDarkImage
+                                  ? [
+                                      ...darkColors.slice(0, 1),
+                                      ...vividColors.slice(0, 4),
+                                      ...brandColors.slice(0, 3),
+                                    ]
+                                  : [
+                                      ...lightColors,
+                                      ...vividColors.slice(0, 3),
+                                      ...brandColors.slice(0, 3),
+                                    ];
+                                setReferenceFile({
+                                  base64,
+                                  mediaType: file.type,
+                                  fileName: file.name,
+                                  dominantColors,
+                                });
+                              } catch {
+                                setReferenceFile({
+                                  base64,
+                                  mediaType: file.type,
+                                  fileName: file.name,
+                                });
+                              }
+                            };
+                            img.src = base64;
+                          } else {
+                            setReferenceFile({
+                              base64,
+                              mediaType: file.type,
+                              fileName: file.name,
+                            });
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginTop: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          document.getElementById("ref-file-input")?.click()
+                        }
+                        style={{
+                          fontSize: 12,
+                          padding: "4px 10px",
+                          background: "transparent",
+                          border: "1px solid var(--color-border, #333)",
+                          borderRadius: 6,
+                          color: "var(--color-text-muted, #888)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        📎 Attach design reference
+                      </button>
+                      {referenceFile && (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
                             padding: "3px 8px",
                             background: "var(--color-surface, #1a1a1a)",
                             borderRadius: 6,
                             border: "1px solid var(--color-border, #333)",
-                          }}>
-                            {referenceFile.mediaType.startsWith("image/") ? (
-                              <img
-                                src={referenceFile.base64}
-                                alt="ref"
-                                style={{ width: 24, height: 24, objectFit: "cover", borderRadius: 3 }}
-                              />
-                            ) : (
-                              <span style={{ fontSize: 16 }}>📄</span>
-                            )}
-                            <span style={{
+                          }}
+                        >
+                          {referenceFile.mediaType.startsWith("image/") ? (
+                            <img
+                              src={referenceFile.base64}
+                              alt="ref"
+                              style={{
+                                width: 24,
+                                height: 24,
+                                objectFit: "cover",
+                                borderRadius: 3,
+                              }}
+                            />
+                          ) : (
+                            <span style={{ fontSize: 16 }}>📄</span>
+                          )}
+                          <span
+                            style={{
                               fontSize: 12,
                               color: "var(--color-text-muted, #888)",
                               maxWidth: 140,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
-                            }}>
-                              {referenceFile.fileName}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setReferenceFile(null)}
-                              style={{
-                                background: "none", border: "none", cursor: "pointer",
-                                color: "var(--color-text-muted, #888)", fontSize: 14, lineHeight: 1,
-                              }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <p className="muted" style={{ marginTop: 4 }}>
-                        Drives colors, fonts, section structure, layout
-                        variants, and motion. The more specific you are, the
-                        more distinct the result.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* ═══ STEP 4: GENERATING ═══ */}
-                {step === "generate" && (
-                  <div style={{ padding: "4px 0" }}>
-                    {/* Restored-from-navigation banner */}
-                    {!generating && progress.length > 0 && !layoutAST && (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "10px 14px",
-                          marginBottom: 16,
-                          background: "var(--color-surface)",
-                          border: "1px solid var(--color-border)",
-                          borderRadius: "var(--radius)",
-                          gap: 12,
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: "var(--color-text-muted)",
-                          }}
-                        >
-                          {wasGenerating
-                            ? "Checking for results…"
-                            : "Generation interrupted while you were away."}
-                        </span>
-                        {!wasGenerating && (
-                          <button
-                            className="btn btn-sm btn-primary"
-                            style={{ flexShrink: 0 }}
-                            onClick={() => {
-                              setStep("plugin");
-                              setError(null);
-                              setProgress([]);
-                              setStreamingSections([]);
                             }}
                           >
-                            ↺ Restart
+                            {referenceFile.fileName}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setReferenceFile(null)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              color: "var(--color-text-muted, #888)",
+                              fontSize: 14,
+                              lineHeight: 1,
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* URL design reference input */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginTop: 8,
+                      }}
+                    >
+                      <div style={{ position: "relative", flex: 1 }}>
+                        <span
+                          style={{
+                            position: "absolute",
+                            left: 8,
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            fontSize: 13,
+                            color: "var(--color-text-muted, #888)",
+                            pointerEvents: "none",
+                          }}
+                        >
+                          🌐
+                        </span>
+                        <input
+                          type="url"
+                          placeholder="Paste a website URL to extract design tokens"
+                          value={urlInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setUrlInput(val);
+                            if (!val.trim()) {
+                              setUrlReferenceDesign(null);
+                              setUrlExtractionState("idle");
+                              if (urlDebounceRef.current)
+                                clearTimeout(urlDebounceRef.current);
+                              return;
+                            }
+                            setUrlExtractionState("loading");
+                            if (urlDebounceRef.current)
+                              clearTimeout(urlDebounceRef.current);
+                            urlDebounceRef.current = setTimeout(async () => {
+                              try {
+                                const result = await extractUrlDesign(
+                                  apiKey,
+                                  val.trim(),
+                                );
+                                if (result.tokens) {
+                                  setUrlReferenceDesign(result.tokens);
+                                  setUrlExtractionState("success");
+                                } else {
+                                  setUrlReferenceDesign(null);
+                                  setUrlExtractionState(
+                                    result.error === "blocked_by_bot_protection"
+                                      ? "blocked"
+                                      : "error",
+                                  );
+                                }
+                              } catch {
+                                setUrlReferenceDesign(null);
+                                setUrlExtractionState("error");
+                              }
+                            }, 800);
+                          }}
+                          style={{
+                            width: "100%",
+                            fontSize: 12,
+                            padding: "5px 32px 5px 28px",
+                            background: "var(--color-surface, #1a1a1a)",
+                            border: "1px solid var(--color-border, #333)",
+                            borderRadius: 6,
+                            color: "var(--color-text, #fff)",
+                            outline: "none",
+                            boxSizing: "border-box",
+                          }}
+                        />
+                        {urlInput && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUrlInput("");
+                              setUrlReferenceDesign(null);
+                              setUrlExtractionState("idle");
+                              if (urlDebounceRef.current)
+                                clearTimeout(urlDebounceRef.current);
+                            }}
+                            style={{
+                              position: "absolute",
+                              right: 6,
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              color: "var(--color-text-muted, #888)",
+                              fontSize: 13,
+                              lineHeight: 1,
+                              padding: 2,
+                            }}
+                          >
+                            ✕
                           </button>
                         )}
                       </div>
-                    )}
-
-                    {/* Pipeline progress */}
-                    <div style={{ marginBottom: 20 }}>
-                      {progress.map((p, i) => (
-                        <div
-                          key={i}
+                      {urlExtractionState === "loading" && (
+                        <span
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            marginBottom: 8,
-                            opacity: p.done ? 1 : 0.6,
-                            transition: "opacity 0.3s",
+                            fontSize: 13,
+                            color: "var(--color-text-muted, #888)",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          <div
-                            style={{
-                              width: 18,
-                              height: 18,
-                              borderRadius: "50%",
-                              flexShrink: 0,
-                              background: p.done
-                                ? "var(--color-primary)"
-                                : "var(--color-surface)",
-                              border: p.done
-                                ? "none"
-                                : "1px solid var(--color-border)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 9,
-                              color: "#fff",
-                              transition: "background 0.3s",
-                            }}
-                          >
-                            {p.done ? "✓" : ""}
-                          </div>
+                          extracting…
+                        </span>
+                      )}
+                      {urlExtractionState === "success" &&
+                        urlReferenceDesign && (
                           <span
                             style={{
-                              fontSize: 12,
-                              color: p.done
-                                ? "var(--color-text)"
-                                : "var(--color-text-muted)",
+                              fontSize: 13,
+                              color: "#4ade80",
+                              whiteSpace: "nowrap",
                             }}
+                            title={urlReferenceDesign.style.vibe}
                           >
-                            {p.text}
+                            ✓ tokens ready
                           </span>
-                          {!p.done && (generating || wasGenerating) && (
-                            <div
-                              style={{
-                                width: 11,
-                                height: 11,
-                                borderRadius: "50%",
-                                flexShrink: 0,
-                                border: "1.5px solid var(--color-border)",
-                                borderTopColor: "var(--color-primary)",
-                                animation: "spin 0.8s linear infinite",
-                              }}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-
-                    {error && (
-                      <div
-                        style={{
-                          marginTop: 16,
-                          padding: "12px 14px",
-                          background: "#fef2f2",
-                          border: "1px solid #fecaca",
-                          borderRadius: "var(--radius)",
-                        }}
-                      >
-                        <p className="error" style={{ marginTop: 0 }}>
-                          {error}
-                        </p>
-                        <button
-                          className="btn btn-sm"
+                        )}
+                      {urlExtractionState === "error" && (
+                        <span
                           style={{
-                            marginTop: 8,
-                            borderColor: "#fecaca",
-                            color: "var(--color-error)",
-                          }}
-                          onClick={() => {
-                            setStep("plugin");
-                            setError(null);
+                            fontSize: 13,
+                            color: "#f87171",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          Try Again
-                        </button>
+                          ⚠ could not extract
+                        </span>
+                      )}
+                      {urlExtractionState === "blocked" && (
+                        <span
+                          style={{
+                            fontSize: 13,
+                            color: "#fb923c",
+                            whiteSpace: "nowrap",
+                          }}
+                          title="This site uses bot protection (e.g. Cloudflare) that blocks server-side CSS fetching. Try another URL or use the brand color fields instead."
+                        >
+                          ⊘ blocked by site
+                        </span>
+                      )}
+                    </div>
+                    {urlReferenceDesign && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          display: "flex",
+                          gap: 6,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        {[
+                          urlReferenceDesign.colors.primary,
+                          urlReferenceDesign.colors.secondary,
+                          urlReferenceDesign.colors.accent,
+                          urlReferenceDesign.colors.background,
+                        ]
+                          .filter(Boolean)
+                          .map((color, i) => (
+                            <span
+                              key={i}
+                              style={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: 3,
+                                background: color,
+                                border: "1px solid var(--color-border, #333)",
+                                display: "inline-block",
+                              }}
+                              title={color}
+                            />
+                          ))}
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "var(--color-text-muted, #888)",
+                            marginLeft: 4,
+                          }}
+                        >
+                          {urlReferenceDesign.typography.headingFont} ·{" "}
+                          {urlReferenceDesign.style.borderRadius}
+                        </span>
                       </div>
                     )}
 
-                    <style>{`
+                    <p className="muted" style={{ marginTop: 4 }}>
+                      Drives colors, fonts, section structure, layout variants,
+                      and motion. The more specific you are, the more distinct
+                      the result.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ═══ STEP 4: GENERATING ═══ */}
+              {step === "generate" && (
+                <div style={{ padding: "4px 0" }}>
+                  {/* Restored-from-navigation banner */}
+                  {!generating && progress.length > 0 && !layoutAST && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "10px 14px",
+                        marginBottom: 16,
+                        background: "var(--color-surface)",
+                        border: "1px solid var(--color-border)",
+                        borderRadius: "var(--radius)",
+                        gap: 12,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: "var(--color-text-muted)",
+                        }}
+                      >
+                        {wasGenerating
+                          ? "Checking for results…"
+                          : "Generation interrupted while you were away."}
+                      </span>
+                      {!wasGenerating && (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          style={{ flexShrink: 0 }}
+                          onClick={() => {
+                            setStep("plugin");
+                            setError(null);
+                            setProgress([]);
+                            setStreamingSections([]);
+                          }}
+                        >
+                          ↺ Restart
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Pipeline progress */}
+                  <div style={{ marginBottom: 20 }}>
+                    {progress.map((p, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          marginBottom: 8,
+                          opacity: p.done ? 1 : 0.6,
+                          transition: "opacity 0.3s",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            flexShrink: 0,
+                            background: p.done
+                              ? "var(--color-primary)"
+                              : "var(--color-surface)",
+                            border: p.done
+                              ? "none"
+                              : "1px solid var(--color-border)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 9,
+                            color: "#fff",
+                            transition: "background 0.3s",
+                          }}
+                        >
+                          {p.done ? "✓" : ""}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: p.done
+                              ? "var(--color-text)"
+                              : "var(--color-text-muted)",
+                          }}
+                        >
+                          {p.text}
+                        </span>
+                        {!p.done && (generating || wasGenerating) && (
+                          <div
+                            style={{
+                              width: 11,
+                              height: 11,
+                              borderRadius: "50%",
+                              flexShrink: 0,
+                              border: "1.5px solid var(--color-border)",
+                              borderTopColor: "var(--color-primary)",
+                              animation: "spin 0.8s linear infinite",
+                            }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {error && (
+                    <div
+                      style={{
+                        marginTop: 16,
+                        padding: "12px 14px",
+                        background: "#fef2f2",
+                        border: "1px solid #fecaca",
+                        borderRadius: "var(--radius)",
+                      }}
+                    >
+                      <p className="error" style={{ marginTop: 0 }}>
+                        {error}
+                      </p>
+                      <button
+                        className="btn btn-sm"
+                        style={{
+                          marginTop: 8,
+                          borderColor: "#fecaca",
+                          color: "var(--color-error)",
+                        }}
+                        onClick={() => {
+                          setStep("plugin");
+                          setError(null);
+                        }}
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  )}
+
+                  <style>{`
                 @keyframes spin { to { transform: rotate(360deg); } }
                 @keyframes slideInSection {
                   from { opacity: 0; transform: translateY(-6px); }
                   to { opacity: 1; transform: translateY(0); }
                 }
               `}</style>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
+          </div>
 
-            {/* Navigation footer */}
-            {step !== "generate" && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginTop: 20,
+          {/* Navigation footer */}
+          {step !== "generate" && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginTop: 20,
+              }}
+            >
+              <button
+                className="btn"
+                onClick={() => {
+                  const prev: Record<StepId, StepId | null> = {
+                    upload: null,
+                    brand: "upload",
+                    plugin: "brand",
+                    generate: "plugin",
+                    preview: "plugin",
+                  };
+                  const p = prev[step];
+                  if (p) setStep(p);
                 }}
+                disabled={step === "upload"}
+                style={{ minWidth: 96 }}
               >
+                ← Back
+              </button>
+
+              <span className="muted">
+                Step {stepIdx + 1} of {STEPS.length}
+              </span>
+
+              {step === "upload" && (
                 <button
-                  className="btn"
-                  onClick={() => {
-                    const prev: Record<StepId, StepId | null> = {
-                      upload: null,
-                      brand: "upload",
-                      plugin: "brand",
-                      generate: "plugin",
-                      preview: "plugin",
-                    };
-                    const p = prev[step];
-                    if (p) setStep(p);
-                  }}
-                  disabled={step === "upload"}
-                  style={{ minWidth: 96 }}
+                  className="btn btn-primary"
+                  onClick={() => setStep("brand")}
+                  disabled={!mdContent.trim() || loadingContent}
+                  style={{ minWidth: 120, width: "auto" }}
                 >
-                  ← Back
+                  Next →
                 </button>
-
-                <span className="muted">
-                  Step {stepIdx + 1} of {STEPS.length}
-                </span>
-
-                {step === "upload" && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setStep("brand")}
-                    disabled={!mdContent.trim() || loadingContent}
-                    style={{ minWidth: 120, width: "auto" }}
+              )}
+              {step === "brand" && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setStep("plugin")}
+                  style={{ minWidth: 120, width: "auto" }}
+                >
+                  Next →
+                </button>
+              )}
+              {step === "plugin" && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    gap: 8,
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      color: pdfFriendly
+                        ? "var(--color-primary)"
+                        : "var(--color-text-muted)",
+                      userSelect: "none",
+                    }}
                   >
-                    Next →
-                  </button>
-                )}
-                {step === "brand" && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setStep("plugin")}
-                    style={{ minWidth: 120, width: "auto" }}
-                  >
-                    Next →
-                  </button>
-                )}
-                {step === "plugin" && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                    <label
+                    <div
+                      onClick={() => setPdfFriendly((v) => !v)}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
+                        width: 36,
+                        height: 20,
+                        borderRadius: 10,
+                        background: pdfFriendly
+                          ? "var(--color-primary)"
+                          : "var(--color-border)",
+                        position: "relative",
+                        transition: "background 0.2s",
+                        flexShrink: 0,
                         cursor: "pointer",
-                        fontSize: 13,
-                        color: pdfFriendly ? "var(--color-primary)" : "var(--color-text-muted)",
-                        userSelect: "none",
                       }}
                     >
                       <div
-                        onClick={() => setPdfFriendly(v => !v)}
                         style={{
-                          width: 36,
-                          height: 20,
-                          borderRadius: 10,
-                          background: pdfFriendly ? "var(--color-primary)" : "var(--color-border)",
-                          position: "relative",
-                          transition: "background 0.2s",
-                          flexShrink: 0,
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{
                           position: "absolute",
                           top: 3,
                           left: pdfFriendly ? 19 : 3,
@@ -2416,24 +2889,38 @@ export function PresentationPage() {
                           background: "#fff",
                           transition: "left 0.2s",
                           boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-                        }} />
-                      </div>
-                      <span onClick={() => setPdfFriendly(v => !v)}>PDF Friendly</span>
-                    </label>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => {
-                        setStep("generate");
-                        setTimeout(runPipeline, 100);
-                      }}
-                      style={{ minWidth: 140, width: "auto" }}
-                    >
-                      ⚡ Generate Microsite
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+                        }}
+                      />
+                    </div>
+                    <span onClick={() => setPdfFriendly((v) => !v)}>
+                      PDF Friendly
+                    </span>
+                  </label>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setStep("generate");
+                      setTimeout(runPipeline, 100);
+                    }}
+                    disabled={urlExtractionState === "loading"}
+                    style={{
+                      minWidth: 140,
+                      width: "auto",
+                      opacity: urlExtractionState === "loading" ? 0.5 : 1,
+                      cursor:
+                        urlExtractionState === "loading"
+                          ? "not-allowed"
+                          : "pointer",
+                    }}
+                  >
+                    {urlExtractionState === "loading"
+                      ? "Extracting design…"
+                      : "⚡ Generate Microsite"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

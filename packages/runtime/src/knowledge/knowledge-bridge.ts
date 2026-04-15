@@ -59,8 +59,14 @@ function pythonScriptDir(): string {
 }
 
 function resolvePython(scriptDir: string): string {
-  const venv = path.join(scriptDir, '.venv', 'bin', 'python3');
-  return existsSync(venv) ? venv : 'python3';
+  const venvUnix = path.join(scriptDir, '.venv', 'bin', 'python3');
+  if (existsSync(venvUnix)) return venvUnix;
+  const venvWin = path.join(scriptDir, '.venv', 'Scripts', 'python.exe');
+  if (existsSync(venvWin)) return venvWin;
+  // On Windows 'python3' may resolve to a stub or a different install without
+  // the required packages; 'python' is the standard Windows executable name.
+  // path.sep is '\' on Windows, '/' on Unix — use it as a platform check.
+  return path.sep === '\\' ? 'python' : 'python3';
 }
 
 function spawnKnowledgeStore(

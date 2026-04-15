@@ -34,6 +34,7 @@ WORKDIR /app
 # Next.js standalone output includes everything needed
 COPY --from=build /app/services/ui/.next/standalone ./
 COPY --from=build /app/services/ui/.next/static ./services/ui/.next/static
+COPY --from=build /app/services/ui/public ./services/ui/public
 
 ENV NODE_ENV=production
 ENV PORT=3001

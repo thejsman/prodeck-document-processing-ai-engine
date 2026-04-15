@@ -66,6 +66,7 @@ function mapJobStatus(status: string): string {
   }
 }
 
+
 // ── Route registration ────────────────────────────────────────────
 
 export function registerStreamUploadRoutes(
@@ -210,4 +211,6 @@ export function registerStreamUploadRoutes(
       error:      entry.error,
     });
   });
+
 }
+

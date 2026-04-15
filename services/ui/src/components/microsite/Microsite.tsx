@@ -492,6 +492,8 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
         textMuted:       vars['--ms-text2']         ?? t.textMuted,
         textSubtle:      vars['--ms-text3']         ?? t.textSubtle,
         border:          vars['--ms-border']        ?? t.border,
+        gradientHero:    vars['--ms-gradient-hero'] ?? t.gradientHero,
+        gradientText:    vars['--ms-gradient-text'] ?? t.gradientText,
         heroFont:        extractFontName(vars['--ms-font-heading']) ?? t.heroFont,
         bodyFont:        extractFontName(vars['--ms-font-body'])    ?? t.bodyFont,
         borderRadius:    vars['--ms-r-card']        ?? t.borderRadius,

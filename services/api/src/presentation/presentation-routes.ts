@@ -185,6 +185,434 @@ export function registerPresentationRoutes(
     return reply.header('Access-Control-Allow-Origin', '*').type('image/jpeg').send(stream);
   });
 
+  // POST /presentations/extract-url-design
+  // Fetches a website URL server-side, scrapes its CSS, then uses the LLM to extract
+  // a ReferenceDesign token object (colors, typography, style) for use in microsite generation.
+  app.post('/presentations/extract-url-design', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { url?: string } | undefined;
+    const rawUrl = body?.url?.trim();
+
+    if (!rawUrl) return reply.code(400).send({ error: 'url is required', tokens: null });
+
+    // Validate URL — only http/https allowed
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(rawUrl);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') throw new Error('bad protocol');
+    } catch {
+      return reply.code(400).send({ error: 'invalid_url', tokens: null });
+    }
+
+    // ── Step 1: Fetch HTML with 8s timeout ────────────────────────────────
+    let html: string;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8_000);
+      const res = await fetch(parsedUrl.toString(), {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        redirect: 'follow',
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        // 403 is almost always Cloudflare or similar bot-protection — give a clear error
+        const errCode = res.status === 403 ? 'blocked_by_bot_protection' : `fetch_failed_${res.status}`;
+        return reply.code(200).send({ error: errCode, tokens: null });
+      }
+      html = await res.text();
+    } catch (err) {
+      const msg = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'fetch_failed';
+      return reply.code(200).send({ error: msg, tokens: null });
+    }
+
+    // ── Step 2: Extract CSS from HTML ─────────────────────────────────────
+    const origin = parsedUrl.origin;
+
+    // meta theme-color
+    const themeColorMatch = html.match(/<meta[^>]*name=["']theme-color["'][^>]*content=["']([^"']+)["']/i)
+      ?? html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*name=["']theme-color["']/i);
+    const themeColorHint = themeColorMatch ? `theme-color: ${themeColorMatch[1]}` : '';
+
+    // Google Fonts links — extract font family names
+    const gFontNames = [...html.matchAll(/family=([A-Za-z0-9+]+)/gi)].map(m => m[1].replace(/\+/g, ' '));
+
+    // Linked stylesheets — handle both href-before-rel (Webflow) and rel-before-href orderings
+    const allLinkTags = [...html.matchAll(/<link\s([^>]+)>/gi)].map(m => m[1]);
+    const sheetHrefs = allLinkTags
+      .filter(attrs => /rel=["']stylesheet["']/i.test(attrs) || /rel=["']preload["'][^>]*as=["']style["']/i.test(attrs))
+      .map(attrs => {
+        const hm = attrs.match(/href=["']([^"']+)["']/i);
+        return hm ? hm[1] : null;
+      })
+      .filter((h): h is string => !!h && !h.includes('fonts.googleapis.com') && !h.startsWith('data:'))
+      .slice(0, 5);
+
+    // Inline <style> blocks
+    const inlineStyles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]).join('\n');
+
+    const allSheetCss = (await Promise.all(sheetHrefs.map(async (href) => {
+      try {
+        const absolute = href.startsWith('http') ? href : (href.startsWith('//') ? `https:${href}` : `${origin}${href.startsWith('/') ? '' : '/'}${href}`);
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8_000);
+        const r = await fetch(absolute, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Accept': 'text/css,*/*;q=0.1', 'Referer': origin } });
+        clearTimeout(t);
+        if (!r.ok) return '';
+        const css = await r.text();
+        return css;
+      } catch { return ''; }
+    }))).join('\n');
+
+    const fullCss = inlineStyles + '\n' + allSheetCss;
+
+    // ── Color format converters ────────────────────────────────────────────────
+    // Many modern sites (Tailwind v4, Radix, shadcn) define colors as oklch() or hsl().
+    // These converters let us resolve all CSS color formats down to #hex.
+
+    function hslToHex(h: number, s: number, l: number): string {
+      const sn = s / 100, ln = l / 100;
+      const a = sn * Math.min(ln, 1 - ln);
+      const f = (n: number) => {
+        const k = (n + h / 30) % 12;
+        return Math.round(255 * (ln - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, '0');
+      };
+      return `#${f(0)}${f(8)}${f(4)}`;
+    }
+
+    function rgbToHex(r: number, g: number, b: number): string {
+      return `#${Math.round(Math.max(0, Math.min(255, r))).toString(16).padStart(2, '0')}${Math.round(Math.max(0, Math.min(255, g))).toString(16).padStart(2, '0')}${Math.round(Math.max(0, Math.min(255, b))).toString(16).padStart(2, '0')}`;
+    }
+
+    function oklchToHex(L: number, C: number, H: number): string {
+      const hRad = (isNaN(H) ? 0 : H) * Math.PI / 180;
+      const a = (isNaN(C) ? 0 : C) * Math.cos(hRad);
+      const b = (isNaN(C) ? 0 : C) * Math.sin(hRad);
+      const lp = L + 0.3963377774 * a + 0.2158037573 * b;
+      const mp = L - 0.1055613458 * a - 0.0638541728 * b;
+      const sp = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l3 = lp ** 3, m3 = mp ** 3, s3 = sp ** 3;
+      const rLin =  4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+      const gLin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+      const bLin = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+      const toSrgb = (c: number) => { const v = Math.max(0, Math.min(1, c)); return v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055; };
+      return rgbToHex(toSrgb(rLin) * 255, toSrgb(gLin) * 255, toSrgb(bLin) * 255);
+    }
+
+    /** Convert any CSS color string to #rrggbb hex. Returns null if unrecognised. */
+    function cssColorToHex(raw: string): string | null {
+      const s = raw.trim().toLowerCase();
+      if (s === 'transparent' || s === 'inherit' || s === 'initial' || s === 'unset' || s === 'none') return null;
+      // #hex (3, 4, 6, or 8 chars — strip alpha for 8-char)
+      if (/^#[0-9a-f]{3,8}$/.test(s)) return s.length === 9 ? s.slice(0, 7) : s.length === 5 ? `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}` : s.slice(0, 7);
+      // hsl / hsla (comma or space separated, optional angle units on H)
+      const hslM = s.match(/^hsla?\s*\(\s*([\d.]+)(?:deg|rad|turn|grad)?\s*[,\s]\s*([\d.]+)%?\s*[,\s]\s*([\d.]+)%/);
+      if (hslM) return hslToHex(parseFloat(hslM[1]), parseFloat(hslM[2]), parseFloat(hslM[3]));
+      // rgb / rgba
+      const rgbM = s.match(/^rgba?\s*\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)/);
+      if (rgbM) return rgbToHex(parseFloat(rgbM[1]), parseFloat(rgbM[2]), parseFloat(rgbM[3]));
+      // oklch / oklcha (space-separated; L may have %)
+      const oklchM = s.match(/^oklcha?\s*\(\s*([\d.]+)(%?)\s+([\d.none]+)\s+([\d.none]+)/);
+      if (oklchM) {
+        const Lv = parseFloat(oklchM[1]) * (oklchM[2] === '%' ? 0.01 : 1);
+        const Cv = parseFloat(oklchM[3]);
+        const Hv = parseFloat(oklchM[4]);
+        return oklchToHex(isNaN(Lv) ? 0 : Lv, isNaN(Cv) ? 0 : Cv, isNaN(Hv) ? 0 : Hv);
+      }
+      return null;
+    }
+
+    // ── CSS variable resolution: follow var() chains to resolved hex values ────
+    // Build a complete map of all CSS variable definitions (first definition wins).
+    // Stores raw values — cssColorToHex/resolveVar convert on demand.
+    const varMap = new Map<string, string>();
+    for (const m of fullCss.matchAll(/(--[\w-]+)\s*:\s*([^;}{]+)/gu)) {
+      const vname = m[1];
+      if (!varMap.has(vname)) varMap.set(vname, m[2].trim());
+    }
+
+    function resolveVar(name: string, depth = 0): string | null {
+      if (depth > 8) return null;
+      const val = varMap.get(name);
+      if (!val) return null;
+      // Try direct conversion (hex, hsl, rgb, oklch)
+      const direct = cssColorToHex(val);
+      if (direct) return direct;
+      // Follow var() chain
+      const ref = val.match(/var\s*\(\s*(--[\w-]+)/);
+      return ref ? resolveVar(ref[1], depth + 1) : null;
+    }
+
+    // ── Scan CSS rules for actual body/html background-color AND text color ─────
+    // Only accept PURE ROOT-LEVEL body rules: selector must be exactly 'body', 'html',
+    // ':root', or comma-separated combinations of those (e.g. 'html, body').
+    // This excludes scoped rules like 'html body.class em{background:X}' which are NOT
+    // the page background. CSS cascade: keep the last resolved value.
+    let bodyBgHex: string | null = null;
+    let bodyTextHex: string | null = null;
+    for (const m of fullCss.matchAll(/([^{}]{0,150})\{([^}]{0,800})\}/g)) {
+      const sel = m[1].trim();
+      const block = m[2];
+      // Check every comma-separated part is exactly html, body, or :root (no class/id/child)
+      const parts = sel.split(',').map(s => s.trim());
+      const isRootBodyRule = parts.every(s => /^(?:html|body|:root)$/.test(s)) && parts.some(s => s === 'body');
+      if (!isRootBodyRule) continue;
+      // background-color
+      const bgProp = block.match(/background(?:-color)?\s*:\s*([^;!}]{1,120})/);
+      if (bgProp) {
+        const raw = bgProp[1].trim();
+        const directHex = cssColorToHex(raw);
+        if (directHex && !/^#0{3,8}$/.test(directHex)) { bodyBgHex = directHex; }
+        else if (!directHex) { const vr = raw.match(/var\s*\(\s*(--[\w-]+)/); if (vr) { const r = resolveVar(vr[1]); if (r) bodyBgHex = r; } }
+      }
+      // color (text) — strong dark-theme signal when it's white
+      const colorProp = block.match(/(?:^|;)\s*color\s*:\s*([^;!}]{1,80})/);
+      if (colorProp) {
+        const raw = colorProp[1].trim();
+        const directHex = cssColorToHex(raw);
+        if (directHex) { bodyTextHex = directHex; }
+        else { const vr = raw.match(/var\s*\(\s*(--[\w-]+)/); if (vr) { const r = resolveVar(vr[1]); if (r) bodyTextHex = r; } }
+      }
+    }
+    // #ffffff / #fff is the browser/CSS-reset default — not a meaningful theme signal.
+    // If the only body bg we found is white, ignore it and let semantic var resolution take over.
+    if (/^#(?:fff|ffffff)$/i.test(bodyBgHex ?? '')) bodyBgHex = null;
+
+    // Helper: compute relative luminance from a 6-digit hex string
+    function hexLum(hex: string): number {
+      const h = hex.length === 4
+        ? '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3]
+        : hex.slice(0, 7); // strip alpha if 8-char
+      const r = parseInt(h.slice(1, 3), 16) / 255;
+      const g = parseInt(h.slice(3, 5), 16) / 255;
+      const b = parseInt(h.slice(5, 7), 16) / 255;
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    // Dark-theme inference: if body text color is white/near-white and no body bg was found,
+    // collect dark background-color values from element-level CSS rules as page bg candidates.
+    const bodyTextIsLight = bodyTextHex ? hexLum(bodyTextHex) > 0.8 : false;
+    let inferredDarkBg: string | null = null;
+    if (!bodyBgHex && bodyTextIsLight) {
+      const darkFreq = new Map<string, number>();
+      for (const m of fullCss.matchAll(/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{6,7})\b/g)) {
+        const hex = m[1].toLowerCase();
+        // Skip transparent, near-transparent, pure black
+        if (/^#0{6}$/.test(hex)) continue;
+        const lum = hexLum(hex);
+        if (lum < 0.08) darkFreq.set(hex, (darkFreq.get(hex) ?? 0) + 1);
+      }
+      if (darkFreq.size > 0) {
+        // Pick most frequent; ties broken by slightly lighter (more visible as bg)
+        const sorted = [...darkFreq.entries()].sort((a, b) => b[1] - a[1] || hexLum(b[0]) - hexLum(a[0]));
+        inferredDarkBg = sorted[0][0];
+      }
+    }
+
+    // Extract resolved page-level semantic colors (background, text, primary/brand)
+    // These are the most reliable signals — they tell us the actual applied colors
+    const resolvedPageColors: { label: string; hex: string }[] = [];
+    const seenResolvedHex = new Set<string>();
+
+    // Body background from CSS rules takes top priority (only when it's a real theme color)
+    if (bodyBgHex) {
+      seenResolvedHex.add(bodyBgHex);
+      resolvedPageColors.push({ label: 'PAGE BACKGROUND', hex: bodyBgHex });
+    } else if (inferredDarkBg) {
+      // Dark theme inferred from white body text — use most common dark bg as page background
+      seenResolvedHex.add(inferredDarkBg);
+      resolvedPageColors.push({ label: 'PAGE BACKGROUND (dark theme inferred from white body text)', hex: inferredDarkBg });
+    }
+
+    for (const [name] of varMap.entries()) {
+      const lower = name.toLowerCase();
+      let label: string | null = null;
+      // Semantic theme/page-level background variables (exact or near-exact match)
+      if (/--(?:_theme---)?background(?:$|-(?:color|page|base|default|main|site|body))/.test(lower)
+        || /--(?:color-)?(?:page|site|body)-?bg(?:$|-)/.test(lower)) {
+        label = 'PAGE BACKGROUND';
+      } else if (/--(?:_theme---)?text(?:$|-color)/.test(lower)
+        || /--(?:color-)?(?:body|page)-?text(?:$|-)/.test(lower)) {
+        label = 'PAGE TEXT COLOR';
+      } else if (/--(?:color-)?(?:primary|brand)(?:-\d+)?(?:$|-default)/.test(lower)) {
+        label = 'PRIMARY/BRAND COLOR';
+      }
+      if (label) {
+        const hex = resolveVar(name);
+        if (hex && !seenResolvedHex.has(hex)) {
+          seenResolvedHex.add(hex);
+          resolvedPageColors.push({ label, hex });
+        }
+      }
+    }
+
+    // ── Pre-process CSS: categorize color tokens by semantic role ────────────
+    // Iterate varMap (already deduplicated, first-definition-wins) instead of
+    // rescanning fullCss. This catches oklch/hsl/rgb values that a hex-only regex misses.
+    const bgTokens:     { name: string; val: string }[] = [];
+    const accentTokens: { name: string; val: string }[] = [];
+    const textTokens:   { name: string; val: string }[] = [];
+    const otherTokens:  { name: string; val: string }[] = [];
+    const seenBucketNames = new Set<string>();
+
+    for (const [rawName, rawVal] of varMap.entries()) {
+      const name = rawName.toLowerCase();
+      if (seenBucketNames.has(name)) continue;
+      seenBucketNames.add(name);
+      // Skip well-known third-party UI library namespaces — these are widget/modal colors,
+      // not the site's brand palette. Letting them through confuses the LLM.
+      if (/^--(cc|wp--|swiper-|plyr-|fc-|bs-|mdb-)/.test(name)) continue;
+      // Resolve the raw value to hex (handles #hex, hsl, rgb, oklch, and var() chains)
+      const val = rawVal.startsWith('var(') ? resolveVar(rawName) : cssColorToHex(rawVal);
+      if (!val) continue;   // not a color variable — skip
+      if (/background|bg|dark|base|surface|lift|depth/.test(name))  bgTokens.push({ name: rawName, val });
+      else if (/accent|brand|primary|highlight|feature/.test(name)) accentTokens.push({ name: rawName, val });
+      else if (/text|foreground|label|copy/.test(name))              textTokens.push({ name: rawName, val });
+      else                                                            otherTokens.push({ name: rawName, val });
+    }
+
+    // Gradient color stops (hex only to avoid invalid rgba in JSON output)
+    const gradientStops: string[] = [];
+    for (const m of fullCss.matchAll(/(?:linear|radial|conic)-gradient\s*\(([^)]{10,400})\)/g)) {
+      const stops = [...m[1].matchAll(/#[0-9a-fA-F]{3,8}/g)].map(s => s[0]);
+      if (stops.length >= 2) gradientStops.push(stops.join(' → '));
+    }
+
+    // font-family declarations (deduplicated, skip CSS variable references)
+    const fontFamilies: string[] = [];
+    for (const m of fullCss.matchAll(/font-family\s*:\s*([^;}{]{5,80})/g)) {
+      const val = m[1].trim().split(',')[0].replace(/['"]/g, '').trim();
+      // Skip CSS variable references (var(...)) — they're not font names
+      if (!val || val.startsWith('var(') || val.startsWith('--')) continue;
+      if (!fontFamilies.includes(val)) fontFamilies.push(val);
+      if (fontFamilies.length >= 8) break;
+    }
+    if (gFontNames.length) gFontNames.forEach(f => { if (!fontFamilies.includes(f)) fontFamilies.push(f); });
+
+    // Build structured summary — categorised sections so LLM maps correctly
+    const lines: string[] = [];
+    if (themeColorHint) lines.push(`META: ${themeColorHint}`);
+
+    // Resolved page colors go FIRST — highest priority, LLM must use these
+    if (resolvedPageColors.length) {
+      lines.push('\nRESOLVED PAGE COLORS ⚑ USE THESE DIRECTLY — do not override with other tokens:');
+      resolvedPageColors.forEach(c => lines.push(`  ${c.label}: ${c.hex}`));
+    } else if (bodyTextIsLight) {
+      lines.push('\nTHEME SIGNAL: body text color is white — this is a DARK theme; use a dark color for background and surface');
+    } else {
+      // No body background found in CSS — browser default is white
+      lines.push('\nBODY BACKGROUND: not explicitly set in CSS — default is #ffffff (white); do NOT output a dark/black background unless BACKGROUND TOKENS clearly show a dark theme');
+    }
+
+    if (bgTokens.length) {
+      lines.push('\nBACKGROUND TOKENS (use these for background/surface):');
+      bgTokens.slice(0, 20).forEach(t => lines.push(`  ${t.name}: ${t.val}`));
+    }
+    if (accentTokens.length) {
+      lines.push('\nACCENT/BRAND TOKENS (use these for primary/secondary/accent):');
+      accentTokens.slice(0, 20).forEach(t => lines.push(`  ${t.name}: ${t.val}`));
+    }
+    if (textTokens.length) {
+      lines.push('\nTEXT TOKENS (use these for text/textMuted):');
+      textTokens.slice(0, 10).forEach(t => lines.push(`  ${t.name}: ${t.val}`));
+    }
+    if (otherTokens.length) {
+      lines.push('\nOTHER COLOR TOKENS:');
+      otherTokens.slice(0, 20).forEach(t => lines.push(`  ${t.name}: ${t.val}`));
+    }
+    if (gradientStops.length) {
+      lines.push('\nGRADIENT STOPS (HIGHLY SIGNIFICANT — these ARE the brand palette):');
+      gradientStops.slice(0, 8).forEach(g => lines.push(`  ${g}`));
+    }
+    if (fontFamilies.length) {
+      lines.push('\nFONT FAMILIES:');
+      fontFamilies.forEach(f => lines.push(`  ${f}`));
+    }
+
+    const colorSummary = lines.join('\n').slice(0, 10_000);
+    if (!colorSummary.trim()) return reply.code(200).send({ error: 'no_css_found', tokens: null });
+
+    // ── Step 3: LLM extraction ────────────────────────────────────────────
+    const extractionPrompt = `You are a senior UI designer analyzing a website's design system.
+Below are pre-categorized design tokens extracted from the site's CSS.
+
+CRITICAL RULES — read carefully:
+0. RESOLVED PAGE COLORS override everything — if this section appears, use those hex values DIRECTLY for the matching fields (PAGE BACKGROUND → background+surface, PAGE TEXT COLOR → text+textMuted, PRIMARY/BRAND COLOR → primary)
+1. Use BACKGROUND TOKENS for the "background" and "surface" fields (unless overridden by rule 0)
+2. Use ACCENT/BRAND TOKENS for the "primary", "secondary", and "accent" fields (unless overridden by rule 0)
+3. Use TEXT TOKENS for "text" and "textMuted" fields (unless overridden by rule 0)
+4. GRADIENT STOPS are the most important signal — if you see blue+pink+black gradient stops, the brand primary IS blue and secondary IS pink
+5. ALL color values in your JSON must be valid hex (#rrggbb or #rgb) — never output rgba() or rgb() values
+6. If you see near-black backgrounds (#010008, #040021, #0a0a0a) it is a DARK theme — do not output #ffffff as background
+7. For "headingFont" and "bodyFont" — output only the font name, no quotes, no fallback stack
+
+Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
+
+{
+  "colors": {
+    "primary": "#rrggbb",
+    "secondary": "#rrggbb",
+    "accent": "#rrggbb",
+    "background": "#rrggbb",
+    "surface": "#rrggbb",
+    "text": "#rrggbb",
+    "textMuted": "#rrggbb"
+  },
+  "typography": {
+    "headingFont": "font name only",
+    "bodyFont": "font name only",
+    "headingWeight": "700",
+    "bodyWeight": "400",
+    "headingStyle": "serif | sans-serif | display",
+    "mood": "modern | classic | bold | minimal | playful"
+  },
+  "style": {
+    "borderRadius": "sharp | soft | rounded",
+    "spacing": "compact | comfortable | spacious",
+    "vibe": "one sentence — mention the specific colors and mood"
+  }
+}
+
+DESIGN TOKENS:
+${colorSummary}
+
+Remember: output ONLY the JSON object. Every color field must be a valid hex string like #0420f2.`;
+
+    try {
+      const raw = await llmGenerateFn(extractionPrompt);
+      const jsonStart = raw.indexOf('{');
+      const jsonEnd = raw.lastIndexOf('}');
+      if (jsonStart === -1 || jsonEnd <= jsonStart) {
+        console.warn('[extract-url-design] LLM returned no JSON');
+        return reply.code(200).send({ error: 'parse_failed', tokens: null });
+      }
+      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+      const colors = parsed.colors as Record<string, string> | undefined;
+      const typography = parsed.typography as Record<string, string> | undefined;
+      const style = parsed.style as Record<string, string> | undefined;
+      if (!colors?.primary || !typography?.headingFont || !style?.vibe) {
+        console.warn('[extract-url-design] LLM returned incomplete tokens');
+        return reply.code(200).send({ error: 'incomplete_tokens', tokens: null });
+      }
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}`);
+      return reply.code(200).send({ tokens: parsed });
+    } catch (err) {
+      console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
+      return reply.code(200).send({ error: 'parse_failed', tokens: null });
+    }
+  });
+
   // POST /presentations/synthesize-style
   // Runs Pass -1 only: synthesize a design system from an inspiration image (and optional text prompt).
   // Returns the raw design-system tokens + font URLs — the caller can store these and pass them
@@ -536,6 +964,7 @@ export function registerPresentationRoutes(
       preSynthesizedDesignSystem?: Record<string, unknown>;
       pdfFriendly?: boolean;
       referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
+      urlReferenceDesign?: Record<string, unknown> | null;
     } | undefined;
 
     // Load markdown from body or saved file
@@ -591,6 +1020,7 @@ export function registerPresentationRoutes(
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
           ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
           ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
+          ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
             send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });

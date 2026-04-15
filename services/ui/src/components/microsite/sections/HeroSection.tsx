@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, useContext } from 'react';
+import { useEffect, useRef, useState, useContext, useCallback } from 'react';
 import type { PluginTokens, HeroContent, BrandConfig, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Display, Body, Label } from '../shared/Typography';
 import { CTAButton } from '../shared/CTAButton';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { Editable } from '../editor/Editable';
+import { InlineEditable } from '../editor/InlineEditable';
 import { TypewriterStateContext } from '../TypewriterSection';
 import { TypingCursor } from '../TypingCursor';
 
@@ -80,7 +80,6 @@ export function HeroSection({
   ui,
   behavior,
   imageOverlay,
-  sectionId,
 }: Props) {
   // Typewriter context — present only during active streaming animation
   const twCtx = useContext(TypewriterStateContext);
@@ -88,6 +87,10 @@ export function HeroSection({
   // Track image URL with error fallback — DALL-E URLs expire after 2h, drop them gracefully
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
   useEffect(() => { setActiveImageUrl(imageUrl); }, [imageUrl]);
+
+  // Hoist hasBgImage early — used to suppress gradient text when an image fills the background
+  // (URL-extracted tokens.text is more readable on image+scrim than a color gradient)
+  const hasBgImage = !!activeImageUrl;
 
   const resolvedVariant = variant ?? 'centered';
   const showCTA = ui?.showCTA !== false && !!(content.ctaPrimary?.trim() || content.ctaSecondary?.trim());
@@ -133,48 +136,39 @@ export function HeroSection({
 
   const outcomes = brief?.keyOutcomes?.slice(0, 3) ?? [];
 
-  // Reveal wrapper
-  function R({ children, delay = 0, style }: {
+  // Reveal wrapper — useCallback keeps the reference stable across re-renders
+  // so React doesn't unmount/remount InlineEditable children when context updates.
+  const R = useCallback(function R({ children, delay = 0, style }: {
     children: React.ReactNode; delay?: number; style?: React.CSSProperties;
   }) {
     if (noAnimation) return <div style={style}>{children}</div>;
     return <Reveal delay={delay} variant={revealVariant} style={style}>{children}</Reveal>;
-  }
+  }, [noAnimation, revealVariant]);
 
   // ── Shared blocks ─────────────────────────────────────────────────────────
 
-  // Editable wrapper — no-op when sectionId is absent (outside editor)
-  function E({ field, label, children, display }: {
-    field: string; label: string; children: React.ReactNode;
-    display?: 'block' | 'inline' | 'flex' | 'inline-block';
-  }) {
-    if (!sectionId) return <>{children}</>;
-    return (
-      <Editable sectionId={sectionId} fieldPath={field} elementType="text" label={label} display={display}>
-        {children}
-      </Editable>
-    );
-  }
-
   const eyebrow = content.eyebrow?.trim() && (
     <R>
-      <E field="eyebrow" label="Eyebrow">
+      <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow}>
         <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
           {content.eyebrow}
           <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
         </Label>
-      </E>
+      </InlineEditable>
     </R>
   );
 
+  // When the hero has a background image, suppress gradient text so the URL-extracted
+  // tokens.text color (e.g. #f6f3f0 from jackwatkins.co) is used instead of the
+  // plugin default or brand-setup gradient.
   const headline = (
     <R delay={60}>
-      <E field="headline" label="Headline">
-        <Display tokens={tokens} gradient style={{ marginBottom: 18 }}>
+      <InlineEditable field="headline" label="Headline" value={content.headline}>
+        <Display tokens={tokens} gradient={!hasBgImage} style={{ marginBottom: 18, ...(hasBgImage ? { color: tokens.text } : {}) }}>
           {content.headline}
           <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
         </Display>
-      </E>
+      </InlineEditable>
     </R>
   );
 
@@ -182,22 +176,22 @@ export function HeroSection({
     <>
       {content.subheadline?.trim() && (
         <R delay={120}>
-          <E field="subheadline" label="Subheadline">
+          <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
             <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7 }}>
               {content.subheadline}
               <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
             </Body>
-          </E>
+          </InlineEditable>
         </R>
       )}
       {content.body?.trim() && (
         <R delay={180}>
-          <E field="body" label="Body">
+          <InlineEditable field="body" label="Body" value={content.body} multiline>
             <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28 }}>
               {content.body}
               <TypingCursor visible={twCtx?.activeField === 'body' && (twCtx?.showCursor ?? false)} />
             </Body>
-          </E>
+          </InlineEditable>
         </R>
       )}
     </>
@@ -223,18 +217,18 @@ export function HeroSection({
   const ctaRow = showCTA && (
     <R delay={280} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
       {content.ctaPrimary?.trim() && (
-        <E field="ctaPrimary" label="Primary CTA" display="inline-block">
+        <InlineEditable field="ctaPrimary" label="Primary CTA" display="inline-block" value={content.ctaPrimary}>
           <CTAButton tokens={tokens} targetSectionId={primaryTarget}>
             {content.ctaPrimary}
           </CTAButton>
-        </E>
+        </InlineEditable>
       )}
       {content.ctaSecondary?.trim() && (
-        <E field="ctaSecondary" label="Secondary CTA" display="inline-block">
+        <InlineEditable field="ctaSecondary" label="Secondary CTA" display="inline-block" value={content.ctaSecondary}>
           <CTAButton tokens={tokens} variant="secondary" targetSectionId={secondaryTarget} showArrow={false}>
             {content.ctaSecondary}
           </CTAButton>
-        </E>
+        </InlineEditable>
       )}
     </R>
   );
@@ -291,16 +285,17 @@ export function HeroSection({
 
   // ── Shared section shell ──────────────────────────────────────────────────
 
-  // Full-width background image — activeImageUrl clears itself on load error (e.g. expired DALL-E SAS tokens)
-  const hasBgImage = !!activeImageUrl;
+  // bgScrim — dark overlay on top of hero background image
   const bgScrim = tokens.dark ? 'rgba(0,0,0,0.62)' : 'rgba(15,15,20,0.55)';
 
   const sectionStyle: React.CSSProperties = {
     position: 'relative',
     padding: 'clamp(4rem, 8vw, 7rem) 2rem',
+    // No gradient on the hero background — solid fill only.
+    // The gradient moves to the heading text instead (Display gradient={!hasBgImage}).
     background: hasBgImage
       ? `url(${activeImageUrl}) center center / cover no-repeat`
-      : getSectionGradient('hero', tokens),
+      : tokens.bg,
     overflow: 'hidden',
   };
 
@@ -412,37 +407,45 @@ export function HeroSection({
           {/* Eyebrow as plain label — no pill */}
           {content.eyebrow?.trim() && (
             <R>
-              <Label tokens={tokens} style={{ display: 'block', marginBottom: 20 }}>
-                {content.eyebrow}
-              </Label>
+              <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow}>
+                <Label tokens={tokens} style={{ display: 'block', marginBottom: 20 }}>
+                  {content.eyebrow}
+                </Label>
+              </InlineEditable>
             </R>
           )}
           <R delay={60}>
-            <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
-              lineHeight: 1.05,
-              marginBottom: 32,
-            }}>
-              {content.headline}
-            </Display>
+            <InlineEditable field="headline" label="Headline" value={content.headline}>
+              <Display tokens={tokens} gradient style={{
+                fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
+                lineHeight: 1.05,
+                marginBottom: 32,
+              }}>
+                {content.headline}
+              </Display>
+            </InlineEditable>
           </R>
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 540, lineHeight: 1.8, marginBottom: 12 }}>
-                {content.subheadline}
-              </Body>
+              <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
+                <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 540, lineHeight: 1.8, marginBottom: 12 }}>
+                  {content.subheadline}
+                </Body>
+              </InlineEditable>
             </R>
           )}
           {content.body?.trim() && (
             <R delay={180}>
-              <Body tokens={tokens} style={{
-                maxWidth: 520, lineHeight: 2,
-                marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
-                borderLeft: `2px solid ${tokens.border}`,
-                paddingLeft: 18,
-              }}>
-                {content.body}
-              </Body>
+              <InlineEditable field="body" label="Body" value={content.body} multiline>
+                <Body tokens={tokens} style={{
+                  maxWidth: 520, lineHeight: 2,
+                  marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
+                  borderLeft: `2px solid ${tokens.border}`,
+                  paddingLeft: 18,
+                }}>
+                  {content.body}
+                </Body>
+              </InlineEditable>
             </R>
           )}
           {outcomePills}
@@ -478,9 +481,11 @@ export function HeroSection({
           {headline}
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ maxWidth: 540, margin: '0 auto 36px', lineHeight: 1.7 }}>
-                {content.subheadline}
-              </Body>
+              <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
+                <Body tokens={tokens} style={{ maxWidth: 540, margin: '0 auto 36px', lineHeight: 1.7 }}>
+                  {content.subheadline}
+                </Body>
+              </InlineEditable>
             </R>
           )}
           {cards.length > 0 && (
@@ -541,19 +546,23 @@ export function HeroSection({
         <div style={{ ...container, maxWidth: 800 }}>
           {eyebrow}
           <R delay={60}>
-            <Display tokens={tokens} gradient style={{
-              fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
-              lineHeight: 1.02,
-              marginBottom: 24,
-            }}>
-              {content.headline}
-            </Display>
+            <InlineEditable field="headline" label="Headline" value={content.headline}>
+              <Display tokens={tokens} gradient style={{
+                fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
+                lineHeight: 1.02,
+                marginBottom: 24,
+              }}>
+                {content.headline}
+              </Display>
+            </InlineEditable>
           </R>
           {content.subheadline?.trim() && (
             <R delay={120}>
-              <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
-                {content.subheadline}
-              </Body>
+              <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
+                <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
+                  {content.subheadline}
+                </Body>
+              </InlineEditable>
             </R>
           )}
           {outcomePills}
