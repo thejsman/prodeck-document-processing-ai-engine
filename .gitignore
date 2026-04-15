@@ -64,3 +64,4 @@ workdir/
 # images generated locally
 images/
 
+namespaces/*

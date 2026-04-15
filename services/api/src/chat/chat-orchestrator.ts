@@ -25,7 +25,7 @@ import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import {
   buildLLMContext,
-  detectInterrupt,
+  classifyMessageIntent,
   buildInterruptContext,
 } from './context-builder.js';
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
@@ -428,7 +428,8 @@ export class ChatOrchestrator {
     const currentStateDef = workflow.states[instance.state];
     const isInputState = currentStateDef?.kind === 'input';
 
-    if (isInputState && detectInterrupt(message)) {
+    const intentResult = await classifyMessageIntent(message, llmGenerateFn);
+    if (isInputState && intentResult.intent === 'QUESTION') {
       try {
         // Build enriched context: recent conversation + current workflow state +
         // relevant artifacts (template info, proposal, requirements).

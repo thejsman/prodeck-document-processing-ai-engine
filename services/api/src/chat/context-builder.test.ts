@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  detectInterrupt,
+  detectIntent,
   buildRequirementStatus,
   buildTaskInstruction,
   buildConversationWindow,
@@ -9,12 +9,12 @@ import {
 } from './context-builder.js';
 
 // ---------------------------------------------------------------------------
-// detectInterrupt
+// detectIntent
 // ---------------------------------------------------------------------------
 
-describe('detectInterrupt', () => {
-  // Workflow affirmatives — must never fire
-  describe('workflow affirmatives are not interrupts', () => {
+describe('detectIntent', () => {
+  // Workflow affirmatives → CONFIRMATION (confidence 10)
+  describe('workflow affirmatives return CONFIRMATION', () => {
     const affirmatives = [
       'yes', 'y', 'no', 'n',
       'proceed', 'continue', 'go ahead', 'go on',
@@ -27,32 +27,34 @@ describe('detectInterrupt', () => {
     ];
 
     for (const msg of affirmatives) {
-      it(`"${msg}" is not an interrupt`, () => {
-        expect(detectInterrupt(msg)).toBe(false);
+      it(`"${msg}" → CONFIRMATION`, () => {
+        const result = detectIntent(msg);
+        expect(result.intent).toBe('CONFIRMATION');
+        expect(result.confidence).toBe(10);
       });
     }
   });
 
-  // Short messages without ? — not interrupts
-  describe('short messages without ? are not interrupts', () => {
+  // Short workflow inputs — below threshold → WORKFLOW_INPUT
+  describe('short messages without ? return WORKFLOW_INPUT', () => {
     const shorts = [
       'fintech',
       '12 weeks',
       '$50k',
       'cloud migration',
-      'list',          // was previously triggering as interrupt
-      'show me',       // was previously triggering as interrupt
+      'list',
+      'show me',
     ];
 
     for (const msg of shorts) {
-      it(`short "${msg}" is not an interrupt`, () => {
-        expect(detectInterrupt(msg)).toBe(false);
+      it(`short "${msg}" → WORKFLOW_INPUT`, () => {
+        expect(detectIntent(msg).intent).toBe('WORKFLOW_INPUT');
       });
     }
   });
 
-  // Clear questions — must fire
-  describe('genuine questions are interrupts', () => {
+  // Clear questions → QUESTION
+  describe('genuine questions return QUESTION', () => {
     const questions = [
       'What is the timeline for this project?',
       'How does the pricing work?',
@@ -63,31 +65,30 @@ describe('detectInterrupt', () => {
       'How does the system work?',
       'Tell me about the project scope',
       'Explain the methodology',
-      'What\'s in the knowledge base?',
+      "What's in the knowledge base?",
       'Summarize the documents',
       'Summarise the key findings',
     ];
 
     for (const msg of questions) {
-      it(`"${msg}" is an interrupt`, () => {
-        expect(detectInterrupt(msg)).toBe(true);
+      it(`"${msg}" → QUESTION`, () => {
+        expect(detectIntent(msg).intent).toBe('QUESTION');
       });
     }
   });
 
-  // Questions ending with ?
-  it('any message ending with ? is an interrupt', () => {
-    expect(detectInterrupt('Is this the right approach?')).toBe(true);
-    expect(detectInterrupt('What budget should I use?')).toBe(true);
+  it('messages ending with ? (length > 5) return QUESTION', () => {
+    expect(detectIntent('Is this the right approach?').intent).toBe('QUESTION');
+    expect(detectIntent('What budget should I use?').intent).toBe('QUESTION');
   });
 
-  // Edge: "yes?" is technically a question but won't match affirmative check
-  it('"yes?" ends with ? so is treated as an interrupt', () => {
-    expect(detectInterrupt('yes?')).toBe(true);
+  // "yes?" is 4 chars — ? only scores when length > 5, so score stays 0
+  it('"yes?" is too short to score, returns WORKFLOW_INPUT', () => {
+    expect(detectIntent('yes?').intent).toBe('WORKFLOW_INPUT');
   });
 
-  // Confusion expressions — end with ? but are NOT knowledge queries
-  describe('confusion expressions are not interrupts', () => {
+  // Confusion expressions — must never return QUESTION
+  describe('confusion expressions do not return QUESTION', () => {
     const confusionCases = [
       'what?', 'huh?', 'sorry?', 'pardon?', 'excuse me?',
       'what do you mean?', "i don't understand", 'i dont understand',
@@ -95,10 +96,25 @@ describe('detectInterrupt', () => {
     ];
 
     for (const msg of confusionCases) {
-      it(`"${msg}" is not an interrupt`, () => {
-        expect(detectInterrupt(msg)).toBe(false);
+      it(`"${msg}" → not QUESTION`, () => {
+        expect(detectIntent(msg).intent).not.toBe('QUESTION');
       });
     }
+  });
+
+  // Negative signals — command starters reduce score
+  it('command-like starters return WORKFLOW_INPUT', () => {
+    expect(detectIntent('generate the proposal').intent).toBe('WORKFLOW_INPUT');
+    expect(detectIntent('proceed with the outline').intent).toBe('WORKFLOW_INPUT');
+  });
+
+  // Confidence
+  it('clear questions have confidence >= 4', () => {
+    expect(detectIntent('What is the timeline for this project?').confidence).toBeGreaterThanOrEqual(4);
+  });
+
+  it('workflow affirmatives have confidence 10', () => {
+    expect(detectIntent('yes').confidence).toBe(10);
   });
 });
 
@@ -150,26 +166,37 @@ describe('buildTaskInstruction', () => {
     expect(instruction).toMatch(/ask|missing|requirement/i);
   });
 
-  it('proceeds with collection when enough inputs present', () => {
+  it('falls through to workflow fallback when all required fields are present', () => {
     const instruction = buildTaskInstruction('collecting_inputs', {
       industry: 'fintech',
+      projectType: 'web app',
       timeline: '12 weeks',
       budget: '$50k',
+      teamSize: '5',
+      clientName: 'Acme',
     });
-    expect(instruction).toMatch(/proceed|intake|collection/i);
+    expect(instruction).toMatch(/WORKFLOW|GENERATION|REVIEW|continue/i);
   });
 
-  it('returns generation instruction for generating states', () => {
+  it('returns generation instruction for generating states when inputs are complete', () => {
+    const allRequirements = {
+      industry: 'fintech', projectType: 'web app', timeline: '12 weeks',
+      budget: '$50k', teamSize: '5', clientName: 'Acme',
+    };
     for (const state of ['generating_outline', 'generating_sections', 'gap_analysis']) {
-      const instruction = buildTaskInstruction(state, {});
-      expect(instruction).toMatch(/proceed|generation|available/i);
+      const instruction = buildTaskInstruction(state, allRequirements);
+      expect(instruction).toMatch(/GENERATION|generate|content/i);
     }
   });
 
-  it('returns review instruction for review states', () => {
+  it('returns review instruction for review states when inputs are complete', () => {
+    const allRequirements = {
+      industry: 'fintech', projectType: 'web app', timeline: '12 weeks',
+      budget: '$50k', teamSize: '5', clientName: 'Acme',
+    };
     for (const state of ['recommend_template', 'review_template', 'qa_review']) {
-      const instruction = buildTaskInstruction(state, {});
-      expect(instruction).toMatch(/present|await|confirm/i);
+      const instruction = buildTaskInstruction(state, allRequirements);
+      expect(instruction).toMatch(/REVIEW|present|confirm/i);
     }
   });
 

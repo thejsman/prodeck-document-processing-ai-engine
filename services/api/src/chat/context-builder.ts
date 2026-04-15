@@ -64,10 +64,7 @@ export interface LLMContext {
 export function buildConversationWindow(messages: ChatMessage[]): ConversationMessage[] {
   return messages.slice(-CONVERSATION_WINDOW_SIZE).map((m) => ({
     role: m.role,
-    content:
-      m.content.length > MAX_MESSAGE_LENGTH
-        ? m.content.slice(0, MAX_MESSAGE_LENGTH) + '…[trimmed]'
-        : m.content,
+    content: m.content.length > MAX_MESSAGE_LENGTH ? m.content.slice(0, MAX_MESSAGE_LENGTH) + '…[trimmed]' : m.content,
   }));
 }
 
@@ -88,21 +85,34 @@ export function formatConversationForContext(window: ConversationMessage[]): str
  * Called only when messages.length > SUMMARY_THRESHOLD.
  * Non-fatal: callers should catch and ignore failures.
  */
-export async function generateConversationSummary(
-  messages: ChatMessage[],
-  generateFn: GenerateFn,
-): Promise<string> {
-  const text = messages
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-    .join('\n');
+export async function generateConversationSummary(messages: ChatMessage[], generateFn: GenerateFn): Promise<string> {
+  const text = messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
 
   const prompt = [
-    'Summarise the following conversation in 2–3 sentences.',
-    'Focus on what the user is trying to accomplish and any key decisions or inputs provided so far.',
-    'Be concise.',
+    'Summarise the following conversation into structured bullet points.',
+    '',
+    'Output MUST follow this format:',
+    '',
+    '1. User Goal:',
+    '- What the user is trying to achieve (be specific)',
+    '',
+    '2. Key Inputs Provided:',
+    '- List all important details shared (industry, timeline, budget, etc.)',
+    '',
+    '3. Decisions / Progress:',
+    '- What has already been decided or completed',
+    '',
+    '4. Open Items / Missing Information:',
+    '- What is still needed to move forward',
+    '',
+    'Rules:',
+    '- Use bullet points only (no paragraphs)',
+    '- Be slightly detailed but avoid fluff',
+    '- Do NOT invent information',
+    '- Keep it compact but informative',
     '',
     text,
-  ].join('\n');
+  ].join('\n\n');
 
   return generateFn(prompt);
 }
@@ -145,47 +155,84 @@ export function buildRequirementStatus(requirements: Record<string, string>): st
   return lines.join('\n');
 }
 
-
 // ---------------------------------------------------------------------------
 // STEP 6 — System prompt
 // ---------------------------------------------------------------------------
 
-/** States where the requirement status block is relevant and should be shown. */
-const REQUIREMENT_STATES = new Set([
-  'collecting_rfp', 'collecting_inputs', 'recommend_template',
-]);
-
 function buildSystemPrompt(
   workflowState: string,
   requirementStatus: string,
+  taskInstruction: string,
   conversationSummary?: string,
 ): string {
   const parts = [
-    'You are an AI assistant that helps users create proposals and answer questions about their documents.',
+    'You are a workflow-driven AI assistant.',
+    '',
+    'You MUST follow the workflow strictly. You are NOT a general chatbot.',
+    '',
+    '---',
+    '',
+    '## CURRENT STATE',
+    `State: ${workflowState}`,
+    '',
+    '---',
+    '',
+    '## REQUIREMENTS STATE (SOURCE OF TRUTH)',
+    requirementStatus,
+    '',
+    '---',
+    '',
+    '## OPERATING RULES (MANDATORY)',
+    '',
+    '1. You operate in ONE of two modes:',
+    '   - WORKFLOW MODE (default)',
+    '   - KNOWLEDGE MODE (only if user asks a clear question)',
+    '',
+    '2. WORKFLOW MODE:',
+    '   - Your job is to move the workflow forward',
+    '   - If required inputs are missing → ask for EXACTLY ONE missing field',
+    '   - Do NOT ask multiple questions',
+    '   - Do NOT generate proposal early',
+    '',
+    '3. KNOWLEDGE MODE:',
+    '   - Trigger ONLY if user asks a clear question',
+    '   - Answer concisely',
+    '   - AFTER answering → return to workflow',
+    '',
+    '4. NEVER:',
+    '   - Mix workflow progression and knowledge answers',
+    '   - Ask vague or open-ended questions',
+    '   - Repeat already known inputs',
+    '',
+    '---',
+    '',
+    '## DECISION LOGIC',
+    '',
+    '- If missing requirements exist → ask next missing field',
+    '- If enough inputs → proceed to next workflow step',
+    '- If interrupt detected → switch to KNOWLEDGE MODE',
+    '',
+    '---',
+    '',
+    '## OUTPUT FORMAT (STRICT)',
+    '',
+    'You MUST respond in this structure:',
+    '',
+    'INTENT: <workflow | question | generate | confirm>',
+    '',
+    'ACTION: <what you are doing>',
+    '',
+    'RESPONSE:',
+    '<final user-facing message>',
+    '',
+    '---',
+    '',
+    '## TASK',
+    taskInstruction,
   ];
 
   if (conversationSummary) {
-    parts.push('', 'Conversation context:', conversationSummary);
-  }
-
-  // Only inject the requirement block when the workflow is actively collecting inputs.
-  // For general queries, completed states, and non-proposal workflows this block
-  // is irrelevant and causes the LLM to ask for industry/timeline/budget when it
-  // should just answer the question.
-  if (REQUIREMENT_STATES.has(workflowState)) {
-    parts.push(
-      '',
-      `Current workflow state: ${workflowState}`,
-      '',
-      'Proposal inputs gathered so far:',
-      requirementStatus,
-      '',
-      'Rules:',
-      '- If required inputs are missing, ask for them one at a time',
-      '- Do NOT generate the proposal until inputs are sufficient',
-      '- Answer user questions using available knowledge',
-      '- After answering a question, return to workflow progression',
-    );
+    parts.splice(2, 0, '', 'Conversation context:', conversationSummary);
   }
 
   return parts.join('\n');
@@ -195,116 +242,241 @@ function buildSystemPrompt(
 // STEP 8 — Task instruction per state
 // ---------------------------------------------------------------------------
 
-const COLLECTING_STATES = new Set([
-  'collecting_rfp', 'collecting_inputs', 'await_rfp_upload', 'checking_rfp',
-]);
-
 const GENERATING_STATES = new Set([
-  'generating_outline', 'generating_sections',
-  'analyzing_rfp', 'generating_template',
-  'gap_analysis', 'go_no_go',
-  'analyzing', 'applying_fix',
+  'generating_outline',
+  'generating_sections',
+  'analyzing_rfp',
+  'generating_template',
+  'gap_analysis',
+  'go_no_go',
+  'analyzing',
+  'applying_fix',
 ]);
 
-const REVIEW_STATES = new Set([
-  'recommend_template', 'review_template', 'name_template', 'qa_review', 'reviewing',
-]);
+const REVIEW_STATES = new Set(['recommend_template', 'review_template', 'name_template', 'qa_review', 'reviewing']);
+
+const REQUIRED_FIELDS = ['industry', 'projectType', 'timeline', 'budget', 'teamSize', 'clientName'];
 
 /**
- * Return a concise, state-appropriate instruction appended to each handler
- * prompt so the LLM knows what to focus on in this turn.
+ * Return a structured MODE/ACTION instruction for the current turn.
+ *
+ * Priority order:
+ *   1. Interrupt detected → KNOWLEDGE MODE (answer question, return to workflow)
+ *   2. Missing required fields → WORKFLOW MODE (ask for exactly one field)
+ *   3. Generating state → GENERATION MODE
+ *   4. Review state → REVIEW MODE
+ *   5. Default → WORKFLOW MODE (continue progressing)
  */
 export function buildTaskInstruction(
   workflowState: string,
   requirements: Record<string, string>,
+  interruptDetected = false,
 ): string {
-  const requirementCount = Object.keys(requirements).length;
+  if (interruptDetected) {
+    return [
+      'MODE: KNOWLEDGE',
+      'ACTION:',
+      "- Answer the user's question directly",
+      '- Do NOT advance workflow',
+      '- After answering, return control to workflow',
+    ].join('\n');
+  }
 
-  if (COLLECTING_STATES.has(workflowState)) {
-    if (requirementCount < 2) {
-      return 'Ask for the next missing requirement to move forward. Be brief and focused.';
-    }
-    return 'Proceed with document collection and intake.';
+  const missingFields = REQUIRED_FIELDS.filter((f) => !requirements[f]);
+
+  if (missingFields.length > 0) {
+    return [
+      'MODE: WORKFLOW',
+      'ACTION:',
+      `- Ask for the next missing field: ${missingFields[0]}`,
+      '- Ask ONLY ONE question',
+      '- Do NOT ask multiple fields',
+      '- Do NOT generate proposal',
+    ].join('\n');
   }
 
   if (GENERATING_STATES.has(workflowState)) {
-    return 'Proceed with generation using the available context and documents.';
+    return [
+      'MODE: GENERATION',
+      'ACTION:',
+      '- Generate content using all available inputs',
+      '- Follow proposal structure strictly',
+      '- Do NOT ask questions',
+    ].join('\n');
   }
 
   if (REVIEW_STATES.has(workflowState)) {
-    return 'Present findings clearly and await user confirmation or revision instructions.';
+    return [
+      'MODE: REVIEW',
+      'ACTION:',
+      '- Present output clearly',
+      '- Ask for confirmation or edits',
+      '- Do NOT generate new content unless asked',
+    ].join('\n');
   }
 
-  return 'Continue guiding the user through the proposal workflow.';
+  return ['MODE: WORKFLOW', 'ACTION:', '- Continue progressing the workflow step-by-step'].join('\n');
 }
 
 // ---------------------------------------------------------------------------
 // STEP 9 — Interrupt detection
 // ---------------------------------------------------------------------------
 
-const QUESTION_STARTERS = [
-  'what ', 'how ', 'why ', 'who ', 'when ', 'where ',
-  'can you ', 'could you ', 'will you ', 'would you ',
-  'is there ', 'are there ', 'does ', 'do you ',
-  'tell me ', 'explain ', 'help me understand ',
-  'what\'s ', 'whats ', 'how\'s ',
-  // Broad knowledge queries — deliberately NOT including list/search/show/find
-  // as those overlap with workflow trigger patterns (e.g. "list versions")
-  'summarize ', 'summarise ', 'summary of ',
-  'what are ', 'what is ',
-];
+export type IntentType = 'QUESTION' | 'WORKFLOW_INPUT' | 'CONFIRMATION' | 'COMMAND';
+
+export interface IntentResult {
+  intent: IntentType;
+  confidence: number;
+  source: 'rule' | 'llm';
+}
 
 /**
- * Short messages that are workflow confirmations/affirmatives — never treat
- * these as interrupts even if they superficially look like questions.
- *
- * Also includes confusion expressions (e.g. "what?", "huh?") that end with
- * "?" but are not knowledge queries — they should fall through to the workflow
- * handler so it can re-explain the current step.
+ * Workflow confirmations/affirmatives and confusion expressions.
+ * Hard-classified as CONFIRMATION — never treated as questions.
  */
 const WORKFLOW_AFFIRMATIVES = new Set([
-  'yes', 'y', 'no', 'n',
-  'proceed', 'continue', 'go ahead', 'go on',
-  'ok', 'okay', 'sure', 'alright', 'fine', 'great',
-  'use this', 'use that', 'use it', 'accept', 'confirm',
-  'approve', 'approved', 'looks good', 'looks great', 'perfect',
-  'that works', 'sounds good', 'sounds great',
-  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
-  'next', 'skip', 'back', 'done',
-  // Confusion expressions — not knowledge queries
-  'what?', 'huh?', 'sorry?', 'pardon?', 'excuse me?',
-  'what do you mean?', "i don't understand", 'i dont understand',
-  'can you repeat?', 'come again?', 'repeat that',
+  'yes',
+  'y',
+  'no',
+  'n',
+  'proceed',
+  'continue',
+  'go ahead',
+  'go on',
+  'ok',
+  'okay',
+  'sure',
+  'alright',
+  'fine',
+  'great',
+  'use this',
+  'use that',
+  'use it',
+  'accept',
+  'confirm',
+  'approve',
+  'approved',
+  'looks good',
+  'looks great',
+  'perfect',
+  'that works',
+  'sounds good',
+  'sounds great',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  'next',
+  'skip',
+  'back',
+  'done',
+  // Confusion expressions — re-ask the current step, never knowledge queries
+  'what?',
+  'huh?',
+  'sorry?',
+  'pardon?',
+  'excuse me?',
+  'what do you mean?',
+  "i don't understand",
+  'i dont understand',
+  'can you repeat?',
+  'come again?',
+  'repeat that',
 ]);
 
 /**
- * Detect whether an incoming message is an off-workflow question.
+ * Synchronous scoring-based intent classifier.
  *
- * Returns true only when the message is clearly a knowledge query, NOT a
- * workflow confirmation or a message so short it could be anything.
+ * Returns CONFIRMATION (confidence 10) for known affirmatives.
+ * Returns QUESTION or WORKFLOW_INPUT based on a weighted score against a
+ * dynamic threshold that tightens for short messages.
  *
- * Rules (all must pass for an interrupt):
- *   1. Not a known workflow affirmative/confirmation
- *   2. Not very short (< 20 chars) unless it ends with '?'
- *   3. Ends with '?' OR starts with a question word/phrase
+ * Ambiguous zone (confidence 2–3): callers should use classifyMessageIntent
+ * to resolve via LLM.
  */
-export function detectInterrupt(message: string): boolean {
+export function detectIntent(message: string): { intent: IntentType; confidence: number } {
   const trimmed = message.trim();
   const lower = trimmed.toLowerCase();
 
-  // Never interrupt on workflow affirmatives
-  if (WORKFLOW_AFFIRMATIVES.has(lower)) return false;
-
-  // Short messages that don't end with '?' are almost always confirmations
-  if (trimmed.length < 20 && !trimmed.endsWith('?')) return false;
-
-  if (trimmed.endsWith('?')) return true;
-
-  for (const starter of QUESTION_STARTERS) {
-    if (lower.startsWith(starter)) return true;
+  // Hard guard — affirmatives are always CONFIRMATION
+  if (WORKFLOW_AFFIRMATIVES.has(lower)) {
+    return { intent: 'CONFIRMATION', confidence: 10 };
   }
 
-  return false;
+  let score = 0;
+
+  // Positive signals
+  if (trimmed.endsWith('?') && trimmed.length > 5) score += 2;
+  if (/^(what|how|why|who|when|where)\b/.test(lower)) score += 2;
+  if (/^(can|could|will|would|is|are|does|do)\b/.test(lower)) score += 1;
+  if (/(explain|tell me|help me understand)/.test(lower)) score += 2;
+  if (/(summarize|summarise|summary)/.test(lower)) score += 2;
+
+  // Negative signals — command-like starters are not questions
+  if (/^(use|select|choose|apply|generate|proceed)\b/.test(lower)) score -= 2;
+
+  // Dynamic threshold — short messages need a stronger signal
+  const threshold = trimmed.length < 10 ? 4 : trimmed.length < 20 ? 3 : 2;
+
+  return {
+    intent: score >= threshold ? 'QUESTION' : 'WORKFLOW_INPUT',
+    confidence: score,
+  };
+}
+
+/**
+ * Builds the LLM prompt for intent classification in the ambiguous zone.
+ */
+function buildIntentPrompt(message: string): string {
+  return [
+    'Classify the user message into exactly one of: QUESTION, WORKFLOW_INPUT, CONFIRMATION, COMMAND',
+    '',
+    'QUESTION        — asking for information, explanation, or clarification',
+    'WORKFLOW_INPUT  — providing data or answering a question the system asked',
+    'CONFIRMATION    — confirming, approving, or acknowledging something',
+    'COMMAND         — requesting an action (generate, create, build, convert, etc.)',
+    '',
+    `Message: "${message}"`,
+    '',
+    'Return ONLY the label, nothing else.',
+  ].join('\n');
+}
+
+/**
+ * Two-pass message intent classifier.
+ *
+ * Pass 1 (synchronous): score-based detectIntent.
+ * Pass 2 (LLM): called only when confidence is in the ambiguous zone (2–3).
+ * Clear determinations (confidence < 2 or > 3) skip the LLM entirely.
+ */
+export async function classifyMessageIntent(message: string, generateFn?: GenerateFn): Promise<IntentResult> {
+  const result = detectIntent(message);
+
+  const isAmbiguous = result.confidence >= 2 && result.confidence <= 3;
+
+  if (!isAmbiguous || !generateFn) {
+    return { ...result, source: 'rule' };
+  }
+
+  // Ambiguous zone — ask the LLM
+  try {
+    const raw = await generateFn(buildIntentPrompt(message));
+    const label = raw.trim().toUpperCase() as IntentType;
+    const VALID: IntentType[] = ['QUESTION', 'WORKFLOW_INPUT', 'CONFIRMATION', 'COMMAND'];
+    if (VALID.includes(label)) {
+      return { intent: label, confidence: result.confidence, source: 'llm' };
+    }
+  } catch {
+    // Non-fatal — fall back to rule result
+  }
+
+  return { ...result, source: 'rule' };
 }
 
 // ---------------------------------------------------------------------------
@@ -344,9 +516,8 @@ export function buildInterruptContext(
   // Template recommendation (shown during recommend_template state)
   const templateRec = workflowCtx.templateRecommendation as Record<string, unknown> | undefined;
   if (templateRec) {
-    const confidence = typeof templateRec.confidence === 'number'
-      ? `${(templateRec.confidence * 100).toFixed(0)}%`
-      : 'unknown';
+    const confidence =
+      typeof templateRec.confidence === 'number' ? `${(templateRec.confidence * 100).toFixed(0)}%` : 'unknown';
     const reasoning = typeof templateRec.reasoning === 'string' ? templateRec.reasoning : '';
     parts.push('', `Template match confidence: ${confidence}`);
     if (reasoning) parts.push(`Template reasoning: ${reasoning}`);
@@ -398,6 +569,7 @@ export async function buildLLMContext(
   workflowState: string,
   proposalRequirements: Record<string, string>,
   generateFn?: GenerateFn,
+  interruptDetected = false,
 ): Promise<LLMContext> {
   const history = await loadHistory(workdir, namespace, chatSessionId);
   const messages = history?.messages ?? [];
@@ -417,8 +589,8 @@ export async function buildLLMContext(
 
   // Steps 4, 6, 8
   const requirementStatus = buildRequirementStatus(proposalRequirements);
-  const systemPrompt = buildSystemPrompt(workflowState, requirementStatus, conversationSummary);
-  const taskInstruction = buildTaskInstruction(workflowState, proposalRequirements);
+  const taskInstruction = buildTaskInstruction(workflowState, proposalRequirements, interruptDetected);
+  const systemPrompt = buildSystemPrompt(workflowState, requirementStatus, taskInstruction, conversationSummary);
 
   return {
     systemPrompt,
