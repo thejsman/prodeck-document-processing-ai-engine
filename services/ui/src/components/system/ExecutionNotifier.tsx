@@ -36,10 +36,27 @@ export function ExecutionNotifier() {
 
     for (const item of items) {
       const prev = prevStatusRef.current[item.id]
+      const isNew = prev === undefined
       const isTerminal = item.status === "completed" || item.status === "failed"
       const wasActive = prev === "running" || prev === "queued"
 
-      if (isTerminal && wasActive) {
+      // Fire "We're on it!" info toast when a task first becomes active.
+      // This covers the live-stream case where the execution registers while still running.
+      if (isNew && (item.status === "running" || item.status === "queued")) {
+        const label = item.type === "proposal"
+          ? "Generating proposal…"
+          : item.type === "microsite"
+          ? "Generating microsite…"
+          : `${COMPLETION_TITLES[item.type]}…`
+        toast.info(label, {
+          description: "We're on it! You'll be notified when it's ready.",
+        })
+      }
+
+      // Fire completion/failure toast.
+      // `|| isNew` handles the buffered case where the execution jumps straight from
+      // undefined → completed in a single React flush (React 18 automatic batching).
+      if (isTerminal && (wasActive || isNew)) {
         if (item.status === "completed") {
           const title = COMPLETION_TITLES[item.type]
           const baseRoute = ARTIFACT_ROUTES[item.type]
