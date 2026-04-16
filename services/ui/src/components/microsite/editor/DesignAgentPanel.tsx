@@ -195,16 +195,13 @@ export function DesignAgentPanel({
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 14,
           }}>✦</span>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>
-              Design AI
-              {targetSectionId && (
-                <span style={{ fontSize: 10, fontWeight: 500, color: '#6366f1', marginLeft: 6, background: 'rgba(99,102,241,0.15)', padding: '1px 6px', borderRadius: 6 }}>
-                  Section
-                </span>
-              )}
-            </div>
-            <div style={{ fontSize: 10, color: '#475569' }}>Powered by Claude</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>
+            Design AI
+            {targetSectionId && (
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#6366f1', marginLeft: 6, background: 'rgba(99,102,241,0.15)', padding: '1px 6px', borderRadius: 6 }}>
+                Section
+              </span>
+            )}
           </div>
         </div>
         <button

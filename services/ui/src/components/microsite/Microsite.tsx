@@ -494,8 +494,9 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
         border:          vars['--ms-border']        ?? t.border,
         gradientHero:    vars['--ms-gradient-hero'] ?? t.gradientHero,
         gradientText:    vars['--ms-gradient-text'] ?? t.gradientText,
-        heroFont:        extractFontName(vars['--ms-font-heading']) ?? t.heroFont,
-        bodyFont:        extractFontName(vars['--ms-font-body'])    ?? t.bodyFont,
+        // customTokens font wins over CSS-extracted font (user explicitly chose it via Design AI)
+        heroFont:        (mergedTokens as Record<string,unknown>)?.['heroFont'] as string | undefined ?? extractFontName(vars['--ms-font-heading']) ?? t.heroFont,
+        bodyFont:        (mergedTokens as Record<string,unknown>)?.['bodyFont'] as string | undefined ?? extractFontName(vars['--ms-font-body'])    ?? t.bodyFont,
         borderRadius:    vars['--ms-r-card']        ?? t.borderRadius,
         cardShadow:      vars['--ms-shadow']        ?? t.cardShadow,
         cardShadowHover: vars['--ms-shadow-hover']  ?? t.cardShadowHover,
@@ -677,10 +678,13 @@ useEffect(() => setMounted(true), []);
       const encoded = encodeURIComponent(family.trim()).replace(/%20/g, '+');
       const url = `https://fonts.googleapis.com/css2?family=${encoded}:wght@300;400;500;600;700;800&display=swap`;
       if (!document.querySelector(`link[href="${url}"]`)) {
+        console.log('[Microsite] Loading font:', family, url);
         const link = document.createElement('link');
         link.rel = 'stylesheet';
         link.href = url;
         document.head.appendChild(link);
+      } else {
+        console.log('[Microsite] Font already loaded:', family);
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps

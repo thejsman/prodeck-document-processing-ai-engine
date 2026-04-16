@@ -53,22 +53,170 @@ const OVERLAY_KEYWORDS = /\b(overlay|duotone|vignette|tint|darken image|image fi
 const DECORATE_KEYWORDS = /\b(decorat|floating|orb|sparkle|dot pattern|geometric shape|abstract|background shape)\b/i;
 const DESIGN_KEYWORDS  = /\b(darker|lighter|brighter|warmer|cooler|bolder|thinner|minimal|modern|clean|elegant|vibrant|muted|contrast|palette|color|colour|font|typography|spacing|dense|spacious|rounded|sharp|shadow|glow|gradient|dark mode|light mode|theme|style|layout|grid|green|blue|red|purple|orange|yellow|pink|teal|cyan|magenta|indigo|violet|black|white|grey|gray|gold|silver|turquoise|coral|crimson|navy|maroon|olive|lime|aqua|fuchsia|rose|amber|emerald|sky|slate|zinc|neutral|stone)\b/i;
 
-// Known Google Fonts that can be applied directly without LLM
+// ── Font extraction — supports any Google Font name ──────────────────────────
+//
+// Strategy (checked in order):
+//   1. Explicit phrase patterns: "use Poppins", "font to Inter", "change font to X"
+//      → extract the title-cased word(s) that follow the trigger phrase
+//   2. Known font list fallback: match against a broad list of popular fonts
+//      (catches bare mentions like "Poppins" without an explicit trigger phrase)
+
+// Broad list of popular Google Fonts — used as fallback when no trigger phrase matched
 const KNOWN_GOOGLE_FONTS = [
-  'Roboto', 'Open Sans', 'Montserrat', 'Lato', 'Poppins', 'Inter', 'DM Sans',
-  'Space Grotesk', 'Syne', 'Fraunces', 'Cormorant Garamond', 'Playfair Display',
-  'Libre Franklin', 'Nunito', 'Nunito Sans', 'DM Mono', 'Libre Baskerville',
-  'Source Serif 4', 'Jost', 'Raleway', 'Oswald', 'Merriweather', 'Ubuntu',
-  'Noto Sans', 'Fira Sans', 'Work Sans', 'Titillium Web', 'Cabin',
+  // Sans-serif
+  'Roboto', 'Open Sans', 'Noto Sans', 'Lato', 'Montserrat', 'Poppins', 'Inter',
+  'Raleway', 'Ubuntu', 'Nunito', 'Nunito Sans', 'Work Sans', 'Fira Sans',
+  'DM Sans', 'Cabin', 'Barlow', 'Mulish', 'Karla', 'Josefin Sans', 'Quicksand',
+  'Manrope', 'Rubik', 'Exo', 'Jost', 'Outfit', 'Figtree', 'Plus Jakarta Sans',
+  'Sora', 'Albert Sans', 'Urbanist', 'Lexend', 'Onest', 'Geist', 'Bricolage Grotesque',
+  'Space Grotesk', 'Titillium Web', 'IBM Plex Sans', 'Source Sans 3',
+  // Serif
+  'Merriweather', 'Playfair Display', 'Cormorant Garamond', 'Lora', 'Libre Baskerville',
+  'EB Garamond', 'Crimson Text', 'Spectral', 'Fraunces', 'Libre Franklin',
+  'Source Serif 4', 'Cardo', 'Unna', 'Domine', 'Zilla Slab',
+  // Display / editorial
+  'Syne', 'Bebas Neue', 'Fjalla One', 'Anton', 'Oswald', 'Righteous', 'Boogaloo',
+  'Alfa Slab One', 'Big Shoulders Display', 'Clash Display',
+  // Monospace
+  'DM Mono', 'Fira Mono', 'IBM Plex Mono', 'JetBrains Mono', 'Space Mono',
+  'Source Code Pro', 'Roboto Mono', 'Inconsolata', 'Courier Prime',
 ];
 
+/**
+ * Extract a requested Google Font name from any natural-language instruction.
+ *
+ * Handles:
+ *   "use Poppins"                       → Poppins
+ *   "change font to Inter"              → Inter
+ *   "apply Playfair Display font"       → Playfair Display
+ *   "switch to DM Sans"                 → DM Sans
+ *   "font should be Bebas Neue"         → Bebas Neue
+ *   "typography: Space Grotesk"         → Space Grotesk
+ *   "make it Cormorant Garamond"        → Cormorant Garamond
+ *   "Poppins font apply"                → Poppins  (bare mention)
+ */
 function extractRequestedFont(instruction: string): string | null {
   const lower = instruction.toLowerCase();
-  for (const font of KNOWN_GOOGLE_FONTS) {
+
+  // ── Step 1: trigger-phrase patterns ──────────────────────────────────────
+  // Capture 1–3 title-cased words (or digit-suffixed) after the trigger.
+  // e.g. "font to Playfair Display" → ["Playfair", "Display"]
+  const TRIGGER = /\b(?:font|typeface|typography|typeface)\s+(?:to|is|should\s+be|:)?\s*([A-Z][A-Za-z0-9]*(?:\s+[A-Z0-9][A-Za-z0-9]*){0,3})/;
+  const USE     = /\b(?:use|apply|switch\s+to|change\s+to|try|set\s+(?:font\s+to)?)\s+([A-Z][A-Za-z0-9]*(?:\s+[A-Z0-9][A-Za-z0-9]*){0,3})/;
+  const MAKE    = /\b(?:make\s+(?:it|the\s+font)|font\s+(?:be|is))\s+([A-Z][A-Za-z0-9]*(?:\s+[A-Z0-9][A-Za-z0-9]*){0,3})/;
+  const COLON   = /\bfont[:\s]+([A-Z][A-Za-z0-9]*(?:\s+[A-Z0-9][A-Za-z0-9]*){0,3})/i;
+
+  for (const pattern of [TRIGGER, USE, MAKE, COLON]) {
+    const m = instruction.match(pattern);
+    if (m?.[1]) {
+      const candidate = m[1].trim();
+      // Reject if it matches a common non-font word
+      if (!/^(the|a|an|it|this|that|more|less|very|font|style|size|weight|color|colour)$/i.test(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // ── Step 2: known font list fallback ─────────────────────────────────────
+  // Sort longest first so "Playfair Display" matches before "Playfair"
+  const sorted = [...KNOWN_GOOGLE_FONTS].sort((a, b) => b.length - a.length);
+  for (const font of sorted) {
     if (lower.includes(font.toLowerCase())) return font;
   }
+
   return null;
 }
+
+// ── Color name → hex map ──────────────────────────────────────────────────────
+const COLOR_NAME_MAP: Record<string, string> = {
+  red: '#ef4444', crimson: '#dc2626', rose: '#f43f5e', pink: '#ec4899',
+  orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', gold: '#ca8a04',
+  green: '#22c55e', emerald: '#10b981', teal: '#14b8a6', lime: '#84cc16',
+  blue: '#3b82f6', indigo: '#6366f1', sky: '#0ea5e9', cyan: '#06b6d4',
+  violet: '#8b5cf6', purple: '#a855f7', fuchsia: '#d946ef', magenta: '#e879f9',
+  white: '#ffffff', black: '#000000', dark: '#0f172a', light: '#f8fafc',
+  grey: '#6b7280', gray: '#6b7280', silver: '#94a3b8', slate: '#475569',
+  navy: '#1e3a5f', coral: '#f87171', turquoise: '#2dd4bf', lavender: '#c4b5fd',
+  maroon: '#7f1d1d', olive: '#4d7c0f', brown: '#92400e',
+};
+
+/**
+ * Resolve a color value from the instruction — accepts #hex directly or
+ * maps color names. Returns null if no color found.
+ */
+function resolveColorValue(word: string): string | null {
+  const w = word.trim().toLowerCase().replace(/[.,!?]$/, '');
+  if (/^#[0-9a-f]{3,6}$/i.test(w)) return w.toLowerCase();
+  return COLOR_NAME_MAP[w] ?? null;
+}
+
+/**
+ * Detect explicit color-change instructions and return a token patch.
+ * Handles patterns like:
+ *   "change text color to blue"
+ *   "make accent green"
+ *   "set background to dark navy"
+ *   "accent color #ff0000"
+ *   "make it blue"  (→ accent)
+ */
+function extractColorInstruction(instruction: string): Record<string, string> | null {
+  const lower = instruction.toLowerCase();
+  const patch: Record<string, string> = {};
+
+  // Patterns: "text color to X", "text to X", "set text X"
+  const textMatch = lower.match(/\b(text|font)\s+(?:color\s+)?(?:to\s+|=\s*)?([#a-z0-9]+)/);
+  if (textMatch) {
+    const hex = resolveColorValue(textMatch[2]);
+    if (hex) patch['text'] = hex;
+  }
+
+  // Patterns: "background to X", "bg color X", "background color to X"
+  const bgMatch = lower.match(/\b(background|bg)\s+(?:color\s+)?(?:to\s+|=\s*)?([#a-z0-9]+)/);
+  if (bgMatch) {
+    const hex = resolveColorValue(bgMatch[2]);
+    if (hex) {
+      patch['bg'] = hex;
+      // Auto-set dark flag based on luminance heuristic
+      const h = hex.replace('#', '');
+      if (h.length === 6) {
+        const r = parseInt(h.slice(0, 2), 16);
+        const g = parseInt(h.slice(2, 4), 16);
+        const b = parseInt(h.slice(4, 6), 16);
+        patch['dark'] = String((r * 0.299 + g * 0.587 + b * 0.114) < 128);
+      }
+    }
+  }
+
+  // Patterns: "accent to X", "accent color X", "primary color to X", "highlight X"
+  const accentMatch = lower.match(/\b(accent|primary|highlight|cta|button)\s+(?:color\s+)?(?:to\s+|=\s*)?([#a-z0-9]+)/);
+  if (accentMatch) {
+    const hex = resolveColorValue(accentMatch[2]);
+    if (hex) patch['accent'] = hex;
+  }
+
+  // Fallback: "make it blue" / "change to green" / "color: red" — apply as accent
+  if (Object.keys(patch).length === 0) {
+    const genericMatch = lower.match(/\b(?:make\s+it|change\s+to|color[:\s]+|use\s+color)\s+([#a-z0-9]+)/);
+    if (genericMatch) {
+      const hex = resolveColorValue(genericMatch[1]);
+      if (hex) patch['accent'] = hex;
+    }
+    // Last resort: bare color name at end of sentence — "accent red", "make it teal"
+    if (Object.keys(patch).length === 0) {
+      const words = lower.split(/\s+/);
+      for (let i = words.length - 1; i >= 0; i--) {
+        const hex = resolveColorValue(words[i]);
+        if (hex) {
+          patch['accent'] = hex;
+          break;
+        }
+      }
+    }
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
 const CONTENT_KEYWORDS = /\b(rewrite|rephrase|make|change|update|improve|strengthen|shorten|expand|more urgent|more compelling|more professional|headline|body|copy|text|message|tone|voice)\b/i;
 
 function classifyIntent(instruction: string): EditMode {
@@ -560,9 +708,6 @@ export class DesignEditorAgent implements Agent {
     const primaryColor = brand?.['primaryColor'] as string | undefined;
 
     // ── Explicit font shortcut — no LLM needed ────────────────────────────
-    // When the user explicitly names a Google Font (e.g. "use Poppins" or
-    // "change font to Montserrat"), patch heroFont + bodyFont directly so the
-    // result is 100% reliable regardless of LLM interpretation.
     const explicitFont = extractRequestedFont(instruction);
     if (explicitFont) {
       const encoded = encodeURIComponent(explicitFont).replace(/%20/g, '+');
@@ -580,6 +725,36 @@ export class DesignEditorAgent implements Agent {
           mode: modeOverride ?? 'design',
           changed: ['customTokens', 'customFonts'],
           summary: `Font changed to ${explicitFont}`,
+        },
+      };
+    }
+
+    // ── Explicit color shortcut — no LLM needed ───────────────────────────
+    // Handles "change text color to blue", "make accent green", "bg to dark",
+    // "set background #1a1a2e" etc. directly without calling the LLM.
+    const colorPatch = extractColorInstruction(instruction);
+    if (colorPatch) {
+      const existing = ast['customTokens'] as Record<string, unknown> | undefined ?? {};
+      const newTokens: Record<string, unknown> = { ...colorPatch };
+      // When bg changes, derive dark flag if not already set
+      if (colorPatch['bg'] && colorPatch['dark'] === undefined) {
+        newTokens['dark'] = colorPatch['dark'];
+      }
+      const patchedAst = {
+        ...ast,
+        customTokens: { ...existing, ...newTokens },
+      };
+      const summary = Object.entries(colorPatch)
+        .filter(([k]) => k !== 'dark')
+        .map(([k, v]) => `${k} → ${v}`)
+        .join(', ');
+      return {
+        markdown: `Color updated: ${summary}`,
+        json: {
+          ast: patchedAst,
+          mode: modeOverride ?? 'design',
+          changed: ['customTokens'],
+          summary: `Color updated: ${summary}`,
         },
       };
     }
