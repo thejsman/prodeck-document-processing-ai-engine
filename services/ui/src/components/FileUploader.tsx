@@ -15,7 +15,7 @@ import {
 } from '@/lib/api';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 const POLL_INTERVAL_MS = 5000;
 
 function formatSize(bytes: number): string {
@@ -169,7 +169,7 @@ export function FileUploader() {
       if (!isAcceptedFile(file)) {
         rejected.push(`${file.name} (unsupported type)`);
       } else if (file.size > MAX_FILE_SIZE) {
-        rejected.push(`${file.name} (exceeds 25 MB)`);
+        rejected.push(`${file.name} (exceeds 50 MB)`);
       } else {
         valid.push(file);
       }
@@ -301,7 +301,7 @@ export function FileUploader() {
         <div className="upload-zone-content">
           <span className="upload-zone-icon">&#x21EA;</span>
           <p>Drag and drop files here, or click to browse</p>
-          <p className="muted">Accepted: .pdf, .txt, .md &mdash; Max 25 MB per file</p>
+          <p className="muted">Accepted: .pdf, .txt, .md &mdash; Max 50 MB per file</p>
         </div>
       </div>
 

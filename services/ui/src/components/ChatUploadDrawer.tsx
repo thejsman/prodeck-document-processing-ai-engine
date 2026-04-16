@@ -10,7 +10,7 @@ import {
 } from '@/lib/api';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const POLL_INTERVAL_MS = 3000;
 
 function formatSize(bytes: number): string {
@@ -179,7 +179,7 @@ export function ChatUploadDrawer({ namespace, onClose }: Props) {
           />
           <span className="chat-upload-icon">&#x21EA;</span>
           <p>Drop files here or <span className="chat-upload-link">browse</span></p>
-          <p className="muted" style={{ fontSize: 11 }}>.pdf .txt .md — max 25 MB</p>
+          <p className="muted" style={{ fontSize: 11 }}>.pdf .txt .md — max 50 MB</p>
         </div>
       )}
 
