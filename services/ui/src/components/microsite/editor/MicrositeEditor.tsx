@@ -18,17 +18,24 @@ const QUICK_THEMES = THEME_REGISTRY.slice(0, 8);
 
 // ── Canvas — reads editedAst from context ─────────────────────────────────
 
-function EditorCanvas({ onAiAction }: { onAiAction: (sectionId: string, instruction: string) => void }) {
+function EditorCanvas({
+  onAiAction,
+  previewAst,
+}: {
+  onAiAction: (sectionId: string, instruction: string) => void;
+  previewAst?: LayoutAST;
+}) {
   const ctx = useEditContext()!;
-  const mergedTokens = ctx.ast.customTokens
-    ? { ...(ctx.ast.customDesignSystem ?? {}), ...ctx.ast.customTokens }
+  const activeAst = previewAst ?? ctx.ast;
+  const mergedTokens = activeAst.customTokens
+    ? { ...(activeAst.customDesignSystem ?? {}), ...activeAst.customTokens }
     : undefined;
   // When the brand has extractedCssVariables (from a custom design prompt), skip
   // primaryColor so the extracted accent overrides the plugin default instead.
-  const hasCssOverride = !!(ctx.ast.brand?.extractedCssVariables && Object.keys(ctx.ast.brand.extractedCssVariables).length > 0);
+  const hasCssOverride = !!(activeAst.brand?.extractedCssVariables && Object.keys(activeAst.brand.extractedCssVariables).length > 0);
   const tokens = resolveTokens(
-    ctx.ast.plugin,
-    hasCssOverride ? '' : ctx.ast.brand.primaryColor,
+    activeAst.plugin,
+    hasCssOverride ? '' : (activeAst.brand?.primaryColor ?? ''),
     mergedTokens as Parameters<typeof resolveTokens>[2],
   );
 
@@ -43,8 +50,19 @@ function EditorCanvas({ onAiAction }: { onAiAction: (sectionId: string, instruct
         position: 'relative',
       }}
     >
+      {previewAst && (
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 100,
+          background: 'rgba(99,102,241,0.92)', backdropFilter: 'blur(8px)',
+          color: '#fff', textAlign: 'center',
+          fontSize: 11, fontWeight: 700, padding: '6px 12px',
+          letterSpacing: '0.04em',
+        }}>
+          ✦ Previewing changes — click <em>Apply</em> in the Design AI panel to keep, or <em>Revert</em> to undo
+        </div>
+      )}
       <div style={{ position: 'relative', minHeight: '100%' }}>
-        <Microsite ast={ctx.ast} mode="embedded" onSectionAiAction={onAiAction} />
+        <Microsite ast={activeAst} mode="embedded" onSectionAiAction={onAiAction} />
       </div>
     </div>
   );
@@ -316,6 +334,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [showPalette, setShowPalette] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
+  const [previewAst, setPreviewAst] = useState<LayoutAST | null>(null);
   const savedAstRef = useRef<string>(JSON.stringify(ctx.ast));
   const themeBtnRef = useRef<HTMLDivElement>(null);
 
@@ -722,7 +741,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
             transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
             flexShrink: 0,
           }}>
-            <EditorCanvas onAiAction={handleSectionAiAction} />
+            <EditorCanvas onAiAction={handleSectionAiAction} previewAst={previewAst ?? undefined} />
           </div>
         </div>
       </div>
@@ -745,8 +764,10 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           proposalId={proposalId}
           targetSectionId={panelTargetSectionId}
           initialInstruction={panelInstruction}
-          onApply={(newAst) => { ctx.replaceAst(newAst); }}
+          onApply={(newAst) => { setPreviewAst(null); ctx.replaceAst(newAst); }}
+          onPreview={(ast) => setPreviewAst(ast)}
           onClose={() => {
+            setPreviewAst(null);
             setShowDesignPanel(false);
             setPanelInstruction('');
             setPanelTargetSectionId(undefined);

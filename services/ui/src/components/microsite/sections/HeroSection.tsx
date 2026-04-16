@@ -55,7 +55,8 @@ function resolveRevealVariant(animation: string | undefined): 'fadeUp' | 'fadeIn
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-function buildOverlayBackground(overlay: ImageOverlay): string {
+function buildOverlayBackground(overlay: ImageOverlay | undefined): string {
+  if (!overlay) return 'transparent';
   const color = overlay.color ?? '#000000';
   const opacity = overlay.opacity ?? 0.35;
   switch (overlay.type) {

@@ -661,6 +661,25 @@ useEffect(() => setMounted(true), []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ast.plugin, ast.customFonts]);
 
+  // Safety-net: always load Google Fonts for whatever heroFont/bodyFont the resolved
+  // tokens reference. This ensures custom fonts (e.g. Poppins from Design AI) are
+  // loaded even when customFonts is absent or only partially populated, and guarantees
+  // both font families render correctly across every section.
+  useEffect(() => {
+    const toLoad = [tokens.heroFont, tokens.bodyFont].filter((f): f is string => typeof f === 'string' && f.trim().length > 0);
+    toLoad.forEach((family) => {
+      const encoded = encodeURIComponent(family.trim()).replace(/%20/g, '+');
+      const url = `https://fonts.googleapis.com/css2?family=${encoded}:wght@300;400;500;600;700;800&display=swap`;
+      if (!document.querySelector(`link[href="${url}"]`)) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = url;
+        document.head.appendChild(link);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokens.heroFont, tokens.bodyFont]);
+
   // Load Google Fonts from extractedDesignTokens when overrideTheme is active
   useEffect(() => {
     const fontsUrl = ast.brand?.googleFontsUrl;
