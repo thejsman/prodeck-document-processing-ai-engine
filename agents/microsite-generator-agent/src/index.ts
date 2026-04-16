@@ -288,15 +288,42 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences.
 }`;
 }
 
+/** The only font families permitted in generated microsites. */
+const APPROVED_FONTS = ['Roboto', 'Open Sans', 'Montserrat', 'Lato', 'Poppins'] as const;
+type ApprovedFont = (typeof APPROVED_FONTS)[number];
+
+/**
+ * Map any font name to the nearest approved font.
+ * Applied at both font injection points so the approved list is enforced
+ * regardless of whether the font came from an LLM (Pass -1),
+ * image extraction (Pass 0.5), or URL extraction.
+ * Colors, gradients, border-radius, and all other tokens are NOT touched.
+ */
+function snapToApprovedFont(raw: string): ApprovedFont {
+  const name = raw.replace(/^['"`]+|['"`]+$/g, '').trim();
+  const exact = APPROVED_FONTS.find(f => f.toLowerCase() === name.toLowerCase());
+  if (exact) return exact;
+
+  const lower = name.toLowerCase();
+  if (/inter|ibm plex|source code|fira|jetbrains|inconsolata|space mono|dm mono/.test(lower)) return 'Roboto';
+  if (/dm sans|source sans|work sans|nunito sans|noto sans|overpass|public sans|figtree/.test(lower)) return 'Open Sans';
+  if (/raleway|oswald|bebas|exo|outfit|barlow|sora|urbanist|cabinet|clash/.test(lower)) return 'Montserrat';
+  if (/quicksand|mulish|karla|manrope|rubik|jost|albert sans/.test(lower)) return 'Lato';
+  if (/nunito|plus jakarta|jakarta|geist|bricolage|satoshi|general sans/.test(lower)) return 'Poppins';
+  return 'Poppins'; // safe default for unknown fonts and generic 'sans-serif'
+}
+
 /** Build Google Fonts URLs for heroFont and bodyFont from raw LLM token fields */
 export function buildFontUrls(rawTokens: Record<string, unknown>): { family: string; url: string }[] {
   const fonts: { family: string; url: string }[] = [];
   for (const key of ['heroFont', 'bodyFont'] as const) {
-    const family = rawTokens[key];
-    if (typeof family === 'string' && family.trim()) {
-      const encoded = encodeURIComponent(family.trim()).replace(/%20/g, '+');
+    const raw = rawTokens[key];
+    if (typeof raw === 'string' && raw.trim()) {
+      const family = snapToApprovedFont(raw);
+      rawTokens[key] = family; // correct customTokens in the AST too
+      const encoded = encodeURIComponent(family).replace(/%20/g, '+');
       fonts.push({
-        family: family.trim(),
+        family,
         url: `https://fonts.googleapis.com/css2?family=${encoded}:wght@300;400;500;600;700;800&display=swap`,
       });
     }
@@ -624,10 +651,8 @@ function hexHueDifference(hex1: string, hex2: string): number {
 }
 
 function referenceDesignToCssVars(tokens: ReferenceDesign): Record<string, string> {
-  // Strip surrounding quotes LLMs sometimes include in font names (e.g. "'Inter'" → "Inter")
-  const stripQuotes = (s: string) => s.replace(/^['"`]+|['"`]+$/g, '').trim();
-  const headingFamily = `'${stripQuotes(tokens.typography.headingFont)}', sans-serif`;
-  const bodyFamily    = `'${stripQuotes(tokens.typography.bodyFont)}', sans-serif`;
+  const headingFamily = `'${snapToApprovedFont(tokens.typography.headingFont)}', sans-serif`;
+  const bodyFamily    = `'${snapToApprovedFont(tokens.typography.bodyFont)}', sans-serif`;
 
   const borderRadiusVal = tokens.style.borderRadius === 'sharp' ? '0px'
     : tokens.style.borderRadius === 'soft' ? '8px' : '16px';
@@ -2656,7 +2681,17 @@ export class MicrositeGeneratorAgent implements Agent {
     const metaBrand = (meta.brand as Record<string, unknown> | undefined) ?? {};
     let metaPlugin = (meta.plugin as string | undefined) ?? 'cobalt';
     const brandImage = (meta.brandImage as string | undefined) ?? '';
-    const brandLanguagePrompt = (meta.designBrief as string | undefined) ?? '';
+    const brandBrief = (meta.designBrief as string | undefined) ?? '';
+    // Detect design/typography intent in the user's custom instructions so Pass -1 (design
+    // system synthesis) can respect explicit font, color, and style directives typed in
+    // the custom prompt field. Without this, those instructions never reach Pass -1.
+    const designIntentPattern = /\b(font|typography|color|colour|palette|poppins|roboto|montserrat|lato|open\s+sans|heading|weight|bold|light|thin|whisper|soft|dark|bright|accent|primary|secondary|scheme|theme|visual|aesthetic|rounded|sharp|modern|minimal|clean|elegant|luxury|playful|friendly|professional|corporate|creative|warm|approachable)\b/i;
+    const rawHasDesignIntent = rawInstructions ? designIntentPattern.test(rawInstructions) : false;
+    const brandLanguagePrompt = brandBrief
+      ? (rawHasDesignIntent
+        ? `${brandBrief}\n\nUSER DESIGN INSTRUCTIONS (override defaults where specified):\n${rawInstructions}`
+        : brandBrief)
+      : (rawHasDesignIntent ? rawInstructions : '');
     const referenceFile = (meta.referenceFile as ReferenceFile | undefined) ?? null;
     const urlReferenceDesign = (meta.urlReferenceDesign as ReferenceDesign | undefined) ?? null;
     console.log(`[microsite-agent] referenceFile: ${referenceFile ? `fileName=${referenceFile.fileName}, mediaType=${referenceFile.mediaType}, dominantColors=${referenceFile.dominantColors?.length ?? 0}` : 'NOT attached'}`);
