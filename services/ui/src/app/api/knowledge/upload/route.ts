@@ -3,12 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 /**
  * POST /api/knowledge/upload
  *
- * Streaming proxy to the Fastify backend for knowledge file uploads.
+ * Buffered proxy to the Fastify backend for knowledge file uploads.
  *
- * Next.js 15.1's dev-server rewrite proxy buffers the entire request body and
- * enforces a 10 MB cap, which breaks large file uploads. This App Router route
- * intercepts the path before the fallback rewrite runs and streams the
- * multipart body directly to Fastify, bypassing that limit entirely.
+ * The duplex: 'half' + ReadableStream approach causes ERR_STREAM_PREMATURE_CLOSE
+ * in Fastify's multipart parser when the stream encounters backpressure or
+ * timing issues during large file uploads. Buffering the full body with
+ * arrayBuffer() before forwarding eliminates this class of errors entirely.
+ * Since all traffic is localhost-to-localhost, the buffering adds no
+ * meaningful latency.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const apiUrl = process.env.API_URL ?? 'http://localhost:3000';
@@ -18,17 +20,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (auth) forwardHeaders.set('authorization', auth);
   const contentType = req.headers.get('content-type');
   if (contentType) forwardHeaders.set('content-type', contentType);
-  const contentLength = req.headers.get('content-length');
-  if (contentLength) forwardHeaders.set('content-length', contentLength);
 
   try {
+    // Buffer the full body so the downstream Fastify multipart parser
+    // receives a stable, complete stream rather than a piped ReadableStream.
+    const body = await req.arrayBuffer();
+    forwardHeaders.set('content-length', String(body.byteLength));
+
     const upstream = await fetch(`${apiUrl}/knowledge/upload`, {
       method: 'POST',
       headers: forwardHeaders,
-      body: req.body,
-      // Required for streaming request bodies in Node.js fetch
-      // @ts-ignore — duplex is not yet in the TypeScript DOM types
-      duplex: 'half',
+      body,
     });
 
     const data = await upstream.json();

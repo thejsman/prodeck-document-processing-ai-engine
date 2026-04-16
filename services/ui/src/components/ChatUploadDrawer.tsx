@@ -10,7 +10,7 @@ import {
 } from '@/lib/api';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 const POLL_INTERVAL_MS = 3000;
 
 function formatSize(bytes: number): string {
@@ -81,7 +81,7 @@ export function ChatUploadDrawer({ namespace, onClose }: Props) {
     const rejected: string[] = [];
     for (const f of Array.from(incoming)) {
       if (!isAcceptedFile(f)) rejected.push(f.name);
-      else if (f.size > MAX_FILE_SIZE) rejected.push(`${f.name} (too large)`);
+      else if (f.size > MAX_FILE_SIZE) rejected.push(`${f.name} (exceeds 200 MB)`);
       else valid.push(f);
     }
     if (rejected.length) setError(`Rejected: ${rejected.join(', ')}`);
@@ -179,7 +179,7 @@ export function ChatUploadDrawer({ namespace, onClose }: Props) {
           />
           <span className="chat-upload-icon">&#x21EA;</span>
           <p>Drop files here or <span className="chat-upload-link">browse</span></p>
-          <p className="muted" style={{ fontSize: 11 }}>.pdf .txt .md — max 50 MB</p>
+          <p className="muted" style={{ fontSize: 11 }}>.pdf .txt .md — max 200 MB</p>
         </div>
       )}
 
