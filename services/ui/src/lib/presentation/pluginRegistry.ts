@@ -1076,6 +1076,31 @@ function hexToRgb(hex: string): [number, number, number] | null {
   } catch { return null; }
 }
 
+/** CSS named colors → hex. Allows LLM responses like "blue" to pass validation. */
+const CSS_COLOR_NAMES: Record<string, string> = {
+  red: '#ef4444', crimson: '#dc2626', rose: '#f43f5e', pink: '#ec4899',
+  orange: '#f97316', amber: '#f59e0b', yellow: '#eab308', gold: '#ca8a04',
+  green: '#22c55e', emerald: '#10b981', teal: '#14b8a6', lime: '#84cc16',
+  blue: '#3b82f6', indigo: '#6366f1', sky: '#0ea5e9', cyan: '#06b6d4',
+  violet: '#8b5cf6', purple: '#a855f7', fuchsia: '#d946ef', magenta: '#e879f9',
+  white: '#ffffff', black: '#000000', dark: '#0f172a', light: '#f8fafc',
+  grey: '#6b7280', gray: '#6b7280', silver: '#94a3b8', slate: '#475569',
+  navy: '#1e3a5f', coral: '#f87171', turquoise: '#2dd4bf', lavender: '#c4b5fd',
+  maroon: '#7f1d1d', olive: '#4d7c0f', brown: '#92400e',
+};
+
+/**
+ * Resolve a color string to a valid hex value.
+ * Accepts #hex strings and CSS named colors (returned by LLMs).
+ * Returns null if the value can't be resolved.
+ */
+function resolveColor(value: string): string | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{3,6}$/.test(v) && hexToRgb(v)) return v;
+  return CSS_COLOR_NAMES[v] ?? null;
+}
+
 function rgbToHex(r: number, g: number, b: number): string {
   return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
 }
@@ -1317,9 +1342,9 @@ export function resolveTokens(
     // (visualStyle, typography.style, colorStrategy, etc.) always take effect.
     const enriched: Partial<PluginTokens> = {
       ...customTokens,
-      bg:    (typeof customTokens.bg     === 'string' && hexToRgb(customTokens.bg))     ? customTokens.bg     : withBrand.bg,
-      text:  (typeof customTokens.text   === 'string' && hexToRgb(customTokens.text))   ? customTokens.text   : withBrand.text,
-      accent:(typeof customTokens.accent === 'string' && hexToRgb(customTokens.accent)) ? customTokens.accent : withBrand.accent,
+      bg:    (typeof customTokens.bg     === 'string' ? resolveColor(customTokens.bg)     : null) ?? withBrand.bg,
+      text:  (typeof customTokens.text   === 'string' ? resolveColor(customTokens.text)   : null) ?? withBrand.text,
+      accent:(typeof customTokens.accent === 'string' ? resolveColor(customTokens.accent) : null) ?? withBrand.accent,
       dark:  typeof customTokens.dark === 'boolean' ? customTokens.dark : withBrand.dark,
     };
     resolved = deriveTokens(withBrand, enriched);
