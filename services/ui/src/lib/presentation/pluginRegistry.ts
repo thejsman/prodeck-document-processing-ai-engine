@@ -1277,7 +1277,8 @@ export function deriveTokens(base: PluginTokens, tier1: Partial<PluginTokens>): 
     border, borderSubtle,
     heroFont:      typeof tier1.heroFont      === 'string' ? tier1.heroFont      : base.heroFont,
     bodyFont:      typeof tier1.bodyFont      === 'string' ? tier1.bodyFont      : base.bodyFont,
-    heroWeight:    typeof tier1.heroWeight    === 'number' ? tier1.heroWeight    : base.heroWeight,
+    // heroWeight may arrive as a number (700) or a string ("700") from the LLM — accept both.
+    heroWeight:    (typeof tier1.heroWeight === 'number' ? tier1.heroWeight : (typeof tier1.heroWeight === 'string' ? Number(tier1.heroWeight) || base.heroWeight : base.heroWeight)),
     heroStyle:     typeof tier1.heroStyle     === 'string' ? tier1.heroStyle     : base.heroStyle,
     labelTracking: typeof tier1.labelTracking === 'string' ? tier1.labelTracking : base.labelTracking,
     dark,

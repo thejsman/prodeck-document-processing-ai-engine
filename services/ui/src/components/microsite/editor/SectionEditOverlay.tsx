@@ -1210,12 +1210,6 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
   const [showDiagramModal, setShowDiagramModal] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
-  // Outside editor — render children as-is
-  if (!ctx) return <>{children}</>;
-
-  const isActive = ctx.activeSectionId === section.id;
-  const hasDiagram = !!(section.content as unknown as Record<string, unknown>).diagram;
-
   const togglePanel = useCallback((panel: ActivePanel) => {
     setActivePanel(prev => prev === panel ? null : panel);
   }, []);
@@ -1231,6 +1225,12 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [activePanel]);
+
+  // Outside editor — render children as-is
+  if (!ctx) return <>{children}</>;
+
+  const isActive = ctx.activeSectionId === section.id;
+  const hasDiagram = !!(section.content as unknown as Record<string, unknown>).diagram;
 
   function toolbarBtn(
     label: string,

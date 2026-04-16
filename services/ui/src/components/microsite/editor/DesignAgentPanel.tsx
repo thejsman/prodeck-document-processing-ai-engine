@@ -143,6 +143,8 @@ interface Props {
   initialInstruction?: string;
   onApply: (newAst: LayoutAST) => void;
   onClose: () => void;
+  /** Called with the preview AST when results arrive, or null when reverted */
+  onPreview?: (previewAst: LayoutAST | null) => void;
 }
 
 type Step = 'idle' | 'analyzing' | 'synthesizing' | 'applying' | 'done';
@@ -171,11 +173,11 @@ export function DesignAgentPanel({
   initialInstruction,
   onApply,
   onClose,
+  onPreview,
 }: Props) {
   const { apiKey } = useAuth();
   const [tab, setTab] = useState<'design' | 'content'>(targetSectionId ? 'content' : 'design');
   const [instruction, setInstruction] = useState(initialInstruction ?? '');
-  const [autoApply, setAutoApply] = useState(false);
   const [step, setStep] = useState<Step>('idle');
   const [error, setError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -215,7 +217,7 @@ export function DesignAgentPanel({
         instruction: instruction.trim(),
         targetSectionId,
         currentAst: ast,
-        commit: autoApply,
+        commit: false,
       });
 
       setStep('applying');
@@ -223,22 +225,18 @@ export function DesignAgentPanel({
 
       const newAst = result.ast as LayoutAST;
 
-      if (autoApply) {
-        onApply(newAst);
-        onClose();
-        return;
-      }
-
       const tokensBefore = (ast.customTokens ?? {}) as Record<string, unknown>;
       const tokensAfter = (newAst.customTokens ?? {}) as Record<string, unknown>;
 
-      setPreviewResult({
+      const preview = {
         ast: newAst,
         mode: result.mode,
         summary: result.summary,
         tokensBefore,
         tokensAfter,
-      });
+      };
+      setPreviewResult(preview);
+      onPreview?.(newAst);
       setStep('done');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -248,17 +246,20 @@ export function DesignAgentPanel({
 
   function handleApply() {
     if (!previewResult) return;
+    onPreview?.(null);
     onApply(previewResult.ast);
     onClose();
   }
 
   function handleRevert() {
     setPreviewResult(null);
+    onPreview?.(null);
     setStep('idle');
   }
 
   function handleRefine() {
     setPreviewResult(null);
+    onPreview?.(null);
     setStep('idle');
     // keep instruction for refinement
     textareaRef.current?.focus();
@@ -325,7 +326,7 @@ export function DesignAgentPanel({
           )}
         </div>
         <button
-          onClick={onClose}
+          onClick={() => { onPreview?.(null); onClose(); }}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1, padding: 4 }}
           aria-label="Close"
         >
@@ -481,18 +482,6 @@ export function DesignAgentPanel({
           gap: 8,
         }}
       >
-        {/* Auto-apply toggle */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 11, color: '#64748b', fontWeight: 500 }}>
-          <input
-            type="checkbox"
-            checked={autoApply}
-            onChange={(e) => setAutoApply(e.target.checked)}
-            disabled={isLoading}
-            style={{ accentColor: '#6366f1', width: 13, height: 13 }}
-          />
-          ⚡ Apply immediately (skip preview)
-        </label>
-
         {previewResult ? (
           <div style={{ display: 'flex', gap: 8 }}>
             <button

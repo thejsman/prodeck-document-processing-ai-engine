@@ -51,7 +51,24 @@ const DIVIDER_KEYWORDS = /\b(divider|section break|wavy|diagonal|zigzag|flowing|
 const HARMONY_KEYWORDS = /\b(harmoni|complementary|analogous|triadic|split.complementary|color palette|colour palette|generate palette)\b/i;
 const OVERLAY_KEYWORDS = /\b(overlay|duotone|vignette|tint|darken image|image filter|image treatment|blur background)\b/i;
 const DECORATE_KEYWORDS = /\b(decorat|floating|orb|sparkle|dot pattern|geometric shape|abstract|background shape)\b/i;
-const DESIGN_KEYWORDS  = /\b(darker|lighter|brighter|warmer|cooler|bolder|thinner|minimal|modern|clean|elegant|vibrant|muted|contrast|palette|color|colour|font|typography|spacing|dense|spacious|rounded|sharp|shadow|glow|gradient|dark mode|light mode|theme|style|layout|grid)\b/i;
+const DESIGN_KEYWORDS  = /\b(darker|lighter|brighter|warmer|cooler|bolder|thinner|minimal|modern|clean|elegant|vibrant|muted|contrast|palette|color|colour|font|typography|spacing|dense|spacious|rounded|sharp|shadow|glow|gradient|dark mode|light mode|theme|style|layout|grid|green|blue|red|purple|orange|yellow|pink|teal|cyan|magenta|indigo|violet|black|white|grey|gray|gold|silver|turquoise|coral|crimson|navy|maroon|olive|lime|aqua|fuchsia|rose|amber|emerald|sky|slate|zinc|neutral|stone)\b/i;
+
+// Known Google Fonts that can be applied directly without LLM
+const KNOWN_GOOGLE_FONTS = [
+  'Roboto', 'Open Sans', 'Montserrat', 'Lato', 'Poppins', 'Inter', 'DM Sans',
+  'Space Grotesk', 'Syne', 'Fraunces', 'Cormorant Garamond', 'Playfair Display',
+  'Libre Franklin', 'Nunito', 'Nunito Sans', 'DM Mono', 'Libre Baskerville',
+  'Source Serif 4', 'Jost', 'Raleway', 'Oswald', 'Merriweather', 'Ubuntu',
+  'Noto Sans', 'Fira Sans', 'Work Sans', 'Titillium Web', 'Cabin',
+];
+
+function extractRequestedFont(instruction: string): string | null {
+  const lower = instruction.toLowerCase();
+  for (const font of KNOWN_GOOGLE_FONTS) {
+    if (lower.includes(font.toLowerCase())) return font;
+  }
+  return null;
+}
 const CONTENT_KEYWORDS = /\b(rewrite|rephrase|make|change|update|improve|strengthen|shorten|expand|more urgent|more compelling|more professional|headline|body|copy|text|message|tone|voice)\b/i;
 
 function classifyIntent(instruction: string): EditMode {
@@ -541,6 +558,32 @@ export class DesignEditorAgent implements Agent {
     const plugin = (ast['plugin'] as string | undefined) ?? 'obsidian';
     const brand = ast['brand'] as Record<string, unknown> | undefined;
     const primaryColor = brand?.['primaryColor'] as string | undefined;
+
+    // ── Explicit font shortcut — no LLM needed ────────────────────────────
+    // When the user explicitly names a Google Font (e.g. "use Poppins" or
+    // "change font to Montserrat"), patch heroFont + bodyFont directly so the
+    // result is 100% reliable regardless of LLM interpretation.
+    const explicitFont = extractRequestedFont(instruction);
+    if (explicitFont) {
+      const encoded = encodeURIComponent(explicitFont).replace(/%20/g, '+');
+      const fontUrl = `https://fonts.googleapis.com/css2?family=${encoded}:wght@300;400;500;600;700;800&display=swap`;
+      const newTokens: Record<string, unknown> = { heroFont: explicitFont, bodyFont: explicitFont };
+      const patchedAst = {
+        ...ast,
+        customTokens: { ...(ast['customTokens'] as Record<string, unknown> | undefined ?? {}), ...newTokens },
+        customFonts: [{ family: explicitFont, url: fontUrl }],
+      };
+      return {
+        markdown: `Font changed to "${explicitFont}" for all headings and body text.`,
+        json: {
+          ast: patchedAst,
+          mode: modeOverride ?? 'design',
+          changed: ['customTokens', 'customFonts'],
+          summary: `Font changed to ${explicitFont}`,
+        },
+      };
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     const prompt = buildDesignSystemPrompt(instruction, plugin, primaryColor);
 
