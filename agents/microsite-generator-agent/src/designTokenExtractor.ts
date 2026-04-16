@@ -174,10 +174,11 @@ function extractTypographyFromPrompt(prompt: string): ExtractedDesignTokens['typ
   if (headingFonts[0]) fonts.push(headingFonts[0])
   if (bodyFonts[0] && bodyFonts[0] !== fonts[0]) fonts.push(bodyFonts[0])
 
-  // Fallback: all quoted fonts in the full prompt
+  // Fallback: only quoted strings that are recognized font names (reject arbitrary quoted words)
   if (fonts.length === 0) {
     const allQuoted = extractQuotedFonts(prompt)
-    fonts.push(...allQuoted.slice(0, 2))
+    const knownQuoted = allQuoted.filter(f => FONT_MAP[f] !== undefined)
+    fonts.push(...knownQuoted.slice(0, 2))
   }
 
   // Fallback: legacy FONT_MAP keyword scan for unquoted prompts
@@ -269,19 +270,16 @@ function buildCssVariables(
   const a4  = colors.accents[3] ?? a3
   const a5  = colors.accents[4] ?? a1
 
+  // Only use fonts that exist in FONT_MAP — unknown names produce invisible/broken text
   const headingEntry = typography.fonts[0] ? FONT_MAP[typography.fonts[0]] : null
   const headingFontFamily = headingEntry
     ? `'${headingEntry.family}', -apple-system, BlinkMacSystemFont, sans-serif`
-    : typography.fonts[0]
-      ? `'${typography.fonts[0]}', -apple-system, BlinkMacSystemFont, sans-serif`
-      : '-apple-system, BlinkMacSystemFont, sans-serif'
+    : '-apple-system, BlinkMacSystemFont, sans-serif'
 
   const bodyEntry = typography.fonts[1] ? FONT_MAP[typography.fonts[1]] : null
   const bodyFontFamily = bodyEntry
     ? `'${bodyEntry.family}', -apple-system, BlinkMacSystemFont, sans-serif`
-    : typography.fonts[1]
-      ? `'${typography.fonts[1]}', -apple-system, BlinkMacSystemFont, sans-serif`
-      : headingFontFamily
+    : headingFontFamily
 
   const hSizes: Record<string, { h1: string; h2: string; weight: string }> = {
     playful:   { h1: 'clamp(38px,6vw,72px)',   h2: 'clamp(30px,4.5vw,52px)', weight: '800' },
@@ -389,8 +387,11 @@ function buildCssVariables(
 
 function buildGoogleFontsUrl(typography: ExtractedDesignTokens['typography']): string | null {
   if (!typography.fonts.length) return null
-  const families = typography.fonts
-    .map(f => FONT_MAP[f]?.url ?? `${f.replace(/\s+/g, '+')}:wght@400;600;700;800`)
+  // Only build URLs for fonts that are in FONT_MAP — unknown names produce broken Google Fonts URLs
+  const knownFonts = typography.fonts.filter(f => FONT_MAP[f] !== undefined)
+  if (!knownFonts.length) return null
+  const families = knownFonts
+    .map(f => FONT_MAP[f].url)
     .join('&family=')
   return `https://fonts.googleapis.com/css2?family=${families}&display=swap`
 }
