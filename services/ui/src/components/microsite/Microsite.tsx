@@ -517,6 +517,12 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
   const contentRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
+  // Control bar uses an inverted contrast scheme so buttons are always legible
+  // regardless of the microsite's own theme (dark or light) or URL-extracted colors.
+  const ctrlBg    = tokens.dark ? 'rgba(240,240,245,0.92)' : 'rgba(12,12,15,0.88)';
+  const ctrlText  = tokens.dark ? '#111118' : '#f0f0f5';
+  const ctrlBorder = tokens.dark ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.15)';
+
   // Track which section IDs have been seen to identify newly streamed sections (for spring reveal)
   const seenSectionIds = useRef<Set<string>>(new Set());
   const allSections = (ast.sections ?? []).filter(s => !isSectionEmpty(s));
@@ -1017,15 +1023,15 @@ ${el.innerHTML}
               style={{
                 padding: '9px 18px',
                 borderRadius: 100,
-                border: `1px solid ${tokens.border}`,
-                background: `${tokens.bg}ee`,
+                border: `1px solid ${ctrlBorder}`,
+                background: ctrlBg,
                 backdropFilter: 'blur(12px)',
-                color: tokens.textMuted,
+                color: ctrlText,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.8rem',
                 fontWeight: 600,
                 cursor: 'pointer',
-                boxShadow: tokens.cardShadow,
+                boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
             >
               ← Back
@@ -1037,15 +1043,15 @@ ${el.innerHTML}
               style={{
                 padding: '9px 18px',
                 borderRadius: 100,
-                border: `1px solid ${tokens.border}`,
-                background: `${tokens.bg}ee`,
+                border: `1px solid ${ctrlBorder}`,
+                background: ctrlBg,
                 backdropFilter: 'blur(12px)',
-                color: tokens.textMuted,
+                color: ctrlText,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.8rem',
                 fontWeight: 600,
                 cursor: 'pointer',
-                boxShadow: tokens.cardShadow,
+                boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
             >
               ↺ Regenerate
@@ -1057,15 +1063,15 @@ ${el.innerHTML}
               style={{
                 padding: '9px 18px',
                 borderRadius: 100,
-                border: `1px solid ${tokens.border}`,
-                background: `${tokens.bg}ee`,
+                border: `1px solid ${ctrlBorder}`,
+                background: ctrlBg,
                 backdropFilter: 'blur(12px)',
-                color: tokens.textMuted,
+                color: ctrlText,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.8rem',
                 fontWeight: 600,
                 cursor: 'pointer',
-                boxShadow: tokens.cardShadow,
+                boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
             >
               ✏ Edit
@@ -1080,17 +1086,17 @@ ${el.innerHTML}
                   style={{
                     padding: '9px 18px',
                     borderRadius: 100,
-                    border: `1px solid ${tokens.border}`,
-                    background: `${tokens.bg}ee`,
+                    border: `1px solid ${ctrlBorder}`,
+                    background: ctrlBg,
                     backdropFilter: 'blur(12px)',
-                    color: tokens.textMuted,
+                    color: ctrlText,
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontSize: '0.8rem',
                     fontWeight: 600,
                     cursor: downloadingPdf ? 'wait' : 'pointer',
                     minWidth: 148,
                     opacity: downloadingPdf ? 0.75 : 1,
-                    boxShadow: tokens.cardShadow,
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
                   }}
                 >
                   {downloadingPdf ? `${pdfProgress}% — ${pdfProgressMsg}` : '↓ Download PDF'}

@@ -165,6 +165,14 @@ export function MicrositeNav({
 
   const navLinks = sections; // show ALL sections
 
+  // Compute contrast-safe nav text colors based on whether the bg token is dark or light.
+  // Using tokens.textMuted directly can be invisible when URL-extracted designs produce
+  // a muted color that doesn't contrast well against the nav's own bg.
+  const navInactiveColor = tokens.dark
+    ? 'rgba(255,255,255,0.62)'
+    : 'rgba(0,0,0,0.52)';
+  const navLogoColor = tokens.accent;
+
   // Scale font size down as section count grows: 13px for ≤4, down to 9px for 14+
   const navFontSize = Math.round(
     Math.max(9, Math.min(13, 14 - sections.length * 0.35)),
@@ -232,7 +240,7 @@ export function MicrositeNav({
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontWeight: 700,
                 fontSize: isMobileLayout ? 11 : 13,
-                color: tokens.accent,
+                color: navLogoColor,
                 letterSpacing: tokens.labelTracking,
                 textTransform: "uppercase",
                 overflow: "hidden",
@@ -272,7 +280,7 @@ export function MicrositeNav({
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontSize: navFontSize,
                     fontWeight: isActive ? 700 : 500,
-                    color: isActive ? tokens.accent : tokens.textMuted,
+                    color: isActive ? tokens.accent : navInactiveColor,
                     letterSpacing: "0.04em",
                     padding: "4px 0 2px",
                     whiteSpace: "nowrap",
@@ -297,7 +305,7 @@ export function MicrositeNav({
               borderRadius: 8,
               cursor: "pointer",
               padding: "6px 8px",
-              color: mobileOpen ? tokens.accent : tokens.text,
+              color: mobileOpen ? tokens.accent : navInactiveColor,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -369,7 +377,7 @@ export function MicrositeNav({
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontSize: 14,
                     fontWeight: isActive ? 700 : 500,
-                    color: isActive ? tokens.accent : tokens.text,
+                    color: isActive ? tokens.accent : navInactiveColor,
                     minHeight: 40,
                     transition: "color 0.15s, background 0.15s",
                     width: "100%",
