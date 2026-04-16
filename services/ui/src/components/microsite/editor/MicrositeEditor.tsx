@@ -55,7 +55,7 @@ function EditorCanvas({
           position: 'sticky', top: 0, zIndex: 100,
           background: 'rgba(99,102,241,0.92)', backdropFilter: 'blur(8px)',
           color: '#fff', textAlign: 'center',
-          fontSize: 11, fontWeight: 700, padding: '6px 12px',
+          fontSize: 13, fontWeight: 700, padding: '7px 14px',
           letterSpacing: '0.04em',
         }}>
           ✦ Previewing changes — click <em>Apply</em> in the Design AI panel to keep, or <em>Revert</em> to undo
@@ -520,29 +520,29 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       <style>{`
         .mse-topbar {
           display: flex; align-items: center; justify-content: space-between;
-          padding: 0 16px; height: 48px;
+          padding: 0 20px; height: 60px;
           background: #fff; border-bottom: 1px solid #e2e8f0;
-          flex-shrink: 0; gap: 12px;
+          flex-shrink: 0; gap: 14px;
         }
-        .mse-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-        .mse-right { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-        .mse-title { font-size: 12px; font-weight: 700; color: #1e293b; white-space: nowrap; }
-        .mse-badge { font-size: 11px; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-        .mse-viewport-toggle { display: flex; gap: 1px; background: #f1f5f9; border-radius: 7px; padding: 2px; margin-right: 4px; }
+        .mse-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .mse-right { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+        .mse-title { font-size: 17px; font-weight: 700; color: #1e293b; white-space: nowrap; }
+        .mse-badge { font-size: 14px; color: #94a3b8; background: #f1f5f9; padding: 4px 12px; border-radius: 10px; white-space: nowrap; }
+        .mse-viewport-toggle { display: flex; gap: 2px; background: #f1f5f9; border-radius: 8px; padding: 3px; margin-right: 4px; }
         .mse-btn-label { display: inline; }
-        .mse-back-btn { padding: 5px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: #64748b; white-space: nowrap; }
-        .mse-action-btn { padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-        .mse-theme-btn { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        .mse-back-btn { padding: 9px 18px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; font-size: 15px; font-weight: 600; cursor: pointer; color: #64748b; white-space: nowrap; }
+        .mse-action-btn { padding: 9px 18px; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .mse-theme-btn { padding: 9px 18px; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; }
         @media (max-width: 600px) {
-          .mse-topbar { height: auto; padding: 6px 10px; gap: 6px; flex-wrap: wrap; }
-          .mse-right { gap: 4px; }
-          .mse-title { font-size: 11px; }
+          .mse-topbar { height: auto; padding: 8px 12px; gap: 8px; flex-wrap: wrap; }
+          .mse-right { gap: 6px; }
+          .mse-title { font-size: 15px; }
           .mse-badge { display: none; }
           .mse-viewport-toggle { display: none; }
           .mse-btn-label { display: none; }
-          .mse-back-btn { padding: 5px 8px; font-size: 11px; }
-          .mse-action-btn { padding: 5px 8px; font-size: 11px; }
-          .mse-theme-btn { padding: 5px 8px; font-size: 11px; }
+          .mse-back-btn { padding: 8px 12px; font-size: 14px; }
+          .mse-action-btn { padding: 8px 12px; font-size: 14px; }
+          .mse-theme-btn { padding: 8px 12px; font-size: 14px; }
         }
       `}</style>
 
@@ -570,7 +570,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
             />
           )}
           {lastSavedLabel && !isDirty && (
-            <span style={{ fontSize: 10, color: '#94a3b8' }}>Saved {lastSavedLabel}</span>
+            <span style={{ fontSize: 14, color: '#94a3b8' }}>Saved {lastSavedLabel}</span>
           )}
         </div>
 
@@ -585,12 +585,12 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
                 onClick={() => setViewport(opt.id)}
                 title={opt.label}
                 style={{
-                  width: 28, height: 26,
-                  borderRadius: 5,
+                  width: 36, height: 32,
+                  borderRadius: 6,
                   border: 'none',
                   background: viewport === opt.id ? '#fff' : 'transparent',
                   color: viewport === opt.id ? '#6366f1' : '#94a3b8',
-                  fontSize: 13,
+                  fontSize: 16,
                   cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   boxShadow: viewport === opt.id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
@@ -612,11 +612,11 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
                 disabled={!enabled}
                 title={title}
                 style={{
-                  width: 30, height: 30, borderRadius: 6,
+                  width: 38, height: 38, borderRadius: 8,
                   border: '1px solid #e2e8f0',
                   background: '#fff',
                   color: enabled ? '#475569' : '#cbd5e1',
-                  fontSize: 14, fontWeight: 700,
+                  fontSize: 18, fontWeight: 700,
                   cursor: enabled ? 'pointer' : 'not-allowed',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transition: 'color 0.15s',
@@ -639,7 +639,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
                 transition: 'all 0.15s',
               }}
             >
-              <span style={{ fontSize: 14 }}>🎨</span>
+              <span style={{ fontSize: 17 }}>🎨</span>
               <span className="mse-btn-label">Theme</span>
               {currentTheme && (
                 <span
@@ -674,15 +674,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
             }}
           >
             ✦ <span className="mse-btn-label">Design </span>AI
-          </button>
-          {/* Cmd+K palette trigger */}
-          <button
-            className="mse-action-btn"
-            onClick={() => setShowPalette(true)}
-            title="Command palette (Ctrl+K)"
-            style={{ border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}
-          >
-            ⌕ <span className="mse-btn-label">Commands</span>
           </button>
           <button
             className="mse-action-btn"

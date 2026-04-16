@@ -96,7 +96,7 @@ export function MicrositeNav({
         {
           root: container === document.documentElement ? null : container,
           threshold: [0, 0.1, 0.3, 0.5],
-          rootMargin: "-56px 0px 0px 0px",
+          rootMargin: "-64px 0px 0px 0px",
         },
       );
       obs.observe(el);
@@ -173,13 +173,13 @@ export function MicrositeNav({
     : 'rgba(0,0,0,0.52)';
   const navLogoColor = tokens.accent;
 
-  // Scale font size down as section count grows: 13px for ≤4, down to 9px for 14+
+  // Scale font size down as section count grows: 15px for ≤4, down to 12px for 14+
   const navFontSize = Math.round(
-    Math.max(9, Math.min(13, 14 - sections.length * 0.35)),
+    Math.max(12, Math.min(15, 16 - sections.length * 0.25)),
   );
   // Scale gap down proportionally
   const navGap = Math.round(
-    Math.max(8, Math.min(20, 22 - sections.length * 0.9)),
+    Math.max(12, Math.min(28, 30 - sections.length * 0.9)),
   );
 
   return (
@@ -215,8 +215,8 @@ export function MicrositeNav({
           left: 0,
           right: 0,
           zIndex: 500,
-          padding: "0 16px",
-          height: 56,
+          padding: "0 24px",
+          height: 64,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -232,14 +232,14 @@ export function MicrositeNav({
             <img
               src={brand.logoUrl}
               alt={brand.companyName}
-              style={{ height: 22, objectFit: "contain", maxWidth: isMobileLayout ? 80 : 140 }}
+              style={{ height: 28, objectFit: "contain", maxWidth: isMobileLayout ? 100 : 160 }}
             />
           ) : (
             <span
               style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontWeight: 700,
-                fontSize: isMobileLayout ? 11 : 13,
+                fontSize: isMobileLayout ? 13 : 16,
                 color: navLogoColor,
                 letterSpacing: tokens.labelTracking,
                 textTransform: "uppercase",
@@ -339,7 +339,7 @@ export function MicrositeNav({
         <div
           style={{
             position: "sticky",
-            top: 58,
+            top: 66,
             left: 0,
             right: 0,
             zIndex: 499,
@@ -375,10 +375,10 @@ export function MicrositeNav({
                     padding: "10px 12px",
                     borderRadius: "0 6px 6px 0",
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontSize: 14,
+                    fontSize: 16,
                     fontWeight: isActive ? 700 : 500,
                     color: isActive ? tokens.accent : navInactiveColor,
-                    minHeight: 40,
+                    minHeight: 44,
                     transition: "color 0.15s, background 0.15s",
                     width: "100%",
                   }}

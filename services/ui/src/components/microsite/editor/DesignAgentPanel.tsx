@@ -5,133 +5,26 @@ import { useAuth } from '../../../lib/auth-context';
 import { designEditMicrosite } from '../../../lib/api';
 import type { LayoutAST } from '../../../types/presentation';
 
-// ── Grouped preset definitions ─────────────────────────────────────────────
+// ── Quick suggestion chips ─────────────────────────────────────────────────
 
-const DESIGN_GROUPS = [
-  {
-    label: 'Visual style',
-    presets: [
-      { icon: '🪟', text: 'Glassmorphic' },
-      { icon: '💎', text: 'Luxury' },
-      { icon: '⚡', text: 'Cyberpunk' },
-      { icon: '📖', text: 'Editorial' },
-      { icon: '🎮', text: 'Playful' },
-      { icon: '⬛', text: 'Brutalist' },
-    ],
-  },
-  {
-    label: 'Color',
-    presets: [
-      { icon: '🎵', text: 'Generate color harmony' },
-      { icon: '🌑', text: 'Make it darker and more dramatic' },
-      { icon: '🌄', text: 'Warmer palette with earthy tones' },
-      { icon: '🔲', text: 'Monochrome with high contrast' },
-    ],
-  },
-  {
-    label: 'Typography',
-    presets: [
-      { icon: 'Aa', text: 'Bold, monumental typography' },
-      { icon: 'Aa', text: 'More editorial — light and airy' },
-      { icon: 'Aa', text: 'Condensed and tight' },
-    ],
-  },
-  {
-    label: 'Motion & FX',
-    presets: [
-      { icon: '✨', text: 'Animate the counters' },
-      { icon: '✋', text: 'Add hover effects' },
-      { icon: '〰', text: 'Add wavy dividers' },
-      { icon: '✦', text: 'Add floating orbs' },
-      { icon: '🖼', text: 'Add image overlay' },
-    ],
-  },
+const QUICK_CHIPS = [
+  { icon: '🌑', text: 'Darker & dramatic' },
+  { icon: '💎', text: 'Luxury — deep dark, gold accent' },
+  { icon: '🪟', text: 'Glassmorphic' },
+  { icon: '⚡', text: 'Cyberpunk neon' },
+  { icon: '📖', text: 'Editorial — light, airy, serif' },
+  { icon: '🎮', text: 'Playful & rounded' },
+  { icon: '⬛', text: 'Brutalist — stark, high contrast' },
+  { icon: '🌿', text: 'Warm earthy tones' },
+  { icon: '🎵', text: 'Generate color harmony' },
+  { icon: '✨', text: 'Add animations & motion' },
+  { icon: '〰', text: 'Add wavy section dividers' },
+  { icon: '✦', text: 'Add floating orbs decoration' },
+  { icon: 'Aa', text: 'Bold monumental typography' },
+  { icon: 'Aa', text: 'Change font to Poppins' },
+  { icon: 'Aa', text: 'Change font to Montserrat' },
+  { icon: '✋', text: 'Add hover lift effects' },
 ];
-
-const CONTENT_GROUPS = [
-  {
-    label: 'Tone',
-    presets: [
-      { icon: '🔥', text: 'Make the hero headline more urgent' },
-      { icon: '🎯', text: 'Make the copy more direct' },
-      { icon: '❤️', text: 'Make it warmer and more human' },
-      { icon: '🏛', text: 'Use a more authoritative tone' },
-    ],
-  },
-  {
-    label: 'Length',
-    presets: [
-      { icon: '✂️', text: 'Make the copy more concise' },
-      { icon: '↕', text: 'Expand with more detail' },
-      { icon: '💡', text: 'Add concrete examples' },
-    ],
-  },
-];
-
-// ── Token diff display ────────────────────────────────────────────────────
-
-function TokenDiff({
-  before,
-  after,
-}: {
-  before: Record<string, unknown>;
-  after: Record<string, unknown>;
-}) {
-  const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
-  if (changed.length === 0) return null;
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-        Design changes
-      </div>
-      {changed.map((key) => (
-        <div
-          key={key}
-          style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            fontSize: 11,
-            marginBottom: 3,
-            padding: '4px 8px',
-            background: '#f8fafc',
-            borderRadius: 4,
-          }}
-        >
-          <span style={{ fontWeight: 600, color: '#475569', minWidth: 80, flexShrink: 0 }}>{key}</span>
-          {typeof before[key] === 'string' && (before[key] as string).startsWith('#') && (
-            <span style={{ width: 14, height: 14, borderRadius: 3, background: before[key] as string, border: '1px solid #e2e8f0', flexShrink: 0 }} />
-          )}
-          <span style={{ color: '#94a3b8', textDecoration: 'line-through', maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {String(before[key] ?? '—')}
-          </span>
-          <span style={{ color: '#64748b', flexShrink: 0 }}>→</span>
-          {typeof after[key] === 'string' && (after[key] as string).startsWith('#') && (
-            <span style={{ width: 14, height: 14, borderRadius: 3, background: after[key] as string, border: '1px solid #e2e8f0', flexShrink: 0 }} />
-          )}
-          <span style={{ color: '#1e293b', fontWeight: 600, maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {String(after[key] ?? '—')}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Mode badge ─────────────────────────────────────────────────────────────
-
-const MODE_META: Record<string, { icon: string; label: string; color: string; bg: string }> = {
-  mood:      { icon: '🎨', label: 'Mood',      color: '#4f46e5', bg: '#eef2ff' },
-  design:    { icon: '✦',  label: 'Design',    color: '#4f46e5', bg: '#eef2ff' },
-  hover:     { icon: '✋', label: 'Hover',     color: '#4f46e5', bg: '#eef2ff' },
-  animate:   { icon: '✨', label: 'Animate',   color: '#4f46e5', bg: '#eef2ff' },
-  dividers:  { icon: '〰', label: 'Dividers',  color: '#4f46e5', bg: '#eef2ff' },
-  harmonize: { icon: '🎵', label: 'Harmonize', color: '#4f46e5', bg: '#eef2ff' },
-  overlay:   { icon: '🖼', label: 'Overlay',   color: '#4f46e5', bg: '#eef2ff' },
-  decorate:  { icon: '✦',  label: 'Decorate',  color: '#4f46e5', bg: '#eef2ff' },
-  content:   { icon: '✎',  label: 'Content',   color: '#92400e', bg: '#fffbeb' },
-};
 
 // ── Panel ─────────────────────────────────────────────────────────────────
 
@@ -143,27 +36,26 @@ interface Props {
   initialInstruction?: string;
   onApply: (newAst: LayoutAST) => void;
   onClose: () => void;
-  /** Called with the preview AST when results arrive, or null when reverted */
   onPreview?: (previewAst: LayoutAST | null) => void;
 }
 
-type Step = 'idle' | 'analyzing' | 'synthesizing' | 'applying' | 'done';
+type Step = 'idle' | 'running' | 'done';
 
-const STEP_LABELS: Record<Step, string> = {
-  idle:         '',
-  analyzing:    'Analyzing instruction…',
-  synthesizing: 'Synthesizing design…',
-  applying:     'Applying changes…',
-  done:         'Done',
-};
-
-const STEP_PROGRESS: Record<Step, number> = {
-  idle:         0,
-  analyzing:    25,
-  synthesizing: 65,
-  applying:     90,
-  done:         100,
-};
+function ColorSwatch({ hex }: { hex: string }) {
+  if (!hex.startsWith('#')) return null;
+  return (
+    <span style={{
+      display: 'inline-block',
+      width: 12, height: 12,
+      borderRadius: 3,
+      background: hex,
+      border: '1px solid rgba(0,0,0,0.12)',
+      verticalAlign: 'middle',
+      marginRight: 3,
+      flexShrink: 0,
+    }} />
+  );
+}
 
 export function DesignAgentPanel({
   ast,
@@ -176,93 +68,85 @@ export function DesignAgentPanel({
   onPreview,
 }: Props) {
   const { apiKey } = useAuth();
-  const [tab, setTab] = useState<'design' | 'content'>(targetSectionId ? 'content' : 'design');
   const [instruction, setInstruction] = useState(initialInstruction ?? '');
   const [step, setStep] = useState<Step>('idle');
   const [error, setError] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const [previewResult, setPreviewResult] = useState<{
+  const [result, setResult] = useState<{
     ast: LayoutAST;
     mode: string;
     summary: string;
+    changed: string[];
     tokensBefore: Record<string, unknown>;
     tokensAfter: Record<string, unknown>;
   } | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const isLoading = step !== 'idle' && step !== 'done';
-
-  // Autofocus textarea on open; if initialInstruction provided, trigger immediately
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (initialInstruction) {
-      setInstruction(initialInstruction);
-    }
+    if (initialInstruction) setInstruction(initialInstruction);
   }, [initialInstruction]);
 
   async function handleGenerate() {
-    if (!instruction.trim() || isLoading) return;
+    if (!instruction.trim() || step === 'running') return;
     setError('');
-    setPreviewResult(null);
-    setStep('analyzing');
+    setResult(null);
+    onPreview?.(null);
+    setStep('running');
 
     try {
-      await new Promise((r) => setTimeout(r, 350));
-      setStep('synthesizing');
-
-      const result = await designEditMicrosite(apiKey, namespace, proposalId, {
+      const apiResult = await designEditMicrosite(apiKey, namespace, proposalId, {
         instruction: instruction.trim(),
         targetSectionId,
         currentAst: ast,
         commit: false,
       });
 
-      setStep('applying');
-      await new Promise((r) => setTimeout(r, 180));
+      // Debug: log to console so we can see what came back
+      console.log('[DesignAI] API result:', {
+        mode: apiResult.mode,
+        changed: apiResult.changed,
+        summary: apiResult.summary,
+        customTokens: (apiResult.ast as Record<string, unknown>)?.['customTokens'],
+        customFonts: (apiResult.ast as Record<string, unknown>)?.['customFonts'],
+      });
 
-      const newAst = result.ast as LayoutAST;
-
+      const newAst = apiResult.ast as LayoutAST;
       const tokensBefore = (ast.customTokens ?? {}) as Record<string, unknown>;
       const tokensAfter = (newAst.customTokens ?? {}) as Record<string, unknown>;
 
-      const preview = {
+      setResult({
         ast: newAst,
-        mode: result.mode,
-        summary: result.summary,
+        mode: apiResult.mode,
+        summary: apiResult.summary,
+        changed: apiResult.changed,
         tokensBefore,
         tokensAfter,
-      };
-      setPreviewResult(preview);
+      });
+
       onPreview?.(newAst);
       setStep('done');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[DesignAI] Error:', err);
+      setError(msg);
       setStep('idle');
     }
   }
 
   function handleApply() {
-    if (!previewResult) return;
+    if (!result) return;
     onPreview?.(null);
-    onApply(previewResult.ast);
+    onApply(result.ast);
     onClose();
   }
 
   function handleRevert() {
-    setPreviewResult(null);
+    setResult(null);
     onPreview?.(null);
     setStep('idle');
-  }
-
-  function handleRefine() {
-    setPreviewResult(null);
-    onPreview?.(null);
-    setStep('idle');
-    // keep instruction for refinement
-    textareaRef.current?.focus();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -272,8 +156,9 @@ export function DesignAgentPanel({
     }
   }
 
-  const groups = tab === 'design' ? DESIGN_GROUPS : CONTENT_GROUPS;
-  const modeMeta = previewResult ? (MODE_META[previewResult.mode] ?? { icon: '✦', label: previewResult.mode, color: '#4f46e5', bg: '#eef2ff' }) : null;
+  const changedTokens = result
+    ? Object.keys(result.tokensAfter).filter(k => result.tokensAfter[k] !== result.tokensBefore[k])
+    : [];
 
   return (
     <div
@@ -282,108 +167,90 @@ export function DesignAgentPanel({
         top: 0,
         right: 0,
         bottom: 0,
-        width: 340,
-        background: '#fff',
-        borderLeft: '1px solid #e2e8f0',
+        width: 360,
+        background: '#0f172a',
         zIndex: 10100,
         display: 'flex',
         flexDirection: 'column',
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        boxShadow: '-4px 0 32px rgba(0,0,0,0.10)',
+        boxShadow: '-8px 0 48px rgba(0,0,0,0.40)',
+        color: '#e2e8f0',
       }}
     >
-      {/* Progress bar */}
-      <div style={{ height: 3, background: '#f1f5f9', flexShrink: 0 }}>
-        <div
-          style={{
-            height: '100%',
-            width: `${STEP_PROGRESS[step]}%`,
-            background: 'linear-gradient(90deg, #6366f1, #818cf8)',
-            borderRadius: 2,
-            transition: step === 'idle' ? 'none' : 'width 0.5s cubic-bezier(0.4,0,0.2,1)',
-          }}
-        />
-      </div>
-
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 16px',
-          height: 48,
-          borderBottom: '1px solid #e2e8f0',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>✦ Design AI</span>
-          {targetSectionId && (
-            <span style={{ fontSize: 11, color: '#94a3b8', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10 }}>
-              Section edit
-            </span>
-          )}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 20px',
+        height: 56,
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            width: 28, height: 28,
+            borderRadius: 8,
+            background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14,
+          }}>✦</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9' }}>
+              Design AI
+              {targetSectionId && (
+                <span style={{ fontSize: 10, fontWeight: 500, color: '#6366f1', marginLeft: 6, background: 'rgba(99,102,241,0.15)', padding: '1px 6px', borderRadius: 6 }}>
+                  Section
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: '#475569' }}>Powered by Claude</div>
+          </div>
         </div>
         <button
           onClick={() => { onPreview?.(null); onClose(); }}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1, padding: 4 }}
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 6,
+            cursor: 'pointer',
+            color: '#94a3b8',
+            fontSize: 13,
+            padding: '4px 8px',
+            lineHeight: 1,
+          }}
           aria-label="Close"
         >
           ✕
         </button>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-        {(['design', 'content'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              flex: 1,
-              padding: '10px 0',
-              border: 'none',
-              background: 'none',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: 'pointer',
-              color: tab === t ? '#6366f1' : '#94a3b8',
-              borderBottom: tab === t ? '2px solid #6366f1' : '2px solid transparent',
-              marginBottom: -1,
-              transition: 'color 0.15s',
-              textTransform: 'capitalize',
-              letterSpacing: '0.02em',
-            }}
-          >
-            {t === 'design' ? '✦ Design' : '✎ Content'}
-          </button>
-        ))}
-      </div>
-
       {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        {/* Instruction input */}
-        <div style={{ marginBottom: 14 }}>
+        {/* Input area */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            What do you want to change?
+          </div>
           <textarea
             ref={textareaRef}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={
-              tab === 'design'
-                ? 'Describe the look you want — e.g. "Make it feel like a high-end SaaS brand"'
-                : 'Describe the edit — e.g. "Rewrite the hero to be more urgent and specific"'
+            placeholder={targetSectionId
+              ? 'Describe the change — e.g. "Rewrite the headline to be more urgent"'
+              : 'Describe the look — e.g. "Make it darker with a gold accent and luxury feel"'
             }
-            rows={4}
+            rows={3}
             style={{
               width: '100%',
-              padding: '10px 12px',
-              borderRadius: 8,
-              border: '1.5px solid #e2e8f0',
+              padding: '10px 14px',
+              borderRadius: 10,
+              border: '1.5px solid rgba(255,255,255,0.10)',
+              background: 'rgba(255,255,255,0.05)',
               fontSize: 13,
-              color: '#1e293b',
+              color: '#f1f5f9',
               resize: 'vertical',
               fontFamily: 'inherit',
               lineHeight: 1.6,
@@ -392,142 +259,233 @@ export function DesignAgentPanel({
               transition: 'border-color 0.15s',
             }}
             onFocus={e => { e.currentTarget.style.borderColor = '#6366f1'; }}
-            onBlur={e => { e.currentTarget.style.borderColor = '#e2e8f0'; }}
-            disabled={isLoading}
+            onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.10)'; }}
+            disabled={step === 'running'}
           />
-          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4, textAlign: 'right' }}>
+          <div style={{ fontSize: 10, color: '#334155', marginTop: 4, textAlign: 'right' }}>
             ⌘↵ to generate
           </div>
         </div>
 
-        {/* Grouped presets */}
-        {groups.map((group) => (
-          <div key={group.label} style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-              {group.label}
+        {/* Quick chips */}
+        {step === 'idle' && !result && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Quick suggestions
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {group.presets.map((p) => (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {QUICK_CHIPS.map((chip) => (
                 <button
-                  key={p.text}
-                  onClick={() => setInstruction(p.text)}
-                  disabled={isLoading}
+                  key={chip.text}
+                  onClick={() => {
+                    setInstruction(chip.text);
+                    textareaRef.current?.focus();
+                  }}
                   style={{
-                    padding: '4px 10px',
-                    borderRadius: 100,
+                    padding: '5px 10px',
+                    borderRadius: 20,
                     border: '1px solid',
-                    borderColor: instruction === p.text ? '#6366f1' : '#e2e8f0',
-                    background: instruction === p.text ? '#eef2ff' : '#f8fafc',
-                    color: instruction === p.text ? '#4f46e5' : '#475569',
+                    borderColor: instruction === chip.text ? '#6366f1' : 'rgba(255,255,255,0.10)',
+                    background: instruction === chip.text ? 'rgba(99,102,241,0.20)' : 'rgba(255,255,255,0.04)',
+                    color: instruction === chip.text ? '#818cf8' : '#94a3b8',
                     fontSize: 11,
                     fontWeight: 500,
-                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 4,
                     transition: 'all 0.12s',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <span style={{ fontSize: 12 }}>{p.icon}</span>
-                  {p.text}
+                  <span>{chip.icon}</span>
+                  {chip.text}
                 </button>
               ))}
             </div>
           </div>
-        ))}
+        )}
 
         {/* Loading */}
-        {isLoading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', color: '#6366f1' }}>
-            <span style={{ animation: 'dap-spin 0.9s linear infinite', display: 'inline-block', fontSize: 15 }}>⟳</span>
-            <span style={{ fontSize: 12, fontWeight: 500 }}>{STEP_LABELS[step]}</span>
+        {step === 'running' && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            padding: '16px',
+            background: 'rgba(99,102,241,0.08)',
+            borderRadius: 10,
+            border: '1px solid rgba(99,102,241,0.20)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ animation: 'dap-spin 0.9s linear infinite', display: 'inline-block', fontSize: 16 }}>⟳</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#818cf8' }}>Generating design…</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#475569' }}>
+              Claude is synthesizing your design changes. This may take a moment.
+            </div>
           </div>
         )}
 
         {/* Error */}
         {error && (
-          <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#dc2626', marginBottom: 12 }}>
+          <div style={{
+            padding: '12px 14px',
+            background: 'rgba(239,68,68,0.10)',
+            border: '1px solid rgba(239,68,68,0.25)',
+            borderRadius: 10,
+            fontSize: 12,
+            color: '#fca5a5',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>Error</div>
             {error}
           </div>
         )}
 
-        {/* Preview result */}
-        {previewResult && modeMeta && (
-          <div style={{ marginTop: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                padding: '4px 10px', borderRadius: 100,
-                background: modeMeta.bg, color: modeMeta.color,
-                fontSize: 11, fontWeight: 700,
-              }}>
-                {modeMeta.icon} {modeMeta.label}
+        {/* Result */}
+        {result && step === 'done' && (
+          <div style={{
+            background: 'rgba(99,102,241,0.08)',
+            border: '1px solid rgba(99,102,241,0.20)',
+            borderRadius: 10,
+            overflow: 'hidden',
+          }}>
+            {/* Result header */}
+            <div style={{
+              padding: '10px 14px',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <span style={{ fontSize: 14 }}>✦</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#818cf8' }}>
+                {result.summary || 'Design updated'}
               </span>
-              <span style={{ fontSize: 12, color: '#475569', flex: 1 }}>{previewResult.summary}</span>
             </div>
-            <TokenDiff before={previewResult.tokensBefore} after={previewResult.tokensAfter} />
+
+            {/* Changed tokens */}
+            {changedTokens.length > 0 && (
+              <div style={{ padding: '10px 14px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Changed ({changedTokens.length})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {changedTokens.slice(0, 8).map(key => {
+                    const before = result.tokensBefore[key];
+                    const after = result.tokensAfter[key];
+                    const isColor = typeof after === 'string' && (after as string).startsWith('#');
+                    return (
+                      <div key={key} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 11,
+                        padding: '4px 8px',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: 6,
+                      }}>
+                        <span style={{ color: '#64748b', minWidth: 90, flexShrink: 0 }}>{key}</span>
+                        <span style={{ color: '#334155', textDecoration: 'line-through', fontSize: 10 }}>
+                          {typeof before === 'string' && (before as string).startsWith('#') && <ColorSwatch hex={before as string} />}
+                          {String(before ?? '—').slice(0, 14)}
+                        </span>
+                        <span style={{ color: '#475569', fontSize: 10 }}>→</span>
+                        <span style={{ color: '#94a3b8', fontWeight: 600 }}>
+                          {isColor && <ColorSwatch hex={after as string} />}
+                          {String(after ?? '—').slice(0, 14)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {changedTokens.length > 8 && (
+                    <div style={{ fontSize: 10, color: '#475569', padding: '2px 8px' }}>
+                      +{changedTokens.length - 8} more changes
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* No token changes notice */}
+            {changedTokens.length === 0 && result.changed.length > 0 && (
+              <div style={{ padding: '10px 14px', fontSize: 11, color: '#475569' }}>
+                Applied: {result.changed.join(', ')}
+              </div>
+            )}
+
+            {/* No changes at all */}
+            {result.changed.length === 0 && (
+              <div style={{ padding: '10px 14px', fontSize: 11, color: '#ef4444' }}>
+                No changes were made. The AI may not have understood the instruction — try being more specific.
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div
-        style={{
-          padding: '12px 16px',
-          borderTop: '1px solid #e2e8f0',
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}
-      >
-        {previewResult ? (
+      <div style={{
+        padding: '14px 20px',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}>
+        {result ? (
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={handleRevert}
               style={{
                 flex: 1,
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: '1px solid #e2e8f0',
-                background: '#fff',
+                padding: '9px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.10)',
+                background: 'rgba(255,255,255,0.04)',
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',
-                color: '#64748b',
+                color: '#94a3b8',
               }}
             >
               Revert
             </button>
             <button
-              onClick={handleRefine}
+              onClick={() => {
+                setResult(null);
+                onPreview?.(null);
+                setStep('idle');
+                textareaRef.current?.focus();
+              }}
               style={{
                 flex: 1,
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: '1px solid #c7d2fe',
-                background: '#eef2ff',
+                padding: '9px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(99,102,241,0.3)',
+                background: 'rgba(99,102,241,0.10)',
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',
-                color: '#4f46e5',
+                color: '#818cf8',
               }}
             >
               Refine
             </button>
             <button
               onClick={handleApply}
+              disabled={result.changed.length === 0}
               style={{
                 flex: 2,
-                padding: '8px 12px',
-                borderRadius: 6,
+                padding: '9px 12px',
+                borderRadius: 8,
                 border: 'none',
-                background: '#6366f1',
-                color: '#fff',
+                background: result.changed.length === 0 ? '#334155' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                color: result.changed.length === 0 ? '#475569' : '#fff',
                 fontSize: 12,
                 fontWeight: 700,
-                cursor: 'pointer',
+                cursor: result.changed.length === 0 ? 'not-allowed' : 'pointer',
+                boxShadow: result.changed.length === 0 ? 'none' : '0 2px 8px rgba(99,102,241,0.4)',
               }}
             >
               Apply changes
@@ -536,26 +494,34 @@ export function DesignAgentPanel({
         ) : (
           <button
             onClick={() => { void handleGenerate(); }}
-            disabled={!instruction.trim() || isLoading}
+            disabled={!instruction.trim() || step === 'running'}
             style={{
               width: '100%',
-              padding: '9px 12px',
-              borderRadius: 6,
+              padding: '11px 12px',
+              borderRadius: 8,
               border: 'none',
-              background: !instruction.trim() || isLoading ? '#e2e8f0' : '#6366f1',
-              color: !instruction.trim() || isLoading ? '#94a3b8' : '#fff',
+              background: !instruction.trim() || step === 'running'
+                ? 'rgba(255,255,255,0.06)'
+                : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+              color: !instruction.trim() || step === 'running' ? '#475569' : '#fff',
               fontSize: 13,
               fontWeight: 700,
-              cursor: !instruction.trim() || isLoading ? 'not-allowed' : 'pointer',
-              transition: 'background 0.15s',
+              cursor: !instruction.trim() || step === 'running' ? 'not-allowed' : 'pointer',
+              boxShadow: !instruction.trim() || step === 'running' ? 'none' : '0 2px 12px rgba(99,102,241,0.4)',
+              transition: 'all 0.15s',
             }}
           >
-            {isLoading ? 'Generating…' : 'Generate'}
+            {step === 'running' ? '⟳ Generating…' : '✦ Generate'}
           </button>
         )}
       </div>
 
-      <style>{`@keyframes dap-spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes dap-spin { to { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 4px; }
+      `}</style>
     </div>
   );
 }

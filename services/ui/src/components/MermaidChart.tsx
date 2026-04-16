@@ -110,6 +110,23 @@ export function MermaidChart({ chart, tokens }: Props) {
           normalizedChart = normalizedChart.replace(/^(gantt\s*\n)/i, '$1    dateFormat YYYY-MM-DD\n');
         }
 
+        // Gantt-specific: remove blank lines inside task sections and fix
+        // malformed task entries — Mermaid v11's compileTask crashes with
+        // "Cannot read properties of undefined (reading 'type')" when the
+        // tasks array contains undefined entries from empty/invalid lines.
+        if (/^gantt\b/i.test(normalizedChart)) {
+          normalizedChart = normalizedChart
+            .split('\n')
+            .filter(line => {
+              const trimmed = line.trim();
+              // Keep gantt header, dateFormat, title, section headers,
+              // and non-empty task lines. Drop blank lines and lone colons.
+              if (trimmed === '' || trimmed === ':') return false;
+              return true;
+            })
+            .join('\n');
+        }
+
         // Pre-validate before render — catches internal Mermaid crashes early
         try {
           await mermaid.parse(normalizedChart);
@@ -119,13 +136,24 @@ export function MermaidChart({ chart, tokens }: Props) {
         }
 
         const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const { svg: rendered } = await mermaid.render(id, normalizedChart);
+        let rendered: string;
+        try {
+          const result = await mermaid.render(id, normalizedChart);
+          rendered = result.svg;
+        } catch (renderErr) {
+          // Mermaid v11 Gantt/other renderers can throw synchronously inside
+          // the render pipeline (e.g. compileTask undefined.type). Treat as
+          // a render failure rather than letting it propagate to React.
+          console.warn('[MermaidChart] render threw (diagram suppressed):', renderErr);
+          if (!cancelled) setError('render-failed');
+          return;
+        }
 
         // Mermaid v11 may leave a hidden error div in body — clean it up
         document.getElementById(`${id}-error`)?.remove();
 
         if (!cancelled) {
-          setSvg(rendered);
+          setSvg(rendered ?? '');
           setError('');
         }
       } catch (err) {
