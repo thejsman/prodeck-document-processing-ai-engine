@@ -244,7 +244,6 @@ function buildSectionSlides(
   if (t === 'team')         return buildTeamSlides(c);
   if (t === 'comparison')   return [buildComparisonSlide(c)];
   if (t === 'casestudy')    return [buildCaseStudySlide(c)];
-  if (t === 'chart')        return [buildChartSlide(c)];
   if (t === 'showcase')     return [buildShowcaseSlide(c)];
   return [buildGenericSlide(c, diagramSVG)];
 }
@@ -866,33 +865,6 @@ function buildCaseStudySlide(c: Record<string, unknown>): HTMLElement {
   return slide;
 }
 
-// ── Chart slide — recreate SVG from data ──────────────────────────────────────
-
-function buildChartSlide(c: Record<string, unknown>): HTMLElement {
-  const slide     = makeSlide();
-  const data      = (c.data ?? []) as Array<Record<string, unknown>>;
-  const chartType = String(c.chartType ?? 'bar');
-  const unit      = String(c.unit ?? '');
-
-  let chartSVG = '';
-  if (chartType === 'bar' || chartType === 'line') {
-    chartSVG = svgBarChart(data, unit, chartType === 'line');
-  } else if (chartType === 'pie' || chartType === 'donut') {
-    chartSVG = svgPieChart(data, chartType === 'donut');
-  }
-
-  slide.innerHTML = slideWrap(`
-    ${c.eyebrow ? eyebrow(String(c.eyebrow)) : ''}
-    ${c.headline ? h2(String(c.headline)) : ''}
-    ${c.body ? body(String(c.body)) : ''}
-    <div style='flex:1;display:flex;align-items:center;justify-content:center;margin-top:16px'>
-      <div style='background:${C.surface};border:1px solid ${C.border};border-radius:12px;padding:20px;width:100%'>
-        ${chartSVG}
-      </div>
-    </div>
-  `);
-  return slide;
-}
 
 // ── Showcase slide ────────────────────────────────────────────────────────────
 

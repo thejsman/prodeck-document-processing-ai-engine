@@ -8,7 +8,7 @@ const SECTION_ICONS: Record<string, string> = {
   testimonials: '💬', showcase: '🖼', benefits: '✅', problem: '🔴',
   stats: '📊', metrics: '📈', security: '🔒', techstack: '🛠',
   testing: '🧪', faq: '❓', team: '👥', comparison: '⚖',
-  casestudy: '📖', chart: '📉', generic: '📄',
+  casestudy: '📖', generic: '📄',
 };
 
 export function SectionOutline({ onClose }: { onClose: () => void }) {

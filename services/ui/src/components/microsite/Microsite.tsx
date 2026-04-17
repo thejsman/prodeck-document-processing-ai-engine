@@ -27,7 +27,6 @@ import { FaqSection } from './sections/FaqSection';
 import { TeamSection } from './sections/TeamSection';
 import { ComparisonSection } from './sections/ComparisonSection';
 import { CaseStudySection } from './sections/CaseStudySection';
-import { ChartSection } from './sections/ChartSection';
 import { ApprovalSection } from './sections/ApprovalSection';
 
 import { useEditContext } from './editor/EditContext';
@@ -65,7 +64,6 @@ import type {
   TeamContent,
   ComparisonContent,
   CaseStudyContent,
-  ChartContent,
   ApprovalContent,
 } from '../../types/presentation';
 
@@ -257,9 +255,6 @@ function renderSection(
       break;
     case 'casestudy':
       inner = <CaseStudySection content={section.content as CaseStudyContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
-      break;
-    case 'chart':
-      inner = <ChartSection content={section.content as ChartContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'approval':
       inner = <ApprovalSection content={section.content as ApprovalContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} namespace={brief?.clientName?.replace(/\s+/g, '-').toLowerCase()} proposalId={undefined} />;
@@ -550,7 +545,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
     : allSections;
 
   // Full list — used for progress counting and seenSectionIds tracking
-  const sections = allSections;
+  const sections = allSections.filter(s => s.sectionType !== 'chart');
 
   const newSectionIds = new Set<string>();
   if (generating) {

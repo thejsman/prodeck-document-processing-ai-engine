@@ -30,7 +30,7 @@ export function MicrositeNav({
   scrollContainerId,
 }: Props) {
   // Stable filtered list — approval is a sign-off form, not a nav destination
-  const navLinks = sections.filter(s => s.sectionType !== 'approval');
+  const navLinks = sections.filter(s => s.sectionType !== 'approval' && s.sectionType !== 'chart');
 
   const [scrolled, setScrolled] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
@@ -149,7 +149,6 @@ export function MicrositeNav({
     team: "Team",
     comparison: "Comparison",
     casestudy: "Case Study",
-    chart: "Results",
     generic: "Overview",
   };
 
@@ -185,13 +184,13 @@ export function MicrositeNav({
     : 'rgba(0,0,0,0.52)';
   const navLogoColor = tokens.accent;
 
-  // Scale font size down as section count grows: 15px for ≤4, down to 12px for 14+
+  // Scale font size down as section count grows: 11px for ≤4, down to 10px for 14+
   const navFontSize = Math.round(
-    Math.max(12, Math.min(15, 16 - sections.length * 0.25)),
+    Math.max(10, Math.min(11, 12 - sections.length * 0.15)),
   );
   // Scale gap down proportionally
   const navGap = Math.round(
-    Math.max(12, Math.min(28, 30 - sections.length * 0.9)),
+    Math.max(10, Math.min(24, 26 - sections.length * 0.9)),
   );
 
   return (
@@ -291,9 +290,10 @@ export function MicrositeNav({
                     cursor: "pointer",
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontSize: navFontSize,
-                    fontWeight: isActive ? 700 : 500,
+                    fontWeight: isActive ? 700 : 600,
                     color: isActive ? tokens.accent : navInactiveColor,
-                    letterSpacing: "0.04em",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase" as const,
                     padding: "4px 0 2px",
                     whiteSpace: "nowrap",
                     transition: "color 0.2s",
@@ -387,8 +387,10 @@ export function MicrositeNav({
                     padding: "10px 12px",
                     borderRadius: "0 6px 6px 0",
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontSize: 16,
-                    fontWeight: isActive ? 700 : 500,
+                    fontSize: 11,
+                    fontWeight: isActive ? 700 : 600,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase" as const,
                     color: isActive ? tokens.accent : navInactiveColor,
                     minHeight: 44,
                     transition: "color 0.15s, background 0.15s",

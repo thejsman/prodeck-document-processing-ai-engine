@@ -22,7 +22,6 @@ export type SectionType =
   | 'team'
   | 'comparison'
   | 'casestudy'
-  | 'chart'
   | 'approval'
   | 'generic';
 
@@ -434,22 +433,6 @@ export interface CaseStudyContent {
 
 // ── Chart ────────────────────────────────────────────────────────────────────
 
-export interface ChartDataPoint {
-  label: string;
-  value: number;
-  color?: string;
-}
-
-export interface ChartContent {
-  eyebrow: string;
-  headline: string;
-  body?: string;
-  chartType: 'bar' | 'line' | 'pie' | 'donut';
-  data: ChartDataPoint[];
-  unit?: string;
-  imageQuery: string;
-}
-
 export interface ApprovalContent {
   eyebrow: string;
   headline: string;
@@ -481,7 +464,6 @@ export type SectionContent =
   | TeamContent
   | ComparisonContent
   | CaseStudyContent
-  | ChartContent
   | ApprovalContent
   | GenericContent;
 

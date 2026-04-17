@@ -42,14 +42,13 @@ type SectionType =
   | 'team'
   | 'comparison'
   | 'casestudy'
-  | 'chart'
   | 'approval'
   | 'generic';
 
 const ALL_SECTION_TYPES = new Set<string>([
   'hero','challenge','approach','deliverables','timeline','pricing',
   'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
-  'metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','approval','generic',
+  'metrics','security','techstack','testing','faq','team','comparison','casestudy','approval','generic',
 ]);
 
 // ── Reference file design extraction types ───────────────────────────────────
@@ -370,7 +369,7 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
   * approval (interactive sign-off form — place last, after nextsteps or pricing)
 - Map EVERY source heading in the proposal to a section — do NOT skip any heading that has content.
 - For headings that don't map cleanly to a known type, use "generic" type with the original heading preserved as sourceHeading.
-- Add additional sections if proposal content supports them (faq, team, casestudy, comparison, chart, etc.).
+- Add additional sections if proposal content supports them (faq, team, casestudy, comparison, etc.).
 - For sections with no source heading, set aiGenerated: true and generate from brief.
 - NEVER output fewer than 12 sections.
 - NEVER skip a core section type listed above.
@@ -393,7 +392,7 @@ HEADING → TYPE MAPPING EXAMPLES (use semantic intent, not just keywords):
 - "Case Study", "Past Work", "Portfolio", "Success Story" → casestudy
 - "How We Compare", "Comparison", "Us vs Others", "Why Not X" → comparison
 ${styleHintBlock}
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, generic
 
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
@@ -420,7 +419,7 @@ You are a section plan editor. Reshape the plan below to satisfy the USER COMMAN
 CURRENT PLAN:
 ${JSON.stringify(plan, null, 2)}
 
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, generic
 
 RULES:
 - Return ONLY a valid JSON array — same format as CURRENT PLAN
@@ -442,7 +441,7 @@ Parse the following user instruction into a structured command JSON.
 
 CURRENT PLUGIN: "${currentPlugin}"
 VALID PLUGINS: obsidian, ivory, cobalt, sage
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, generic
 VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
 
 USER INSTRUCTION:
@@ -821,7 +820,6 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
   team:         ['card-grid',   'centered',   'editorial'],
   comparison:   ['centered',    'editorial',  'split'],
   casestudy:    ['split',       'editorial',  'asymmetric'],
-  chart:        ['centered',    'editorial',  'split'],
   generic:      ['centered',    'split',      'editorial'],
 };
 
@@ -860,7 +858,6 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   team:         'card-grid',
   comparison:   'editorial',
   casestudy:    'editorial',
-  chart:        'editorial',
   generic:      'editorial',
 };
 
@@ -889,7 +886,6 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
   team:         'minimal',
   comparison:   'minimal',
   casestudy:    'minimal',
-  chart:        'minimal',
   generic:      'minimal',
 };
 
@@ -920,7 +916,6 @@ const BOLD_VARIANTS: Record<SectionType, string> = {
   team:         'card-grid',
   comparison:   'centered',
   casestudy:    'split',
-  chart:        'centered',
   generic:      'split',
 };
 
@@ -1788,27 +1783,6 @@ Transform into a Case Study section with a challenge-solution-outcome narrative 
     }
   ],
   "imageQuery": "DALL-E 3 prompt: cinematic scene showing transformation, success, or breakthrough. High contrast, dramatic lighting.",
-  ${meta}
-}`,
-
-    chart: `${system}
-
-Brief: ${brief}
-Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
-
-Transform into a Chart section. Choose the best chart type for the data: bar (comparisons), line (trends over time), pie (parts of a whole), donut (same with center label). Return:
-{
-  "eyebrow": "4-8 words",
-  "headline": "8-12 words",
-  "body": "2-3 sentences explaining what the chart shows, why the data matters, and key insights from the source — or null if no body context",
-  "chartType": "bar | line | pie | donut",
-  "unit": "unit suffix e.g. '%' or 'k' or '$M' — or null",
-  "data": [
-    {
-      "label": "2-4 words, the data point label",
-      "value": numeric_value
-    }
-  ],
   ${meta}
 }`,
 
@@ -3061,7 +3035,7 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
-      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','approval','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic']);
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','approval','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
