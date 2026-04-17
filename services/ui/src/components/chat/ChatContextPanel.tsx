@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useExecutionStore } from '@/core/execution/execution-store';
@@ -105,7 +107,7 @@ export function ChatContextPanel({ namespace, insights }: Props) {
           </span>
           <span className="chat-ctx-stat-label">total</span>
         </div>
-        <Link href="/proposal" className="chat-ctx-link">View all →</Link>
+        <Link href="/proposal" className="chat-ctx-link">View all <Icon icon={ArrowRight} size="xs" /></Link>
       </div>
 
       {/* Namespace insights */}
@@ -125,7 +127,7 @@ export function ChatContextPanel({ namespace, insights }: Props) {
         <h4 className="chat-ctx-title">Project</h4>
         <span className="chat-ctx-ns-badge">{namespace || 'default'}</span>
         <Link href="/ingest" className="chat-ctx-link" style={{ display: 'block', marginTop: 8 }}>
-          Add documents →
+          Add documents <Icon icon={ArrowRight} size="xs" />
         </Link>
       </div>
     </aside>

@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ArrowDown, ArrowUp, Palette, X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useEditContext } from './EditContext';
 import type { LayoutSection } from '../../../types/presentation';
 import type { OrbitalDiagramData, PuzzleDiagramData } from '../../../lib/customDiagramRenderer';
@@ -533,7 +535,7 @@ export function DiagramModal({
               {isCustomForm ? 'Fill in the form to build your diagram.' : 'Select a chart type, then customize the code. Preview updates automatically.'}
             </p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, padding: 4 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><Icon icon={X} size="md" /></button>
         </div>
 
         {/* Chart type selector */}
@@ -825,7 +827,7 @@ function BackgroundPanel({
               borderBottom: tab === t ? '2px solid #6366f1' : '2px solid transparent',
             }}
           >
-            {t === 'image' ? '🔗 URL' : t === 'color' ? '🎨 Color' : '⬆ Upload'}
+            {t === 'image' ? <><Icon icon={Image} size="sm" /> Image</> : <><Icon icon={Palette} size="sm" /> Color</>}
           </button>
         ))}
       </div>
@@ -868,7 +870,7 @@ function BackgroundPanel({
               </button>
               <button
                 onClick={applyImage}
-                style={{ flex: 2, padding: '7px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                style={{ flex: 2, padding: '8px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
               >
                 Apply
               </button>
@@ -1463,7 +1465,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                 boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
               }}
               title="Move section up"
-            >↑</button>
+            ><Icon icon={ArrowUp} size="sm" /></button>
           )}
           {sectionIndex < totalSections - 1 && (
             <button
@@ -1480,7 +1482,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                 boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
               }}
               title="Move section down"
-            >↓</button>
+            ><Icon icon={ArrowDown} size="sm" /></button>
           )}
 
           {/* Duplicate section */}

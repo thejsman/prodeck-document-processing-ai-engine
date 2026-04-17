@@ -1,5 +1,7 @@
 'use client'
 
+import { Check, X, Zap } from "lucide-react"
+import { Icon } from "@/components/ui/Icon"
 import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import { useExecutionStore } from "@/core/execution/execution-store"
@@ -117,7 +119,7 @@ function CompletedSection({
                 className="exec-drawer-item-icon exec-drawer-item-icon--completed"
                 aria-hidden="true"
               >
-                ✓
+                <Icon icon={Check} size="sm" />
               </span>
               <div className="exec-drawer-item-body">
                 <div className="exec-drawer-item-title">
@@ -163,7 +165,7 @@ function FailedSection({
               className="exec-drawer-item-icon exec-drawer-item-icon--failed"
               aria-hidden="true"
             >
-              ✕
+              <Icon icon={X} size="sm" />
             </span>
             <div className="exec-drawer-item-body">
               <div className="exec-drawer-item-title">
@@ -233,7 +235,7 @@ export function ExecutionDrawer() {
             onClick={closeDrawer}
             aria-label="Close AI Activity panel"
           >
-            ✕
+            <Icon icon={X} size="md" />
           </button>
         </div>
 
@@ -241,7 +243,7 @@ export function ExecutionDrawer() {
           {isEmpty ? (
             <div className="exec-drawer-empty">
               <span className="exec-drawer-empty-icon" aria-hidden="true">
-                ⚡
+                <Icon icon={Zap} size="lg" />
               </span>
               <span>No AI tasks yet</span>
             </div>

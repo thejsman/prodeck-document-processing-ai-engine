@@ -1,6 +1,8 @@
 'use client';
 
 import type { PluginTokens, ProblemContent } from '../../../types/presentation';
+import { X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
@@ -108,17 +110,7 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
                   height: variant === 'grid' ? '100%' : undefined,
                   boxSizing: 'border-box',
                 }}>
-                  <div style={{
-                    flexShrink: 0, width: 28, height: 28, borderRadius: 8,
-                    background: `${tokens.accent}20`, border: `1px solid ${tokens.accent}40`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.8rem', fontWeight: 700, color: tokens.accent,
-                  }}>✗</div>
-                  <InlineEditable field={`painPoints.${i}`} label="Pain point" value={point ?? ''}>
-                    <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.95rem', fontWeight: 400, color: tokens.text, lineHeight: 1.6 }}>
-                      {point}
-                    </span>
-                  </InlineEditable>
+                  <Icon icon={X} size="sm" />
                 </div>
               </InlineArrayItem>
             </Reveal>

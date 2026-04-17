@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useContext, useCallback } from 'react';
+import { Check } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type { PluginTokens, HeroContent, BrandConfig, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -209,7 +211,7 @@ export function HeroSection({
           fontSize: '0.75rem', fontWeight: 500,
           color: tokens.textMuted,
         }}>
-          ✓ {o}
+          <Icon icon={Check} size="xs" /> {o}
         </span>
       ))}
     </R>
@@ -267,7 +269,7 @@ export function HeroSection({
                 fontSize: '0.85rem', lineHeight: 1.5,
                 color: tokens.dark ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.82)',
               }}>
-                <span style={{ color: tokens.accent, flexShrink: 0, marginTop: 2 }}>✓</span>
+                <Icon icon={Check} size="sm" style={{ color: tokens.accent, flexShrink: 0, marginTop: 2 }} />
                 <span>{o}</span>
               </div>
             ))}

@@ -310,8 +310,8 @@ body {
 }
 
 .btn-sm {
-  padding: 4px 10px;
-  font-size: 13px;
+  padding: 5px 12px;
+  font-size: 14px;
 }
 
 /* ── Error / Status ────────────────────────────────────────────── */
@@ -716,8 +716,8 @@ body {
 .sidebar-header {
   display: flex;
   align-items: center;
-  padding: 20px 16px 12px;
-  min-height: 60px;
+  padding: 0 16px;
+  height: 52px;
   flex-shrink: 0;
 }
 
@@ -741,7 +741,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 4px 10px;
-  gap: 2px;
+  gap: 1px;
   overflow-y: auto;
 }
 
@@ -749,18 +749,17 @@ body {
 .sidebar-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-bottom: 4px;
+  gap: 1px;
+  margin-bottom: 1px;
 }
 
 .sidebar-group-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--muted);
-  opacity: 0.6;
   padding: 10px 12px 4px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* Nav item */
@@ -768,15 +767,20 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  padding: 0 12px;
+  height: 36px;
+  padding: 0 8px;
+  margin-bottom: 1px;
   border-radius: 10px;
   text-decoration: none;
   color: var(--muted);
   font-size: 14px;
+  font-family: Arial, sans-serif;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
+  background: none;
+  border: none;
+  cursor: pointer;
   transition:
     background 0.2s ease,
     color 0.2s ease,
@@ -876,9 +880,9 @@ body {
 }
 
 .topbar-ns-label {
-  font-size: 13px;
+  font-size: 16px;
   color: var(--color-text-muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .topbar-ns-select {
@@ -2166,8 +2170,8 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--muted);
   background: var(--panel-soft);

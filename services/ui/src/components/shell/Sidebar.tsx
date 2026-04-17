@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { LayoutDashboard, FileText, LayoutTemplate, Globe, Upload, MessageSquare, Settings, ChevronRight, ChevronLeft } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 // ── Nav structure ─────────────────────────────────────────────────
 
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
 }
 
 interface NavGroup {
@@ -20,24 +22,24 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    items: [{ href: '/', label: 'Dashboard', icon: '⊞' }],
+    items: [{ href: '/', label: 'Dashboard', icon: LayoutDashboard }],
   },
   {
     label: 'WORKSPACE',
     items: [
-      { href: '/proposal', label: 'Proposals', icon: '◧' },
-      { href: '/proposal/templates', label: 'Templates', icon: '☰' },
-      { href: '/presentation', label: 'Microsite', icon: '▣' },
-      { href: '/ingest', label: 'Ingest', icon: '⬆' },
+      { href: '/proposal', label: 'Proposals', icon: FileText },
+      { href: '/proposal/templates', label: 'Templates', icon: LayoutTemplate },
+      { href: '/presentation', label: 'Microsite', icon: Globe },
+      { href: '/ingest', label: 'Ingest', icon: Upload },
     ],
   },
   {
     label: 'AI',
-    items: [{ href: '/chat', label: 'Chat', icon: '⌥' }],
+    items: [{ href: '/chat', label: 'Chat', icon: MessageSquare }],
   },
   {
     label: 'ADMIN',
-    items: [{ href: '/admin', label: 'Admin', icon: '⚙' }],
+    items: [{ href: '/admin', label: 'Admin', icon: Settings }],
   },
 ];
 
@@ -109,6 +111,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             {group.label && !collapsed && <span className="sidebar-group-label">{group.label}</span>}
             {group.items.map((item) => {
               const active = getIsActive(item.href, pathname);
+              const NavIcon = item.icon;
               return (
                 <Link
                   key={item.href}
@@ -117,7 +120,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                   title={collapsed ? item.label : undefined}
                   onClick={onMobileClose}
                 >
-                  <span className="sidebar-icon">{item.icon}</span>
+                  <span className="sidebar-icon"><NavIcon size={16} strokeWidth={1.5} /></span>
                   {!collapsed && <span className="sidebar-label">{item.label}</span>}
                 </Link>
               );
@@ -134,7 +137,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand' : 'Collapse'}
         >
-          <span className="sidebar-icon">{collapsed ? '▸' : '◂'}</span>
+          <span className="sidebar-icon">
+            {collapsed ? <ChevronRight size={16} strokeWidth={1.5} /> : <ChevronLeft size={16} strokeWidth={1.5} />}
+          </span>
           {!collapsed && <span className="sidebar-label">Collapse</span>}
         </button>
       </div>

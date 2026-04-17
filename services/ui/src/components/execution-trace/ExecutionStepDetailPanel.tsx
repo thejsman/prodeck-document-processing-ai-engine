@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import { X } from 'lucide-react'
+import { Icon } from '@/components/ui/Icon'
 import type { TraceStep } from '@/lib/api'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -33,7 +35,7 @@ export function ExecutionStepDetailPanel({ step, onClose }: Props) {
           onClick={onClose}
           aria-label="Close step detail"
         >
-          ✕
+          <Icon icon={X} size="md" />
         </button>
       </div>
 

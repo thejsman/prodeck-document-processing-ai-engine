@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
+import { X, LoaderCircle, ArrowRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '../../../lib/auth-context';
 import { designEditMicrosite } from '../../../lib/api';
 import type { LayoutAST } from '../../../types/presentation';
@@ -218,7 +221,7 @@ export function DesignAgentPanel({
           }}
           aria-label="Close"
         >
-          ✕
+          <Icon icon={X} size="md" />
         </button>
       </div>
 

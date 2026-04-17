@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { ArrowUp, ArrowDown, Pencil } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useEditContext } from './EditContext';
 import type { LayoutAST, SectionType } from '../../../types/presentation';
 
@@ -517,7 +519,7 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
         {canAdd && (
           <button
             onClick={() => ctx.addArrayItem(sectionId, arrayPath, { ...itemTemplate })}
-            style={{ padding: '3px 10px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '5px 12px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
           >
             + {addLabel}
           </button>
@@ -533,21 +535,21 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
               {canMove && i > 0 && (
                 <button
                   onClick={() => ctx.moveArrayItem(sectionId, arrayPath, i, i - 1)}
-                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 14, cursor: 'pointer', color: 'var(--color-text-muted)' }}
                   title="Move up"
-                >↑</button>
+                ><Icon icon={ArrowUp} size="sm" /></button>
               )}
               {canMove && i < items.length - 1 && (
                 <button
                   onClick={() => ctx.moveArrayItem(sectionId, arrayPath, i, i + 1)}
-                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 14, cursor: 'pointer', color: 'var(--color-text-muted)' }}
                   title="Move down"
-                >↓</button>
+                ><Icon icon={ArrowDown} size="sm" /></button>
               )}
               {canRemove && (
                 <button
                   onClick={() => ctx.removeArrayItem(sectionId, arrayPath, i)}
-                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', fontSize: 11, cursor: 'pointer', color: '#dc2626' }}
+                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', fontSize: 14, cursor: 'pointer', color: '#dc2626' }}
                   title="Remove"
                 >×</button>
               )}
@@ -739,7 +741,7 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
       <div style={{ padding: '14px 16px', flex: 1, overflowY: 'auto' }}>
         {!section && (
           <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--color-text-muted)' }}>
-            <p style={{ fontSize: 28, margin: '0 0 8px' }}>✏️</p>
+            <span style={{ display: 'block', marginBottom: 8 }}><Icon icon={Pencil} size="xl" /></span>
             <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Select a section to edit</p>
             <p style={{ fontSize: 12, margin: '6px 0 0', lineHeight: 1.5 }}>
               Use the dropdown above, or click any highlighted element on the canvas

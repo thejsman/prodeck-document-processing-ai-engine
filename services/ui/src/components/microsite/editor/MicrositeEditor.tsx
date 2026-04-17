@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState } from 'react';
+import { ArrowLeft, ArrowUp } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type { LayoutAST } from '../../../types/presentation';
 import { EditProvider, useEditContext } from './EditContext';
 import { Microsite } from '../Microsite';
@@ -680,7 +683,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
             onClick={() => setShowPublishModal(true)}
             style={{ border: '1px solid #e2e8f0', background: '#fff', color: '#475569' }}
           >
-            ↑ <span className="mse-btn-label">Publish</span>
+            <Icon icon={ArrowUp} size="sm" /> Publish
           </button>
           <button
             className="mse-action-btn"

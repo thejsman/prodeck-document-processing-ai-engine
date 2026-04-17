@@ -6,6 +6,8 @@ import { useNamespace } from '@/lib/namespace-context';
 import { useHealth } from '@/lib/use-health';
 import { ExecutionIndicator } from '@/components/system/ExecutionIndicator';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
+import { Menu } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 
 interface Props {
   onMenuClick: () => void;
@@ -23,7 +25,7 @@ export function Topbar({ onMenuClick }: Props) {
       <div className="topbar-left">
         {/* Mobile-only hamburger — CSS hides it on desktop */}
         <button className="topbar-hamburger" onClick={onMenuClick} aria-label="Open navigation">
-          ☰
+          <Icon icon={Menu} size="md" />
         </button>
         <span className="topbar-title">Console</span>
       </div>

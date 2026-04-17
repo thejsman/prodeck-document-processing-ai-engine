@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Pencil, RefreshCw } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
@@ -1057,7 +1059,7 @@ ${el.innerHTML}
                 boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
             >
-              ← Back
+              <Icon icon={ArrowLeft} size="sm" /> Back
             </button>
           )}
           {onRegenerate && (
@@ -1077,7 +1079,7 @@ ${el.innerHTML}
                 boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
             >
-              ↺ Regenerate
+              <Icon icon={RefreshCw} size="sm" /> Regenerate
             </button>
           )}
           {onEdit && (
@@ -1097,7 +1099,7 @@ ${el.innerHTML}
                 boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
             >
-              ✏ Edit
+              <Icon icon={Pencil} size="sm" /> Edit
             </button>
           )}
           {!generating && (

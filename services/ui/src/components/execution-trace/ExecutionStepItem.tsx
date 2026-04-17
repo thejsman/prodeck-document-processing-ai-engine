@@ -1,11 +1,13 @@
 import React from 'react'
 import type { TraceStep } from '@/lib/api'
+import { GitBranch, Zap, Wrench, LayoutGrid, Circle, type LucideProps } from 'lucide-react'
+import { Icon } from '@/components/ui/Icon'
 
-const STEP_ICONS: Record<string, string> = {
-  planner: '◉',
-  agent:   '⚡',
-  tool:    '⚙',
-  layout:  '▦',
+const STEP_ICON_MAP: Record<string, React.FC<LucideProps>> = {
+  planner: GitBranch,
+  agent:   Zap,
+  tool:    Wrench,
+  layout:  LayoutGrid,
 }
 
 const STEP_TYPE_LABELS: Record<string, string> = {
@@ -57,7 +59,7 @@ export const ExecutionStepItem = React.memo(function ExecutionStepItem({
           {isRunning ? (
             <span className="trace-step-spinner" aria-hidden="true" />
           ) : (
-            STEP_ICONS[step.type] ?? '◈'
+            <Icon icon={STEP_ICON_MAP[step.type] ?? Circle} size="sm" />
           )}
         </div>
         {!isLast && <div className="trace-step-connector" />}

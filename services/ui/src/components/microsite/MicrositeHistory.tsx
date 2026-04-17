@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { FolderOpen, X } from "lucide-react";
+import { Icon } from "@/components/ui/Icon";
 import { Microsite } from "./Microsite";
 import { MicrositeEditor } from "./editor/MicrositeEditor";
 import {
@@ -149,7 +151,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
           color: "var(--color-text-muted)",
         }}
       >
-        <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.35 }}>🗂</div>
+        <div style={{ marginBottom: 12, opacity: 0.35 }}><Icon icon={FolderOpen} size="xl" /></div>
         <p
           style={{
             fontSize: 14,

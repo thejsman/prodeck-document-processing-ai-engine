@@ -71,7 +71,7 @@ export function ThemedMermaid({ diagram, tokens, delay = 0, caption, typeId }: P
           padding: '28px 32px',
         }}
       >
-        <MermaidChart chart={diagram} tokens={tokens} />
+        <MermaidChart chart={typeof diagram === 'string' ? diagram : ''} tokens={tokens} />
         {caption && (
           <figcaption
             style={{

@@ -67,7 +67,7 @@ export function MermaidChart({ chart, tokens }: Props) {
   const lastThemeRef = useRef<string>('');
 
   useEffect(() => {
-    if (!chart.trim()) return;
+    if (!chart || !chart.trim()) return;
     let cancelled = false;
 
     (async () => {

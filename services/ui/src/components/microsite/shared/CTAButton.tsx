@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type { PluginTokens } from '../../../types/presentation';
 
 interface CTAButtonProps {
@@ -61,7 +63,7 @@ export function CTAButton({ children, tokens, variant = 'primary', style, onClic
           fontSize: '1.1em',
           lineHeight: 1,
         }}>
-          →
+          <Icon icon={ArrowRight} size="sm" />
         </span>
       )}
     </button>

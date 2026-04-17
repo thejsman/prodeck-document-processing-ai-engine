@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { X, ArrowDown, Check } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '../../../lib/auth-context';
 import { publishMicrosite } from '../../../lib/api';
 import type { LayoutAST } from '../../../types/presentation';
@@ -90,8 +92,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, padding: 4 }}
-          >✕</button>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}
+          ><Icon icon={X} size="md" /></button>
         </div>
 
         {/* Body */}
@@ -133,7 +135,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                 whiteSpace: 'nowrap',
               }}
             >
-              {status === 'loading' ? 'Exporting…' : status === 'done' ? '↓ Download again' : '↓ Download'}
+              {status === 'loading' ? 'Exporting…' : <><Icon icon={ArrowDown} size="sm" /> {status === 'done' ? 'Download again' : 'Download'}</>}
             </button>
           </div>
 
@@ -166,7 +168,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                   whiteSpace: 'nowrap',
                 }}
               >
-                {copied ? '✓ Copied' : 'Copy URL'}
+                {copied ? <><Icon icon={Check} size="sm" /> Copied</> : 'Copy URL'}
               </button>
             </div>
             <input

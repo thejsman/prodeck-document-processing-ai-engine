@@ -1,6 +1,8 @@
 'use client';
 
 import type { PluginTokens } from '../../../types/presentation';
+import { ArrowRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { Reveal } from './Reveal';
 
 interface Step {
@@ -119,7 +121,7 @@ export function ProcessSteps({ steps, tokens, heading, baseDelay = 0 }: Props) {
                     flexShrink: 0,
                   }}
                 >
-                  →
+                  <Icon icon={ArrowRight} size="md" style={{ color: tokens.accent }} />
                 </div>
               )}
             </div>

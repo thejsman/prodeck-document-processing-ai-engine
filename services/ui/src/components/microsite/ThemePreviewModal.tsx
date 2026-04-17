@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
+import { X, Check } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { createPortal } from 'react-dom';
 import type { LayoutAST, BrandConfig, PluginMeta } from '../../types/presentation';
 import { Microsite } from './Microsite';
@@ -280,7 +282,7 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 transition: 'border-color 0.15s, color 0.15s',
               }}
             >
-              ✕ Close
+              <Icon icon={X} size="sm" /> Close
             </button>
             <button
               onClick={onApply}
@@ -298,7 +300,7 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 transition: 'opacity 0.15s',
               }}
             >
-              ✓ Apply Theme
+              <Icon icon={Check} size="sm" /> Apply Theme
             </button>
           </div>
         </div>,

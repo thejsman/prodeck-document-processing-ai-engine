@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { LoaderCircle, AlertTriangle } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { fetchMicrositeContent } from '@/lib/api';
@@ -32,7 +34,7 @@ export default function MicrositeViewPage() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 12, animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</div>
+          <Icon icon={LoaderCircle} size="xl" style={{ marginBottom: 12, animation: 'spin 1s linear infinite', display: 'inline-block' }} />
           <p style={{ fontSize: 14, color: '#888' }}>Loading microsite…</p>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
@@ -44,7 +46,7 @@ export default function MicrositeViewPage() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ textAlign: 'center', maxWidth: 400 }}>
-          <p style={{ fontSize: 48, marginBottom: 12 }}>⚠️</p>
+          <Icon icon={AlertTriangle} size="xl" style={{ marginBottom: 12 }} />
           <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Failed to load microsite</p>
           <p style={{ fontSize: 13, color: '#888' }}>{error}</p>
         </div>

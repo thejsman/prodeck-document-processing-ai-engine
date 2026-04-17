@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { ArrowLeft } from 'lucide-react'
+import { Icon } from '@/components/ui/Icon'
 import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { fetchExecutionTrace } from '@/lib/api'
@@ -158,7 +160,7 @@ export default function ExecutionTracePage() {
     return (
       <div className="container">
         <button className="btn btn-sm" onClick={() => router.back()}>
-          ← Back
+          <Icon icon={ArrowLeft} size="sm" /> Back
         </button>
         <div className="trace-error-state">
           <p>Failed to load execution trace.</p>
@@ -174,7 +176,7 @@ export default function ExecutionTracePage() {
     <div className="container">
       <div className="trace-page-header">
         <button className="btn btn-sm" onClick={() => router.back()}>
-          ← Back
+          <Icon icon={ArrowLeft} size="sm" /> Back
         </button>
         <div className="trace-page-heading">
           <div className="trace-page-title-row">
