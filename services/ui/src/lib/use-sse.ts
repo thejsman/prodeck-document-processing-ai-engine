@@ -128,9 +128,17 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
                   try {
                     const parsed = JSON.parse(payload) as { status?: string; tool?: string };
                     if (parsed.tool && parsed.status) {
+                      // Normalize server phase names ('start'|'complete'|'error') to
+                      // the frontend's ToolEvent status vocabulary.
+                      const STATUS_MAP: Record<string, ToolEvent['status']> = {
+                        start: 'started',
+                        complete: 'completed',
+                        error: 'failed',
+                      };
+                      const status = STATUS_MAP[parsed.status] ?? (parsed.status as ToolEvent['status']);
                       setToolEvents((prev) => [
                         ...prev,
-                        { status: parsed.status as ToolEvent['status'], tool: parsed.tool!, ts: Date.now() },
+                        { status, tool: parsed.tool!, ts: Date.now() },
                       ]);
                     }
                   } catch { /* ignore */ }

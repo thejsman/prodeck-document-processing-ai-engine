@@ -129,8 +129,14 @@ export default function ChatPage() {
   // Two detection paths:
   //   V2 (CHAT_V2=true): tool_progress SSE events → generationTool is set
   //   V1 (legacy):       proposal_section SSE events → sections.length > 0 (no tool events emitted)
+  //
+  // NOTE: isStreaming is intentionally NOT in the guard or dependency array.
+  // React 18 automatic batching can collapse the final SSE events and setIsStreaming(false)
+  // into a single render, so by the time this effect fires, isStreaming may already be false.
+  // The chatExecIdRef guard prevents double-registration; the completion effect below handles
+  // the immediate-complete case when the stream arrives fully buffered.
   useEffect(() => {
-    if (!isStreaming || chatExecIdRef.current !== null) return;
+    if (chatExecIdRef.current !== null) return;
 
     let execType: 'proposal' | 'microsite' | null = null;
 
@@ -154,7 +160,7 @@ export default function ChatPage() {
       title: execType === 'microsite' ? 'Generating microsite' : 'Generating proposal',
     });
     startExecutionTransport(apiKey); // idempotent — no-op if already connected
-  }, [generationTool, sections.length, isStreaming, addExecution, apiKey]);
+  }, [generationTool, sections.length, addExecution, apiKey]);
 
   const fetchInsights = useCallback((ns: string) => {
     fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {

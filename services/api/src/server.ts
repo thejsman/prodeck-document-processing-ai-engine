@@ -70,11 +70,11 @@ export async function createServer(opts: ServerOptions) {
     policyConfig = await loadProviderPolicy(opts.providerPolicyPath);
   }
 
-  const app = Fastify({ logger: true, bodyLimit: 20 * 1024 * 1024 }); // 20 MB — needed for base64 design images
+  const app = Fastify({ logger: true, bodyLimit: 210 * 1024 * 1024 }); // 210 MB — covers 200 MB file uploads + multipart overhead
 
   // ── Multipart support (file uploads) ─────────────────────────
   await app.register(multipart, {
-    limits: { fileSize: 25 * 1024 * 1024 },
+    limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB per file
   });
 
   // ── Health check (no auth required) ──────────────────────────

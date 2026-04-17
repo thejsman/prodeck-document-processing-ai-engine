@@ -79,7 +79,17 @@ async function processBufferJob(
 
   const documents: { fileName: string; content: string }[] = [];
   for (const f of filesToIndex) {
-    const content = await readFile(path.join(uploadsDir, f), 'utf-8');
+    const filePath = path.join(uploadsDir, f);
+    const ext = path.extname(f).toLowerCase();
+    let content: string;
+    if (ext === '.pdf') {
+      const { default: pdfParse } = await import('pdf-parse');
+      const buf = await readFile(filePath);
+      const parsed = await pdfParse(buf);
+      content = parsed.text;
+    } else {
+      content = await readFile(filePath, 'utf-8');
+    }
     documents.push({ fileName: f, content });
   }
 

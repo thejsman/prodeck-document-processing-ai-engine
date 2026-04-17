@@ -25,7 +25,7 @@ import { ingestionQueue } from './ingestion-queue.js';
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.txt', '.md']);
 
 // ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ export function registerKnowledgeRoutes(
 
       if (buffer.length > MAX_FILE_SIZE) {
         return reply.code(400).send({
-          error: `File "${rawName}" exceeds the 25 MB size limit`,
+          error: `File "${rawName}" exceeds the 200 MB size limit`,
         });
       }
 
