@@ -1,9 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { Microsite, type MicrositeHandle } from './Microsite';
+import { Microsite } from './Microsite';
 import { MicrositeEditor } from './editor/MicrositeEditor';
 import type { MicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
 
@@ -16,9 +16,7 @@ interface Props {
 export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
   const [showEditor, setShowEditor] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [pdfPreparing, setPdfPreparing] = useState(false);
   const [currentEntry, setCurrentEntry] = useState(entry);
-  const viewerRef = useRef<MicrositeHandle | null>(null);
 
   const title = currentEntry.ast.meta.client || currentEntry.ast.brand?.companyName || 'Microsite';
   const namespace = currentEntry.namespace;
@@ -46,21 +44,6 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
           {!showEditor && (
             <button className="chat-v2-action-btn" onClick={() => setShowPreview(true)}>Preview</button>
           )}
-          {!showEditor && (
-            <button
-              className="chat-v2-action-btn"
-              disabled={pdfPreparing}
-              style={pdfPreparing ? { opacity: 0.5, cursor: 'wait' } : undefined}
-              onClick={() => {
-                if (!viewerRef.current) return;
-                setPdfPreparing(true);
-                viewerRef.current.downloadPdf();
-                setTimeout(() => setPdfPreparing(false), 2000);
-              }}
-            >
-              {pdfPreparing ? 'Preparing…' : 'Download PDF'}
-            </button>
-          )}
           <button
             onClick={onClose}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px 8px', display: 'flex', alignItems: 'center' }}
@@ -87,7 +70,6 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
           />
         ) : (
           <Microsite
-            ref={viewerRef}
             ast={currentEntry.ast}
             onEdit={() => setShowEditor(true)}
             mode="embedded"

@@ -901,7 +901,7 @@ ${el.innerHTML}
         tokens={tokens}
         brand={ast.brand}
         sections={ast.sections ?? []}
-        scrollContainerId={isEmbedded ? (scrollContainerId ?? EMBEDDED_SCROLL_CONTAINER_ID) : SCROLL_CONTAINER_ID}
+        scrollContainerId={isEmbedded ? EMBEDDED_SCROLL_CONTAINER_ID : SCROLL_CONTAINER_ID}
       />
 
       {/* Sections */}

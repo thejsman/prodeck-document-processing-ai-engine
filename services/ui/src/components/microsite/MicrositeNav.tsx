@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
 import type {

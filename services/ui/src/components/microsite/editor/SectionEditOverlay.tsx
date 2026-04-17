@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArrowDown, ArrowUp, Palette, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Image, Palette, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useEditContext } from './EditContext';
 import type { LayoutSection } from '../../../types/presentation';

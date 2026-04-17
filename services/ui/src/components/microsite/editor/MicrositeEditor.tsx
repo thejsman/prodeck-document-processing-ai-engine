@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { useState } from 'react';
 import { ArrowLeft, ArrowUp } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import type { LayoutAST } from '../../../types/presentation';

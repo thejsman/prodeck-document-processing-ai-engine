@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useState } from 'react';
 import { X, LoaderCircle, ArrowRight } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '../../../lib/auth-context';
