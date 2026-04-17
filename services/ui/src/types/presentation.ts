@@ -192,6 +192,8 @@ export interface TimelinePhase {
   duration: string;
   name: string;
   description: string;
+  outcomes?: string[];
+  deliverables?: string[];
 }
 
 export interface TimelineContent {
@@ -246,6 +248,9 @@ export interface GenericContent {
   body: string;
   imageQuery: string;
   diagram?: string;
+  highlights?: Array<{ title: string; subtitle?: string }>;
+  items?: Array<{ name: string; detail?: string; iconHint?: string }>;
+  pillars?: Array<{ name: string; description?: string; iconHint?: string }>;
 }
 
 export interface TestimonialItem {

@@ -3,7 +3,7 @@
 import type { PluginTokens, TimelineContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Body, Label } from '../shared/Typography';
+import { Body } from '../shared/Typography';
 import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
@@ -16,158 +16,271 @@ interface Props {
   sectionId?: string;
 }
 
-export function TimelineSection({ content, tokens }: Props) {
+function CheckIcon({ color }: { color: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
+      <path d="M2.5 7L5.5 10L11.5 4" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function TimelineSection({ content, tokens, index }: Props) {
   const phases = content.phases ?? [];
-  const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'vertical';
 
   return (
     <section
       id="timeline"
       style={{
         position: 'relative',
-        padding: 'clamp(4rem, 8vw, 7rem) 2rem',
-        background: tokens.surfaceAlt,
+        padding: 'clamp(5rem, 9vw, 8rem) 2rem',
+        background: index % 2 === 0 ? tokens.bg : tokens.surfaceAlt,
         overflow: 'hidden',
       }}
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
+
+        {/* ── Eyebrow label ── */}
         <Reveal>
-          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-              {content.eyebrow}
-            </Label>
-          </InlineEditable>
+          <span style={{
+            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+            fontSize: '0.68rem',
+            fontWeight: 600,
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase' as const,
+            color: tokens.accent,
+            display: 'block',
+            marginBottom: 'clamp(1rem, 2vw, 1.5rem)',
+          }}>
+            {content.eyebrow || 'Timeline'}
+          </span>
         </Reveal>
 
-        <Reveal delay={80}>
+        {/* ── Headline + subheadline ── */}
+        <Reveal delay={60}>
           <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-            <Headline tokens={tokens} style={{ marginBottom: 12 }}>
+            <h2 style={{
+              fontFamily: `'${tokens.heroFont}', serif`,
+              fontWeight: Number(tokens.heroWeight) || 700,
+              fontSize: 'clamp(2rem, 4vw, 3.2rem)',
+              lineHeight: 1.1,
+              letterSpacing: '-0.02em',
+              color: tokens.text,
+              margin: '0 0 clamp(1rem, 2vw, 1.5rem)',
+            }}>
               {content.headline}
-            </Headline>
+            </h2>
           </InlineEditable>
         </Reveal>
 
         {content.subheadline && (
-          <Reveal delay={160}>
+          <Reveal delay={130}>
             <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
-              <Body tokens={tokens} style={{ maxWidth: 600, marginBottom: 48 }}>
+              <p style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
+                lineHeight: 1.8,
+                color: tokens.textMuted,
+                margin: '0 0 clamp(2.5rem, 5vw, 4rem)',
+                maxWidth: 680,
+              }}>
                 {content.subheadline}
-              </Body>
+              </p>
             </InlineEditable>
           </Reveal>
         )}
 
-        <ClickableDiagram
-          diagram={content.diagram ?? ''}
-          tokens={tokens}
-          delay={240}
-          caption="Project schedule"
-        />
+        {/* ── Phase accordion cards ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {phases.map((phase, pi) => {
+            const outcomes = phase.outcomes ?? [];
+            const deliverables = phase.deliverables ?? [];
+            const hasRichContent = outcomes.length > 0 || deliverables.length > 0;
 
-        {/* Timeline track */}
-        {variant === 'horizontal' ? (
-          <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 0, minWidth: `${phases.length * 220}px`, position: 'relative' }}>
-              {/* Horizontal connector line */}
-              <div style={{
-                position: 'absolute',
-                top: 18,
-                left: 24,
-                right: 24,
-                height: 2,
-                background: `linear-gradient(to right, ${tokens.accent}, ${tokens.border})`,
-                zIndex: 0,
-              }} />
-              {phases.map((phase, pi) => (
-                <Reveal key={pi} delay={240 + pi * 80} style={{ flex: 1, minWidth: 200 }}>
-                  <InlineArrayItem arrayPath="phases" index={pi} total={phases.length}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px' }}>
-                      {/* Dot */}
-                      <div style={{
-                        width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                        background: tokens.bg, border: `2px solid ${tokens.accent}`,
-                        zIndex: 2, marginBottom: 16, position: 'relative',
-                      }}>
-                        <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
-                      </div>
-                      <div style={{ padding: '16px 18px', borderRadius: 8, border: `1px solid ${tokens.border}`, background: tokens.surfaceCard, width: '100%' }}>
-                        <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
-                          <span style={{
-                            fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.72rem', fontWeight: 600,
-                            color: tokens.accent, padding: '2px 8px', borderRadius: 20,
-                            background: `${tokens.accent}15`, border: `1px solid ${tokens.accent}30`,
-                            display: 'inline-block', marginBottom: 8,
-                          }}>{phase.duration}</span>
-                        </InlineEditable>
-                        <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
-                          <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.95rem', color: tokens.text, margin: '0 0 6px' }}>
-                            {phase.name}
-                          </h4>
-                        </InlineEditable>
-                        <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
-                          <Body tokens={tokens} style={{ fontSize: '0.82rem' }}>{phase.description}</Body>
-                        </InlineEditable>
-                      </div>
-                    </div>
-                  </InlineArrayItem>
-                </Reveal>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div style={{ position: 'relative', paddingLeft: 40 }}>
-            {/* Vertical line */}
-            <div style={{
-              position: 'absolute', left: 11, top: 0, bottom: 0, width: 2,
-              background: `linear-gradient(to bottom, ${tokens.accent}, ${tokens.border})`,
-            }} />
-            {phases.map((phase, pi) => (
-              <Reveal key={pi} delay={240 + pi * 80}>
+            return (
+              <Reveal key={pi} delay={200 + pi * 60}>
                 <InlineArrayItem arrayPath="phases" index={pi} total={phases.length}>
-                  <div style={{ position: 'relative', paddingBottom: pi < phases.length - 1 ? 40 : 0 }}>
-                    {/* Dot */}
+                  <div style={{
+                    borderTop: `1px solid ${tokens.border}`,
+                    borderBottom: pi === phases.length - 1 ? `1px solid ${tokens.border}` : undefined,
+                    background: tokens.surfaceCard,
+                  }}>
+                    {/* Phase header row */}
                     <div style={{
-                      position: 'absolute', left: -40 + 3, top: 4,
-                      width: 18, height: 18, borderRadius: '50%',
-                      background: tokens.bg, border: `2px solid ${tokens.accent}`, zIndex: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 20,
+                      padding: 'clamp(1.2rem, 2.5vw, 1.6rem) clamp(1.5rem, 3vw, 2.5rem)',
+                      borderLeft: `3px solid ${tokens.accent}`,
                     }}>
-                      <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: tokens.accent }} />
-                    </div>
-                    <div style={{ padding: '20px 24px', borderRadius: 8, border: `1px solid ${tokens.border}`, background: tokens.surfaceCard }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <span style={{
+                        fontFamily: `'${tokens.heroFont}', serif`,
+                        fontSize: 'clamp(1.2rem, 2.5vw, 1.8rem)',
+                        fontWeight: 700,
+                        color: tokens.text,
+                        opacity: 0.35,
+                        lineHeight: 1,
+                        letterSpacing: '-0.02em',
+                        minWidth: 44,
+                        userSelect: 'none' as const,
+                      }}>
+                        {String(pi + 1).padStart(2, '0')}
+                      </span>
+                      <div style={{ flex: 1 }}>
                         <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
-                          <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1rem', color: tokens.text, margin: 0 }}>
+                          <h3 style={{
+                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                            fontWeight: 700,
+                            fontSize: 'clamp(1rem, 1.8vw, 1.15rem)',
+                            color: tokens.text,
+                            margin: 0,
+                            lineHeight: 1.3,
+                          }}>
                             {phase.name}
-                          </h4>
-                        </InlineEditable>
-                        <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
-                          <span style={{
-                            fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.75rem', fontWeight: 600,
-                            color: tokens.accent, padding: '2px 10px', borderRadius: 20,
-                            background: `${tokens.accent}15`, border: `1px solid ${tokens.accent}30`,
-                          }}>{phase.duration}</span>
+                          </h3>
                         </InlineEditable>
                       </div>
-                      <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
-                        <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{phase.description}</Body>
-                      </InlineEditable>
+                      {phase.duration && (
+                        <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
+                          <span style={{
+                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            color: tokens.accent,
+                            padding: '4px 12px',
+                            borderRadius: 20,
+                            background: `${tokens.accent}15`,
+                            border: `1px solid ${tokens.accent}30`,
+                            whiteSpace: 'nowrap' as const,
+                            flexShrink: 0,
+                          }}>
+                            {phase.duration}
+                          </span>
+                        </InlineEditable>
+                      )}
+                    </div>
+
+                    {/* Phase body */}
+                    <div style={{
+                      padding: 'clamp(1.5rem, 3vw, 2rem) clamp(1.5rem, 3vw, 2.5rem) clamp(1.5rem, 3vw, 2rem) calc(44px + clamp(1.5rem, 3vw, 2.5rem) + 20px)',
+                      borderLeft: `3px solid ${tokens.accent}20`,
+                    }}>
+                      {hasRichContent ? (
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: deliverables.length > 0 ? 'minmax(0,1.2fr) minmax(0,0.8fr)' : '1fr',
+                          gap: 'clamp(2rem, 4vw, 3rem)',
+                          alignItems: 'flex-start',
+                        }}>
+                          {/* Left: description + outcomes grid */}
+                          <div>
+                            <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
+                              <Body tokens={tokens} style={{ marginBottom: outcomes.length > 0 ? 'clamp(1rem, 2vw, 1.5rem)' : 0 }}>
+                                {phase.description}
+                              </Body>
+                            </InlineEditable>
+
+                            {outcomes.length > 0 && (
+                              <>
+                                <p style={{
+                                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                  fontSize: '0.65rem',
+                                  fontWeight: 600,
+                                  letterSpacing: '0.14em',
+                                  textTransform: 'uppercase' as const,
+                                  color: tokens.textSubtle,
+                                  margin: '0 0 12px',
+                                }}>
+                                  Outcomes
+                                </p>
+                                <div style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(2, 1fr)',
+                                  gap: 8,
+                                }}>
+                                  {outcomes.map((outcome, oi) => (
+                                    <div key={oi} style={{
+                                      padding: '10px 14px',
+                                      borderRadius: 6,
+                                      border: `1px solid ${tokens.border}`,
+                                      background: tokens.bg,
+                                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                      fontSize: '0.82rem',
+                                      color: tokens.textMuted,
+                                      lineHeight: 1.4,
+                                    }}>
+                                      {outcome}
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Right: deliverables checklist */}
+                          {deliverables.length > 0 && (
+                            <div>
+                              <p style={{
+                                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                letterSpacing: '0.14em',
+                                textTransform: 'uppercase' as const,
+                                color: tokens.textSubtle,
+                                margin: '0 0 12px',
+                              }}>
+                                Deliverables
+                              </p>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {deliverables.map((d, di) => (
+                                  <div key={di} style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 10,
+                                  }}>
+                                    <CheckIcon color={tokens.accent} />
+                                    <span style={{
+                                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                      fontSize: '0.88rem',
+                                      color: tokens.textMuted,
+                                      lineHeight: 1.5,
+                                    }}>
+                                      {d}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <InlineEditable field={`phases.${pi}.description`} label="Description" value={phase.description ?? ''} multiline>
+                          <Body tokens={tokens}>{phase.description}</Body>
+                        </InlineEditable>
+                      )}
                     </div>
                   </div>
                 </InlineArrayItem>
               </Reveal>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
           <InlineAddItem
             arrayPath="phases"
-            template={{ name: 'New phase', duration: '2 weeks', description: 'Describe this phase…' }}
+            template={{ label: 'Phase', name: 'New phase', duration: '2 weeks', description: 'Describe this phase…', outcomes: [], deliverables: [] }}
             label="Add phase"
           />
         </div>
+
+        <ClickableDiagram
+          diagram={content.diagram ?? ''}
+          tokens={tokens}
+          delay={200 + phases.length * 60 + 80}
+          caption="Project schedule"
+        />
       </div>
     </section>
   );

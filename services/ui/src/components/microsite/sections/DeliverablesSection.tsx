@@ -17,7 +17,7 @@ interface Props {
   sectionId?: string;
 }
 
-export function DeliverablesSection({ content, tokens, index }: Props) {
+export function DeliverablesSection({ content, tokens }: Props) {
   const items = content.items ?? [];
   const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'grid';
 
@@ -35,11 +35,9 @@ export function DeliverablesSection({ content, tokens, index }: Props) {
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
         <Reveal>
-          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-              {content.eyebrow}
-            </Label>
-          </InlineEditable>
+          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: tokens.accent, display: 'block', marginBottom: 'clamp(1rem, 2vw, 1.5rem)' }}>
+            {content.eyebrow || 'Deliverables'}
+          </span>
         </Reveal>
 
         <Reveal delay={80}>
