@@ -113,6 +113,23 @@ export async function createNamespace(apiKey: string, name: string): Promise<str
   return data.namespace;
 }
 
+export async function deleteNamespace(apiKey: string, namespace: string): Promise<void> {
+  const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}`, {
+    method: 'DELETE',
+    headers: authHeaders(apiKey),
+  });
+  await handleResponse<unknown>(res);
+}
+
+export async function renameNamespace(apiKey: string, oldName: string, newName: string): Promise<void> {
+  const res = await fetch(`/api/namespaces/${encodeURIComponent(oldName)}/rename`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ name: newName }),
+  });
+  await handleResponse<unknown>(res);
+}
+
 export async function fetchTemplates(apiKey: string): Promise<TemplateInfo[]> {
   const res = await fetch('/api/templates', {
     headers: authHeaders(apiKey),

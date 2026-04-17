@@ -18,6 +18,7 @@ interface NamespaceContextValue {
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
+  addNamespace: (ns: string) => void;
 }
 
 const NamespaceContext = createContext<NamespaceContextValue | null>(null);
@@ -48,9 +49,13 @@ export function NamespaceProvider({ children }: { children: ReactNode }) {
     loadNamespaces();
   }, [loadNamespaces]);
 
+  const addNamespace = useCallback((ns: string) => {
+    setNamespaces((prev) => prev.includes(ns) ? prev : [...prev, ns].sort());
+  }, []);
+
   return (
     <NamespaceContext.Provider
-      value={{ namespace, setNamespace, namespaces, isLoading, error, refresh: loadNamespaces }}
+      value={{ namespace, setNamespace, namespaces, isLoading, error, refresh: loadNamespaces, addNamespace }}
     >
       {children}
     </NamespaceContext.Provider>
