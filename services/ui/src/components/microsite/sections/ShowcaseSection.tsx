@@ -135,7 +135,7 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
             style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontWeight: 500,
-              fontSize: "1.1rem",
+              fontSize: "0.9rem",
               color: tokens.text,
               lineHeight: 1.5,
               marginBottom: 18,
@@ -172,7 +172,7 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
                   <span
                     style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: "0.9rem",
+                      fontSize: "0.825rem",
                       fontWeight: 500,
                       color: tokens.text,
                     }}

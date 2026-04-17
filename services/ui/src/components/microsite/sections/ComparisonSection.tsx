@@ -139,7 +139,7 @@ export function ComparisonSection({ content, tokens }: Props) {
                     <InlineEditable field={`rows.${i}.feature`} label="Feature" value={row.feature ?? ''}>
                       <span style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.9rem', color: tokens.text, fontWeight: 500,
+                        fontSize: '0.825rem', color: tokens.text, fontWeight: 500,
                       }}>
                         {row.feature}
                       </span>

@@ -18,9 +18,8 @@ interface Props {
 
 function Check({ color }: { color: string }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0 }}>
-      <circle cx="7.5" cy="7.5" r="7" stroke={color} strokeWidth="1.2" opacity={0.35} />
-      <path d="M4.5 7.5L6.5 9.5L10.5 5.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
+      <path d="M2.5 7L5.5 10L11.5 4" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -56,33 +55,32 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
       id="pricing"
       style={{
         position: 'relative',
-        padding: 'clamp(5rem, 10vw, 9rem) 2rem',
+        padding: 'clamp(4rem, 8vw, 7rem) 2rem',
         background: tokens.bg,
         overflow: 'hidden',
       }}
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      {/* Radial glow behind the card */}
       <div style={{
         position: 'absolute',
-        top: '20%', left: '50%',
+        top: '10%', left: '50%',
         transform: 'translateX(-50%)',
-        width: '70%', height: '50%',
-        background: `radial-gradient(ellipse at center, rgba(${accentRgb},0.07) 0%, transparent 70%)`,
+        width: '60%', height: '50%',
+        background: `radial-gradient(ellipse at center, rgba(${accentRgb},0.05) 0%, transparent 70%)`,
         pointerEvents: 'none', zIndex: 0,
       }} />
 
-      <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 880, margin: '0 auto' }}>
 
-        {/* ── Section label + headline ── */}
+        {/* ── Header ── */}
         <Reveal>
-          <div style={{ marginBottom: 'clamp(2.5rem, 5vw, 4rem)' }}>
+          <div style={{ marginBottom: 'clamp(2rem, 4vw, 3rem)' }}>
             <span style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.68rem', fontWeight: 700,
-              letterSpacing: '0.16em', textTransform: 'uppercase' as const,
-              color: tokens.accent, display: 'block', marginBottom: 16,
+              fontSize: '0.65rem', fontWeight: 700,
+              letterSpacing: '0.14em', textTransform: 'uppercase' as const,
+              color: tokens.accent, display: 'block', marginBottom: 12,
             }}>
               {content.eyebrow || 'Investment'}
             </span>
@@ -90,8 +88,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               <h2 style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
                 fontWeight: Number(tokens.heroWeight) || 700,
-                fontSize: 'clamp(2.4rem, 5vw, 4rem)',
-                lineHeight: 1.05, letterSpacing: '-0.03em',
+                fontSize: 'clamp(1.6rem, 3vw, 2.4rem)',
+                lineHeight: 1.15, letterSpacing: '-0.02em',
                 color: tokens.text, margin: 0,
               }}>
                 {content.headline || 'Total project investment.'}
@@ -101,9 +99,9 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
                 <p style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: 'clamp(1rem, 1.6vw, 1.1rem)',
-                  lineHeight: 1.75, color: tokens.textMuted,
-                  margin: 'clamp(1rem,2vw,1.5rem) 0 0', maxWidth: 560,
+                  fontSize: '0.9rem',
+                  lineHeight: 1.7, color: tokens.textMuted,
+                  margin: '10px 0 0', maxWidth: 520,
                 }}>
                   {content.subheadline}
                 </p>
@@ -115,9 +113,9 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
         {rows.length === 0 && (
           <Reveal delay={160}>
             <div style={{
-              padding: '40px', borderRadius: 16,
+              padding: '32px', borderRadius: 12,
               border: `1px solid ${tokens.border}`,
-              textAlign: 'center', color: tokens.textMuted, fontSize: '0.95rem',
+              textAlign: 'center', color: tokens.textMuted, fontSize: '0.875rem',
             }}>
               Pricing details available on request.
             </div>
@@ -127,37 +125,37 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
         {rows.length > 0 && (
           <>
             {/* ── Main investment card ── */}
-            <Reveal delay={120}>
+            <Reveal delay={100}>
               <div style={{
-                borderRadius: 20,
+                borderRadius: 14,
                 border: `1px solid ${tokens.border}`,
                 background: tokens.surfaceCard,
                 overflow: 'hidden',
                 boxShadow: tokens.cardShadow,
-                marginBottom: paymentRows.length > 0 ? 20 : 0,
+                marginBottom: paymentRows.length > 0 ? 16 : 0,
               }}>
                 {/* Top accent stripe */}
                 <div style={{
-                  height: 3,
-                  background: `linear-gradient(90deg, ${tokens.accent}, rgba(${accentRgb},0.3))`,
+                  height: 2,
+                  background: `linear-gradient(90deg, ${tokens.accent}, rgba(${accentRgb},0.2))`,
                 }} />
 
-                <div style={{ padding: 'clamp(28px,4vw,44px)' }}>
-                  {/* Price + eyebrow row */}
+                <div style={{ padding: 'clamp(20px,3vw,32px)' }}>
+                  {/* Price row */}
                   <div style={{
                     display: 'flex',
-                    alignItems: 'flex-start',
+                    alignItems: 'flex-end',
                     justifyContent: 'space-between',
                     flexWrap: 'wrap' as const,
-                    gap: 16,
-                    marginBottom: deliverableRows.length > 0 ? 'clamp(24px,4vw,36px)' : 0,
+                    gap: 12,
+                    marginBottom: deliverableRows.length > 0 ? 'clamp(16px,3vw,24px)' : 0,
                   }}>
                     <div>
                       <div style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.65rem', fontWeight: 700,
-                        letterSpacing: '0.14em', textTransform: 'uppercase' as const,
-                        color: tokens.textSubtle, marginBottom: 12,
+                        fontSize: '0.6rem', fontWeight: 700,
+                        letterSpacing: '0.13em', textTransform: 'uppercase' as const,
+                        color: tokens.textSubtle, marginBottom: 6,
                       }}>
                         {content.eyebrow || 'Total Investment'}
                       </div>
@@ -165,9 +163,9 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                         <InlineEditable field="totalLabel" label="Total" value={totalLabel}>
                           <div style={{
                             fontFamily: `'${tokens.heroFont}', serif`,
-                            fontWeight: Number(tokens.heroWeight) || 900,
-                            fontSize: 'clamp(3rem, 7vw, 5.5rem)',
-                            letterSpacing: '-0.04em', lineHeight: 1,
+                            fontWeight: Number(tokens.heroWeight) || 700,
+                            fontSize: 'clamp(1.8rem, 4vw, 2.8rem)',
+                            letterSpacing: '-0.03em', lineHeight: 1,
                             color: tokens.text,
                           }}>
                             {totalLabel}
@@ -176,52 +174,47 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                       )}
                     </div>
 
-                    {/* "What's included" pill badge */}
                     {deliverableRows.length > 0 && (
                       <div style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '8px 14px',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 12px',
                         borderRadius: 100,
                         border: `1px solid ${tokens.border}`,
                         background: tokens.surface,
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.72rem', fontWeight: 600,
+                        fontSize: '0.68rem', fontWeight: 600,
                         color: tokens.textSubtle,
                         whiteSpace: 'nowrap' as const,
-                        alignSelf: 'flex-start',
-                        marginTop: 8,
+                        marginBottom: 4,
                       }}>
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                          <path d="M2 6l2.5 2.5L10 3" stroke={tokens.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M1.5 5l2 2L8.5 2" stroke={tokens.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                         {deliverableRows.length} items included
                       </div>
                     )}
                   </div>
 
-                  {/* Separator */}
                   {deliverableRows.length > 0 && (
-                    <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(20px,3vw,28px)' }} />
+                    <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(14px,2.5vw,20px)' }} />
                   )}
 
-                  {/* 2-column deliverable checklist */}
+                  {/* 2-col checklist */}
                   {deliverableRows.length > 0 && (
                     <div style={{
                       display: 'grid',
                       gridTemplateColumns: colB.length > 0 ? '1fr 1fr' : '1fr',
-                      gap: '10px 32px',
+                      gap: '8px 28px',
                     }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {colA.map((row, ri) => (
                           <InlineArrayItem key={ri} arrayPath="rows" index={ri + (isGenericHeader ? 1 : 0)} total={rows.length}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                              <div style={{ marginTop: 2 }}>
-                                <Check color={tokens.accent} />
-                              </div>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                              <Check color={tokens.accent} />
                               <InlineEditable field={`rows.${ri + (isGenericHeader ? 1 : 0)}.0`} label="Item" value={row[0] ?? ''}>
                                 <span style={{
                                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                                  fontSize: '0.88rem',
+                                  fontSize: '0.825rem',
                                   color: tokens.textMuted,
                                   lineHeight: 1.5,
                                 }}>
@@ -233,17 +226,15 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                         ))}
                       </div>
                       {colB.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {colB.map((row, ri) => (
                             <InlineArrayItem key={ri} arrayPath="rows" index={mid + ri + (isGenericHeader ? 1 : 0)} total={rows.length}>
-                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                                <div style={{ marginTop: 2 }}>
-                                  <Check color={tokens.accent} />
-                                </div>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                <Check color={tokens.accent} />
                                 <InlineEditable field={`rows.${mid + ri + (isGenericHeader ? 1 : 0)}.0`} label="Item" value={row[0] ?? ''}>
                                   <span style={{
                                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                                    fontSize: '0.88rem',
+                                    fontSize: '0.825rem',
                                     color: tokens.textMuted,
                                     lineHeight: 1.5,
                                   }}>
@@ -259,10 +250,9 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                   )}
                 </div>
 
-                {/* Add row control */}
                 <div style={{
                   display: 'flex', justifyContent: 'center',
-                  padding: '10px 0',
+                  padding: '8px 0',
                   borderTop: `1px solid ${tokens.border}`,
                   background: tokens.surface,
                 }}>
@@ -273,35 +263,33 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
 
             {/* ── Payment schedule ── */}
             {paymentRows.length > 0 && (
-              <Reveal delay={220}>
+              <Reveal delay={200}>
                 <div style={{
-                  borderRadius: 16,
+                  borderRadius: 12,
                   border: `1px solid ${tokens.border}`,
                   background: tokens.surface,
                   overflow: 'hidden',
                 }}>
-                  {/* Header */}
                   <div style={{
-                    padding: '16px 28px',
+                    padding: '12px 24px',
                     borderBottom: `1px solid ${tokens.border}`,
-                    display: 'flex', alignItems: 'center', gap: 10,
+                    display: 'flex', alignItems: 'center', gap: 8,
                   }}>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
                       <rect x="1" y="3" width="12" height="10" rx="2" stroke={tokens.textSubtle} strokeWidth="1.2"/>
                       <path d="M1 6h12" stroke={tokens.textSubtle} strokeWidth="1.2"/>
                       <path d="M4 1v3M10 1v3" stroke={tokens.textSubtle} strokeWidth="1.2" strokeLinecap="round"/>
                     </svg>
                     <span style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.68rem', fontWeight: 700,
-                      letterSpacing: '0.14em', textTransform: 'uppercase' as const,
+                      fontSize: '0.62rem', fontWeight: 700,
+                      letterSpacing: '0.13em', textTransform: 'uppercase' as const,
                       color: tokens.textSubtle,
                     }}>
                       Payment Schedule
                     </span>
                   </div>
 
-                  {/* Milestone tiles */}
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: `repeat(${Math.min(paymentRows.length, 3)}, 1fr)`,
@@ -310,28 +298,26 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                       const globalIdx = dataRows.indexOf(row) + (isGenericHeader ? 1 : 0);
                       return (
                         <div key={ri} style={{
-                          padding: '24px 28px',
+                          padding: '18px 22px',
                           borderRight: ri < paymentRows.length - 1 ? `1px solid ${tokens.border}` : undefined,
-                          position: 'relative',
                         }}>
-                          {/* Step number */}
                           <div style={{
-                            width: 22, height: 22, borderRadius: '50%',
+                            width: 20, height: 20, borderRadius: '50%',
                             border: `1.5px solid ${tokens.border}`,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.6rem', fontWeight: 700,
+                            fontSize: '0.58rem', fontWeight: 700,
                             color: tokens.textSubtle,
-                            marginBottom: 14,
+                            marginBottom: 10,
                           }}>
                             {ri + 1}
                           </div>
 
                           <div style={{
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.65rem', fontWeight: 700,
-                            letterSpacing: '0.12em', textTransform: 'uppercase' as const,
-                            color: tokens.textSubtle, marginBottom: 8,
+                            fontSize: '0.62rem', fontWeight: 700,
+                            letterSpacing: '0.11em', textTransform: 'uppercase' as const,
+                            color: tokens.textSubtle, marginBottom: 6,
                           }}>
                             <InlineEditable field={`rows.${globalIdx}.0`} label="Milestone" value={row[0] ?? ''}>
                               {row[0]}
@@ -341,10 +327,10 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                           <div style={{
                             fontFamily: `'${tokens.heroFont}', serif`,
                             fontWeight: 700,
-                            fontSize: 'clamp(1.5rem, 3vw, 2.2rem)',
+                            fontSize: 'clamp(1.1rem, 2vw, 1.5rem)',
                             color: tokens.accent,
-                            letterSpacing: '-0.03em',
-                            lineHeight: 1, marginBottom: row[2] ? 8 : 0,
+                            letterSpacing: '-0.02em',
+                            lineHeight: 1, marginBottom: row[2] ? 6 : 0,
                           }}>
                             <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={row[1] ?? ''}>
                               {row[1]}
@@ -354,7 +340,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                           {row[2] && (
                             <div style={{
                               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                              fontSize: '0.78rem', color: tokens.textSubtle,
+                              fontSize: '0.75rem', color: tokens.textSubtle,
                               lineHeight: 1.5,
                             }}>
                               <InlineEditable field={`rows.${globalIdx}.2`} label="Note" value={row[2] ?? ''}>
@@ -369,14 +355,14 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
 
                   {content.footnote && (
                     <div style={{
-                      padding: '14px 28px',
+                      padding: '12px 24px',
                       borderTop: `1px solid ${tokens.border}`,
                       background: tokens.surfaceAlt,
                     }}>
                       <InlineEditable field="footnote" label="Footnote" value={content.footnote ?? ''} multiline>
                         <p style={{
                           fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                          fontSize: '0.78rem', color: tokens.textSubtle,
+                          fontSize: '0.75rem', color: tokens.textSubtle,
                           lineHeight: 1.6, margin: 0, fontStyle: 'italic',
                         }}>
                           {content.footnote}
@@ -388,15 +374,14 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               </Reveal>
             )}
 
-            {/* Footnote when no payment rows */}
             {paymentRows.length === 0 && content.footnote && (
-              <Reveal delay={280}>
+              <Reveal delay={260}>
                 <InlineEditable field="footnote" label="Footnote" value={content.footnote ?? ''} multiline>
                   <p style={{
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontSize: '0.82rem', color: tokens.textSubtle,
-                    lineHeight: 1.7, marginTop: 20,
-                    paddingLeft: 16,
+                    fontSize: '0.78rem', color: tokens.textSubtle,
+                    lineHeight: 1.7, marginTop: 16,
+                    paddingLeft: 14,
                     borderLeft: `2px solid ${tokens.accent}40`,
                   }}>
                     {content.footnote}
@@ -405,10 +390,9 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               </Reveal>
             )}
 
-            {/* CTA */}
             {content.cta && (
-              <Reveal delay={340}>
-                <div style={{ marginTop: 'clamp(2rem, 4vw, 3rem)', display: 'flex', justifyContent: 'center' }}>
+              <Reveal delay={320}>
+                <div style={{ marginTop: 'clamp(1.5rem, 3vw, 2.5rem)', display: 'flex', justifyContent: 'center' }}>
                   <CTAButton tokens={tokens} targetSectionId={ctaTarget}>
                     {content.cta}
                   </CTAButton>

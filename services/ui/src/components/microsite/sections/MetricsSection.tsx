@@ -67,7 +67,7 @@ export function MetricsSection({ content, tokens }: Props) {
                     style={{
                       fontFamily: `'${tokens.heroFont}', serif`,
                       fontWeight: tokens.heroWeight,
-                      fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)',
+                      fontSize: 'clamp(1.3rem, 2.5vw, 1.9rem)',
                       color: tokens.accent,
                       lineHeight: 1.15,
                       wordBreak: 'break-word',
@@ -116,7 +116,7 @@ export function MetricsSection({ content, tokens }: Props) {
         {strategies.length > 0 && (
           <Reveal variant="fadeUp" delay={160 + stats.length * 100 + 80}>
             <div>
-              <Headline tokens={tokens} style={{ fontSize: '1.2rem', marginBottom: 20 }}>
+              <Headline tokens={tokens} style={{ fontSize: '0.95rem', marginBottom: 20 }}>
                 Scaling Strategies
               </Headline>
 
@@ -135,7 +135,7 @@ export function MetricsSection({ content, tokens }: Props) {
                     <li
                       style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.95rem',
+                        fontSize: '0.875rem',
                         fontWeight: 300,
                         color: tokens.textMuted,
                         lineHeight: 1.7,

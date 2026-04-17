@@ -68,7 +68,7 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
               style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
                 fontWeight: tokens.heroWeight,
-                fontSize: "clamp(1.5rem, 3vw, 2.2rem)",
+                fontSize: "clamp(1.1rem, 2.5vw, 1.7rem)",
                 lineHeight: 1.15,
                 color: tokens.text,
                 textAlign: "center",
@@ -121,7 +121,7 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
                       style={{
                         fontFamily: `'${tokens.heroFont}', serif`,
                         fontWeight: tokens.heroWeight,
-                        fontSize: "clamp(2.2rem, 5vw, 4rem)",
+                        fontSize: "clamp(1.4rem, 3vw, 2rem)",
                         lineHeight: 1,
                         color: tokens.accent,
                         marginBottom: 10,

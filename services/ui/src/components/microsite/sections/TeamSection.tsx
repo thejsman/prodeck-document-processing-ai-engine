@@ -95,7 +95,7 @@ export function TeamSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
-                        <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 2 }}>{member.name}</SubHeadline>
+                        <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '0.875rem', marginBottom: 2 }}>{member.name}</SubHeadline>
                       </InlineEditable>
                       <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
                         <Label tokens={tokens} style={{ fontWeight: 500, fontSize: '0.8rem', letterSpacing: '0.06em', marginBottom: 8, display: 'block' }}>{member.role}</Label>
@@ -122,7 +122,7 @@ export function TeamSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1, width: '100%' }}>
                       <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
-                        <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>{member.name}</SubHeadline>
+                        <SubHeadline tokens={tokens} style={{ fontWeight: 700, fontSize: '0.875rem', marginBottom: 4 }}>{member.name}</SubHeadline>
                       </InlineEditable>
                       <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
                         <Label tokens={tokens} style={{ fontWeight: 500, fontSize: '0.8rem', letterSpacing: '0.06em', marginBottom: 12, display: 'block' }}>{member.role}</Label>

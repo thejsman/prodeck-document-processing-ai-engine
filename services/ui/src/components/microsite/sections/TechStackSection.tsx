@@ -93,7 +93,7 @@ export function TechStackSection({ content, tokens }: Props) {
                         <li
                           style={{
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.9rem',
+                            fontSize: '0.825rem',
                             fontWeight: 300,
                             color: tokens.textMuted,
                             lineHeight: 1.6,

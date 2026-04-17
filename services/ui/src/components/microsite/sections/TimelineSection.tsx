@@ -62,7 +62,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
             <h2 style={{
               fontFamily: `'${tokens.heroFont}', serif`,
               fontWeight: Number(tokens.heroWeight) || 700,
-              fontSize: 'clamp(2rem, 4vw, 3.2rem)',
+              fontSize: 'clamp(1.1rem, 3vw, 1.8rem)',
               lineHeight: 1.1,
               letterSpacing: '-0.02em',
               color: tokens.text,
@@ -78,7 +78,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
             <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
               <p style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
+                fontSize: '0.875rem',
                 lineHeight: 1.8,
                 color: tokens.textMuted,
                 margin: '0 0 clamp(2.5rem, 5vw, 4rem)',
@@ -115,7 +115,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
                     }}>
                       <span style={{
                         fontFamily: `'${tokens.heroFont}', serif`,
-                        fontSize: 'clamp(1.2rem, 2.5vw, 1.8rem)',
+                        fontSize: 'clamp(1rem, 2vw, 1.4rem)',
                         fontWeight: 700,
                         color: tokens.text,
                         opacity: 0.35,
@@ -131,7 +131,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
                           <h3 style={{
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
                             fontWeight: 700,
-                            fontSize: 'clamp(1rem, 1.8vw, 1.15rem)',
+                            fontSize: '0.875rem',
                             color: tokens.text,
                             margin: 0,
                             lineHeight: 1.3,

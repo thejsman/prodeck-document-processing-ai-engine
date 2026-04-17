@@ -68,7 +68,7 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
             <h2 style={{
               fontFamily: `'${tokens.heroFont}', serif`,
               fontWeight: tokens.heroWeight,
-              fontSize: 'clamp(1.8rem, 4vw, 3rem)',
+              fontSize: 'clamp(1.1rem, 3vw, 1.8rem)',
               lineHeight: 1.1,
               margin: '0 0 28px',
               backgroundImage: tokens.gradientText,
@@ -86,7 +86,7 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
 
         <Reveal delay={160}>
           <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-            <Body tokens={tokens} style={{ fontSize: '1.05rem', lineHeight: 1.8, marginBottom: 44 }}>
+            <Body tokens={tokens} style={{ lineHeight: 1.8, marginBottom: 44 }}>
               {content.body}
             </Body>
           </InlineEditable>
@@ -115,7 +115,7 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
                     fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.8rem', fontWeight: 700, color: tokens.accent,
                   }}>✗</div>
                   <InlineEditable field={`painPoints.${i}`} label="Pain point" value={point ?? ''}>
-                    <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.95rem', fontWeight: 400, color: tokens.text, lineHeight: 1.6 }}>
+                    <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.825rem', fontWeight: 400, color: tokens.text, lineHeight: 1.6 }}>
                       {point}
                     </span>
                   </InlineEditable>

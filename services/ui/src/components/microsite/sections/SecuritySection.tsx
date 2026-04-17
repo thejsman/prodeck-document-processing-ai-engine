@@ -80,12 +80,12 @@ export function SecuritySection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`items.${si}.name`} label="Name" value={item.name ?? ''}>
-                        <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 6px', lineHeight: 1.3 }}>
+                        <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 6px', lineHeight: 1.3 }}>
                           {item.name}
                         </h4>
                       </InlineEditable>
                       <InlineEditable field={`items.${si}.description`} label="Description" value={item.description ?? ''} multiline>
-                        <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{item.description}</Body>
+                        <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{item.description}</Body>
                       </InlineEditable>
                     </div>
                   </div>
@@ -104,7 +104,7 @@ export function SecuritySection({ content, tokens }: Props) {
                       </h4>
                     </InlineEditable>
                     <InlineEditable field={`items.${si}.description`} label="Description" value={item.description ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{item.description}</Body>
+                      <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{item.description}</Body>
                     </InlineEditable>
                   </div>
                 )}

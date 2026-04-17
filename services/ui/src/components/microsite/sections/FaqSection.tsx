@@ -73,12 +73,12 @@ export function FaqSection({ content, tokens }: Props) {
                     <InlineEditable field={`items.${i}.question`} label="Question" value={item.question ?? ''}>
                       <div style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700,
-                        fontSize: '0.975rem', color: tokens.text, marginBottom: 12, lineHeight: 1.4,
+                        fontSize: '0.875rem', color: tokens.text, marginBottom: 12, lineHeight: 1.4,
                       }}>{item.question}</div>
                     </InlineEditable>
                     <div style={{ width: 32, height: 2, background: tokens.accent, borderRadius: 2, marginBottom: 12 }} />
                     <InlineEditable field={`items.${i}.answer`} label="Answer" value={item.answer ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>{item.answer}</Body>
+                      <Body tokens={tokens} style={{ fontSize: '0.825rem', lineHeight: 1.7 }}>{item.answer}</Body>
                     </InlineEditable>
                   </div>
                 </InlineArrayItem>
@@ -104,7 +104,7 @@ export function FaqSection({ content, tokens }: Props) {
                         style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', background: 'none', border: 'none', cursor: 'pointer', gap: 16, textAlign: 'left' }}
                       >
                         <InlineEditable field={`items.${i}.question`} label="Question" value={item.question ?? ''}>
-                          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1rem', color: tokens.text, flex: 1 }}>
+                          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, flex: 1 }}>
                             {item.question}
                           </span>
                         </InlineEditable>

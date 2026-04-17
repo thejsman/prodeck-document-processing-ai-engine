@@ -183,7 +183,7 @@ export function HeroSection({
       {content.subheadline?.trim() && (
         <R delay={120}>
           <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
-            <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7, ...(hasBgImage ? { color: heroTextMuted } : {}) }}>
+            <Body tokens={tokens} style={{ fontSize: '0.95rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7, ...(hasBgImage ? { color: heroTextMuted } : {}) }}>
               {content.subheadline}
               <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
             </Body>
@@ -435,7 +435,7 @@ export function HeroSection({
           {content.subheadline?.trim() && (
             <R delay={120}>
               <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
-                <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 540, lineHeight: 1.8, marginBottom: 12 }}>
+                <Body tokens={tokens} style={{ fontSize: '0.95rem', maxWidth: 540, lineHeight: 1.8, marginBottom: 12 }}>
                   {content.subheadline}
                 </Body>
               </InlineEditable>
@@ -566,7 +566,7 @@ export function HeroSection({
           {content.subheadline?.trim() && (
             <R delay={120}>
               <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
-                <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
+                <Body tokens={tokens} style={{ fontSize: '0.95rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
                   {content.subheadline}
                 </Body>
               </InlineEditable>

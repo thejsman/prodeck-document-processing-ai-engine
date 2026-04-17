@@ -84,12 +84,12 @@ export function BenefitsSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
-                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, marginBottom: 6 }}>
+                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.875rem', color: tokens.text, marginBottom: 6 }}>
                           {item.title}
                         </div>
                       </InlineEditable>
                       <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
-                        <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>{item.description}</Body>
+                        <Body tokens={tokens} style={{ fontSize: '0.825rem', lineHeight: 1.7 }}>{item.description}</Body>
                       </InlineEditable>
                     </div>
                   </div>
@@ -109,12 +109,12 @@ export function BenefitsSection({ content, tokens }: Props) {
                       }}
                     />
                     <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
-                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, marginBottom: 10 }}>
+                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.875rem', color: tokens.text, marginBottom: 10 }}>
                         {item.title}
                       </div>
                     </InlineEditable>
                     <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.9rem', lineHeight: 1.7 }}>{item.description}</Body>
+                      <Body tokens={tokens} style={{ fontSize: '0.825rem', lineHeight: 1.7 }}>{item.description}</Body>
                     </InlineEditable>
                   </GlassCard>
                 )}

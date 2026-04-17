@@ -133,7 +133,7 @@ export function CaseStudySection({ content, tokens, imageUrl }: Props) {
                       <InlineEditable field={`metrics.${i}.value`} label="Value" value={m.value ?? ''}>
                         <div style={{
                           fontFamily: `'${tokens.heroFont}', sans-serif`,
-                          fontWeight: 800, fontSize: 'clamp(2rem, 4vw, 2.8rem)',
+                          fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 2rem)',
                           color: tokens.accent, lineHeight: 1, marginBottom: 6,
                         }}>
                           {m.value}

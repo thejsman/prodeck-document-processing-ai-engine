@@ -71,7 +71,7 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
               <h2 style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
                 fontWeight: Number(tokens.heroWeight) || 700,
-                fontSize: 'clamp(2rem, 4vw, 3.2rem)',
+                fontSize: 'clamp(1.1rem, 3vw, 1.8rem)',
                 lineHeight: 1.1,
                 letterSpacing: '-0.02em',
                 color: tokens.text,
@@ -86,7 +86,7 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
             <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
               <div style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
+                fontSize: '0.875rem',
                 lineHeight: 1.8,
                 color: tokens.textMuted,
               }}>
@@ -141,7 +141,7 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
                         <p style={{
                           fontFamily: `'${tokens.bodyFont}', sans-serif`,
                           fontWeight: 600,
-                          fontSize: '0.95rem',
+                          fontSize: '0.825rem',
                           color: tokens.text,
                           margin: 0,
                           lineHeight: 1.4,
@@ -205,7 +205,7 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
                   <h3 style={{
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontWeight: 700,
-                    fontSize: 'clamp(1.05rem, 2vw, 1.3rem)',
+                    fontSize: '0.9rem',
                     color: tokens.text,
                     margin: '0 0 8px',
                     lineHeight: 1.3,
@@ -217,7 +217,7 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
                   {item.subtitle && (
                     <p style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.85rem',
+                      fontSize: '0.78rem',
                       color: tokens.textMuted,
                       margin: 0,
                       lineHeight: 1.5,

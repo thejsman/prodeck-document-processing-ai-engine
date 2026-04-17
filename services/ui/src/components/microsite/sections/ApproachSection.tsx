@@ -97,12 +97,12 @@ export function ApproachSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
-                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 6px' }}>
+                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 6px' }}>
                           {pillar.name}
                         </h3>
                       </InlineEditable>
                       <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
-                        <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{pillar.description}</Body>
+                        <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{pillar.description}</Body>
                       </InlineEditable>
                     </div>
                   </div>
@@ -122,13 +122,13 @@ export function ApproachSection({ content, tokens }: Props) {
                       containerStyle={{ marginBottom: 16, display: 'inline-flex' }}
                     />
                     <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
-                      <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 10px' }}>
+                      <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 10px' }}>
                         {pillar.name}
                         <TypingCursor visible={twCtx?.activeField === `pillars.${pi}.name` && (twCtx?.showCursor ?? false)} />
                       </h3>
                     </InlineEditable>
                     <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{pillar.description}</Body>
+                      <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{pillar.description}</Body>
                     </InlineEditable>
                   </div>
                 )}

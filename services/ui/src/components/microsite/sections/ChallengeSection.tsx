@@ -66,7 +66,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
                       fontFamily: `'${tokens.heroFont}', serif`,
                       fontWeight: tokens.heroWeight,
                       fontStyle: 'italic',
-                      fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
+                      fontSize: 'clamp(0.9rem, 1.8vw, 1.05rem)',
                       lineHeight: 1.5,
                       color: tokens.text,
                     }}

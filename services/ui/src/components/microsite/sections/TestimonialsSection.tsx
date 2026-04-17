@@ -90,7 +90,7 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
                     <p
                       style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '1rem',
+                        fontSize: '0.875rem',
                         lineHeight: 1.75,
                         color: tokens.text,
                         fontStyle: 'italic',

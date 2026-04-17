@@ -83,7 +83,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`items.${ii}.name`} label="Name" value={item.name ?? ''}>
-                        <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, margin: '0 0 6px' }}>
+                        <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.875rem', color: tokens.text, margin: '0 0 6px' }}>
                           {item.name}
                         </h4>
                       </InlineEditable>
@@ -107,7 +107,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                       }}
                     />
                     <InlineEditable field={`items.${ii}.name`} label="Name" value={item.name ?? ''}>
-                      <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '1rem', color: tokens.text, margin: 0 }}>
+                      <h4 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.875rem', color: tokens.text, margin: 0 }}>
                         {item.name}
                       </h4>
                     </InlineEditable>
