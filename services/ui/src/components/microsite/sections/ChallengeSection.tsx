@@ -5,7 +5,6 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
@@ -38,7 +37,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
           </InlineEditable>
         </Reveal>
 
-        <div style={{ display: 'grid', gridTemplateColumns: (imageUrl || content.diagram) ? '1fr 1fr' : '1fr', gap: 'clamp(2rem, 4vw, 4rem)', alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '1fr 1fr' : '1fr', gap: 'clamp(2rem, 4vw, 4rem)', alignItems: 'center' }}>
           <div>
             <Reveal delay={80}>
               <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
@@ -80,9 +79,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
             )}
           </div>
 
-          {content.diagram ? (
-            <ClickableDiagram diagram={content.diagram} tokens={tokens} delay={200} caption="Impact chain" />
-          ) : imageUrl ? (
+          {imageUrl ? (
             <Reveal delay={200}>
               <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${tokens.border}` }}>
                 <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />

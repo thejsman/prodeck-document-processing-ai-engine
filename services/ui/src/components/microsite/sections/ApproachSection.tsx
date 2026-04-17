@@ -6,7 +6,6 @@ import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
 import { Headline, Body, Label } from "../shared/Typography";
 import { getSectionGradient } from "../../../lib/presentation/pluginRegistry";
-import { ClickableDiagram } from "../editor/ClickableDiagram";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 import { InlineIconEdit } from "../editor/InlineIconEdit";
@@ -146,12 +145,6 @@ export function ApproachSection({ content, tokens }: Props) {
           />
         </div>
 
-        <ClickableDiagram
-          diagram={content.diagram ?? ''}
-          tokens={tokens}
-          delay={240 + pillars.length * 80 + 80}
-          caption="Methodology overview"
-        />
       </div>
     </section>
   );

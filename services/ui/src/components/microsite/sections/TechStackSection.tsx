@@ -7,7 +7,6 @@ import { GlassCard } from '../shared/GlassCard';
 import { Headline, SubHeadline, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
@@ -142,7 +141,6 @@ export function TechStackSection({ content, tokens }: Props) {
           />
         </div>
 
-        <ClickableDiagram diagram={content.diagram ?? ''} tokens={tokens} delay={240} caption="Technology stack" />
       </div>
 
       <style>{`

@@ -4,7 +4,6 @@ import type { PluginTokens, GenericContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { InlineEditable } from '../editor/InlineEditable';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 
 interface Props {
   content: GenericContent;
@@ -29,7 +28,6 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
     ...(content.pillars ?? []).map(p => ({ title: p.name, subtitle: p.description })),
   ];
 
-  const hasDiagram = !!content.diagram;
 
   // Two-column PATH layout when exactly 2 items
   const isTwoPath = listItems.length === 2;
@@ -233,25 +231,13 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
           </Reveal>
         )}
 
-        {/* ── No items: diagram or image ── */}
-        {!hasRightPanel && !isTwoPath && (hasDiagram || imageUrl) && (
+        {/* ── No items: image ── */}
+        {!hasRightPanel && !isTwoPath && imageUrl && (
           <Reveal delay={220}>
             <div style={{ marginTop: 'clamp(2rem, 4vw, 3rem)' }}>
-              {hasDiagram
-                ? <ClickableDiagram diagram={content.diagram!} tokens={tokens} delay={0} caption="" />
-                : <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${tokens.border}` }}>
-                    <img src={imageUrl!} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
-                  </div>
-              }
-            </div>
-          </Reveal>
-        )}
-
-        {/* Diagram when right panel is present */}
-        {(hasRightPanel || isTwoPath) && hasDiagram && (
-          <Reveal delay={300}>
-            <div style={{ marginTop: 'clamp(2rem, 4vw, 3rem)' }}>
-              <ClickableDiagram diagram={content.diagram!} tokens={tokens} delay={0} caption="" />
+              <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${tokens.border}` }}>
+                <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
+              </div>
             </div>
           </Reveal>
         )}

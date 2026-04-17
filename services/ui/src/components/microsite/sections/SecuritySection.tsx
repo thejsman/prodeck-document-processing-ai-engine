@@ -6,7 +6,6 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { CircularIconBadge } from '../shared/CircularIconBadge';
 import { Headline, Body, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
@@ -122,7 +121,6 @@ export function SecuritySection({ content, tokens }: Props) {
           />
         </div>
 
-        <ClickableDiagram diagram={content.diagram ?? ''} tokens={tokens} delay={240} caption="Security architecture" />
       </div>
     </section>
   );

@@ -485,18 +485,6 @@ export type SectionContent =
   | ApprovalContent
   | GenericContent;
 
-// ── Diagram metadata (detector output, stored alongside each section) ────────
-
-export interface DiagramMeta {
-  typeId: string | null;
-  typeLabel: string | null;
-  category: string | null;
-  confidence: 'high' | 'medium' | 'low' | null;
-  matchedKeywords: string[];
-  score: number;
-  isCustomSvg: boolean;
-}
-
 // ── Layout AST ───────────────────────────────────────────────────────────────
 
 export interface LayoutSection {
@@ -504,8 +492,6 @@ export interface LayoutSection {
   heading: string;
   sectionType: SectionType;
   content: SectionContent;
-  /** Diagram type metadata from the keyword detector — null when no diagram */
-  diagramMeta?: DiagramMeta | null;
   image: {
     source: 'unsplash' | 'gradient' | 'custom';
     query: string;

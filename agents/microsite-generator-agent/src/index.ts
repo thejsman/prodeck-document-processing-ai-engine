@@ -15,7 +15,6 @@
  */
 
 import type { Agent, AgentInput, AgentOutput, ToolRegistry } from '@ai-engine/core';
-import { selectBestDiagram, type DiagramSelection } from './diagramDetector.js';
 import { extractDesignTokens, type ExtractedDesignTokens } from './designTokenExtractor.js';
 import { detectSectionLimitRequest, type SectionLimitRequest } from './lib/sectionLimitDetector.js';
 
@@ -1289,23 +1288,6 @@ function buildSectionRulesContext(type: SectionType, rules: Record<string, unkno
   return `\n\n━━ SECTION DESIGN RULES — ${type.toUpperCase()} (user-specified, NON-NEGOTIABLE) ━━\n${parts.map(p => `• ${p}`).join('\n')}`;
 }
 
-// ── Custom SVG diagram prompt builder ─────────────────────────────────────────
-
-function buildCustomSvgPrompt(typeId: string, _rawBody: string, _brief: string): string {
-  if (typeId === 'orbital') {
-    return `Extract the central system and 3-4 connected satellite systems from the content.
-Return ONLY this JSON string prefixed with __CUSTOM_SVG__ (no markdown, no backticks):
-__CUSTOM_SVG__{"type":"orbital","center":{"title":"Core System Name","subtitle":"What it does"},"satellites":[{"title":"System 1","description":"What it does","position":"top-left"},{"title":"System 2","description":"What it does","position":"top-right"},{"title":"System 3","description":"What it does","position":"bottom-left"}]}
-Use REAL system names from the content. Max 4 satellites. Descriptions max 8 words.`;
-  }
-  if (typeId === 'puzzle') {
-    return `Extract exactly 4 key architectural components from the content.
-Return ONLY this JSON string prefixed with __CUSTOM_SVG__ (no markdown, no backticks):
-__CUSTOM_SVG__{"type":"puzzle","pieces":[{"title":"Component 1","iconType":"gateway","position":"top-left","labelSide":"left"},{"title":"Component 2","iconType":"monitor","position":"top-right","labelSide":"right"},{"title":"Component 3","iconType":"stream","position":"bottom-left","labelSide":"left"},{"title":"Component 4","iconType":"storage","position":"bottom-right","labelSide":"right"}],"backgroundStyle":"gradient"}
-Always 4 pieces. Choose iconType matching the component purpose. Use REAL component names from content.`;
-  }
-  return '';
-}
 
 export function buildSectionPrompt(
   type: SectionType,
@@ -1325,7 +1307,6 @@ export function buildSectionPrompt(
   globalInstruction?: string,
   sectionInstruction?: string,
   proposalMarkdown?: string,
-  diagramSelection?: DiagramSelection | null,
   referenceDesign?: ReferenceDesign | null,
 ): string {
   const refBlock = referenceDesign ? formatReferenceDesignBlock(referenceDesign) : '';
@@ -1350,26 +1331,7 @@ export function buildSectionPrompt(
     ? `⚡⚡⚡ SECTION INSTRUCTION — HIGHEST PRIORITY — APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${activeInstruction}\n⚡⚡⚡ END SECTION INSTRUCTION ⚡⚡⚡\n\n`
     : '';
 
-  // Build concise diagram field instruction (replaces verbose Gamma prompt to avoid LLM confusion)
-  const isCustomSvgDiagram = diagramSelection?.diagramType.isCustomSvg === true;
-
-  let diagramBlock: string | null = null;
-  if (diagramSelection) {
-    if (isCustomSvgDiagram) {
-      const customPrompt = buildCustomSvgPrompt(diagramSelection.diagramType.id, rawBody ?? '', brief ?? '');
-      diagramBlock = `⚠️ DIAGRAM FIELD — MANDATORY CUSTOM SVG FORMAT ⚠️\nThe "diagram" field MUST start with exactly __CUSTOM_SVG__ followed immediately by valid JSON — NO space, NO newline between __CUSTOM_SVG__ and the JSON opening brace.\nDO NOT use mermaid syntax. DO NOT output plain text. ONLY output __CUSTOM_SVG__{...json...}\nExample of correct format: "__CUSTOM_SVG__{\\"type\\":\\"steps-flow\\",\\"steps\\":[{\\"title\\":\\"Step 1\\",\\"description\\":\\"What happens\\"}]}"\n\n${customPrompt}`;
-    } else {
-      diagramBlock = `[DIAGRAM FIELD] For the "diagram" field only: Use ${diagramSelection.diagramType.mermaidDirective} syntax (${diagramSelection.diagramType.label}). First line MUST be exactly: ${diagramSelection.diagramType.mermaidDirective}. Node/item labels: plain text only, NO double quotes inside brackets — write A[Frontend] not A["Frontend"]. Min 3 nodes, max ${diagramSelection.diagramType.maxNodes} nodes. Return as a single JSON string with newlines escaped as \\\\n. If you cannot make a meaningful diagram with at least 3 nodes, set "diagram": null.`;
-    }
-  }
-
-  const mermaidRules = diagramBlock
-    ? (isCustomSvgDiagram
-        ? `⚠️ CUSTOM DIAGRAM REQUIRED — see instructions below. ${diagramBlock}`
-        : `MERMAID DIAGRAM REQUIRED: Include the "diagram" field. ${diagramBlock}`)
-    : `MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, min 3 nodes, max 5 nodes/tasks. Node labels: plain text only, NO double quotes inside brackets. If you cannot make a meaningful diagram with at least 3 nodes, set "diagram": null.`;
-
-  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity} CREATIVE ANGLE FOR THIS GENERATION: ${angle} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
   // Always pass the full proposal — never truncate. The section source content is primary;
@@ -1399,7 +1361,6 @@ Transform into a Hero section. Return:
   "ctaTarget": "section type to scroll to on primary CTA tap — from SECTION DESIGN RULES if specified, else null",
   "ctaSecondaryTarget": "section type to scroll to on secondary CTA tap — from SECTION DESIGN RULES if specified, else null",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene matching this industry and proposal tone. Describe subject, lighting, mood, color palette. e.g. 'Dark futuristic server room corridor with blue and purple holographic data streams, dramatic cinematic lighting, 4K professional photography'",
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1419,7 +1380,6 @@ Return:
   "body": "3-5 sentences using specific details and metrics from the source — include all key pain points",
   "pullquote": "sharpest insight drawn from source content, 10-18 words",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'optional graph TD showing causal chain/impact cascade (max 4 nodes). Only include if content has a clear cause→effect chain. Otherwise null.'}",
   ${meta}
 }`,
 
@@ -1435,7 +1395,6 @@ Transform into an Approach section with pillars. Return:
   "subheadline": "1-2 sentences",
   "pillars": [{"iconHint": "identity|digital|content|strategy|research|launch", "name": "2-4 words", "description": "3-4 sentences, specific outcomes and methodology details from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing the methodology as a process flow. Nodes = pillar names (2-3 words each). Max 5 nodes connected with -->. Example: graph LR\\n  A[Discover] --> B[Design] --> C[Build] --> D[Launch]. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1454,7 +1413,6 @@ Return:
   "headline": "8-12 words",
   "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "EXACT deliverable name from source", "detail": "2-3 sentences covering what this deliverable includes, the methodology, and the expected outcome"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1474,7 +1432,6 @@ Return:
   "subheadline": "1-2 sentences",
   "phases": [{"label": "Phase N or label from source", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, deliverables, and goals of this phase from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'gantt chart. Format: gantt\\n  title Project Schedule\\n  dateFormat YYYY-MM-DD\\n  section Phase 1\\n  PhaseName :a1, 2026-01-01, 14d\\n  section Phase 2\\n  PhaseName :a2, after a1, 14d. Always include if 2+ phases exist.'}",
   ${meta}
 }`,
 
@@ -1524,7 +1481,6 @@ Transform into a Why Us section. Return:
   "body": "3-5 sentences — explain why this company is uniquely qualified, using specific expertise and track record from the source",
   "stats": [{"number": "from content", "label": "2-4 words", "context": "2 sentences explaining the significance"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'optional pie chart if stats suggest a meaningful distribution. Format: pie title Label\\n  \\"Category A\\" : 60\\n  \\"Category B\\" : 30. Only include if a clear distribution is evident. Otherwise null.'}",
   ${meta}
 }`,
 
@@ -1542,7 +1498,6 @@ Transform into a Next Steps section. Return:
   "ctaSecondary": "3-4 words — empty string if constraints say no CTA",
   "urgencyNote": "string or null",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1576,7 +1531,7 @@ Return:
   "eyebrow": "4-8 words e.g. 'Client Voices'",
   "headline": "8-12 words",
   "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
-  "diagram": null,
+
   "items": [
     {
       "quote": "verbatim or near-verbatim quote from source — only if a real quote exists",
@@ -1601,7 +1556,6 @@ Transform into a Showcase section — a visual feature spotlight. Return:
   "body": "2-3 sentences, the 'so what' — impact and differentiation",
   "highlights": ["3-5 short feature pills, 3-6 words each, noun phrases"],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene that visually represents this feature or capability. Striking, dramatic, high-detail. e.g. 'Abstract digital architecture with neon blue geometric shapes, dark background, ultra-detailed'",
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1622,7 +1576,6 @@ Transform into a Benefits section — a focused icon list of value propositions.
       "description": "2-3 sentences, concrete and specific — what does the client actually get, how is it delivered, and what outcome does it create?"
     }
   ],
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1638,7 +1591,6 @@ Transform into a Problem section — sharper and more urgent than a challenge se
   "body": "3-5 sentences, make the cost of inaction visceral and concrete — use all relevant pain points from the source",
   "painPoints": ["4-8 pain points, each 6-15 words, start with a verb or cost noun — extract every pain point from the source, do not truncate"],
   "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1664,7 +1616,6 @@ Return:
       "context": "1 short sentence using language from the source"
     }
   ],
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1686,7 +1637,6 @@ Transform into a Metrics section — a standalone performance KPIs row with scal
     }
   ],
   "strategies": ["3-5 scaling strategies, each 5-10 words, start with a verb"],
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }`,
 
@@ -1707,7 +1657,6 @@ Transform into a Security section. Return:
       "description": "2-3 sentences, what it protects, how it works, and why it matters for this engagement"
     }
   ],
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph TD showing security layers top-to-bottom. Example: graph TD\\n  A[Identity & Access] --> B[Encryption]\\n  B --> C[Network Security]\\n  C --> D[Compliance & Audit]. Use item names as node labels. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1728,7 +1677,6 @@ Transform into a Tech Stack section. Return:
       "items": ["2-5 technology names in this category"]
     }
   ],
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing tech stack layers left-to-right. Example: graph LR\\n  A[Frontend] --> B[Backend]\\n  B --> C[Database]\\n  C --> D[Cloud / Infra]. Use category names as node labels. Max 5 nodes. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1756,7 +1704,6 @@ Transform into a Testing & Quality section. Return:
       "body": "2-3 sentences"
     }
   ],
-  "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.'}",
   ${meta}
 }`,
 
@@ -1882,7 +1829,6 @@ Return:
     { "title": "2-6 words, specific item/goal/deliverable name from source", "subtitle": "1-2 sentences describing this item concretely" }
   ],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content.",
-  ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
 }
 Rules: Include 3-8 highlights if the source has enumerable content. If no enumerable items exist, omit highlights entirely (do not include empty array).`,
@@ -1922,13 +1868,6 @@ function repairLiteralNewlines(json: string): string {
  * (e.g. A["Label"]) which makes the JSON structurally invalid.
  */
 function stripDiagramField(json: string): string {
-  // Preserve custom SVG diagram fields — only nullify standard mermaid fields with broken quotes
-  if (json.includes('__CUSTOM_SVG__')) {
-    return json.replace(/"diagram"\s*:\s*"(?:[^"\\]|\\.)*"/, (match) => {
-      if (match.includes('__CUSTOM_SVG__')) return match;
-      return '"diagram": null';
-    });
-  }
   return json.replace(/"diagram"\s*:\s*"(?:[^"\\]|\\.)*"/, '"diagram": null');
 }
 
@@ -1964,56 +1903,6 @@ function safeParseJSON(text: string): Record<string, unknown> | null {
   return null;
 }
 
-// ── Diagram normalizer ────────────────────────────────────────────────────────
-
-function normalizeDiagram(raw: unknown): string | undefined {
-  if (typeof raw !== 'string' || !raw.trim()) return undefined;
-
-  // 0. Pass through custom SVG diagram data unchanged
-  const trimmed = raw.trim();
-  if (trimmed.startsWith('__CUSTOM_SVG__')) return trimmed;
-
-  // 1. Strip markdown code fences
-  let s = trimmed
-    .replace(/^```(?:mermaid)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-
-  // 2. Remove %%{init:...}%% directives — we set theme via mermaid.initialize()
-  s = s.replace(/%%\s*\{[^}]*\}\s*%%\s*/g, '').trim();
-
-  // 3. Mermaid v11: diagram-type keyword MUST be the first line.
-  //    If leading %% comment lines precede the type, move them inside the diagram.
-  const lines = s.split('\n');
-  const commentLines: string[] = [];
-  let diagramStart = 0;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trimStart().startsWith('%%')) {
-      commentLines.push(lines[i]);
-      diagramStart = i + 1;
-    } else {
-      break;
-    }
-  }
-  if (commentLines.length > 0 && diagramStart < lines.length) {
-    // Move comments to after the diagram type declaration line
-    const rest = lines.slice(diagramStart);
-    s = [rest[0], ...commentLines, ...rest.slice(1)].join('\n');
-  }
-
-  if (s.length <= 10) return undefined;
-
-  // Reject trivially small mermaid diagrams (single-node boxes / bare titles)
-  // These render as empty-looking boxes and add no value.
-  const meaningfulLines = s.split('\n').filter(l => {
-    const t = l.trim();
-    return t.length > 0 && !t.startsWith('%%') && !t.startsWith('title') && !t.startsWith('gantt') && !t.startsWith('pie') && !t.startsWith('sequenceDiagram') && !t.startsWith('dateFormat') && !t.startsWith('mindmap');
-  });
-  // Must have at least 3 meaningful lines — anything less is a bare title or single node
-  if (meaningfulLines.length < 3) return undefined;
-
-  return s;
-}
 
 // ── Markdown prompt (backward compat — existing renderer) ────────────────────
 
@@ -2419,7 +2308,6 @@ function buildOverrideSectionPrompt(
   fullDesignPrompt: string,
   brandName?: string,
   aiGenerated = false,
-  diagramSelection?: DiagramSelection | null,
   proposalMarkdown?: string,
 ): string {
   const brandCtx = brandName
@@ -2430,41 +2318,32 @@ function buildOverrideSectionPrompt(
     ? 'NOTE: This section has NO source content — generate it entirely from the proposal brief and the design specification above.'
     : '';
 
-  let diagramBlock = 'Set "diagram": null for this section.';
-  if (diagramSelection) {
-    diagramBlock = `DIAGRAM REQUIREMENT: Generate a diagram field using type: ${diagramSelection.diagramType.id}
-${diagramSelection.diagramType.isCustomSvg
-  ? 'Output: __CUSTOM_SVG__ followed immediately by valid JSON for this diagram type'
-  : 'Output: raw Mermaid syntax only, no backticks, escape newlines as \\\\n'
-}
-If content is insufficient for this diagram, set diagram to null.`;
-  }
 
   const sectionSchemas: Record<string, string> = {
-    hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')" }`,
+    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     deliverables: `FIDELITY: Extract EVERY named deliverable from source individually. Use the EXACT deliverable name from source — do NOT paraphrase. If source has 10 deliverables, output 10 items.
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
 ROW TYPES — use these exact patterns:
 1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment"] — use descriptive text, NOT generic "Service / Deliverable"
 2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "price or empty string"] — deliverables that are part of the scope
 3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"], ["~50% Milestone", "$X,XXX", "Design complete, dev underway"], ["Completion / Launch", "$X,XXX", "Final delivery + handoff"] — 3 columns when it's a milestone
 { "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["Exact deliverable from proposal", ""], ["...more deliverables..."], ["Upon Signing", "$X,XXX", "Work begins immediately"]], "totalLabel": "exact total e.g. '$100,000'", "footnote": "payment timing note if any", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
-    whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     approval: `{ "eyebrow": "3-6 words e.g. Approve This Proposal", "headline": "6-10 words e.g. Ready to Move Forward?", "subheadline": "2-3 sentences about signing off and what happens next", "termsText": "2-4 sentences of terms grounded in proposal scope and payment terms", "ctaLabel": "3-5 words e.g. Approve Proposal", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "verbatim or near-verbatim quote from source — only if real quote exists", "name": "real name from source", "title": "job title from source", "company": "company from source"}], "diagram": null }`,
-    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query" }`,
+    benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}] }`,
+    problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query" }`,
     stats: `FIDELITY: Only use numbers, percentages, or figures that appear VERBATIM in the source. NEVER invent metrics. If fewer than 3 real metrics exist, output only what exists.
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "exact figure from source — ONLY if it appears in the proposal", "label": "2-4 words", "context": "1 sentence using language from source"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "exact figure from source — ONLY if it appears in the proposal", "label": "2-4 words", "context": "1 sentence using language from source"}] }`,
+    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query" }`,
   };
 
   const schema = sectionSchemas[type] ?? sectionSchemas.generic;
@@ -2488,7 +2367,6 @@ ${fidelityBlock}
 
 ${brandCtx}
 ${generationNote}
-${diagramBlock}
 
 Generate content for the "${heading}" section (type: ${type}).
 
@@ -2879,7 +2757,7 @@ export class MicrositeGeneratorAgent implements Agent {
       const onPlanReady = meta.onPlanReady as ((data: Record<string, unknown>) => void) | undefined;
 
       // Section results array declared here so hero .then() can push into it immediately
-      const sectionResults: Array<{ id: string; heading: string; type: string; content: Record<string, unknown>; diagramMeta: unknown }> = [];
+      const sectionResults: Array<{ id: string; heading: string; type: string; content: Record<string, unknown> }> = [];
       let heroAlreadyStreamed = false;
 
       // Start hero generation BEFORE the warm-up — streams SSE as soon as it resolves (~3-5s)
@@ -2898,9 +2776,9 @@ export class MicrositeGeneratorAgent implements Agent {
           const heroContent = safeParseJSON(result.text) ?? {};
           const hc = heroContent as Record<string, unknown>;
           if (hc.headline || hc.eyebrow) {
-            if (hc.diagram) hc.diagram = normalizeDiagram(hc.diagram);
+            delete hc.diagram;
             onSectionComplete({ id: 'hero', heading: 'Hero', sectionType: 'hero', content: hc, index: 0 });
-            sectionResults.push({ id: 'hero', heading: 'Hero', type: 'hero', content: hc, diagramMeta: null });
+            sectionResults.push({ id: 'hero', heading: 'Hero', type: 'hero', content: hc });
             heroAlreadyStreamed = true;
             console.log('[microsite-agent] Speculative hero streamed immediately ✓');
           }
@@ -3357,11 +3235,9 @@ export class MicrositeGeneratorAgent implements Agent {
               const sectionInstructions = s.type === 'hero' ? effectiveHeroInstructions : customInstructions;
               const sectionRules = (sectionRulesMap[s.type] as Record<string, unknown> | undefined) ?? null;
               const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
-              const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
-              console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
               const prompt = isFullOverride
-                ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel, proposalMarkdown)
-                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, finalReferenceDesign);
+                ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, proposalMarkdown)
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, finalReferenceDesign);
               try {
                 const timeoutMs = 90_000;
                 const result = await Promise.race([
@@ -3372,23 +3248,7 @@ export class MicrositeGeneratorAgent implements Agent {
                 if (!parsed.headline && !parsed.eyebrow) {
                   console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
                 }
-                if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
-                // If a custom SVG was expected but LLM returned mermaid syntax, clear it
-                // (mermaid in a custom SVG slot renders as garbage — better to show nothing)
-                if (parsed.diagram && diagramSel?.diagramType.isCustomSvg && !String(parsed.diagram).startsWith('__CUSTOM_SVG__')) {
-                  console.warn(`[microsite-agent] Custom SVG expected for "${s.type}" but got mermaid — clearing diagram`);
-                  parsed.diagram = undefined;
-                }
-                // CODE-LEVEL enforcement: when pdfFriendly, strip diagram from any section that has item arrays
-                // (LLM ignores prompt constraints; this is the reliable fix)
-                if (pdfFriendly && parsed.diagram) {
-                  const ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
-                  const hasItems = ITEM_FIELDS.some(f => Array.isArray((parsed as Record<string,unknown>)[f]) && ((parsed as Record<string,unknown>)[f] as unknown[]).length > 0);
-                  if (hasItems) {
-                    (parsed as Record<string,unknown>).diagram = '';
-                    console.log(`[microsite-agent] PDF FRIENDLY: stripped diagram from "${s.type}" section (has item array)`);
-                  }
-                }
+                delete (parsed as Record<string,unknown>).diagram;
                 onSectionComplete?.({ id, heading: s.heading, sectionType: s.type, content: parsed, index: idx });
                 const shouldStripCTA = (s.type === 'hero' && (planConstraints.noCTAInHero || planConstraints.noCTAEverywhere))
                   || (planConstraints.noCTAEverywhere && (s.type === 'nextsteps' || s.type === 'pricing'));
@@ -3400,16 +3260,7 @@ export class MicrositeGeneratorAgent implements Agent {
                     (parsed.ui as Record<string, unknown>).showCTA = false;
                   }
                 }
-                const diagramMeta = diagramSel ? {
-                  typeId: diagramSel.diagramType.id,
-                  typeLabel: diagramSel.diagramType.label,
-                  category: diagramSel.diagramType.category,
-                  confidence: diagramSel.confidence,
-                  matchedKeywords: diagramSel.matchedKeywords,
-                  score: diagramSel.score,
-                  isCustomSvg: diagramSel.diagramType.isCustomSvg ?? false,
-                } : null;
-                return { id, heading: s.heading, type: s.type, content: parsed, diagramMeta };
+                return { id, heading: s.heading, type: s.type, content: parsed };
               } catch (err) {
                 console.error(`[microsite-agent] Section "${s.type}" (${s.heading}) FAILED:`, err instanceof Error ? err.message : String(err));
                 return {
@@ -3422,7 +3273,6 @@ export class MicrositeGeneratorAgent implements Agent {
                     body: s.rawBody.split('\n').slice(0, 3).join(' ').slice(0, 200),
                     imageQuery: `business ${s.heading.toLowerCase()} professional`,
                   },
-                  diagramMeta: null,
                 };
               }
             })
@@ -3505,7 +3355,6 @@ export class MicrositeGeneratorAgent implements Agent {
               heading: sr.heading,
               sectionType: sr.type,
               content: sr.content,
-              diagramMeta: (sr as { diagramMeta?: unknown }).diagramMeta ?? null,
               image: {
                 source: (hasImage ? 'loremflickr' : 'gradient') as 'loremflickr' | 'gradient',
                 query: imageQuery,

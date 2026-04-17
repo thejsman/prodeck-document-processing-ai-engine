@@ -4,7 +4,6 @@ import type { PluginTokens, TimelineContent } from '../../../types/presentation'
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Body } from '../shared/Typography';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -275,12 +274,6 @@ export function TimelineSection({ content, tokens, index }: Props) {
           />
         </div>
 
-        <ClickableDiagram
-          diagram={content.diagram ?? ''}
-          tokens={tokens}
-          delay={200 + phases.length * 60 + 80}
-          caption="Project schedule"
-        />
       </div>
     </section>
   );

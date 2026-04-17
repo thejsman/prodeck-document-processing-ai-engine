@@ -5,7 +5,6 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, SubHeadline, Body, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { CircularProgress } from '../shared/CircularProgress';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
@@ -109,7 +108,6 @@ export function TestingSection({ content, tokens }: Props) {
           />
         </div>
 
-        <ClickableDiagram diagram={content.diagram ?? ''} tokens={tokens} delay={240} caption="Testing pyramid" />
 
         {/* Additional info grid */}
         {additionalInfo.length > 0 && (
