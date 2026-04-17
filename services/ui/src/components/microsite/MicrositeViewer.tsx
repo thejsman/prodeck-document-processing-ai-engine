@@ -35,7 +35,7 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-      <div style={{ height: 40, flexShrink: 0, display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingLeft: 16, paddingRight: 8 }}>
+      <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingLeft: 16, paddingRight: 8 }}>
         <span className="topbar-ns-label" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {title}
         </span>
@@ -71,7 +71,7 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div id="ms-embedded-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {showEditor ? (
           <MicrositeEditor
             ast={currentEntry.ast}

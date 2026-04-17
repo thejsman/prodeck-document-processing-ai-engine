@@ -70,6 +70,7 @@ import type {
 
 /** Unique stable DOM id for the fullscreen scroll container */
 const SCROLL_CONTAINER_ID = 'ms-fullscreen-scroll';
+const EMBEDDED_SCROLL_CONTAINER_ID = 'ms-embedded-scroll';
 
 interface Props {
   ast: LayoutAST;
@@ -815,7 +816,6 @@ ${el.innerHTML}
       style={isEmbedded ? {
         background: tokens.bg,
         color: tokens.text,
-        overflowX: 'hidden',
         minHeight: '100%',
         width: '100%',
         ...cssVars,
@@ -896,12 +896,12 @@ ${el.innerHTML}
 
       `}</style>
 
-      {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}
+      {/* Nav — uses the appropriate scroll container */}
       <MicrositeNav
         tokens={tokens}
         brand={ast.brand}
         sections={ast.sections ?? []}
-        scrollContainerId={SCROLL_CONTAINER_ID}
+        scrollContainerId={isEmbedded ? (scrollContainerId ?? EMBEDDED_SCROLL_CONTAINER_ID) : SCROLL_CONTAINER_ID}
       />
 
       {/* Sections */}
@@ -1158,4 +1158,4 @@ ${el.innerHTML}
   );
 }
 
-export { SCROLL_CONTAINER_ID };
+export { SCROLL_CONTAINER_ID, EMBEDDED_SCROLL_CONTAINER_ID };

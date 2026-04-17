@@ -44,6 +44,7 @@ function EditorCanvas({
 
   return (
     <div
+      id="ms-editor-scroll"
       style={{
         width: '100%',
         height: '100%',
