@@ -28,6 +28,7 @@ import { TeamSection } from './sections/TeamSection';
 import { ComparisonSection } from './sections/ComparisonSection';
 import { CaseStudySection } from './sections/CaseStudySection';
 import { ChartSection } from './sections/ChartSection';
+import { ApprovalSection } from './sections/ApprovalSection';
 
 import { useEditContext } from './editor/EditContext';
 import { SectionEditOverlay } from './editor/SectionEditOverlay';
@@ -65,6 +66,7 @@ import type {
   ComparisonContent,
   CaseStudyContent,
   ChartContent,
+  ApprovalContent,
 } from '../../types/presentation';
 
 /** Unique stable DOM id for the fullscreen scroll container */
@@ -258,6 +260,9 @@ function renderSection(
       break;
     case 'chart':
       inner = <ChartSection content={section.content as ChartContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
+    case 'approval':
+      inner = <ApprovalSection content={section.content as ApprovalContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} namespace={brief?.clientName?.replace(/\s+/g, '-').toLowerCase()} proposalId={undefined} />;
       break;
     default:
       inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
@@ -1022,6 +1027,7 @@ ${el.innerHTML}
           sections={ast.sections ?? []}
           client={ast.meta?.client}
           date={ast.meta?.date}
+          proposedBy={ast.brief?.proposingCompany || ast.brand?.companyName}
         />
       </div>
 

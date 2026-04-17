@@ -29,6 +29,9 @@ export function MicrositeNav({
   sections,
   scrollContainerId,
 }: Props) {
+  // Stable filtered list — approval is a sign-off form, not a nav destination
+  const navLinks = sections.filter(s => s.sectionType !== 'approval');
+
   const [scrolled, setScrolled] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
   const [activeId, setActiveId] = useState<string>("");
@@ -72,7 +75,8 @@ export function MicrositeNav({
     const observers: IntersectionObserver[] = [];
     const visibleSections = new Map<string, number>();
 
-    sections.forEach((s) => {
+    // Only track nav-visible sections — approval is excluded from nav so skip it
+    navLinks.forEach((s) => {
       const el = document.getElementById(s.id);
       if (!el) return;
 
@@ -104,7 +108,7 @@ export function MicrositeNav({
     });
 
     return () => observers.forEach((o) => o.disconnect());
-  }, [sections, scrollContainerId]);
+  }, [navLinks, scrollContainerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scrollTo = (id: string) => {
     const container = getScrollContainer(scrollContainerId);
@@ -126,17 +130,26 @@ export function MicrositeNav({
   const NAV_LABEL: Record<string, string> = {
     hero: "Home",
     challenge: "Challenge",
+    problem: "Problem",
     approach: "Approach",
     deliverables: "Deliverables",
     timeline: "Timeline",
     pricing: "Pricing",
-    whyus: "Value",
-    nextsteps: "Contact",
-    testimonials: "Reviews",
+    whyus: "Why Us",
+    nextsteps: "Next Steps",
+    testimonials: "Testimonials",
     showcase: "Showcase",
     benefits: "Benefits",
-    problem: "Problem",
     stats: "Stats",
+    metrics: "Metrics",
+    security: "Security",
+    techstack: "Tech Stack",
+    testing: "Testing",
+    faq: "FAQ",
+    team: "Team",
+    comparison: "Comparison",
+    casestudy: "Case Study",
+    chart: "Results",
     generic: "Overview",
   };
 
@@ -163,7 +176,6 @@ export function MicrositeNav({
     return s.heading.split(/\s+/)[0] || "Section";
   }
 
-  const navLinks = sections; // show ALL sections
 
   // Compute contrast-safe nav text colors based on whether the bg token is dark or light.
   // Using tokens.textMuted directly can be invisible when URL-extracted designs produce
@@ -360,7 +372,7 @@ export function MicrositeNav({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {sections.map((s) => {
+            {navLinks.map((s) => {
               const isActive = activeId === s.id;
               return (
                 <button

@@ -44,12 +44,13 @@ type SectionType =
   | 'comparison'
   | 'casestudy'
   | 'chart'
+  | 'approval'
   | 'generic';
 
 const ALL_SECTION_TYPES = new Set<string>([
   'hero','challenge','approach','deliverables','timeline','pricing',
   'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
-  'metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic',
+  'metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','approval','generic',
 ]);
 
 // ── Reference file design extraction types ───────────────────────────────────
@@ -102,6 +103,7 @@ function classifySection(heading: string): SectionType {
   if (/invest|pric|cost|commercial/.test(h)) return 'pricing';
   if (/why|about\s*us|credential|team|experience/.test(h)) return 'whyus';
   if (/next|step|start|action/.test(h)) return 'nextsteps';
+  if (/approv|sign|accept|agree|authoriz/.test(h)) return 'approval';
   if (/testimonial|review|client\s*said|what.*say/.test(h)) return 'testimonials';
   if (/showcase|feature|highlight|case\s*study/.test(h)) return 'showcase';
   if (/benefit|value\s*prop|advantage|outcome/.test(h)) return 'benefits';
@@ -365,7 +367,8 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
   * benefits (value propositions)
   * whyus (credentials and differentiators)
   * testimonials (generate from context if client names or outcomes mentioned)
-  * nextsteps (always last — call to action)
+  * nextsteps (call to action / what happens next)
+  * approval (interactive sign-off form — place last, after nextsteps or pricing)
 - Map EVERY source heading in the proposal to a section — do NOT skip any heading that has content.
 - For headings that don't map cleanly to a known type, use "generic" type with the original heading preserved as sourceHeading.
 - Add additional sections if proposal content supports them (faq, team, casestudy, comparison, chart, etc.).
@@ -373,8 +376,25 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
 - NEVER output fewer than 12 sections.
 - NEVER skip a core section type listed above.
 - CONTENT-FIRST: if the proposal has 15 headings, plan 15+ sections. If it has 25, plan 25+. More proposal content = more microsite sections. NEVER compress, merge, or drop unique proposal sections. This is a long-scroll website — every topic deserves its own section.
+
+HEADING → TYPE MAPPING EXAMPLES (use semantic intent, not just keywords):
+- "Executive Summary", "Overview", "Introduction", "About This Proposal" → hero
+- "The Problem", "Current State", "Pain Points", "The Challenge", "What's Broken", "The Situation", "Context" → challenge
+- "Our Approach", "How We Work", "Methodology", "The Solution", "Our Strategy", "Proposed Solution", "What We'll Do" → approach
+- "What's Included", "Scope of Work", "Deliverables", "What You Get", "Our Work", "Services" → deliverables
+- "Project Plan", "Timeline", "Phases", "Roadmap", "Schedule", "How Long", "Milestones" → timeline
+- "Investment", "Pricing", "Cost", "Budget", "Fees", "What It Costs", "Commercial Terms" → pricing
+- "Why Us", "Why KM", "Our Credentials", "Why Choose Us", "Our Experience", "Track Record", "Who We Are", "About Us" → whyus
+- "What You'll Gain", "Benefits", "Value", "ROI", "What This Means For You", "Why This Matters", "The Upside" → benefits
+- "Results", "Numbers", "Impact", "By The Numbers", "Proof", "Our Work In Numbers" → stats
+- "What Clients Say", "Testimonials", "Social Proof", "Client Stories", "Reviews" → testimonials
+- "Next Steps", "Getting Started", "What Happens Next", "Moving Forward", "How To Begin", "Ready?", "Let's Go" → nextsteps
+- "Frequently Asked Questions", "FAQs", "Common Questions", "Questions & Answers" → faq
+- "Our Team", "Meet The Team", "Who's Involved", "Key People" → team
+- "Case Study", "Past Work", "Portfolio", "Success Story" → casestudy
+- "How We Compare", "Comparison", "Us vs Others", "Why Not X" → comparison
 ${styleHintBlock}
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
+VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
 
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
@@ -401,7 +421,7 @@ You are a section plan editor. Reshape the plan below to satisfy the USER COMMAN
 CURRENT PLAN:
 ${JSON.stringify(plan, null, 2)}
 
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 
 RULES:
 - Return ONLY a valid JSON array — same format as CURRENT PLAN
@@ -423,7 +443,7 @@ Parse the following user instruction into a structured command JSON.
 
 CURRENT PLUGIN: "${currentPlugin}"
 VALID PLUGINS: obsidian, ivory, cobalt, sage
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, chart, generic
 VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
 
 USER INSTRUCTION:
@@ -788,6 +808,7 @@ const VARIANT_POOLS: Record<SectionType, string[]> = {
   pricing:      ['centered',    'split',      'editorial'],
   whyus:        ['split',       'asymmetric', 'centered',     'editorial'],
   nextsteps:    ['centered',    'split',      'editorial'],
+  approval:     ['centered'],
   testimonials: ['centered',    'editorial',  'card-grid'],
   showcase:     ['split',       'asymmetric', 'centered'],
   benefits:     ['card-grid',   'split',      'editorial'],
@@ -826,6 +847,7 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   pricing:      'centered',
   whyus:        'editorial',
   nextsteps:    'centered',
+  approval:     'centered',
   testimonials: 'centered',
   showcase:     'editorial',
   benefits:     'card-grid',
@@ -854,6 +876,7 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
   pricing:      'centered',
   whyus:        'minimal',
   nextsteps:    'centered',
+  approval:     'centered',
   testimonials: 'minimal',
   showcase:     'minimal',
   benefits:     'minimal',
@@ -884,6 +907,7 @@ const BOLD_VARIANTS: Record<SectionType, string> = {
   pricing:      'centered',
   whyus:        'asymmetric',
   nextsteps:    'split',
+  approval:     'centered',
   testimonials: 'card-grid',
   showcase:     'asymmetric',
   benefits:     'card-grid',
@@ -1459,24 +1483,32 @@ Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Pricing section. CRITICAL FIDELITY RULES:
-1. Extract EVERY line item, price, cost, and amount verbatim from the source content. Use exact figures (e.g. "$45,000", "€2,400/mo", "£180/hr").
-2. If the source content contains NO specific prices or line items — set rows to [] (empty array), totalLabel to "Investment details to be confirmed", and footnote to "Pricing will be provided upon scoping discussion." DO NOT fabricate row names or placeholder amounts like "$XX,XXX".
-3. NEVER invent line items, services, or prices that are not explicitly stated in the source.
+Transform into a Pricing section. SCAN THE FULL PROPOSAL AND FULL SOURCE CONTENT for ALL pricing data.
+
+MANDATORY EXTRACTION RULES:
+1. Search EVERY section of the proposal for: prices, costs, fees, rates, packages, tiers, totals, budgets, estimates, invoices, retainers, milestones, payment terms, hourly rates, monthly fees, project totals.
+2. Extract EVERY line item verbatim — use exact figures (e.g. "$45,000", "€2,400/mo", "£180/hr"). Do NOT paraphrase, round, or abbreviate.
+3. The header row must always be ["Service / Deliverable", "Investment"].
+4. Each data row = ["Exact service name from proposal", "Exact price from proposal"].
+5. If prices span multiple sections (e.g. Phase 1 costs in timeline, total in a budget section), COMBINE them all into rows.
+6. totalLabel = the grand total or investment total from the proposal. If split across phases, sum them or list the range.
+7. footnote = ALL payment terms, milestones, deposit info, start date, validity — copy verbatim.
+8. ONLY set rows to [] if the proposal contains ZERO price mentions anywhere. If ANY price exists, include it.
+9. NEVER fabricate prices, estimates, or placeholder amounts.
+
 Return:
 {
   "eyebrow": "4-8 words e.g. 'Investment Overview'",
   "headline": "8-12 words, frame value not cost",
-  "subheadline": "1-2 sentences, what the investment unlocks",
+  "subheadline": "2-3 sentences — what the client gets for this investment, outcomes and ROI",
   "rows": [
     ["Service / Deliverable", "Investment"],
-    ["Exact line item name from proposal", "Exact price from proposal"],
-    ["...only rows that exist in source..."]
+    ["Exact line item from proposal", "Exact price from proposal"]
   ],
-  "totalLabel": "Total: [exact total from proposal] OR 'Investment details to be confirmed' if no pricing in source",
-  "footnote": "payment terms, start date, or notes from the proposal — or 'Pricing will be provided upon scoping discussion.' if no pricing data",
+  "totalLabel": "Total Investment: [exact total] — or empty string if no total stated",
+  "footnote": "Payment terms, milestones, deposit requirements, validity period — verbatim from proposal",
   "cta": "3-5 words",
-  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood.",
   ${meta}
 }`,
 
@@ -1511,6 +1543,22 @@ Transform into a Next Steps section. Return:
   "urgencyNote": "string or null",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
+  ${meta}
+}`,
+
+    approval: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into a Proposal Approval section — this is the final sign-off section where the client formally accepts the proposal. Return:
+{
+  "eyebrow": "3-6 words e.g. 'Approve This Proposal'",
+  "headline": "6-10 words — e.g. 'Ready to Move Forward?'",
+  "subheadline": "2-3 sentences — explain that approving sends confirmation emails to both parties, that this constitutes a formal agreement, and what happens next",
+  "termsText": "2-4 sentences of terms and conditions based on the proposal scope, payment terms, and timeline — grounded in source content",
+  "ctaLabel": "3-5 words e.g. 'Approve Proposal'",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene suggesting partnership and agreement. Describe subject, lighting, mood.",
   ${meta}
 }`,
 
@@ -2282,7 +2330,11 @@ function buildOverrideSectionPlanPrompt(
       `\nUse these as TYPE MAPPING HINTS — map them to the appropriate section types below. Then add additional sections from the proposal to reach 12-13 total.\n`
     : '';
 
-  return `${fullDesignPrompt}
+  const designHint = fullDesignPrompt.trim().length > 0
+    ? `DESIGN STYLE GUIDANCE: ${fullDesignPrompt}\n\n---\n\n`
+    : '';
+
+  return `${designHint}
 
 ---
 
@@ -2302,12 +2354,12 @@ TYPE MAPPING (choose closest match for each section name):
 - Showcase / Case Study / Features → showcase
 
 MANDATORY RULES:
-- Output a JSON array with 12-13 sections, minimum 10 sections
+- Output a JSON array of ALL sections — there is NO maximum; plan as many sections as the proposal content requires. Minimum 12 sections, no upper limit.
 - You MUST include ALL of these core types (generate content from proposal brief if no direct source):
   hero, problem OR challenge, approach, deliverables OR showcase,
   timeline, pricing, stats, benefits, whyus, testimonials, nextsteps
 - Set aiGenerated: true for sections with no direct source content
-- NEVER output fewer than 10 sections
+- NEVER output fewer than 12 sections — if proposal is thin, generate supporting sections from context
 - The hero is always first, nextsteps is always last
 - Each section must have a unique type — do NOT repeat the same type twice
 
@@ -2397,9 +2449,14 @@ If content is insufficient for this diagram, set diagram to null.`;
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "rows": [["Service / Deliverable", "Investment"], ["Line item from proposal", "Exact price from proposal"], ["...more rows as needed from the proposal..."]], "totalLabel": "Total: [exact total from proposal]", "footnote": "payment terms or notes from the proposal", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+ROW TYPES — use these exact patterns:
+1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment"] — use descriptive text, NOT generic "Service / Deliverable"
+2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "price or empty string"] — deliverables that are part of the scope
+3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"], ["~50% Milestone", "$X,XXX", "Design complete, dev underway"], ["Completion / Launch", "$X,XXX", "Final delivery + handoff"] — 3 columns when it's a milestone
+{ "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["Exact deliverable from proposal", ""], ["...more deliverables..."], ["Upon Signing", "$X,XXX", "Work begins immediately"]], "totalLabel": "exact total e.g. '$100,000'", "footnote": "payment timing note if any", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    approval: `{ "eyebrow": "3-6 words e.g. Approve This Proposal", "headline": "6-10 words e.g. Ready to Move Forward?", "subheadline": "2-3 sentences about signing off and what happens next", "termsText": "2-4 sentences of terms grounded in proposal scope and payment terms", "ctaLabel": "3-5 words e.g. Approve Proposal", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "verbatim or near-verbatim quote from source — only if real quote exists", "name": "real name from source", "title": "job title from source", "company": "company from source"}], "diagram": null }`,
     showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
@@ -2498,17 +2555,36 @@ function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
     }
   }
 
-  if (additions.length === 0) return plan;
+  // approval is always injected last — never skip it
+  const hasApproval = presentTypes.has('approval' as SectionType);
 
+  if (additions.length === 0 && hasApproval) return plan;
+
+  // Insert non-approval additions before nextsteps; append approval at the very end
   const nextstepsIdx = plan.findIndex(s => s.type === 'nextsteps');
+  const nonApprovalAdditions = additions.filter(a => a.type !== 'approval');
+
+  let result: SectionPlan[];
   if (nextstepsIdx >= 0) {
-    return [
+    result = [
       ...plan.slice(0, nextstepsIdx),
-      ...additions,
+      ...nonApprovalAdditions,
       ...plan.slice(nextstepsIdx),
     ];
+  } else {
+    result = [...plan, ...nonApprovalAdditions];
   }
-  return [...plan, ...additions];
+
+  // Remove any existing approval entry then re-append it at the very end
+  result = result.filter(s => s.type !== 'approval');
+  result.push({
+    type: 'approval' as SectionType,
+    sourceHeading: null,
+    rationale: 'Proposal sign-off — always last',
+    aiGenerated: true,
+  });
+
+  return result;
 }
 
 // Preferred substitute types when a duplicate is found, in priority order
@@ -2727,7 +2803,7 @@ export class MicrositeGeneratorAgent implements Agent {
     const customInstructions = (rawInstructions || 'Generate a COMPREHENSIVE multi-section microsite that covers EVERY piece of content from the source document — do not skip, summarize, or omit any topic. There is NO section count limit — include as many sections as the content requires, even if that means 20, 25, or 30+ sections. Every heading, sub-heading, feature, deliverable, phase, benefit, requirement, and detail from the source must appear as its own fully developed section or as detailed content within a section. For each section, extract ALL relevant details, facts, figures, deliverables, timelines, and descriptions from the source. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, deliverables, pricing, casestudy, benefits, stats, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections. NEVER produce thin or sparse sections — if the source document covers a topic in depth, the microsite section must reflect that depth fully. This is a long-scroll website — length is a feature, not a problem.') + pdfConstraints;
     if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
-    const isFullOverride = fullDesignPrompt.trim().length > 100;
+    const isFullOverride = fullDesignPrompt.trim().length > 3;
     if (isFullOverride) {
       console.log('[MicrositeAgent] FULL OVERRIDE MODE ACTIVE — fullDesignPrompt length:', fullDesignPrompt.length);
     }
@@ -2863,12 +2939,18 @@ export class MicrositeGeneratorAgent implements Agent {
           content: '',
         }).catch(() => null),
 
-        // Pass 0: Section planning — runs in parallel with Pass -1 and Pass 1 (no dependency on them)
+        // Pass 0: Section planning — always use the standard planner (rich section rules).
+        // Custom prompt is injected as a style hint only — never as a structural override.
         Promise.race([
           generateTool.run({
-            query: isFullOverride
-              ? buildOverrideSectionPlanPrompt(planningMarkdown, fullDesignPrompt)
-              : buildSectionPlanPrompt(planningMarkdown, metaPlugin, customInstructions, urlReferenceDesign),
+            query: buildSectionPlanPrompt(
+              planningMarkdown,
+              metaPlugin,
+              isFullOverride
+                ? `${fullDesignPrompt}\n\n${customInstructions ?? ''}`.trim()
+                : customInstructions,
+              urlReferenceDesign,
+            ),
             content: '',
           }),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 60_000)),
@@ -3015,8 +3097,8 @@ export class MicrositeGeneratorAgent implements Agent {
         if (sectionLimitRequest.limitType === 'count' && sectionLimitRequest.requestedCount) {
           const count = sectionLimitRequest.requestedCount;
           const hero = sectionPlan.filter(s => s.type === 'hero');
-          const last = sectionPlan.filter(s => s.type === 'nextsteps');
-          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
+          const last = sectionPlan.filter(s => s.type === 'nextsteps' || s.type === 'approval');
+          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps' && s.type !== 'approval');
           const trimmed = [
             ...hero,
             ...middle.slice(0, Math.max(0, count - hero.length - last.length)),
@@ -3037,6 +3119,17 @@ export class MicrositeGeneratorAgent implements Agent {
             !sectionLimitRequest.requestedSections!.includes(s.type)
           );
         }
+      }
+
+      // Always ensure approval is the very last section — unconditional, survives all plan trimming
+      if (sectionPlan) {
+        sectionPlan = sectionPlan.filter(s => s.type !== 'approval');
+        sectionPlan.push({
+          type: 'approval' as SectionType,
+          sourceHeading: null,
+          rationale: 'Proposal sign-off — always last',
+          aiGenerated: true,
+        });
       }
 
       // Parse brief
@@ -3090,7 +3183,7 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
-      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic']);
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','approval','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','chart','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;
@@ -3132,13 +3225,21 @@ export class MicrositeGeneratorAgent implements Agent {
           resolvedSections.push({ type, heading, rawBody, aiGenerated: planned.aiGenerated || !sourceHeading });
         }
       } else {
-        // Fallback: use source sections in order
-        for (const s of sourceSections) {
+        // Fallback: use source sections in order, then run ensureRequiredSections
+        const fallbackPlan: SectionPlan[] = sourceSections.map(s => ({
+          type: classifySection(s.name),
+          sourceHeading: s.name,
+          rationale: 'fallback',
+          aiGenerated: false,
+        }));
+        const enrichedPlan = ensureRequiredSections(fallbackPlan);
+        for (const planned of enrichedPlan) {
+          const src = sourceSections.find(s => s.name === planned.sourceHeading);
           resolvedSections.push({
-            type: classifySection(s.name),
-            heading: s.name,
-            rawBody: s.content,
-            aiGenerated: false,
+            type: planned.type,
+            heading: planned.sourceHeading ?? planned.type,
+            rawBody: src?.content ?? '',
+            aiGenerated: planned.aiGenerated || !planned.sourceHeading,
           });
         }
       }
@@ -3425,6 +3526,18 @@ export class MicrositeGeneratorAgent implements Agent {
             borderRadiusStyle: extractedTokens.components.borderRadius,
             themeClass: extractedTokens.themeClass,
           };
+          // Push extracted fonts into customTokens so they win over Pass -1 LLM font choices.
+          // mergedTokens.heroFont/bodyFont takes priority in the renderer, so we must set them here.
+          if (extractedTokens.typography.fonts.length > 0) {
+            const existingCustomTokens = (ast.customTokens as Record<string, unknown>) ?? {};
+            const headingFont = extractedTokens.typography.fonts[0];
+            const bodyFont = extractedTokens.typography.fonts[1] ?? headingFont;
+            ast.customTokens = {
+              ...existingCustomTokens,
+              heroFont: headingFont,
+              bodyFont: bodyFont,
+            };
+          }
         }
 
         // Apply reference design tokens to brand when Pass 0.5 (file or URL) extracted them

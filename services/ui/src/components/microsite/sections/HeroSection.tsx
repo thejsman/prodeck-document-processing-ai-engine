@@ -146,12 +146,17 @@ export function HeroSection({
     return <Reveal delay={delay} variant={revealVariant} style={style}>{children}</Reveal>;
   }, [noAnimation, revealVariant]);
 
+  // When image is present, always use white text for contrast — ignore theme text color
+  const heroText = hasBgImage ? '#ffffff' : tokens.text;
+  const heroTextMuted = hasBgImage ? 'rgba(255,255,255,0.78)' : tokens.textMuted;
+  const heroTextSubtle = hasBgImage ? 'rgba(255,255,255,0.55)' : tokens.textSubtle;
+
   // ── Shared blocks ─────────────────────────────────────────────────────────
 
   const eyebrow = content.eyebrow?.trim() && (
     <R>
       <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow}>
-        <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
+        <Label tokens={tokens} style={{ display: 'block', marginBottom: 14, ...(hasBgImage ? { color: heroTextSubtle } : {}) }}>
           {content.eyebrow}
           <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
         </Label>
@@ -165,7 +170,7 @@ export function HeroSection({
   const headline = (
     <R delay={60}>
       <InlineEditable field="headline" label="Headline" value={content.headline}>
-        <Display tokens={tokens} gradient={!hasBgImage} style={{ marginBottom: 18, ...(hasBgImage ? { color: tokens.text } : {}) }}>
+        <Display tokens={tokens} gradient={!hasBgImage} style={{ marginBottom: 18, ...(hasBgImage ? { color: heroText } : {}) }}>
           {content.headline}
           <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
         </Display>
@@ -178,7 +183,7 @@ export function HeroSection({
       {content.subheadline?.trim() && (
         <R delay={120}>
           <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
-            <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7 }}>
+            <Body tokens={tokens} style={{ fontSize: '1.05rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7, ...(hasBgImage ? { color: heroTextMuted } : {}) }}>
               {content.subheadline}
               <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
             </Body>
@@ -188,7 +193,7 @@ export function HeroSection({
       {content.body?.trim() && (
         <R delay={180}>
           <InlineEditable field="body" label="Body" value={content.body} multiline>
-            <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28 }}>
+            <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28, ...(hasBgImage ? { color: heroTextMuted } : {}) }}>
               {content.body}
               <TypingCursor visible={twCtx?.activeField === 'body' && (twCtx?.showCursor ?? false)} />
             </Body>
@@ -203,11 +208,11 @@ export function HeroSection({
       {outcomes.map((o, i) => (
         <span key={i} style={{
           padding: '4px 12px', borderRadius: pillRadius,
-          background: tokens.surfaceCard,
-          border: `1px solid ${tokens.border}`,
+          background: hasBgImage ? 'rgba(255,255,255,0.12)' : tokens.surfaceCard,
+          border: `1px solid ${hasBgImage ? 'rgba(255,255,255,0.25)' : tokens.border}`,
           fontFamily: `'${tokens.bodyFont}', sans-serif`,
           fontSize: '0.75rem', fontWeight: 500,
-          color: tokens.textMuted,
+          color: hasBgImage ? heroTextMuted : tokens.textMuted,
         }}>
           ✓ {o}
         </span>
@@ -286,8 +291,9 @@ export function HeroSection({
 
   // ── Shared section shell ──────────────────────────────────────────────────
 
-  // bgScrim — dark overlay on top of hero background image
-  const bgScrim = tokens.dark ? 'rgba(0,0,0,0.62)' : 'rgba(15,15,20,0.55)';
+  // bgScrim — always a strong dark overlay so white text is readable over ANY image
+  // regardless of the theme's color scheme (custom prompts may produce light tokens.text)
+  const bgScrim = 'rgba(5,8,20,0.68)';
 
   const sectionStyle: React.CSSProperties = {
     position: 'relative',

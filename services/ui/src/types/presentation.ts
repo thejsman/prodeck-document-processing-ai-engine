@@ -23,6 +23,7 @@ export type SectionType =
   | 'comparison'
   | 'casestudy'
   | 'chart'
+  | 'approval'
   | 'generic';
 
 // ── Parsed markdown structures ───────────────────────────────────────────────
@@ -449,6 +450,15 @@ export interface ChartContent {
   imageQuery: string;
 }
 
+export interface ApprovalContent {
+  eyebrow: string;
+  headline: string;
+  subheadline: string;
+  termsText?: string;
+  ctaLabel?: string;
+  imageQuery: string;
+}
+
 export type SectionContent =
   | HeroContent
   | ChallengeContent
@@ -472,6 +482,7 @@ export type SectionContent =
   | ComparisonContent
   | CaseStudyContent
   | ChartContent
+  | ApprovalContent
   | GenericContent;
 
 // ── Diagram metadata (detector output, stored alongside each section) ────────

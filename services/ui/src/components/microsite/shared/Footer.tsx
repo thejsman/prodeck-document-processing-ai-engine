@@ -8,119 +8,117 @@ interface Props {
   sections?: LayoutSection[];
   client?: string;
   date?: string;
+  proposedBy?: string;
 }
 
-export function Footer({ tokens, brand, client, date }: Props) {
+function BrandIcon({ color }: { color: string }) {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="11" height="11" rx="2" fill={color} opacity="0.9" />
+      <rect x="17" y="4" width="11" height="11" rx="2" fill={color} opacity="0.5" />
+      <rect x="4" y="17" width="11" height="11" rx="2" fill={color} opacity="0.5" />
+      <rect x="17" y="17" width="11" height="11" rx="2" fill={color} opacity="0.9" />
+    </svg>
+  );
+}
+
+export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
+  const clientName = client || brand.companyName;
+  const preparer = proposedBy || brand.companyName;
+
+  // Extract domain hint from tagline if it looks like a domain
+  const domainHint = brand.tagline && /^[\w.-]+\.\w{2,}$/.test(brand.tagline.trim())
+    ? brand.tagline.trim()
+    : null;
+
   return (
     <footer
       style={{
-        background: tokens.surfaceAlt,
+        background: tokens.bg,
         borderTop: `1px solid ${tokens.border}`,
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
     >
-      {/* ── Main row: brand + prepared-for ──────────────────────────── */}
       <div style={{
-        maxWidth: 1100,
+        maxWidth: 1200,
         margin: '0 auto',
-        padding: '52px 40px 40px',
-        display: 'grid',
-        gridTemplateColumns: client ? '1fr auto' : '1fr',
+        padding: '18px 40px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         gap: '2rem',
-        alignItems: 'flex-start',
       }}>
 
-        {/* Brand block */}
-        <div>
-          <div style={{
-            fontFamily: `'${tokens.heroFont}', serif`,
-            fontWeight: tokens.heroWeight,
-            fontSize: 'clamp(1.4rem, 2.8vw, 2rem)',
-            color: tokens.text,
-            lineHeight: 1.15,
-            letterSpacing: '-0.02em',
-            marginBottom: brand.tagline ? 10 : 0,
-          }}>
-            {brand.companyName}
-          </div>
-          {brand.tagline && (
+        {/* ── Left: icon + client name + domain ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {brand.logoUrl ? (
+            <img
+              src={brand.logoUrl}
+              alt={clientName}
+              style={{ height: 32, width: 'auto', objectFit: 'contain', flexShrink: 0 }}
+            />
+          ) : (
+            <BrandIcon color={tokens.text} />
+          )}
+
+          <div>
             <div style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.875rem',
-              color: tokens.textMuted,
-              lineHeight: 1.6,
-              maxWidth: 480,
+              fontWeight: 700,
+              fontSize: '0.88rem',
+              color: tokens.text,
+              lineHeight: 1.25,
             }}>
-              {brand.tagline}
+              {clientName}
             </div>
-          )}
+            {domainHint && (
+              <div style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.72rem',
+                color: tokens.textSubtle,
+                lineHeight: 1.3,
+              }}>
+                {domainHint}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Prepared-for block */}
-        {client && (
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        {/* ── Right: "Proposal prepared by" label + preparer name ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+          <div style={{ textAlign: 'right' }}>
             <div style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.68rem',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
+              fontSize: '0.72rem',
               color: tokens.textSubtle,
-              marginBottom: 6,
-            }}>
-              Prepared for
-            </div>
-            <div style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.9rem',
-              fontWeight: 600,
-              color: tokens.text,
               lineHeight: 1.4,
             }}>
-              {client}
+              Proposal prepared by
             </div>
             {date && (
               <div style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.78rem',
-                color: tokens.textMuted,
-                marginTop: 4,
+                fontSize: '0.65rem',
+                color: tokens.textSubtle,
+                opacity: 0.65,
+                lineHeight: 1.3,
               }}>
-                {date}
+                Proposal prepared {date} · Version 1.0 · Confidential
               </div>
             )}
           </div>
-        )}
-      </div>
 
-      {/* ── Bottom bar ──────────────────────────────────────────────── */}
-      <div style={{
-        borderTop: `1px solid ${tokens.borderSubtle}`,
-        maxWidth: 1100,
-        margin: '0 auto',
-        padding: '16px 40px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 8,
-      }}>
-        <span style={{
-          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-          fontSize: '0.72rem',
-          color: tokens.textSubtle,
-        }}>
-          &copy; {new Date().getFullYear()} {brand.companyName}. All rights reserved.
-        </span>
-        <span style={{
-          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-          fontSize: '0.72rem',
-          color: tokens.textSubtle,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-        }}>
-          Confidential
-        </span>
+          <div style={{
+            fontFamily: `'${tokens.heroFont}', serif`,
+            fontWeight: 700,
+            fontSize: '1.4rem',
+            color: tokens.text,
+            letterSpacing: '-0.02em',
+            lineHeight: 1,
+          }}>
+            {preparer}
+          </div>
+        </div>
+
       </div>
     </footer>
   );
