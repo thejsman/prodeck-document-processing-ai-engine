@@ -9,13 +9,14 @@
  *   POST /proposals/:fileName/lock-section   — lock a section
  *   POST /proposals/:fileName/unlock-section — unlock a section
  *   POST /proposals/:fileName/set-status     — transition workflow status
- *   GET  /templates/:name                  — read a single template (raw YAML + parsed)
- *   POST /templates/:name                  — create or update a template
+ *   GET    /templates/:name                — read a single template (raw YAML + parsed)
+ *   POST   /templates/:name               — create or update a template
+ *   DELETE /templates/:name               — delete a template
  *   PUT  /proposals/:fileName/content      — update proposal content
  *   POST /proposal-diff                   — diff two proposal versions
  */
 
-import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile, mkdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
@@ -440,6 +441,29 @@ export function registerProposalRoutes(
         description: (parsed.description as string) ?? '',
         sections: (parsed.sections as TemplateSection[]),
       });
+    },
+  );
+
+  // DELETE /templates/:name
+  app.delete(
+    '/templates/:name',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { name } = req.params as { name: string };
+
+      if (!TEMPLATE_NAME_PATTERN.test(name)) {
+        return reply.code(400).send({ error: 'Invalid template name.' });
+      }
+
+      const filePath = path.join(templateDir, `${name}.yaml`);
+      try {
+        await unlink(filePath);
+        return reply.code(200).send({ deleted: name });
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply.code(404).send({ error: `Template "${name}" not found` });
+        }
+        throw err;
+      }
     },
   );
 

@@ -161,6 +161,14 @@ export async function modifyTemplate(apiKey: string, templateYaml: string, instr
   return data.yaml;
 }
 
+export async function deleteTemplate(apiKey: string, name: string): Promise<void> {
+  const res = await fetch(`/api/templates/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: authHeaders(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
 export async function fetchProposals(apiKey: string): Promise<ProposalFile[]> {
   const res = await fetch('/api/proposals', {
     headers: authHeaders(apiKey),
