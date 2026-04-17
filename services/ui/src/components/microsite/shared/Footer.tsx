@@ -5,148 +5,122 @@ import type { PluginTokens, BrandConfig, LayoutSection } from '../../../types/pr
 interface Props {
   tokens: PluginTokens;
   brand: BrandConfig;
-  sections: LayoutSection[];
+  sections?: LayoutSection[];
   client?: string;
   date?: string;
 }
 
-export function Footer({ tokens, brand, sections, client, date }: Props) {
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+export function Footer({ tokens, brand, client, date }: Props) {
   return (
     <footer
       style={{
-        background: tokens.surface,
-        borderTop: 'none',
-        borderImage: `linear-gradient(90deg, transparent, ${tokens.accent}40, transparent) 1`,
-        borderImageSlice: 1,
-        borderTopWidth: 1,
-        borderTopStyle: 'solid',
-        padding: 'clamp(2rem, 4vw, 3.5rem) 2rem env(safe-area-inset-bottom, 2rem)',
+        background: tokens.surfaceAlt,
+        borderTop: `1px solid ${tokens.border}`,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
     >
-      <div
-        style={{
-          maxWidth: 960,
-          margin: '0 auto',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '2rem',
-          marginBottom: '2rem',
-        }}
-      >
-        {/* Company info */}
+      {/* ── Main row: brand + prepared-for ──────────────────────────── */}
+      <div style={{
+        maxWidth: 1100,
+        margin: '0 auto',
+        padding: '52px 40px 40px',
+        display: 'grid',
+        gridTemplateColumns: client ? '1fr auto' : '1fr',
+        gap: '2rem',
+        alignItems: 'flex-start',
+      }}>
+
+        {/* Brand block */}
         <div>
-          <p style={{
-            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 600,
-            fontSize: 14,
-            color: tokens.accent,
-            letterSpacing: tokens.labelTracking,
-            textTransform: 'uppercase',
-            margin: '0 0 8px',
+          <div style={{
+            fontFamily: `'${tokens.heroFont}', serif`,
+            fontWeight: tokens.heroWeight,
+            fontSize: 'clamp(1.4rem, 2.8vw, 2rem)',
+            color: tokens.text,
+            lineHeight: 1.15,
+            letterSpacing: '-0.02em',
+            marginBottom: brand.tagline ? 10 : 0,
           }}>
             {brand.companyName}
-          </p>
+          </div>
           {brand.tagline && (
-            <p style={{
+            <div style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: 13,
+              fontSize: '0.875rem',
               color: tokens.textMuted,
-              margin: 0,
-              lineHeight: 1.5,
+              lineHeight: 1.6,
+              maxWidth: 480,
             }}>
               {brand.tagline}
-            </p>
+            </div>
           )}
         </div>
 
-        {/* Section nav */}
-        <div>
-          <p style={{
-            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 600,
-            fontSize: 11,
-            color: tokens.textSubtle,
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            margin: '0 0 12px',
-          }}>
-            Sections
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {sections.slice(0, 6).map((s) => (
-              <button
-                key={s.id}
-                onClick={() => scrollTo(s.id)}
-                onMouseEnter={(e) => (e.currentTarget.style.color = tokens.accent)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = tokens.textMuted)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: 13,
-                  color: tokens.textMuted,
-                  padding: 0,
-                  transition: 'color 0.2s',
-                }}
-              >
-                {s.heading}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Prepared for */}
+        {/* Prepared-for block */}
         {client && (
-          <div>
-            <p style={{
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
+              fontSize: '0.68rem',
               fontWeight: 600,
-              fontSize: 11,
-              color: tokens.textSubtle,
-              letterSpacing: '0.1em',
+              letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              margin: '0 0 12px',
+              color: tokens.textSubtle,
+              marginBottom: 6,
             }}>
-              Prepared For
-            </p>
-            <p style={{
+              Prepared for
+            </div>
+            <div style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: 13,
-              color: tokens.textMuted,
-              margin: 0,
-              lineHeight: 1.5,
+              fontSize: '0.9rem',
+              fontWeight: 600,
+              color: tokens.text,
+              lineHeight: 1.4,
             }}>
               {client}
-              {date && <><br />{date}</>}
-            </p>
+            </div>
+            {date && (
+              <div style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.78rem',
+                color: tokens.textMuted,
+                marginTop: 4,
+              }}>
+                {date}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Bottom bar */}
+      {/* ── Bottom bar ──────────────────────────────────────────────── */}
       <div style={{
         borderTop: `1px solid ${tokens.borderSubtle}`,
-        paddingTop: '1rem',
+        maxWidth: 1100,
+        margin: '0 auto',
+        padding: '16px 40px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
         gap: 8,
       }}>
-        <p style={{
+        <span style={{
           fontFamily: `'${tokens.bodyFont}', sans-serif`,
-          fontSize: 11,
+          fontSize: '0.72rem',
           color: tokens.textSubtle,
-          margin: 0,
         }}>
-          Confidential &middot; &copy; {new Date().getFullYear()} {brand.companyName}
-        </p>
+          &copy; {new Date().getFullYear()} {brand.companyName}. All rights reserved.
+        </span>
+        <span style={{
+          fontFamily: `'${tokens.bodyFont}', sans-serif`,
+          fontSize: '0.72rem',
+          color: tokens.textSubtle,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+        }}>
+          Confidential
+        </span>
       </div>
     </footer>
   );

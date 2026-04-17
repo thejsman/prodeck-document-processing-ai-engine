@@ -3,7 +3,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutSection } from '../../../types/presentation';
-import type { OrbitalDiagramData, PuzzleDiagramData } from '../../../lib/customDiagramRenderer';
+import type {
+  OrbitalDiagramData, PuzzleDiagramData,
+  StepsFlowData, TimelineBarData, DonutChartData, BarChartData,
+  StatGridData, TreeDiagramData, JourneyMapData, ComparisonTableData,
+} from '../../../lib/customDiagramRenderer';
 import { CUSTOM_SVG_PREFIX, parseCustomDiagramData } from '../../../lib/customDiagramRenderer';
 
 // ── Colour swatch presets ─────────────────────────────────────────────────────
@@ -195,76 +199,420 @@ function buildPuzzleDefault(section: LayoutSection): PuzzleDiagramData {
   };
 }
 
+// ── Default builders for new custom SVG types ─────────────────────────────────
+
+function buildStepsFlowDefault(section: LayoutSection): StepsFlowData {
+  const c = section.content as unknown as Record<string, unknown>;
+  type AnyItem = Record<string, string>;
+  const raw: AnyItem[] = ((c.pillars || c.items || c.steps) as AnyItem[]) ?? [];
+  const items = raw.slice(0, 5);
+  return {
+    type: 'steps-flow',
+    steps: items.length
+      ? items.map(it => ({ title: sanitize(it.name || it.title || 'Step'), description: sanitize(it.description || '') }))
+      : [
+          { title: 'Discover', description: 'Understand requirements' },
+          { title: 'Design', description: 'Create the solution' },
+          { title: 'Deliver', description: 'Deploy and handover' },
+        ],
+  };
+}
+
+function buildTimelineBarDefault(section: LayoutSection): TimelineBarData {
+  const c = section.content as unknown as Record<string, unknown>;
+  type AnyItem = Record<string, string>;
+  const raw: AnyItem[] = ((c.phases || c.items) as AnyItem[]) ?? [];
+  const items = raw.slice(0, 6);
+  let week = 0;
+  return {
+    type: 'timeline-bar',
+    phases: items.length
+      ? items.map(it => {
+          const dur = parseInt((it.duration || '2').replace(/\D/g, '')) || 2;
+          const phase = { name: sanitize(it.name || it.title || 'Phase'), durationWeeks: dur, startWeek: week };
+          week += dur;
+          return phase;
+        })
+      : [
+          { name: 'Discovery', durationWeeks: 2, startWeek: 0 },
+          { name: 'Design', durationWeeks: 3, startWeek: 2 },
+          { name: 'Delivery', durationWeeks: 4, startWeek: 5 },
+        ],
+  };
+}
+
+function buildDonutChartDefault(): DonutChartData {
+  return {
+    type: 'donut-chart',
+    title: 'Breakdown',
+    segments: [
+      { label: 'Strategy', percentage: 30 },
+      { label: 'Design', percentage: 25 },
+      { label: 'Development', percentage: 30 },
+      { label: 'Testing', percentage: 15 },
+    ],
+  };
+}
+
+function buildBarChartDefault(): BarChartData {
+  return {
+    type: 'bar-chart',
+    title: 'Comparison',
+    unit: '',
+    bars: [
+      { label: 'Current', value: 9 },
+      { label: 'Target', value: 3, highlight: true },
+    ],
+  };
+}
+
+function buildStatGridDefault(): StatGridData {
+  return {
+    type: 'stat-grid',
+    stats: [
+      { value: '40%', label: 'Efficiency gain', icon: 'growth', trend: 'up' },
+      { value: '3x', label: 'Faster delivery', icon: 'up', trend: 'up' },
+      { value: '$500K', label: 'Annual savings', icon: 'money' },
+    ],
+  };
+}
+
+function buildTreeDiagramDefault(section: LayoutSection): TreeDiagramData {
+  const c = section.content as unknown as Record<string, unknown>;
+  const hl = sanitize((c.headline as string) || section.heading || 'Structure');
+  type AnyItem = Record<string, string>;
+  const raw: AnyItem[] = ((c.items || c.pillars) as AnyItem[]) ?? [];
+  return {
+    type: 'tree-diagram',
+    root: {
+      title: hl,
+      children: raw.slice(0, 5).length
+        ? raw.slice(0, 5).map(it => ({ title: sanitize(it.name || it.title || 'Item') }))
+        : [{ title: 'Branch A' }, { title: 'Branch B' }, { title: 'Branch C' }],
+    },
+  };
+}
+
+function buildJourneyMapDefault(): JourneyMapData {
+  return {
+    type: 'journey-map',
+    stages: [
+      { name: 'Awareness', activities: ['Research', 'Discovery'], sentiment: 'neutral' },
+      { name: 'Evaluation', activities: ['Demo', 'Proposal review'], sentiment: 'positive' },
+      { name: 'Onboarding', activities: ['Kickoff', 'Training', 'Go-live'], sentiment: 'positive' },
+    ],
+  };
+}
+
+function buildComparisonTableDefault(): ComparisonTableData {
+  return {
+    type: 'comparison-table',
+    title: 'Comparison',
+    features: ['Real-time data', 'Automated reporting', 'Custom dashboards', 'API access'],
+    options: [
+      { name: 'Current', values: [false, false, false, false] },
+      { name: 'Proposed', values: [true, true, true, true] },
+    ],
+  };
+}
+
+// ── Shared input styles ───────────────────────────────────────────────────────
+
+const INP: React.CSSProperties = { width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box', marginBottom: 4 };
+const LBL: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 2 };
+const SECTION_HDR: React.CSSProperties = { margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' };
+const CARD: React.CSSProperties = { background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 8, position: 'relative' };
+
+function AddBtn({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', cursor: 'pointer', fontWeight: 600 }}>
+      + {label}
+    </button>
+  );
+}
+
+function RemoveBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{ position: 'absolute', top: 6, right: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1 }}>✕</button>
+  );
+}
+
+// ── Form: Steps Flow ──────────────────────────────────────────────────────────
+
+function StepsFlowForm({ data, onChange }: { data: StepsFlowData; onChange: (d: StepsFlowData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Steps ({data.steps.length}/6)</p>
+        {data.steps.length < 6 && <AddBtn label="Add step" onClick={() => onChange({ ...data, steps: [...data.steps, { title: 'New Step', description: 'Description' }] })} />}
+      </div>
+      {data.steps.map((step, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, steps: data.steps.filter((_, idx) => idx !== i) })} />
+          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Step {i + 1}</p>
+          <label style={LBL}>Title</label>
+          <input style={INP} value={step.title} onChange={e => { const s = [...data.steps]; s[i] = { ...s[i], title: e.target.value }; onChange({ ...data, steps: s }); }} />
+          <label style={LBL}>Description</label>
+          <input style={INP} value={step.description} onChange={e => { const s = [...data.steps]; s[i] = { ...s[i], description: e.target.value }; onChange({ ...data, steps: s }); }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Timeline Bar ────────────────────────────────────────────────────────
+
+function TimelineBarForm({ data, onChange }: { data: TimelineBarData; onChange: (d: TimelineBarData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Phases ({data.phases.length}/8)</p>
+        {data.phases.length < 8 && <AddBtn label="Add phase" onClick={() => {
+          const last = data.phases[data.phases.length - 1];
+          const start = last ? (last.startWeek + last.durationWeeks) : 0;
+          onChange({ ...data, phases: [...data.phases, { name: 'New Phase', durationWeeks: 2, startWeek: start }] });
+        }} />}
+      </div>
+      {data.phases.map((phase, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, phases: data.phases.filter((_, idx) => idx !== i) })} />
+          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Phase {i + 1}</p>
+          <label style={LBL}>Name</label>
+          <input style={INP} value={phase.name} onChange={e => { const p = [...data.phases]; p[i] = { ...p[i], name: e.target.value }; onChange({ ...data, phases: p }); }} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>Duration (weeks)</label>
+              <input style={INP} type="number" min={1} value={phase.durationWeeks} onChange={e => { const p = [...data.phases]; p[i] = { ...p[i], durationWeeks: parseInt(e.target.value) || 1 }; onChange({ ...data, phases: p }); }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>Start week</label>
+              <input style={INP} type="number" min={0} value={phase.startWeek} onChange={e => { const p = [...data.phases]; p[i] = { ...p[i], startWeek: parseInt(e.target.value) || 0 }; onChange({ ...data, phases: p }); }} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Donut Chart ─────────────────────────────────────────────────────────
+
+function DonutChartForm({ data, onChange }: { data: DonutChartData; onChange: (d: DonutChartData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ ...CARD }}>
+        <label style={LBL}>Chart title</label>
+        <input style={INP} value={data.title ?? ''} onChange={e => onChange({ ...data, title: e.target.value })} />
+        <label style={LBL}>Center label (e.g. total)</label>
+        <input style={INP} value={data.total ?? ''} onChange={e => onChange({ ...data, total: e.target.value })} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Segments ({data.segments.length}/8)</p>
+        {data.segments.length < 8 && <AddBtn label="Add" onClick={() => onChange({ ...data, segments: [...data.segments, { label: 'New', percentage: 10 }] })} />}
+      </div>
+      {data.segments.map((seg, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, segments: data.segments.filter((_, idx) => idx !== i) })} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 2 }}>
+              <label style={LBL}>Label</label>
+              <input style={INP} value={seg.label} onChange={e => { const s = [...data.segments]; s[i] = { ...s[i], label: e.target.value }; onChange({ ...data, segments: s }); }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>%</label>
+              <input style={INP} type="number" min={1} max={100} value={seg.percentage ?? ''} onChange={e => { const s = [...data.segments]; s[i] = { ...s[i], percentage: parseInt(e.target.value) || 0 }; onChange({ ...data, segments: s }); }} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Bar Chart ───────────────────────────────────────────────────────────
+
+function BarChartForm({ data, onChange }: { data: BarChartData; onChange: (d: BarChartData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ ...CARD }}>
+        <label style={LBL}>Chart title</label>
+        <input style={INP} value={data.title ?? ''} onChange={e => onChange({ ...data, title: e.target.value })} />
+        <label style={LBL}>Unit (e.g. days, %)</label>
+        <input style={INP} value={data.unit ?? ''} onChange={e => onChange({ ...data, unit: e.target.value })} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Bars ({data.bars.length}/8)</p>
+        {data.bars.length < 8 && <AddBtn label="Add bar" onClick={() => onChange({ ...data, bars: [...data.bars, { label: 'New', value: 0 }] })} />}
+      </div>
+      {data.bars.map((bar, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, bars: data.bars.filter((_, idx) => idx !== i) })} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 2 }}>
+              <label style={LBL}>Label</label>
+              <input style={INP} value={bar.label} onChange={e => { const b = [...data.bars]; b[i] = { ...b[i], label: e.target.value }; onChange({ ...data, bars: b }); }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>Value</label>
+              <input style={INP} type="number" value={bar.value} onChange={e => { const b = [...data.bars]; b[i] = { ...b[i], value: parseFloat(e.target.value) || 0 }; onChange({ ...data, bars: b }); }} />
+            </div>
+          </div>
+          <label style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={bar.highlight ?? false} onChange={e => { const b = [...data.bars]; b[i] = { ...b[i], highlight: e.target.checked }; onChange({ ...data, bars: b }); }} />
+            Highlight (accent color)
+          </label>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Stat Grid ───────────────────────────────────────────────────────────
+
+const STAT_ICONS_LIST = ['growth', 'money', 'time', 'people', 'up', 'down', 'check', 'star', 'process', 'data'];
+
+function StatGridForm({ data, onChange }: { data: StatGridData; onChange: (d: StatGridData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Stats ({data.stats.length}/6)</p>
+        {data.stats.length < 6 && <AddBtn label="Add stat" onClick={() => onChange({ ...data, stats: [...data.stats, { value: '0', label: 'Metric' }] })} />}
+      </div>
+      {data.stats.map((stat, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, stats: data.stats.filter((_, idx) => idx !== i) })} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>Value</label>
+              <input style={INP} value={stat.value} placeholder="e.g. 40%, 3x" onChange={e => { const s = [...data.stats]; s[i] = { ...s[i], value: e.target.value }; onChange({ ...data, stats: s }); }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>Icon</label>
+              <select style={{ ...INP, background: '#fff' }} value={stat.icon ?? 'star'} onChange={e => { const s = [...data.stats]; s[i] = { ...s[i], icon: e.target.value }; onChange({ ...data, stats: s }); }}>
+                {STAT_ICONS_LIST.map(ic => <option key={ic} value={ic}>{ic}</option>)}
+              </select>
+            </div>
+          </div>
+          <label style={LBL}>Label</label>
+          <input style={INP} value={stat.label} onChange={e => { const s = [...data.stats]; s[i] = { ...s[i], label: e.target.value }; onChange({ ...data, stats: s }); }} />
+          <label style={LBL}>Trend</label>
+          <select style={{ ...INP, background: '#fff' }} value={stat.trend ?? 'neutral'} onChange={e => { const s = [...data.stats]; s[i] = { ...s[i], trend: e.target.value as StatGridData['stats'][0]['trend'] }; onChange({ ...data, stats: s }); }}>
+            <option value="up">↑ Up</option>
+            <option value="down">↓ Down</option>
+            <option value="neutral">— Neutral</option>
+          </select>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Tree Diagram ────────────────────────────────────────────────────────
+
+function TreeDiagramForm({ data, onChange }: { data: TreeDiagramData; onChange: (d: TreeDiagramData) => void }) {
+  const children = data.root.children ?? [];
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ ...CARD }}>
+        <label style={LBL}>Root node title</label>
+        <input style={INP} value={data.root.title} onChange={e => onChange({ ...data, root: { ...data.root, title: e.target.value } })} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Children ({children.length}/6)</p>
+        {children.length < 6 && <AddBtn label="Add child" onClick={() => onChange({ ...data, root: { ...data.root, children: [...children, { title: 'New Node' }] } })} />}
+      </div>
+      {children.map((child, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, root: { ...data.root, children: children.filter((_, idx) => idx !== i) } })} />
+          <label style={LBL}>Node {i + 1} title</label>
+          <input style={INP} value={child.title} onChange={e => { const c = [...children]; c[i] = { ...c[i], title: e.target.value }; onChange({ ...data, root: { ...data.root, children: c } }); }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Journey Map ─────────────────────────────────────────────────────────
+
+function JourneyMapForm({ data, onChange }: { data: JourneyMapData; onChange: (d: JourneyMapData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Stages ({data.stages.length}/6)</p>
+        {data.stages.length < 6 && <AddBtn label="Add stage" onClick={() => onChange({ ...data, stages: [...data.stages, { name: 'Stage', activities: ['Activity'], sentiment: 'neutral' as const }] })} />}
+      </div>
+      {data.stages.map((stage, i) => (
+        <div key={i} style={CARD}>
+          <RemoveBtn onClick={() => onChange({ ...data, stages: data.stages.filter((_, idx) => idx !== i) })} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 2 }}>
+              <label style={LBL}>Stage name</label>
+              <input style={INP} value={stage.name} onChange={e => { const s = [...data.stages]; s[i] = { ...s[i], name: e.target.value }; onChange({ ...data, stages: s }); }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={LBL}>Sentiment</label>
+              <select style={{ ...INP, background: '#fff' }} value={stage.sentiment ?? 'neutral'} onChange={e => { const s = [...data.stages]; s[i] = { ...s[i], sentiment: e.target.value as JourneyMapData['stages'][0]['sentiment'] }; onChange({ ...data, stages: s }); }}>
+                <option value="positive">😊 Positive</option>
+                <option value="neutral">😐 Neutral</option>
+                <option value="negative">😟 Negative</option>
+              </select>
+            </div>
+          </div>
+          <label style={LBL}>Activities (one per line)</label>
+          <textarea
+            style={{ ...INP, minHeight: 60, resize: 'vertical', fontFamily: 'inherit' }}
+            value={stage.activities.join('\n')}
+            onChange={e => { const s = [...data.stages]; s[i] = { ...s[i], activities: e.target.value.split('\n').filter(Boolean) }; onChange({ ...data, stages: s }); }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Form: Comparison Table ────────────────────────────────────────────────────
+
+function ComparisonTableForm({ data, onChange }: { data: ComparisonTableData; onChange: (d: ComparisonTableData) => void }) {
+  return (
+    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ ...CARD }}>
+        <label style={LBL}>Title (optional)</label>
+        <input style={INP} value={data.title ?? ''} onChange={e => onChange({ ...data, title: e.target.value })} />
+      </div>
+
+      <p style={SECTION_HDR}>Options (columns)</p>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {data.options.map((opt, oi) => (
+          <input key={oi} style={{ ...INP, flex: 1 }} value={opt.name} placeholder={`Option ${oi + 1}`}
+            onChange={e => { const o = [...data.options]; o[oi] = { ...o[oi], name: e.target.value }; onChange({ ...data, options: o }); }} />
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={SECTION_HDR}>Features (rows)</p>
+        {data.features.length < 10 && <AddBtn label="Add row" onClick={() => onChange({ ...data, features: [...data.features, 'New feature'], options: data.options.map(o => ({ ...o, values: [...o.values, false] })) })} />}
+      </div>
+      {data.features.map((feat, fi) => (
+        <div key={fi} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <input style={{ ...INP, flex: 2, marginBottom: 0 }} value={feat} onChange={e => { const f = [...data.features]; f[fi] = e.target.value; onChange({ ...data, features: f }); }} />
+          {data.options.map((opt, oi) => (
+            <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#475569', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={opt.values[fi] === true}
+                onChange={e => { const o = [...data.options]; const v = [...o[oi].values]; v[fi] = e.target.checked; o[oi] = { ...o[oi], values: v }; onChange({ ...data, options: o }); }} />
+              {opt.name || `Opt ${oi + 1}`}
+            </label>
+          ))}
+          <button onClick={() => { const f = data.features.filter((_, idx) => idx !== fi); const o = data.options.map(op => ({ ...op, values: op.values.filter((_, idx) => idx !== fi) })); onChange({ ...data, features: f, options: o }); }}
+            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 13 }}>✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Chart type templates ──────────────────────────────────────────────────────
 
 const CHART_TYPES = [
-  {
-    id: 'flowchart',
-    label: 'Flowchart',
-    icon: '◆',
-    template: `flowchart TD
-    A[Start] --> B{Decision?}
-    B -->|Yes| C[Process A]
-    B -->|No| D[Process B]
-    C --> E[End]
-    D --> E`,
-  },
-  {
-    id: 'sequence',
-    label: 'Sequence',
-    icon: '⇄',
-    template: `sequenceDiagram
-    Client->>+API: Request
-    API->>+Service: Process
-    Service-->>-API: Result
-    API-->>-Client: Response`,
-  },
-  {
-    id: 'gantt',
-    label: 'Gantt',
-    icon: '▤',
-    template: `gantt
-    title Project Timeline
-    dateFormat  YYYY-MM-DD
-    section Phase 1
-    Discovery   :a1, 2024-01-01, 14d
-    Design      :a2, after a1,   21d
-    section Phase 2
-    Development :a3, after a2,   42d
-    Testing     :a4, after a3,   14d`,
-  },
-  {
-    id: 'pie',
-    label: 'Pie Chart',
-    icon: '◉',
-    template: `pie title Budget Allocation
-    "Strategy" : 25
-    "Design" : 20
-    "Development" : 40
-    "QA" : 15`,
-  },
-  {
-    id: 'mindmap',
-    label: 'Mind Map',
-    icon: '❋',
-    template: `mindmap
-  root((Project))
-    Strategy
-      Research
-      Planning
-    Execution
-      Dev
-      Testing
-    Delivery
-      Launch
-      Support`,
-  },
-  {
-    id: 'custom',
-    label: 'Custom',
-    icon: '✎',
-    template: '',
-  },
   {
     id: 'orbital',
     label: 'Orbital',
@@ -275,6 +623,54 @@ const CHART_TYPES = [
     id: 'puzzle',
     label: 'Puzzle',
     icon: '⬡',
+    template: null,
+  },
+  {
+    id: 'steps-flow',
+    label: 'Steps',
+    icon: '→',
+    template: null,
+  },
+  {
+    id: 'timeline-bar',
+    label: 'Timeline',
+    icon: '▤',
+    template: null,
+  },
+  {
+    id: 'donut-chart',
+    label: 'Donut',
+    icon: '◉',
+    template: null,
+  },
+  {
+    id: 'bar-chart',
+    label: 'Bar Chart',
+    icon: '▮',
+    template: null,
+  },
+  {
+    id: 'stat-grid',
+    label: 'Stats',
+    icon: '⊞',
+    template: null,
+  },
+  {
+    id: 'tree-diagram',
+    label: 'Tree',
+    icon: '⌥',
+    template: null,
+  },
+  {
+    id: 'journey-map',
+    label: 'Journey',
+    icon: '⇢',
+    template: null,
+  },
+  {
+    id: 'comparison-table',
+    label: 'Compare',
+    icon: '⊟',
     template: null,
   },
 ] as Array<{ id: string; label: string; icon: string; template: string | null }>;
@@ -441,12 +837,13 @@ export function DiagramModal({
   const ctx = useEditContext()!;
   const suggestedType = !diagram ? suggestDiagramType(section.sectionType) : null;
 
+  const CUSTOM_FORM_TYPES = new Set(['orbital', 'puzzle', 'steps-flow', 'timeline-bar', 'donut-chart', 'bar-chart', 'stat-grid', 'tree-diagram', 'journey-map', 'comparison-table']);
+
   const [activeType, setActiveType] = useState(() => {
     if (!diagram) return suggestedType ?? 'flowchart';
     if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
       const data = parseCustomDiagramData(diagram);
-      if (data?.type === 'orbital') return 'orbital';
-      if (data?.type === 'puzzle') return 'puzzle';
+      if (data?.type) return data.type;
     }
     if (diagram.startsWith('sequenceDiagram')) return 'sequence';
     if (diagram.startsWith('gantt')) return 'gantt';
@@ -459,40 +856,75 @@ export function DiagramModal({
   const [value, setValue] = useState(() => {
     if (diagram) return diagram.startsWith(CUSTOM_SVG_PREFIX) ? '' : diagram;
     const type = suggestedType ?? 'flowchart';
-    if (type === 'orbital' || type === 'puzzle') return '';
+    if (CUSTOM_FORM_TYPES.has(type)) return '';
     return buildContextTemplate(section, type);
   });
 
-  const [orbitalData, setOrbitalData] = useState<OrbitalDiagramData>(() => {
-    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
-      const d = parseCustomDiagramData(diagram);
-      if (d?.type === 'orbital') return d as OrbitalDiagramData;
-    }
-    return buildOrbitalDefault(section);
-  });
+  const existingData = diagram.startsWith(CUSTOM_SVG_PREFIX) ? parseCustomDiagramData(diagram) : null;
 
-  const [puzzleData, setPuzzleData] = useState<PuzzleDiagramData>(() => {
-    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
-      const d = parseCustomDiagramData(diagram);
-      if (d?.type === 'puzzle') return d as PuzzleDiagramData;
-    }
-    return buildPuzzleDefault(section);
-  });
+  const [orbitalData, setOrbitalData] = useState<OrbitalDiagramData>(
+    () => (existingData?.type === 'orbital' ? existingData as OrbitalDiagramData : buildOrbitalDefault(section))
+  );
+  const [puzzleData, setPuzzleData] = useState<PuzzleDiagramData>(
+    () => (existingData?.type === 'puzzle' ? existingData as PuzzleDiagramData : buildPuzzleDefault(section))
+  );
+  const [stepsFlowData, setStepsFlowData] = useState<StepsFlowData>(
+    () => (existingData?.type === 'steps-flow' ? existingData as StepsFlowData : buildStepsFlowDefault(section))
+  );
+  const [timelineBarData, setTimelineBarData] = useState<TimelineBarData>(
+    () => (existingData?.type === 'timeline-bar' ? existingData as TimelineBarData : buildTimelineBarDefault(section))
+  );
+  const [donutChartData, setDonutChartData] = useState<DonutChartData>(
+    () => (existingData?.type === 'donut-chart' ? existingData as DonutChartData : buildDonutChartDefault())
+  );
+  const [barChartData, setBarChartData] = useState<BarChartData>(
+    () => (existingData?.type === 'bar-chart' ? existingData as BarChartData : buildBarChartDefault())
+  );
+  const [statGridData, setStatGridData] = useState<StatGridData>(
+    () => (existingData?.type === 'stat-grid' ? existingData as StatGridData : buildStatGridDefault())
+  );
+  const [treeDiagramData, setTreeDiagramData] = useState<TreeDiagramData>(
+    () => (existingData?.type === 'tree-diagram' ? existingData as TreeDiagramData : buildTreeDiagramDefault(section))
+  );
+  const [journeyMapData, setJourneyMapData] = useState<JourneyMapData>(
+    () => (existingData?.type === 'journey-map' ? existingData as JourneyMapData : buildJourneyMapDefault())
+  );
+  const [comparisonTableData, setComparisonTableData] = useState<ComparisonTableData>(
+    () => (existingData?.type === 'comparison-table' ? existingData as ComparisonTableData : buildComparisonTableDefault())
+  );
 
   function handleTypeSelect(typeId: string) {
     setActiveType(typeId);
     if (typeId === 'orbital') { setOrbitalData(buildOrbitalDefault(section)); return; }
     if (typeId === 'puzzle') { setPuzzleData(buildPuzzleDefault(section)); return; }
+    if (typeId === 'steps-flow') { setStepsFlowData(buildStepsFlowDefault(section)); return; }
+    if (typeId === 'timeline-bar') { setTimelineBarData(buildTimelineBarDefault(section)); return; }
+    if (typeId === 'donut-chart') { setDonutChartData(buildDonutChartDefault()); return; }
+    if (typeId === 'bar-chart') { setBarChartData(buildBarChartDefault()); return; }
+    if (typeId === 'stat-grid') { setStatGridData(buildStatGridDefault()); return; }
+    if (typeId === 'tree-diagram') { setTreeDiagramData(buildTreeDiagramDefault(section)); return; }
+    if (typeId === 'journey-map') { setJourneyMapData(buildJourneyMapDefault()); return; }
+    if (typeId === 'comparison-table') { setComparisonTableData(buildComparisonTableDefault()); return; }
     const contextTemplate = buildContextTemplate(section, typeId);
     setValue(contextTemplate || (CHART_TYPES.find(t => t.id === typeId)?.template ?? ''));
   }
 
   function handleSave() {
     let finalValue = value;
-    if (activeType === 'orbital') {
-      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(orbitalData);
-    } else if (activeType === 'puzzle') {
-      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(puzzleData);
+    const customDataMap: Record<string, unknown> = {
+      'orbital': orbitalData,
+      'puzzle': puzzleData,
+      'steps-flow': stepsFlowData,
+      'timeline-bar': timelineBarData,
+      'donut-chart': donutChartData,
+      'bar-chart': barChartData,
+      'stat-grid': statGridData,
+      'tree-diagram': treeDiagramData,
+      'journey-map': journeyMapData,
+      'comparison-table': comparisonTableData,
+    };
+    if (CUSTOM_FORM_TYPES.has(activeType)) {
+      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(customDataMap[activeType]);
     }
     ctx.updateField(section.id, 'diagram', finalValue);
     onClose();
@@ -503,7 +935,7 @@ export function DiagramModal({
     onClose();
   }
 
-  const isCustomForm = activeType === 'orbital' || activeType === 'puzzle';
+  const isCustomForm = CUSTOM_FORM_TYPES.has(activeType);
 
   return (
     <div
@@ -567,11 +999,17 @@ export function DiagramModal({
 
         {/* Body */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {activeType === 'orbital' ? (
-            <OrbitalForm data={orbitalData} onChange={setOrbitalData} />
-          ) : activeType === 'puzzle' ? (
-            <PuzzleForm data={puzzleData} onChange={setPuzzleData} />
-          ) : (
+          {activeType === 'orbital'          ? <OrbitalForm data={orbitalData} onChange={setOrbitalData} />
+          : activeType === 'puzzle'          ? <PuzzleForm data={puzzleData} onChange={setPuzzleData} />
+          : activeType === 'steps-flow'      ? <StepsFlowForm data={stepsFlowData} onChange={setStepsFlowData} />
+          : activeType === 'timeline-bar'    ? <TimelineBarForm data={timelineBarData} onChange={setTimelineBarData} />
+          : activeType === 'donut-chart'     ? <DonutChartForm data={donutChartData} onChange={setDonutChartData} />
+          : activeType === 'bar-chart'       ? <BarChartForm data={barChartData} onChange={setBarChartData} />
+          : activeType === 'stat-grid'       ? <StatGridForm data={statGridData} onChange={setStatGridData} />
+          : activeType === 'tree-diagram'    ? <TreeDiagramForm data={treeDiagramData} onChange={setTreeDiagramData} />
+          : activeType === 'journey-map'     ? <JourneyMapForm data={journeyMapData} onChange={setJourneyMapData} />
+          : activeType === 'comparison-table'? <ComparisonTableForm data={comparisonTableData} onChange={setComparisonTableData} />
+          : (
             <>
               {/* Code editor */}
               <div style={{ flex: '0 0 50%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e2e8f0' }}>

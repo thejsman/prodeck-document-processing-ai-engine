@@ -107,22 +107,31 @@ export function selectBestDiagram(
     }
   }
 
-  // Section-type fallback when score is 0 or below threshold
+  // Section-type fallback when score is 0 or below threshold — prefer custom SVG types
   const sectionTypeFallback: Record<string, string | undefined> = {
-    hero:         'mind-map',
-    problem:      'quadrant-matrix',
-    challenge:    'quadrant-matrix',
-    approach:     'system-architecture',
-    deliverables: 'dependency-map',
-    timeline:     'gantt-chart',
-    pricing:      'pie-chart',
-    whyus:        'org-chart',
-    benefits:     'mind-map',
-    stats:        'trend-chart',
-    showcase:     'system-architecture',
+    hero:         'steps-flow',
+    problem:      'comparison-table',
+    challenge:    'comparison-table',
+    approach:     'steps-flow',
+    deliverables: 'tree-diagram',
+    timeline:     'timeline-bar',
+    pricing:      'donut-chart',
+    whyus:        'stat-grid',
+    benefits:     'stat-grid',
+    stats:        'stat-grid',
+    metrics:      'stat-grid',
+    showcase:     'orbital',
+    security:     'tree-diagram',
+    techstack:    'orbital',
+    testing:      'steps-flow',
+    faq:          'comparison-table',
+    team:         'tree-diagram',
+    comparison:   'comparison-table',
+    casestudy:    'journey-map',
+    chart:        'bar-chart',
     testimonials: undefined,
-    nextsteps:    'process-flow',
-    generic:      'process-flow',
+    nextsteps:    'steps-flow',
+    generic:      'steps-flow',
   };
 
   const fallbackTypeId = sectionTypeFallback[sectionType];
@@ -407,6 +416,144 @@ __CUSTOM_SVG__{"type":"puzzle","pieces":[{"title":"Component A","iconType":"gate
 
 Icon types: gateway, monitor, stream, storage, security, cloud, data, api, user, process, integrate, deploy
 Always exactly 4 pieces. Use real component names from content.
+Content: ${content}`;
+
+    case 'steps-flow':
+      return `Analyze the content and extract data for a STEPS FLOW diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract 3-6 sequential steps/phases from the content.
+
+Output format (use REAL names from content):
+__CUSTOM_SVG__{"type":"steps-flow","steps":[{"title":"Step One","description":"Brief description of what happens in this step"},{"title":"Step Two","description":"What this step delivers"},{"title":"Step Three","description":"Final outcome of this step"}]}
+
+Rules:
+- 3-6 steps maximum
+- title: 2-4 words, exact name from content
+- description: 6-12 words, specific to content
+- Preserve original sequence order
+Content: ${content}`;
+
+    case 'timeline-bar':
+      return `Analyze the content and extract data for a TIMELINE BAR (Gantt-style) diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract project phases with durations from the content.
+
+Output format (use REAL phase names from content):
+__CUSTOM_SVG__{"type":"timeline-bar","phases":[{"name":"Phase 1 Name","durationWeeks":3,"startWeek":0},{"name":"Phase 2 Name","durationWeeks":4,"startWeek":3},{"name":"Phase 3 Name","durationWeeks":2,"startWeek":7}]}
+
+Rules:
+- Use EXACT phase names from content
+- durationWeeks: integer, estimate from content if not explicit (2-6 typical)
+- startWeek: cumulative start (each phase starts where previous ends)
+- 2-8 phases maximum
+Content: ${content}`;
+
+    case 'donut-chart':
+      return `Analyze the content and extract data for a DONUT CHART diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract distribution/breakdown percentages from the content.
+
+Output format (use REAL labels from content):
+__CUSTOM_SVG__{"type":"donut-chart","title":"Budget Breakdown","total":"$150K","segments":[{"label":"Development","percentage":45},{"label":"Design","percentage":20},{"label":"Infrastructure","percentage":20},{"label":"Training","percentage":15}]}
+
+Rules:
+- Percentages must sum to 100
+- Use exact labels from content
+- title and total from content if present, otherwise omit
+- 2-8 segments
+Content: ${content}`;
+
+    case 'bar-chart':
+      return `Analyze the content and extract data for a BAR CHART diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract comparison metrics or before/after values from the content.
+
+Output format (use REAL labels and values from content):
+__CUSTOM_SVG__{"type":"bar-chart","title":"Performance Comparison","unit":"days","bars":[{"label":"Current","value":9,"sublabel":"Before"},{"label":"Target","value":3,"sublabel":"After","highlight":true}]}
+
+Rules:
+- Use ONLY values that appear verbatim in the content — NEVER invent numbers
+- If no numeric values exist, do not use this diagram type
+- highlight: true for the best/target value
+- unit: the measurement unit from content
+- 2-8 bars
+Content: ${content}`;
+
+    case 'stat-grid':
+      return `Analyze the content and extract data for a STAT GRID diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract key statistics and metrics from the content.
+
+Output format (use REAL values from content):
+__CUSTOM_SVG__{"type":"stat-grid","stats":[{"value":"9 days","label":"Month-end close time","icon":"time","trend":"down"},{"value":"40%","label":"Manual effort reduction","icon":"growth","trend":"up"},{"value":"$2M","label":"Annual cost savings","icon":"money"}]}
+
+Rules:
+- ONLY include stats that appear verbatim in the content — NEVER invent numbers
+- value: exact figure from content (e.g. "86%", "3x", "$1.2M", "9 days")
+- label: exact description from content
+- icon: time | money | growth | people | check | star | up | down | process | data
+- trend: up | down | neutral (omit if not applicable)
+- 2-6 stats maximum
+Content: ${content}`;
+
+    case 'tree-diagram':
+      return `Analyze the content and extract data for a TREE / HIERARCHY diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract the hierarchical structure from the content.
+
+Output format (use REAL names from content):
+__CUSTOM_SVG__{"type":"tree-diagram","root":{"title":"Root Node","children":[{"title":"Child A","children":[{"title":"Leaf A1"},{"title":"Leaf A2"}]},{"title":"Child B"},{"title":"Child C"}]}}
+
+Rules:
+- Max 3 levels deep
+- Max 4 children per node
+- Use exact names from content
+Content: ${content}`;
+
+    case 'journey-map':
+      return `Analyze the content and extract data for a CUSTOMER/USER JOURNEY MAP diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract journey stages and activities from the content.
+
+Output format (use REAL stage names from content):
+__CUSTOM_SVG__{"type":"journey-map","stages":[{"name":"Discovery","activities":["Research vendors","Review proposals"],"sentiment":"neutral"},{"name":"Evaluation","activities":["Demo sessions","Proof of concept"],"sentiment":"positive"},{"name":"Onboarding","activities":["Team training","Go-live"],"sentiment":"positive"}]}
+
+Rules:
+- 3-6 stages maximum
+- 1-4 activities per stage
+- sentiment: positive | neutral | negative
+- Use exact stage/activity names from content
+Content: ${content}`;
+
+    case 'comparison-table':
+      return `Analyze the content and extract data for a COMPARISON TABLE diagram.
+CRITICAL: The diagram field value MUST start with exactly: __CUSTOM_SVG__
+Followed immediately by valid JSON (no space, no newline).
+
+Extract a feature comparison matrix from the content.
+
+Output format (use REAL names from content):
+__CUSTOM_SVG__{"type":"comparison-table","title":"Approach Comparison","features":["Real-time processing","Automated reporting","Custom dashboards","API integration"],"options":[{"name":"Current State","values":[false,false,false,false]},{"name":"Proposed Solution","values":[true,true,true,true]}]}
+
+Rules:
+- 2-4 options (columns)
+- 3-10 features (rows)
+- values: boolean true/false OR short string (e.g. "Partial", "Manual")
+- Use exact feature and option names from content
 Content: ${content}`;
 
     default:

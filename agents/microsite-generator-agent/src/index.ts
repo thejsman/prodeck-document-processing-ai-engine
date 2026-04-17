@@ -347,13 +347,13 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
     : '';
   // Style/visual instructions go at the end as hints only — they do NOT override section count rules
   const styleHintBlock = (customInstructions && !hasStructuralInstruction)
-    ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 400)}\n`
-    : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 400)}\n` : '');
+    ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 800)}\n`
+    : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 800)}\n` : '');
   const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
   return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
 ${styleHint}
 RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instructions):
-- Output a JSON array of ALL sections — target 12-13 sections, minimum 10
+- Output a JSON array of ALL sections — there is NO maximum; plan as many sections as the proposal content requires. Minimum 12 sections, no upper limit.
 - You MUST include these core section types (map from proposal content or generate from brief):
   * hero (always first — map executive summary or overview)
   * problem OR challenge (the client pain point)
@@ -366,11 +366,13 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
   * whyus (credentials and differentiators)
   * testimonials (generate from context if client names or outcomes mentioned)
   * nextsteps (always last — call to action)
-- Add additional sections if content supports them (generic, showcase, etc.)
-- Map existing source headings to appropriate types
-- For sections with no source heading, set aiGenerated: true and generate from brief
-- NEVER output fewer than 10 sections
-- NEVER skip a core section type listed above
+- Map EVERY source heading in the proposal to a section — do NOT skip any heading that has content.
+- For headings that don't map cleanly to a known type, use "generic" type with the original heading preserved as sourceHeading.
+- Add additional sections if proposal content supports them (faq, team, casestudy, comparison, chart, etc.).
+- For sections with no source heading, set aiGenerated: true and generate from brief.
+- NEVER output fewer than 12 sections.
+- NEVER skip a core section type listed above.
+- CONTENT-FIRST: if the proposal has 15 headings, plan 15+ sections. If it has 25, plan 25+. More proposal content = more microsite sections. NEVER compress, merge, or drop unique proposal sections. This is a long-scroll website — every topic deserves its own section.
 ${styleHintBlock}
 VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, chart, generic
 
@@ -379,11 +381,12 @@ Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 Format:
 [
   { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
+  { "type": "generic", "sourceHeading": "Evaluation Criteria", "rationale": "Unique section — preserve as generic", "aiGenerated": false },
   { "type": "stats", "sourceHeading": null, "rationale": "Metrics scattered across proposal — consolidate", "aiGenerated": true }
 ]
 
 PROPOSAL:
-${markdown.slice(0, 8000)}`;
+${markdown}`;
 }
 
 // ── Plan refinement prompt (Pass 0.5 — only runs when customInstructions present) ───
@@ -509,11 +512,11 @@ Return exactly this JSON — every field must use REAL data extracted from the p
 {
   "clientName": "exact client/company name from proposal",
   "clientIndustry": "specific industry (e.g. 'Healthcare SaaS', 'Retail Banking', not just 'Technology')",
-  "clientChallenge": "the core problem in 1 specific sentence — name the exact pain, not a generic description",
+  "clientChallenge": "copy the single most specific pain point near-verbatim from the proposal — include exact metrics if stated (e.g. 'month-end close takes 9 business days vs. 5-day target'). Never generalize or paraphrase into vague language.",
   "proposingCompany": "exact proposing company name — use brand name if provided above",
   "proposingStrength": "single most impressive credential with specifics (years, %, named clients if mentioned)",
   "engagementSummary": "2 sentences — what is being built/delivered and what outcome it achieves. Include tech stack or methodology names if present.",
-  "keyOutcomes": ["3-5 SPECIFIC measurable outcomes from the proposal — include numbers, percentages, timeframes where stated"],
+  "keyOutcomes": ["3-5 outcomes EXACTLY as stated in the proposal — include verbatim numbers, percentages, timeframes. If a metric is not explicitly in the proposal, describe the outcome qualitatively. NEVER invent a percentage, multiplier, or improvement figure that does not appear in the source text."],
   "totalValue": "exact total price or investment from the proposal (e.g. '$240,000', '€85k/month'). If a range, state both. Never leave empty if pricing exists.",
   "duration": "exact engagement duration from proposal (e.g. '12 weeks', '6 months', 'Q2–Q4 2026')",
   "primaryTone": "authoritative or consultative or innovative or warm",
@@ -776,30 +779,30 @@ function pickAngle(): string {
 
 const VARIANT_POOLS: Record<SectionType, string[]> = {
   // centered excluded from hero fallback pool — it is only allowed for minimal/clean intent
-  hero:         ['split',       'type-forward', 'editorial',  'asymmetric'],
+  hero:         ['split',       'editorial',  'asymmetric'],
   challenge:    ['asymmetric',  'editorial',  'split',        'centered'],
   // approach and timeline must NOT use card-grid (suppresses diagrams) or minimal (suppresses diagrams)
   approach:     ['split',       'asymmetric', 'editorial',    'centered'],
-  deliverables: ['card-grid',   'split',      'minimal'],
+  deliverables: ['card-grid',   'split',      'editorial'],
   timeline:     ['editorial',   'split',      'centered'],
-  pricing:      ['centered',    'split',      'minimal'],
-  whyus:        ['split',       'asymmetric', 'centered'],
-  nextsteps:    ['centered',    'minimal',    'split'],
+  pricing:      ['centered',    'split',      'editorial'],
+  whyus:        ['split',       'asymmetric', 'centered',     'editorial'],
+  nextsteps:    ['centered',    'split',      'editorial'],
   testimonials: ['centered',    'editorial',  'card-grid'],
   showcase:     ['split',       'asymmetric', 'centered'],
-  benefits:     ['card-grid',   'split',      'minimal'],
+  benefits:     ['card-grid',   'split',      'editorial'],
   problem:      ['asymmetric',  'editorial',  'centered'],
-  stats:        ['centered',    'minimal',    'editorial'],
-  metrics:      ['centered',    'minimal',    'editorial'],
+  stats:        ['centered',    'editorial',  'card-grid'],
+  metrics:      ['centered',    'editorial',  'card-grid'],
   security:     ['card-grid',   'split',      'asymmetric'],
-  techstack:    ['card-grid',   'split',      'minimal'],
-  testing:      ['card-grid',   'minimal',    'editorial'],
-  faq:          ['centered',    'minimal',    'editorial'],
-  team:         ['card-grid',   'centered',   'minimal'],
-  comparison:   ['centered',    'minimal',    'editorial'],
+  techstack:    ['card-grid',   'split',      'editorial'],
+  testing:      ['card-grid',   'editorial',  'split'],
+  faq:          ['centered',    'editorial',  'split'],
+  team:         ['card-grid',   'centered',   'editorial'],
+  comparison:   ['centered',    'editorial',  'split'],
   casestudy:    ['split',       'editorial',  'asymmetric'],
-  chart:        ['centered',    'editorial',  'minimal'],
-  generic:      ['centered',    'split',      'minimal'],
+  chart:        ['centered',    'editorial',  'split'],
+  generic:      ['centered',    'split',      'editorial'],
 };
 
 /** Random fallback — used only when no intent is detected. */
@@ -818,14 +821,14 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   hero:         'editorial',
   challenge:    'editorial',
   approach:     'editorial',   // editorial allows diagrams
-  deliverables: 'minimal',
+  deliverables: 'card-grid',
   timeline:     'editorial',  // editorial allows diagrams
-  pricing:      'minimal',
+  pricing:      'centered',
   whyus:        'editorial',
-  nextsteps:    'minimal',
+  nextsteps:    'centered',
   testimonials: 'centered',
   showcase:     'editorial',
-  benefits:     'minimal',
+  benefits:     'card-grid',
   problem:      'editorial',
   stats:        'centered',
   metrics:      'centered',
@@ -1096,50 +1099,49 @@ function buildStructureEnforcement(variant: string, mediaPositionHint?: string):
   switch (variant) {
     case 'card-grid':
       return `\n\n━━ STRUCTURE ENFORCEMENT — card-grid ━━ MANDATORY — DO NOT DEVIATE
-- Arrays (items, pillars, stats, highlights, etc.): MUST contain 4–6 entries.
-- Each entry: title/name 2–5 words + description exactly 1–2 sentences, specific and concrete.
-- body field: 1–2 sentences MAX — the grid carries the content, not the prose.
-- NEVER write long-form body paragraphs for this variant.
+- Arrays (items, pillars, stats, highlights, etc.): MUST contain 4–8 entries.
+- Each entry: title/name 2–5 words + description 2–3 sentences, specific and concrete — include all relevant detail from the source.
+- body field: 2–3 sentences — introduce the section; the grid carries further detail.
 - NEVER produce a single-entry array.
 - diagram: null — card grids do not use flow diagrams.${mediaSuffix}`;
 
     case 'editorial':
       return `\n\n━━ STRUCTURE ENFORCEMENT — editorial ━━ MANDATORY — DO NOT DEVIATE
-- Arrays (items, pillars, etc.): 2–3 entries MAX. Fewer, richer items.
-- Each item description: 2–3 sentences, substantive and layered — depth over breadth.
-- body field: 3–4 sentences — prose is the primary visual element, not decoration.
+- Arrays (items, pillars, etc.): 3–5 entries. Fewer, richer items.
+- Each item description: 3–4 sentences, substantive and layered — include all relevant source detail.
+- body field: 4–6 sentences — prose is the primary visual element; cover the section topic fully.
 - headline: 10–16 words — typographic dominance, considered rhythm.
-- subheadline (if present): 1–2 complete sentences. No fragments.
-- NEVER produce icon grids or decorative arrays with more than 3 items.${mediaSuffix}`;
+- subheadline (if present): 2–3 complete sentences. No fragments.
+- NEVER truncate source content — if the proposal covers 5 points, include all 5.${mediaSuffix}`;
 
     case 'split':
       return `\n\n━━ STRUCTURE ENFORCEMENT — split ━━ MANDATORY — DO NOT DEVIATE
 - imageQuery: MUST be vivid, specific, and scene-driven — e.g. "minimal office side-light monochrome" not "business people smiling". The image occupies 45% of the layout.
-- body: 2–4 balanced sentences — neither sparse nor overloaded.
+- body: 3–6 sentences — cover the section topic fully using all relevant source content.
 - headline: 8–12 words, confident and clear.
-- Arrays: 3–5 items max. Do not overload the text panel.${mediaSuffix}`;
+- Arrays: 4–6 items; each with a 2–3 sentence description. Include all items from the source.${mediaSuffix}`;
 
     case 'asymmetric':
       return `\n\n━━ STRUCTURE ENFORCEMENT — asymmetric ━━ MANDATORY — DO NOT DEVIATE
 - headline: 6–10 words MAX — short, high-impact, compositionally dominant.
-- body: exactly 2–3 sentences. Supports the headline; does not compete.
-- Arrays: 3–4 items MAX; labels 2–4 words only — no long descriptions.
+- body: 3–5 sentences — substantive coverage of the section topic from source content.
+- Arrays: 4–6 items; each label 3–6 words with a 1–2 sentence description.
 - imageQuery: dramatic and specific — image fills ~40% of the layout.${mediaSuffix}`;
 
     case 'minimal':
       return `\n\n━━ STRUCTURE ENFORCEMENT — minimal ━━ MANDATORY — DO NOT DEVIATE
 - headline: 6–10 words MAX.
-- body: 1–2 sentences ABSOLUTE MAX. Every word earns its place.
-- Arrays: 2–3 items MAX. If not essential, omit them entirely.
+- body: 3–5 sentences — use ALL relevant source content; do NOT truncate.
+- Arrays: 3–5 items with 1–2 sentence descriptions each.
 - diagram: MUST be null.
 - imageQuery: null or a single-word keyword. The layout breathes.
-- NEVER add decorative or optional fields.${mediaSuffix}`;
+- NEVER omit source content to keep this variant "minimal" — minimal refers to visual style, not content depth.${mediaSuffix}`;
 
     case 'centered':
       return `\n\n━━ STRUCTURE ENFORCEMENT — centered ━━ MANDATORY — DO NOT DEVIATE
 - headline: 8–14 words, self-contained and compelling.
-- body: 2–3 sentences, balanced — not sparse, not overloaded.
-- Arrays: 3–5 items where the section type requires them.${mediaSuffix}`;
+- body: 3–5 sentences — cover the section topic fully; do NOT truncate source content.
+- Arrays: 4–8 items where the section type requires them; each with a 2–3 sentence description.${mediaSuffix}`;
 
     case 'type-forward':
       return `\n\n━━ STRUCTURE ENFORCEMENT — type-forward ━━ MANDATORY — DO NOT DEVIATE
@@ -1189,7 +1191,7 @@ function buildNegativeExamples(variant: string): string {
     'editorial':  '- Producing 5+ item arrays instead of 2–3 rich, long-form items.\n- Writing a short 1-sentence body instead of 3–4 sentences of substantive prose.\n- Using icon grids or decorative component arrays.',
     'split':      '- Using a vague imageQuery like "business people smiling" or "team meeting".\n- Setting mediaPosition to "none" or "background" when split requires "left" or "right".\n- Writing an imbalanced body (either too sparse or wall-of-text).',
     'asymmetric': '- Writing a 15+ word headline when 6–10 words are required.\n- Producing a long item list instead of a focused, short set (max 4).\n- Setting mediaPosition to "none" — asymmetric requires a background image.',
-    'minimal':    '- Writing 4+ body sentences.\n- Including a diagram (must be null).\n- Producing arrays with 4+ items.',
+    'minimal':    '- Including a diagram (must be null).\n- Truncating source content to keep body short — minimal is a visual style, not a content cap.\n- Producing fewer than 3 body sentences when the source has more to say.',
     'centered':   '- Setting mediaPosition to "left" or "right" — centered has no split media.\n- Overloading with 6+ items in arrays.',
     'type-forward': '- Setting imageQuery to anything other than null.\n- Writing a headline shorter than 12 words.\n- Populating arrays with more than 2–3 items.',
   };
@@ -1312,6 +1314,9 @@ export function buildSectionPrompt(
   const generationNote = aiGenerated
     ? ' NOTE: This section has NO source content — generate it entirely from the proposal brief and context. Make it feel native and coherent, not bolted-on.'
     : '';
+  const contentFidelity = !aiGenerated
+    ? ' ⚠️ CONTENT FIDELITY (apply unless user instructions above explicitly say otherwise): (1) NEVER invent numbers, percentages, metrics, prices, or figures — only use values that appear VERBATIM in the source content. If no specific metric exists, describe qualitatively (e.g. "Faster response times" not "86% faster"). (2) Use the EXACT names from the source for deliverables, phases, line items, people, and companies — do NOT paraphrase, rename, or reword any named item. (3) Extract ALL items listed in the source individually — do NOT merge, compress, or drop any named deliverable, phase, or line item. (4) If source has insufficient data for a field, leave it minimal or omit rather than fabricating.'
+    : '';
   const overridePrefix = customInstructions
     ? `⚡⚡⚡ USER OVERRIDE — READ THIS FIRST, APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${customInstructions}\n⚡⚡⚡ END OVERRIDE ⚡⚡⚡\n\n`
     : '';
@@ -1328,25 +1333,30 @@ export function buildSectionPrompt(
   if (diagramSelection) {
     if (isCustomSvgDiagram) {
       const customPrompt = buildCustomSvgPrompt(diagramSelection.diagramType.id, rawBody ?? '', brief ?? '');
-      diagramBlock = `[DIAGRAM FIELD — CUSTOM SVG] For the "diagram" field only: ${customPrompt}`;
+      diagramBlock = `⚠️ DIAGRAM FIELD — MANDATORY CUSTOM SVG FORMAT ⚠️\nThe "diagram" field MUST start with exactly __CUSTOM_SVG__ followed immediately by valid JSON — NO space, NO newline between __CUSTOM_SVG__ and the JSON opening brace.\nDO NOT use mermaid syntax. DO NOT output plain text. ONLY output __CUSTOM_SVG__{...json...}\nExample of correct format: "__CUSTOM_SVG__{\\"type\\":\\"steps-flow\\",\\"steps\\":[{\\"title\\":\\"Step 1\\",\\"description\\":\\"What happens\\"}]}"\n\n${customPrompt}`;
     } else {
-      diagramBlock = `[DIAGRAM FIELD] For the "diagram" field only: Use ${diagramSelection.diagramType.mermaidDirective} syntax (${diagramSelection.diagramType.label}). First line MUST be exactly: ${diagramSelection.diagramType.mermaidDirective}. Node/item labels: plain text only, NO double quotes inside brackets — write A[Frontend] not A["Frontend"]. Max ${diagramSelection.diagramType.maxNodes} nodes. Return as a single JSON string with newlines escaped as \\\\n.`;
+      diagramBlock = `[DIAGRAM FIELD] For the "diagram" field only: Use ${diagramSelection.diagramType.mermaidDirective} syntax (${diagramSelection.diagramType.label}). First line MUST be exactly: ${diagramSelection.diagramType.mermaidDirective}. Node/item labels: plain text only, NO double quotes inside brackets — write A[Frontend] not A["Frontend"]. Min 3 nodes, max ${diagramSelection.diagramType.maxNodes} nodes. Return as a single JSON string with newlines escaped as \\\\n. If you cannot make a meaningful diagram with at least 3 nodes, set "diagram": null.`;
     }
   }
 
   const mermaidRules = diagramBlock
     ? (isCustomSvgDiagram
-        ? `CUSTOM DIAGRAM: Include the "diagram" field. ${diagramBlock}`
-        : `MERMAID: Include the "diagram" field. ${diagramBlock}`)
-    : `MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, max 5 nodes/tasks. Node labels: plain text only, NO double quotes inside brackets. If you cannot make a meaningful diagram from the content, set "diagram": null.`;
+        ? `⚠️ CUSTOM DIAGRAM REQUIRED — see instructions below. ${diagramBlock}`
+        : `MERMAID DIAGRAM REQUIRED: Include the "diagram" field. ${diagramBlock}`)
+    : `MERMAID RULES: If you include a "diagram" field, the value must be raw Mermaid syntax as a single JSON string — NO backticks, escape newlines as \\n, min 3 nodes, max 5 nodes/tasks. Node labels: plain text only, NO double quotes inside brackets. If you cannot make a meaningful diagram with at least 3 nodes, set "diagram": null.`;
 
-  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity} CREATIVE ANGLE FOR THIS GENERATION: ${angle} ${mermaidRules} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
-  // When effectiveBody is empty, pass the full proposal — no truncation, no data loss
-  const fallbackContext = (!effectiveBody && proposalMarkdown)
-    ? `\n\nFull proposal (use ALL relevant data from this to populate the section):\n${proposalMarkdown}`
-    : (proposalMarkdown ? `\n\nFull proposal for additional context:\n${proposalMarkdown.slice(0, 4000)}` : '');
+  // Always pass the full proposal — never truncate. The section source content is primary;
+  // the full proposal is the fallback and supplementary context. No data loss.
+  // CRITICAL: when rawBody is empty (AI-generated or unmatched heading), the full proposal
+  // IS the source — make it prominent, not buried as a fallback note.
+  const fallbackContext = proposalMarkdown
+    ? effectiveBody
+      ? `\n\n━━ FULL PROPOSAL (additional context — extract any details relevant to this section) ━━\n${proposalMarkdown}`
+      : `\n\n━━ FULL PROPOSAL — USE THIS AS YOUR PRIMARY SOURCE FOR THIS SECTION ━━\nNo dedicated section body was found for "${brief}". Search the ENTIRE proposal below for ALL content relevant to this section type (${type}). Extract every relevant fact, deliverable, metric, requirement, and detail.\n${proposalMarkdown}`
+    : '';
 
   const sectionPrompts: Record<SectionType, string> = {
     hero: `${system}
@@ -1374,12 +1384,16 @@ Transform into a Hero section. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Challenge section. Return:
+Transform into a Challenge section. CRITICAL FIDELITY RULES:
+1. Use specific metrics, pain points, and language from the source — do not generalize (e.g. preserve "month-end close takes 9 business days" not "slow processes").
+2. The "body" must name the exact problems described in the source, with any numbers present.
+3. The "pullquote" must be drawn from an actual statement in the source, not invented.
+Return:
 {
   "eyebrow": "4-8 words",
-  "headline": "8-12 words, the core tension",
-  "body": "2-3 sentences, real stakes, what if nothing changes",
-  "pullquote": "sharpest insight, 10-18 words, standalone quote",
+  "headline": "8-12 words, name the specific tension from source",
+  "body": "3-5 sentences using specific details and metrics from the source — include all key pain points",
+  "pullquote": "sharpest insight drawn from source content, 10-18 words",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'optional graph TD showing causal chain/impact cascade (max 4 nodes). Only include if content has a clear cause→effect chain. Otherwise null.'}",
   ${meta}
@@ -1395,7 +1409,7 @@ Transform into an Approach section with pillars. Return:
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "subheadline": "1-2 sentences",
-  "pillars": [{"iconHint": "identity|digital|content|strategy|research|launch", "name": "2-4 words", "description": "2 sentences, specific outcomes"}],
+  "pillars": [{"iconHint": "identity|digital|content|strategy|research|launch", "name": "2-4 words", "description": "3-4 sentences, specific outcomes and methodology details from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing the methodology as a process flow. Nodes = pillar names (2-3 words each). Max 5 nodes connected with -->. Example: graph LR\\n  A[Discover] --> B[Design] --> C[Build] --> D[Launch]. Always include this field.'}",
   ${meta}
@@ -1406,11 +1420,15 @@ Transform into an Approach section with pillars. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Deliverables section. Return:
+Transform into a Deliverables section. CRITICAL FIDELITY RULES:
+1. Extract EVERY named deliverable from the source content individually — do NOT merge multiple deliverables into one item.
+2. Use the EXACT deliverable name from the source as the "name" field — do not paraphrase or generalize.
+3. If source has 10 deliverables, output 10 items. If 22, output 22. Do not compress.
+Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "2-5 words", "detail": "1 sentence, what it enables"}],
+  "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "EXACT deliverable name from source", "detail": "2-3 sentences covering what this deliverable includes, the methodology, and the expected outcome"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
@@ -1421,12 +1439,16 @@ Transform into a Deliverables section. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Timeline section. Use EXACT phase names and durations from the source content. Return:
+Transform into a Timeline section. CRITICAL FIDELITY RULES:
+1. Copy EVERY phase name EXACTLY as written in the source — do NOT rename, rephrase, or reword. If source says "Data Platform Assessment" output must say "Data Platform Assessment", never "Understanding Needs".
+2. Use the EXACT duration stated in the source (e.g. "Weeks 1–6" or "6 weeks") — do not recalculate or round.
+3. Extract ALL phases present in the source — do not merge or drop any.
+Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "subheadline": "1-2 sentences",
-  "phases": [{"label": "from raw data", "duration": "e.g. 2 weeks", "name": "2-4 words", "description": "1 sentence, activity + outcome"}],
+  "phases": [{"label": "Phase N or label from source", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, deliverables, and goals of this phase from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'gantt chart. Format: gantt\\n  title Project Schedule\\n  dateFormat YYYY-MM-DD\\n  section Phase 1\\n  PhaseName :a1, 2026-01-01, 14d\\n  section Phase 2\\n  PhaseName :a2, after a1, 14d. Always include if 2+ phases exist.'}",
   ${meta}
@@ -1437,19 +1459,22 @@ Transform into a Timeline section. Use EXACT phase names and durations from the 
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Pricing section. CRITICAL: Extract EVERY line item, price, cost, and amount from the source content above. Use exact figures (e.g. "$45,000", "€2,400/mo", "£180/hr"). Return:
+Transform into a Pricing section. CRITICAL FIDELITY RULES:
+1. Extract EVERY line item, price, cost, and amount verbatim from the source content. Use exact figures (e.g. "$45,000", "€2,400/mo", "£180/hr").
+2. If the source content contains NO specific prices or line items — set rows to [] (empty array), totalLabel to "Investment details to be confirmed", and footnote to "Pricing will be provided upon scoping discussion." DO NOT fabricate row names or placeholder amounts like "$XX,XXX".
+3. NEVER invent line items, services, or prices that are not explicitly stated in the source.
+Return:
 {
   "eyebrow": "4-8 words e.g. 'Investment Overview'",
   "headline": "8-12 words, frame value not cost",
   "subheadline": "1-2 sentences, what the investment unlocks",
   "rows": [
     ["Service / Deliverable", "Investment"],
-    ["Line item from proposal", "Exact price from proposal"],
-    ["Second line item", "Exact price"],
-    ["...more rows as needed from the proposal..."]
+    ["Exact line item name from proposal", "Exact price from proposal"],
+    ["...only rows that exist in source..."]
   ],
-  "totalLabel": "Total: [exact total from proposal, e.g. '$95,000']",
-  "footnote": "payment terms, start date, or notes from the proposal",
+  "totalLabel": "Total: [exact total from proposal] OR 'Investment details to be confirmed' if no pricing in source",
+  "footnote": "payment terms, start date, or notes from the proposal — or 'Pricing will be provided upon scoping discussion.' if no pricing data",
   "cta": "3-5 words",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
@@ -1464,8 +1489,8 @@ Transform into a Why Us section. Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "body": "2-3 sentences",
-  "stats": [{"number": "from content", "label": "2-4 words", "context": "1 short sentence"}],
+  "body": "3-5 sentences — explain why this company is uniquely qualified, using specific expertise and track record from the source",
+  "stats": [{"number": "from content", "label": "2-4 words", "context": "2 sentences explaining the significance"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'optional pie chart if stats suggest a meaningful distribution. Format: pie title Label\\n  \\"Category A\\" : 60\\n  \\"Category B\\" : 30. Only include if a clear distribution is evident. Otherwise null.'}",
   ${meta}
@@ -1480,7 +1505,7 @@ Transform into a Next Steps section. Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "body": "2-3 sentences",
+  "body": "3-5 sentences — outline the specific next steps from the source, what happens after approval, key contacts, and timeline",
   "ctaPrimary": "3-5 words — empty string if constraints say no CTA",
   "ctaSecondary": "3-4 words — empty string if constraints say no CTA",
   "urgencyNote": "string or null",
@@ -1494,7 +1519,11 @@ Transform into a Next Steps section. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from proposal below)'}${fallbackContext}
 
-Generate a Testimonials section. Create 2-3 realistic quotes that reflect the client relationship, industry, and outcomes described in the brief. Quotes should feel authentic — specific, not generic. Names and companies should be plausible but clearly fictional (not real companies). Return:
+Transform into a Testimonials section. CRITICAL FIDELITY RULES:
+1. ONLY include testimonials if the source content or proposal contains actual client quotes, case study outcomes, or named client references with results.
+2. If no real quotes, testimonials, or client success stories exist in the source — return items as an empty array []. Do NOT fabricate quotes or fictional names.
+3. If real quotes exist, use them verbatim or near-verbatim. Attribute to the real person/company named in the source.
+Return:
 {
   "eyebrow": "4-8 words e.g. 'Client Voices'",
   "headline": "8-12 words",
@@ -1502,10 +1531,10 @@ Generate a Testimonials section. Create 2-3 realistic quotes that reflect the cl
   "diagram": null,
   "items": [
     {
-      "quote": "1-2 sentences, specific outcome or experience, no cliches, reads like a real person said it",
-      "name": "First Last",
-      "title": "Job Title",
-      "company": "Company Name"
+      "quote": "verbatim or near-verbatim quote from source — only if a real quote exists",
+      "name": "Real name from source",
+      "title": "Job Title from source",
+      "company": "Company from source"
     }
   ],
   ${meta}
@@ -1542,7 +1571,7 @@ Transform into a Benefits section — a focused icon list of value propositions.
     {
       "iconHint": "identity|digital|content|strategy|research|launch|document|website|photo|campaign",
       "title": "2-5 words, the benefit",
-      "description": "1-2 sentences, concrete and specific — what does the client actually get?"
+      "description": "2-3 sentences, concrete and specific — what does the client actually get, how is it delivered, and what outcome does it create?"
     }
   ],
   ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
@@ -1558,8 +1587,8 @@ Transform into a Problem section — sharper and more urgent than a challenge se
 {
   "eyebrow": "4-8 words e.g. 'The Real Cost of Waiting'",
   "headline": "8-14 words, urgent and specific — name the consequence not just the problem",
-  "body": "2-3 sentences, make the cost of inaction visceral and concrete",
-  "painPoints": ["3-5 pain points, each 6-12 words, start with a verb or cost noun — specific, not vague"],
+  "body": "3-5 sentences, make the cost of inaction visceral and concrete — use all relevant pain points from the source",
+  "painPoints": ["4-8 pain points, each 6-15 words, start with a verb or cost noun — extract every pain point from the source, do not truncate"],
   "imageQuery": "DALL-E 3 prompt: tense, dramatic cinematic scene conveying urgency and consequence. Dark mood, high contrast lighting. e.g. 'Crumbling concrete infrastructure with red emergency lighting, dramatic shadows, cinematic photography'",
   ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
   ${meta}
@@ -1570,16 +1599,21 @@ Transform into a Problem section — sharper and more urgent than a challenge se
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from proposal below)'}${fallbackContext}
 
-Transform into a Stats section — a standalone impact metrics row. Return:
+Transform into a Stats section — a standalone impact metrics row. CRITICAL FIDELITY RULES:
+1. Only use numbers, percentages, or figures that appear VERBATIM in the source content or proposal. Do NOT invent metrics.
+2. If no specific metric exists for a stat, use a descriptive label without a made-up number (e.g. label "Faster Response Times" with number "↓" or leave number as the real figure from source).
+3. NEVER fabricate percentages, multipliers, or improvement figures (e.g. do not write "86%" unless "86%" appears in the source).
+4. If the proposal has fewer than 3 real metrics, output only as many real ones as exist — do not pad with invented stats.
+Return:
 {
   "eyebrow": "4-8 words e.g. 'By The Numbers'",
   "headline": "8-12 words",
   "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "stats": [
     {
-      "number": "specific metric e.g. '94%' or '3× faster' or '$2.4M' — from content or reasonably derived from brief",
+      "number": "exact figure from source e.g. '94%' or '$2.4M' — ONLY if this number appears in the proposal",
       "label": "2-4 words",
-      "context": "1 short sentence explaining what this means"
+      "context": "1 short sentence using language from the source"
     }
   ],
   ${diagramBlock ? '"diagram": "Required — see DIAGRAM REQUIRED block above",' : ''}
@@ -1622,7 +1656,7 @@ Transform into a Security section. Return:
     {
       "iconHint": "identity|digital|strategy|research",
       "name": "2-5 words, the security control",
-      "description": "1-2 sentences, what it protects and how"
+      "description": "2-3 sentences, what it protects, how it works, and why it matters for this engagement"
     }
   ],
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph TD showing security layers top-to-bottom. Example: graph TD\\n  A[Identity & Access] --> B[Encryption]\\n  B --> C[Network Security]\\n  C --> D[Compliance & Audit]. Use item names as node labels. Always include this field.'}",
@@ -1665,13 +1699,13 @@ Transform into a Testing & Quality section. Return:
       "level": 1,
       "name": "Layer name e.g. 'Unit Tests'",
       "coverage": "percentage or metric e.g. '90%'",
-      "description": "1 sentence what this layer validates"
+      "description": "2-3 sentences: what this layer validates, tools used, and coverage targets from the source"
     }
   ],
   "additionalInfo": [
     {
       "heading": "2-4 words",
-      "body": "1-2 sentences"
+      "body": "2-3 sentences"
     }
   ],
   "diagram": "${diagramBlock ? 'Required — see DIAGRAM REQUIRED block above' : 'graph LR showing testing pyramid left-to-right. Example: graph LR\\n  A[Unit Tests] --> B[Integration]\\n  B --> C[E2E Tests]\\n  C --> D[Performance]. Use layer names as node labels. Always include this field.'}",
@@ -1749,9 +1783,9 @@ Transform into a Case Study section with a challenge-solution-outcome narrative 
 {
   "eyebrow": "4-8 words e.g. 'Case Study'",
   "headline": "8-14 words, the transformation story headline",
-  "challenge": "2-3 sentences describing the client's core problem and its consequences",
-  "solution": "2-3 sentences describing the approach and what made it different",
-  "outcome": "2-3 sentences describing measurable results and lasting impact",
+  "challenge": "3-5 sentences describing the client's core problem, context, and its consequences — use all relevant detail from the source",
+  "solution": "3-5 sentences describing the approach, methodology, and what made it different — include specific techniques and tools",
+  "outcome": "3-5 sentences describing measurable results, lasting impact, and lessons learned from the source",
   "metrics": [
     {
       "value": "specific metric e.g. '3×' or '94%' or '$2.4M'",
@@ -1771,7 +1805,7 @@ Transform into a Chart section. Choose the best chart type for the data: bar (co
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "body": "1-2 sentences explaining what the chart shows or null",
+  "body": "2-3 sentences explaining what the chart shows, why the data matters, and key insights from the source — or null if no body context",
   "chartType": "bar | line | pie | donut",
   "unit": "unit suffix e.g. '%' or 'k' or '$M' — or null",
   "data": [
@@ -1913,7 +1947,18 @@ function normalizeDiagram(raw: unknown): string | undefined {
     s = [rest[0], ...commentLines, ...rest.slice(1)].join('\n');
   }
 
-  return s.length > 10 ? s : undefined;
+  if (s.length <= 10) return undefined;
+
+  // Reject trivially small mermaid diagrams (single-node boxes / bare titles)
+  // These render as empty-looking boxes and add no value.
+  const meaningfulLines = s.split('\n').filter(l => {
+    const t = l.trim();
+    return t.length > 0 && !t.startsWith('%%') && !t.startsWith('title') && !t.startsWith('gantt') && !t.startsWith('pie') && !t.startsWith('sequenceDiagram') && !t.startsWith('dateFormat') && !t.startsWith('mindmap');
+  });
+  // Must have at least 3 meaningful lines — anything less is a bare title or single node
+  if (meaningfulLines.length < 3) return undefined;
+
+  return s;
 }
 
 // ── Markdown prompt (backward compat — existing renderer) ────────────────────
@@ -2316,7 +2361,8 @@ function buildOverrideSectionPrompt(
   fullDesignPrompt: string,
   brandName?: string,
   aiGenerated = false,
-  diagramSelection?: DiagramSelection | null
+  diagramSelection?: DiagramSelection | null,
+  proposalMarkdown?: string,
 ): string {
   const brandCtx = brandName
     ? `The proposing company is "${brandName}" — use this name consistently.`
@@ -2340,21 +2386,33 @@ If content is insufficient for this diagram, set diagram to null.`;
     hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    deliverables: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "2-5 words", "detail": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    timeline: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "string", "name": "2-4 words", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    deliverables: `FIDELITY: Extract EVERY named deliverable from source individually. Use the EXACT deliverable name from source — do NOT paraphrase. If source has 10 deliverables, output 10 items.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "rows": [["Service / Deliverable", "Investment"], ["Line item from proposal", "Exact price from proposal"], ["...more rows as needed from the proposal..."]], "totalLabel": "Total: [exact total from proposal]", "footnote": "payment terms or notes from the proposal", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    testimonials: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "1-2 sentences", "name": "string", "title": "string", "company": "string"}], "diagram": null }`,
+    testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "verbatim or near-verbatim quote from source — only if real quote exists", "name": "real name from source", "title": "job title from source", "company": "company from source"}], "diagram": null }`,
     showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
-    stats: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
+    stats: `FIDELITY: Only use numbers, percentages, or figures that appear VERBATIM in the source. NEVER invent metrics. If fewer than 3 real metrics exist, output only what exists.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "exact figure from source — ONLY if it appears in the proposal", "label": "2-4 words", "context": "1 sentence using language from source"}], "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
     generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "imageQuery": "Unsplash query", "diagram": "Mermaid or custom SVG diagram — see DIAGRAM REQUIREMENT above. If no diagram, set null." }`,
   };
 
   const schema = sectionSchemas[type] ?? sectionSchemas.generic;
+
+  const fidelityBlock = !aiGenerated
+    ? `\n⚠️ CONTENT FIDELITY (apply unless the design specification above explicitly overrides): (1) NEVER invent numbers, percentages, metrics, prices, or figures not in the source. (2) Use EXACT names from the source for deliverables, phases, line items — do NOT paraphrase. (3) Extract ALL named items individually — do NOT merge or drop any. (4) Testimonials: only include real quotes from source; if none exist, set items to [].`
+    : '';
+
+  const fallbackContext = proposalMarkdown
+    ? `\n\nFull proposal (use ALL relevant data from this to populate the section — do NOT invent facts not present here):\n${proposalMarkdown}`
+    : '';
 
   return `${fullDesignPrompt}
 
@@ -2363,6 +2421,7 @@ If content is insufficient for this diagram, set diagram to null.`;
 CRITICAL INSTRUCTION: Follow the design specification above EXACTLY and STRICTLY.
 Every word, phrase, tone, style, and personality in the specification above must be reflected in your output.
 DO NOT use default professional/corporate tone. OVERRIDE all defaults.
+${fidelityBlock}
 
 ${brandCtx}
 ${generationNote}
@@ -2371,7 +2430,7 @@ ${diagramBlock}
 Generate content for the "${heading}" section (type: ${type}).
 
 Brief context: ${brief}
-Source content: ${rawBody || '(No source — generate from brief and design specification above)'}
+Source content: ${rawBody || '(No source — generate from brief and design specification above)'}${fallbackContext}
 
 Return ONLY valid JSON matching this shape. No markdown, no explanation, no code fences:
 ${schema}`;
@@ -2647,19 +2706,19 @@ export class MicrositeGeneratorAgent implements Agent {
     const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
     const pdfConstraints = pdfFriendly
       ? '\n\nPDF SLIDE CONSTRAINTS (enforce strictly — this microsite will be captured as a PDF where each section must fit in a single 720px-tall slide): ' +
-        'Maximum 4 bullet/list items per section. ' +
-        'Maximum 1 sentence (under 80 characters) per item description — no multi-sentence descriptions on cards or list items. ' +
-        'Maximum 2 sentences for section body/intro text. ' +
-        'Timeline: maximum 4 phases. ' +
-        'Stats, metrics, features, benefits: maximum 4 items. ' +
-        'FAQ: maximum 4 questions. ' +
+        'Maximum 6 bullet/list items per section. ' +
+        'Maximum 2 sentences per item description. ' +
+        'Maximum 4 sentences for section body/intro text. ' +
+        'Timeline: maximum 6 phases. ' +
+        'Stats, metrics, features, benefits: maximum 6 items. ' +
+        'FAQ: maximum 6 questions. ' +
         'No nested lists. ' +
-        'Keep all headlines under 8 words. ' +
+        'Keep all headlines under 10 words. ' +
         'Prefer 2-column grid layouts over 3-column. ' +
         'Omit decorative sub-labels and long captions. ' +
         'CRITICAL diagram rule: ONLY include a diagram in a section when that section contains ONLY body text with NO card grid, NO stat grid, and NO list items. If a section already has cards, stats, pillars, features, benefits, or any item array, set diagram to empty string — do NOT add a diagram to that section. Diagrams stacked below card grids make sections too tall for a single PDF slide.'
       : '';
-    const customInstructions = (rawInstructions || 'Generate a comprehensive microsite using all content from the document. Include as many sections as the content supports — aim for 12 or more. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections.') + pdfConstraints;
+    const customInstructions = (rawInstructions || 'Generate a COMPREHENSIVE multi-section microsite that covers EVERY piece of content from the source document — do not skip, summarize, or omit any topic. There is NO section count limit — include as many sections as the content requires, even if that means 20, 25, or 30+ sections. Every heading, sub-heading, feature, deliverable, phase, benefit, requirement, and detail from the source must appear as its own fully developed section or as detailed content within a section. For each section, extract ALL relevant details, facts, figures, deliverables, timelines, and descriptions from the source. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, deliverables, pricing, casestudy, benefits, stats, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections. NEVER produce thin or sparse sections — if the source document covers a topic in depth, the microsite section must reflect that depth fully. This is a long-scroll website — length is a feature, not a problem.') + pdfConstraints;
     if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
     const isFullOverride = fullDesignPrompt.trim().length > 100;
@@ -2730,8 +2789,8 @@ export class MicrositeGeneratorAgent implements Agent {
       // but Pass -1 (design tokens) and Pass 1 (brief) are fully independent — run them now.
       console.log('[microsite-agent] Starting parallel warm-up: Pass -1 + CommandParser + Pass 1...');
 
-      // Pass 0 planning markdown — 2000 chars per section (enough to identify structure)
-      const planningMarkdown = sourceSections.map(s => `## ${s.name}\n${s.content.slice(0, 2000)}`).join('\n\n');
+      // Pass 0 planning markdown — full content per section so planner sees all proposal data
+      const planningMarkdown = sourceSections.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
 
       // Define streaming callbacks early — hero .then() fires before Promise.all resolves
       const onSectionComplete = meta.onSectionComplete as ((data: Record<string, unknown>) => void) | undefined;
@@ -3035,16 +3094,23 @@ export class MicrositeGeneratorAgent implements Agent {
           let heading = sourceHeading ?? type;
 
           if (sourceHeading) {
-            // Find best match in sourceMap
+            // Find best match in sourceMap — exact first, then slug, then fuzzy word overlap
             const lower = sourceHeading.toLowerCase();
+            const slug = slugify(sourceHeading);
             rawBody = sourceMap.get(lower)
-              ?? sourceMap.get(slugify(sourceHeading))
+              ?? sourceMap.get(slug)
               ?? (() => {
-                // Fuzzy fallback: partial match
+                // Fuzzy fallback: find best word overlap across source sections
+                const sourceWords = slug.split('-').filter(w => w.length > 2);
+                let bestMatch = '';
+                let bestScore = 0;
                 for (const [k, v] of sourceMap) {
-                  if (k.includes(slugify(sourceHeading)) || slugify(sourceHeading).includes(k)) return v;
+                  const keyWords = k.split(/[-\s]/).filter(w => w.length > 2);
+                  const overlap = sourceWords.filter(w => keyWords.some(kw => kw.includes(w) || w.includes(kw))).length;
+                  if (overlap > bestScore) { bestScore = overlap; bestMatch = v; }
                 }
-                return '';
+                // Use fuzzy match if any word overlaps; otherwise use first non-empty source section
+                return bestScore > 0 ? bestMatch : (sourceSections[0]?.content ?? '');
               })();
             heading = sourceHeading;
           }
@@ -3071,8 +3137,8 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Hard cap: never generate more than 14 sections regardless of planning result or fallback
-      const MAX_SECTIONS = 14;
+      // Hard cap: never generate more than 40 sections regardless of planning result or fallback
+      const MAX_SECTIONS = 40;
       if (resolvedSections.length > MAX_SECTIONS) {
         const originalCount = resolvedSections.length;
         resolvedSections.splice(MAX_SECTIONS);
@@ -3170,7 +3236,7 @@ export class MicrositeGeneratorAgent implements Agent {
               const diagramSel = selectBestDiagram(s.rawBody, s.heading, s.type);
               console.log(`[diagram-detector] ${s.type} "${s.heading}": ${diagramSel ? `${diagramSel.diagramType.id} score=${diagramSel.score} conf=${diagramSel.confidence}` : 'null'}`);
               const prompt = isFullOverride
-                ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel)
+                ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, diagramSel, proposalMarkdown)
                 : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, diagramSel, finalReferenceDesign);
               try {
                 const timeoutMs = 90_000;
@@ -3183,6 +3249,12 @@ export class MicrositeGeneratorAgent implements Agent {
                   console.warn(`[microsite-agent] Section "${s.type}" (${s.heading}) parsed to empty — raw (first 300): ${(result.text ?? '').slice(0, 300)}`);
                 }
                 if (parsed.diagram) parsed.diagram = normalizeDiagram(parsed.diagram);
+                // If a custom SVG was expected but LLM returned mermaid syntax, clear it
+                // (mermaid in a custom SVG slot renders as garbage — better to show nothing)
+                if (parsed.diagram && diagramSel?.diagramType.isCustomSvg && !String(parsed.diagram).startsWith('__CUSTOM_SVG__')) {
+                  console.warn(`[microsite-agent] Custom SVG expected for "${s.type}" but got mermaid — clearing diagram`);
+                  parsed.diagram = undefined;
+                }
                 // CODE-LEVEL enforcement: when pdfFriendly, strip diagram from any section that has item arrays
                 // (LLM ignores prompt constraints; this is the reliable fix)
                 if (pdfFriendly && parsed.diagram) {
@@ -3243,13 +3315,20 @@ export class MicrositeGeneratorAgent implements Agent {
         );
 
         // Assemble Layout AST
-        const resolvedCompany = (metaBrand.companyName as string | undefined) || (brief.proposingCompany as string) || '';
+        // proposingCompany = left side of footer (who is presenting)
+        // clientName = right side of footer (prepared for)
+        const resolvedCompany = (brief.proposingCompany as string) || (metaBrand.companyName as string | undefined) || '';
+        const extractedMeta = this.extractMeta(proposalMarkdown);
+        // Enrich meta.client with brief.clientName when extractMeta couldn't find it from the title
+        if (!extractedMeta.client && brief.clientName) {
+          extractedMeta.client = brief.clientName as string;
+        }
         layoutAST = {
           proposalId: namespace,
           generatedAt: new Date().toISOString(),
           generationMode: isFullOverride ? 'full-design-prompt-override' : 'default',
           fullDesignPromptUsed: isFullOverride,
-          meta: this.extractMeta(proposalMarkdown),
+          meta: extractedMeta,
           brief,
           brand: {
             companyName: resolvedCompany,

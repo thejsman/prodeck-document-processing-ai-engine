@@ -20,10 +20,13 @@ export type DiagramTypeId =
   | 'entity-relationship' | 'org-chart' | 'dependency-map'
   | 'pie-chart' | 'quadrant-matrix' | 'trend-chart'
   | 'user-journey' | 'state-machine' | 'class-structure' | 'mind-map'
-  | 'orbital' | 'puzzle';
+  | 'orbital' | 'puzzle'
+  | 'steps-flow' | 'timeline-bar' | 'donut-chart' | 'bar-chart'
+  | 'stat-grid' | 'tree-diagram' | 'journey-map' | 'comparison-table';
 
 export type DiagramCategory =
-  | 'flow' | 'architecture' | 'timeline' | 'relationship' | 'metric' | 'specialized';
+  | 'flow' | 'architecture' | 'timeline' | 'relationship' | 'metric' | 'specialized'
+  | 'process' | 'chart';
 
 export interface DiagramType {
   id: DiagramTypeId;
@@ -565,6 +568,197 @@ export const DIAGRAM_REGISTRY: DiagramType[] = [
   },
   // ── CUSTOM SVG ────────────────────────────────────────────────────────────
   {
+    id: 'steps-flow',
+    label: 'Steps Flow',
+    mermaidDirective: 'custom-svg',
+    category: 'process',
+    keywords: [
+      'step', 'phase', 'stage', 'approach', 'methodology', 'process',
+      'first', 'second', 'third', 'then', 'next', 'workflow',
+      'implementation', 'rollout', 'execution', 'delivery',
+    ],
+    bigrams: [
+      'step by step', 'phased approach', 'key steps', 'our approach',
+      'implementation approach', 'delivery process', 'engagement model',
+      'how we work', 'our process', 'work process',
+    ],
+    dataPatterns: [
+      /\b(step|phase|stage)\s+\d+/gi,
+      /\b(first|second|third|fourth|fifth)\b/gi,
+      /\d+[\.\)]\s+\w+/g,
+    ],
+    sectionTypes: ['approach', 'deliverables', 'nextsteps', 'testing', 'security', 'techstack', 'challenge', 'problem', 'hero', 'generic'],
+    minScore: 2,
+    maxNodes: 6,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'timeline-bar',
+    label: 'Timeline Bar',
+    mermaidDirective: 'custom-svg',
+    category: 'timeline',
+    keywords: [
+      'week', 'month', 'duration', 'schedule', 'timeline', 'gantt',
+      'sprint', 'milestone', 'delivery', 'phase', 'roadmap',
+    ],
+    bigrams: [
+      'project timeline', 'delivery schedule', 'project phases',
+      'implementation timeline', 'project roadmap', 'engagement timeline',
+    ],
+    dataPatterns: [
+      /\bweek\s*\d+/gi,
+      /\b\d+\s+weeks?\b/gi,
+      /\b(month|sprint)\s*\d+/gi,
+    ],
+    sectionTypes: ['timeline', 'approach', 'nextsteps', 'deliverables', 'pricing', 'generic'],
+    minScore: 2,
+    maxNodes: 8,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'donut-chart',
+    label: 'Donut Chart',
+    mermaidDirective: 'custom-svg',
+    category: 'chart',
+    keywords: [
+      'budget', 'allocation', 'percentage', 'breakdown', 'distribution',
+      'split', 'portion', 'share', 'composition', 'proportion',
+    ],
+    bigrams: [
+      'budget breakdown', 'cost breakdown', 'budget allocation',
+      'resource allocation', 'time breakdown', 'effort split',
+    ],
+    dataPatterns: [
+      /\d+\s*%/g,
+      /\b(budget|cost|allocation)\b/gi,
+    ],
+    sectionTypes: ['pricing', 'stats', 'metrics', 'whyus', 'benefits', 'generic'],
+    minScore: 2,
+    maxNodes: 8,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'bar-chart',
+    label: 'Bar Chart',
+    mermaidDirective: 'custom-svg',
+    category: 'chart',
+    keywords: [
+      'comparison', 'before', 'after', 'versus', 'benchmark', 'metric',
+      'performance', 'improvement', 'reduction', 'increase',
+    ],
+    bigrams: [
+      'before and after', 'current vs target', 'performance comparison',
+      'metric comparison', 'improvement metrics', 'key metrics',
+    ],
+    dataPatterns: [
+      /\bbefore\b.*\bafter\b/gi,
+      /\bcurrent\b.*\btarget\b/gi,
+      /\bvs\.?\b/gi,
+    ],
+    sectionTypes: ['stats', 'metrics', 'benefits', 'challenge', 'problem', 'casestudy', 'generic'],
+    minScore: 2,
+    maxNodes: 8,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'stat-grid',
+    label: 'Stat Grid',
+    mermaidDirective: 'custom-svg',
+    category: 'chart',
+    keywords: [
+      'statistic', 'number', 'figure', 'result', 'outcome', 'impact',
+      'achieve', 'deliver', 'reduce', 'increase', 'improve', 'save',
+    ],
+    bigrams: [
+      'key results', 'key outcomes', 'key metrics', 'key statistics',
+      'impact metrics', 'proven results', 'measurable results',
+    ],
+    dataPatterns: [
+      /\d+\s*%/g,
+      /\$[\d,]+/g,
+      /\b\d+x\b/gi,
+    ],
+    sectionTypes: ['stats', 'metrics', 'benefits', 'whyus', 'casestudy', 'showcase', 'challenge', 'problem', 'security', 'generic'],
+    minScore: 2,
+    maxNodes: 6,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'tree-diagram',
+    label: 'Tree Diagram',
+    mermaidDirective: 'custom-svg',
+    category: 'architecture',
+    keywords: [
+      'hierarchy', 'org chart', 'team structure', 'reporting', 'department',
+      'parent', 'child', 'subordinate', 'breakdown structure',
+    ],
+    bigrams: [
+      'org chart', 'team structure', 'reporting structure', 'work breakdown',
+      'hierarchy structure', 'organization chart',
+    ],
+    dataPatterns: [
+      /\breport(s|ing)?\s+to\b/gi,
+      /\bheaded\s+by\b/gi,
+      /\b(VP|Director|Manager|Lead)\s+of\b/gi,
+    ],
+    sectionTypes: ['team', 'approach', 'deliverables', 'security', 'techstack', 'testing', 'faq', 'generic'],
+    minScore: 2,
+    maxNodes: 12,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'journey-map',
+    label: 'Journey Map',
+    mermaidDirective: 'custom-svg',
+    category: 'process',
+    keywords: [
+      'journey', 'experience', 'customer', 'user', 'touchpoint', 'stage',
+      'awareness', 'consideration', 'decision', 'onboard', 'adoption',
+    ],
+    bigrams: [
+      'customer journey', 'user journey', 'customer experience',
+      'buyer journey', 'user experience', 'engagement journey',
+    ],
+    dataPatterns: [
+      /\b(awareness|consideration|decision|onboarding|adoption)\b/gi,
+      /\bcustomer\s+(journey|experience|lifecycle)\b/gi,
+    ],
+    sectionTypes: ['approach', 'casestudy', 'nextsteps', 'challenge', 'problem', 'showcase', 'generic'],
+    minScore: 2,
+    maxNodes: 6,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
+    id: 'comparison-table',
+    label: 'Comparison Table',
+    mermaidDirective: 'custom-svg',
+    category: 'chart',
+    keywords: [
+      'compare', 'versus', 'alternative', 'option', 'feature', 'capability',
+      'include', 'support', 'available', 'tier', 'plan',
+    ],
+    bigrams: [
+      'feature comparison', 'option comparison', 'plan comparison',
+      'tier comparison', 'vs table', 'comparison matrix',
+    ],
+    dataPatterns: [
+      /\bvs\.?\b/gi,
+      /\b(option|tier|plan)\s+(A|B|C|1|2|3)\b/gi,
+    ],
+    sectionTypes: ['comparison', 'pricing', 'whyus', 'faq', 'benefits', 'security', 'generic'],
+    minScore: 2,
+    maxNodes: 10,
+    isCustomSvg: true,
+    gammaStyle: { useSubgraphs: false, useEdgeLabels: false, useNodeSubtitles: false, useEmojiPrefixes: false, colorGroups: [] },
+  },
+  {
     id: 'orbital',
     label: 'Orbital Diagram',
     mermaidDirective: 'custom-svg',
@@ -585,8 +779,8 @@ export const DIAGRAM_REGISTRY: DiagramType[] = [
       /connects?\s+(to|with)\b/gi,
       /\b(CRM|ERP|banking|payment|gateway)\b/gi,
     ],
-    sectionTypes: ['approach', 'generic', 'showcase'],
-    minScore: 5,
+    sectionTypes: ['approach', 'generic', 'showcase', 'techstack', 'security', 'whyus', 'benefits'],
+    minScore: 3,
     maxNodes: 4,
     isCustomSvg: true,
     gammaStyle: {
@@ -616,8 +810,8 @@ export const DIAGRAM_REGISTRY: DiagramType[] = [
       /\b(microservice|event.stream|API.gateway|monitoring|storage)\b/gi,
       /\barchitecture\b.*\bcomponent\b/gi,
     ],
-    sectionTypes: ['approach', 'showcase', 'deliverables', 'generic'],
-    minScore: 5,
+    sectionTypes: ['approach', 'showcase', 'deliverables', 'techstack', 'security', 'testing', 'generic'],
+    minScore: 3,
     maxNodes: 4,
     isCustomSvg: true,
     gammaStyle: {

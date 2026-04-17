@@ -5081,11 +5081,15 @@ body {
 
 .diagram-container {
   container-type: inline-size;
+  width: 100%;
 }
 
 .diagram-container svg {
+  display: block;
+  width: 100%;
   max-width: 100%;
   height: auto;
+  min-height: 200px;
 }
 
 /* Gantt: wider container, horizontal scroll on small screens */

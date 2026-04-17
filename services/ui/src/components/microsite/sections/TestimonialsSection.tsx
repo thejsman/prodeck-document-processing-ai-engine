@@ -19,6 +19,9 @@ interface Props {
 export function TestimonialsSection({ content, tokens, sectionId }: Props) {
   const items = content.items ?? [];
 
+  // Suppress section entirely when no real testimonials exist (agent returns [] when no source quotes)
+  if (items.length === 0) return null;
+
   return (
     <section
       style={{

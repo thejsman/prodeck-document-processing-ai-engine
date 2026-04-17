@@ -4,6 +4,14 @@ import type { PluginTokens } from '../../../types/presentation';
 import { isCustomDiagram, parseCustomDiagramData } from '../../../lib/customDiagramRenderer';
 import { OrbitalDiagram } from '../../diagrams/OrbitalDiagram';
 import { PuzzleDiagram } from '../../diagrams/PuzzleDiagram';
+import { StepsFlow } from '../../diagrams/StepsFlow';
+import { TimelineBar } from '../../diagrams/TimelineBar';
+import { DonutChart } from '../../diagrams/DonutChart';
+import { BarChart } from '../../diagrams/BarChart';
+import { StatGrid } from '../../diagrams/StatGrid';
+import { TreeDiagram } from '../../diagrams/TreeDiagram';
+import { JourneyMap } from '../../diagrams/JourneyMap';
+import { ComparisonTable } from '../../diagrams/ComparisonTable';
 import { MermaidChart } from '../../MermaidChart';
 import { Reveal } from './Reveal';
 
@@ -15,11 +23,15 @@ interface Props {
   typeId?: string;
 }
 
+const PADDED_TYPES = new Set(['orbital', 'steps-flow', 'timeline-bar', 'donut-chart', 'bar-chart', 'stat-grid', 'tree-diagram', 'journey-map', 'comparison-table']);
+
 export function ThemedMermaid({ diagram, tokens, delay = 0, caption, typeId }: Props) {
-  // Dispatch custom SVG diagrams to dedicated renderers
+  // Custom SVG diagrams (orbital, puzzle, steps-flow, etc.) → dedicated renderers
   if (isCustomDiagram(diagram)) {
     const data = parseCustomDiagramData(diagram);
     if (!data) return null;
+
+    const padded = PADDED_TYPES.has(data.type);
 
     return (
       <Reveal delay={delay}>
@@ -31,11 +43,19 @@ export function ThemedMermaid({ diagram, tokens, delay = 0, caption, typeId }: P
             border: `1px solid ${tokens.border}`,
             background: tokens.surfaceCard,
             overflow: 'hidden',
-            padding: data.type === 'orbital' ? '24px' : 0,
+            padding: padded ? '24px' : 0,
           }}
         >
-          {data.type === 'orbital' && <OrbitalDiagram data={data} tokens={tokens} />}
-          {data.type === 'puzzle' && <PuzzleDiagram data={data} tokens={tokens} />}
+          {data.type === 'orbital'           && <OrbitalDiagram data={data} tokens={tokens} />}
+          {data.type === 'puzzle'            && <PuzzleDiagram data={data} tokens={tokens} />}
+          {data.type === 'steps-flow'        && <StepsFlow data={data} tokens={tokens} />}
+          {data.type === 'timeline-bar'      && <TimelineBar data={data} tokens={tokens} />}
+          {data.type === 'donut-chart'       && <DonutChart data={data} tokens={tokens} />}
+          {data.type === 'bar-chart'         && <BarChart data={data} tokens={tokens} />}
+          {data.type === 'stat-grid'         && <StatGrid data={data} tokens={tokens} />}
+          {data.type === 'tree-diagram'      && <TreeDiagram data={data} tokens={tokens} />}
+          {data.type === 'journey-map'       && <JourneyMap data={data} tokens={tokens} />}
+          {data.type === 'comparison-table'  && <ComparisonTable data={data} tokens={tokens} />}
           {caption && (
             <figcaption
               style={{
@@ -58,6 +78,7 @@ export function ThemedMermaid({ diagram, tokens, delay = 0, caption, typeId }: P
     );
   }
 
+  // Mermaid diagrams → MermaidChart (SVG post-processed to width=100% for readability)
   return (
     <Reveal delay={delay}>
       <figure

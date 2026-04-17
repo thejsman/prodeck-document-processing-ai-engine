@@ -602,14 +602,16 @@ export function PresentationPage() {
           b.companyName === "Meridian Studio" ||
           b.companyName === prevNamespaceRef.current;
         prevNamespaceRef.current = selectedNamespace;
+        // Prefer proposal client name over raw namespace slug
+        const autoName = selectedProposal?.client || selectedNamespace;
         return {
           ...b,
-          companyName: wasAutoSet ? selectedNamespace : b.companyName,
-          logoText: wasAutoSet ? selectedNamespace : b.logoText,
+          companyName: wasAutoSet ? autoName : b.companyName,
+          logoText: wasAutoSet ? autoName : b.logoText,
         };
       });
     }
-  }, [selectedNamespace]);
+  }, [selectedNamespace, selectedProposal?.client]);
 
   // Fetch plugin list from API once on mount (Phase 5: dynamic discovery)
   useEffect(() => {

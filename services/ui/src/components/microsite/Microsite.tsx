@@ -39,6 +39,7 @@ import { TypewriterSection, SectionStreamingContext } from './TypewriterSection'
 import { MicrositeEffectsContext } from './shared/MicrositeEffectsContext';
 import { AstSectionDivider } from './shared/AstSectionDivider';
 import { DecorationLayer } from './shared/DecorationLayer';
+import { Footer } from './shared/Footer';
 
 import type {
   HeroContent,
@@ -1015,18 +1016,13 @@ ${el.innerHTML}
           )}
         </SectionStreamingContext.Provider>
 
-        <footer
-          style={{
-            padding: '40px 24px env(safe-area-inset-bottom, 40px)',
-            textAlign: 'center',
-            borderTop: `1px solid ${tokens.border}`,
-            background: tokens.bg,
-          }}
-        >
-          <p style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: 12, color: tokens.textSubtle, margin: 0 }}>
-            {ast.brand.companyName}{ast.brand.tagline ? ` — ${ast.brand.tagline}` : ''}
-          </p>
-        </footer>
+        <Footer
+          tokens={tokens}
+          brand={ast.brand}
+          sections={ast.sections ?? []}
+          client={ast.meta?.client}
+          date={ast.meta?.date}
+        />
       </div>
 
       {/* Control bar */}
