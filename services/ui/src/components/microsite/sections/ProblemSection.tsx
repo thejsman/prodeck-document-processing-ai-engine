@@ -71,7 +71,8 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
               fontFamily: `'${tokens.heroFont}', serif`,
               fontWeight: tokens.heroWeight,
               fontSize: 'clamp(1.8rem, 4vw, 3rem)',
-              lineHeight: 1.1,
+              lineHeight: 1.2,
+              letterSpacing: '-0.01em',
               margin: '0 0 28px',
               backgroundImage: tokens.gradientText,
               WebkitBackgroundClip: 'text',
@@ -88,7 +89,7 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
 
         <Reveal delay={160}>
           <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-            <Body tokens={tokens} style={{ fontSize: '1.05rem', lineHeight: 1.8, marginBottom: 44 }}>
+            <Body tokens={tokens} style={{ fontSize: '1.05rem', lineHeight: 1.5, letterSpacing: '0em', marginBottom: 44 }}>
               {content.body}
             </Body>
           </InlineEditable>

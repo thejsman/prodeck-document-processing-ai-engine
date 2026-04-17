@@ -1025,7 +1025,7 @@ ${el.innerHTML}
             background: tokens.bg,
           }}
         >
-          <p style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: 12, color: tokens.textSubtle, margin: 0 }}>
+          <p style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: 12, color: tokens.textSubtle, margin: 0, lineHeight: 1.4, letterSpacing: '0.01em' }}>
             {ast.brand.companyName}{ast.brand.tagline ? ` — ${ast.brand.tagline}` : ''}
           </p>
         </footer>
@@ -1054,7 +1054,7 @@ ${el.innerHTML}
                 color: ctrlText,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.8rem',
-                fontWeight: 600,
+                fontWeight: 400,
                 cursor: 'pointer',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
@@ -1074,7 +1074,7 @@ ${el.innerHTML}
                 color: ctrlText,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.8rem',
-                fontWeight: 600,
+                fontWeight: 400,
                 cursor: 'pointer',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}
@@ -1094,7 +1094,7 @@ ${el.innerHTML}
                 color: ctrlText,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.8rem',
-                fontWeight: 600,
+                fontWeight: 400,
                 cursor: 'pointer',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
               }}

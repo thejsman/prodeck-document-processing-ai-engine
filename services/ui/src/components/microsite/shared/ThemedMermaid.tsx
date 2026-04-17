@@ -78,11 +78,12 @@ export function ThemedMermaid({ diagram, tokens, delay = 0, caption, typeId }: P
               marginTop: 12,
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontSize: '0.72rem',
-              fontWeight: 500,
+              fontWeight: 400,
               letterSpacing: tokens.labelTracking,
               textTransform: 'uppercase',
               color: tokens.textSubtle,
               textAlign: 'center',
+              lineHeight: 1.4,
             }}
           >
             {caption}

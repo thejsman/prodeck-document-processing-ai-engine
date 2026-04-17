@@ -134,10 +134,11 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
           <p
             style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontWeight: 500,
+              fontWeight: 400,
               fontSize: "1.1rem",
               color: tokens.text,
               lineHeight: 1.5,
+              letterSpacing: '0em',
               marginBottom: 18,
             }}
             {...(hasMarkdown(content.subheadline ?? '')

@@ -41,12 +41,13 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
         <div>
           <p style={{
             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 600,
+            fontWeight: 400,
             fontSize: 14,
             color: tokens.accent,
             letterSpacing: tokens.labelTracking,
             textTransform: 'uppercase',
             margin: '0 0 8px',
+            lineHeight: 1.5,
           }}>
             {brand.companyName}
           </p>
@@ -57,6 +58,7 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
               color: tokens.textMuted,
               margin: 0,
               lineHeight: 1.5,
+              letterSpacing: '0.01em',
             }}>
               {brand.tagline}
             </p>
@@ -67,12 +69,13 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
         <div>
           <p style={{
             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 600,
+            fontWeight: 400,
             fontSize: 11,
             color: tokens.textSubtle,
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
             margin: '0 0 12px',
+            lineHeight: 1.4,
           }}>
             Sections
           </p>
@@ -93,6 +96,8 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
                   color: tokens.textMuted,
                   padding: 0,
                   transition: 'color 0.2s',
+                  lineHeight: 1.5,
+                  letterSpacing: '0.01em',
                 }}
               >
                 {s.heading}
@@ -106,7 +111,7 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
           <div>
             <p style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontWeight: 600,
+              fontWeight: 400,
               fontSize: 11,
               color: tokens.textSubtle,
               letterSpacing: '0.1em',
@@ -121,6 +126,7 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
               color: tokens.textMuted,
               margin: 0,
               lineHeight: 1.5,
+              letterSpacing: '0.01em',
             }}>
               {client}
               {date && <><br />{date}</>}
@@ -144,6 +150,8 @@ export function Footer({ tokens, brand, sections, client, date }: Props) {
           fontSize: 11,
           color: tokens.textSubtle,
           margin: 0,
+          lineHeight: 1.4,
+          letterSpacing: '0.01em',
         }}>
           Confidential &middot; &copy; {new Date().getFullYear()} {brand.companyName}
         </p>

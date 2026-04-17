@@ -73,7 +73,7 @@ export function Display({ children, tokens, style, gradient }: TypoProps) {
     fontStyle: tokens.heroStyle,
     fontSize: 'calc(clamp(1.5rem, 5cqi, 3.5rem) * var(--ms-title-scale, 1))',
     letterSpacing: '-0.02em',
-    lineHeight: 1.05,
+    lineHeight: 1.1,
     margin: 0,
     ...(isGradient
       ? { backgroundImage: tokens.gradientText, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', color: 'transparent' }
@@ -89,7 +89,8 @@ export function Headline({ children, tokens, style, gradient }: TypoProps) {
     fontFamily: `'${tokens.heroFont}', serif`,
     fontWeight: tokens.heroWeight,
     fontSize: 'calc(clamp(1.25rem, 4cqi, 2.8rem) * var(--ms-title-scale, 1))',
-    lineHeight: 1.1,
+    lineHeight: 1.2,
+    letterSpacing: '-0.01em',
     margin: 0,
     ...(isGradient
       ? { backgroundImage: tokens.gradientText, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', color: 'transparent' }

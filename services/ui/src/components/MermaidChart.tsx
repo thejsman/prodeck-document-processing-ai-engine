@@ -52,7 +52,7 @@ function buildThemeVariables(tokens: PluginTokens) {
     pieSectionTextColor:    tokens.text,
     pieOpacity:             '1',
     // Typography
-    fontFamily: `'${tokens.bodyFont}', system-ui, sans-serif`,
+    fontFamily: `'${tokens.bodyFont}', sans-serif`,
     fontSize:   '13px',
   };
 }

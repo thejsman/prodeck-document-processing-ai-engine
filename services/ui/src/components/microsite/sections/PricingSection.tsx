@@ -135,11 +135,12 @@ export function PricingSection({ content, tokens, index, sections = [], sectionI
                             padding: '14px 20px',
                             textAlign: ci === 0 ? 'left' : 'right',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
+                            fontWeight: 400,
                             letterSpacing: '0.08em',
                             textTransform: 'uppercase',
                             color: tokens.textMuted,
                             borderBottom: `1px solid ${tokens.border}`,
+                            lineHeight: 1.4,
                           }}
                         >
                           <InlineEditable field={`rows.0.${ci}`} label="Column header" value={cell ?? ''}>

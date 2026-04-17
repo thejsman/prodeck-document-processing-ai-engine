@@ -517,7 +517,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         display: 'flex',
         flexDirection: 'column',
         background: '#f1f5f9',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
       <style>{`

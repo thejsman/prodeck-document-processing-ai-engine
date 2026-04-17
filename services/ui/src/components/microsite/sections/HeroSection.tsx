@@ -208,8 +208,10 @@ export function HeroSection({
           background: tokens.surfaceCard,
           border: `1px solid ${tokens.border}`,
           fontFamily: `'${tokens.bodyFont}', sans-serif`,
-          fontSize: '0.75rem', fontWeight: 500,
+          fontSize: '0.75rem', fontWeight: 400,
           color: tokens.textMuted,
+          lineHeight: 1.4,
+          letterSpacing: '0.01em',
         }}>
           <Icon icon={Check} size="xs" /> {o}
         </span>
@@ -254,7 +256,7 @@ export function HeroSection({
           <>
             <div style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.65rem', fontWeight: 700,
+              fontSize: '0.65rem', fontWeight: 600,
               letterSpacing: tokens.labelTracking,
               textTransform: 'uppercase',
               color: tokens.dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)',
@@ -266,8 +268,9 @@ export function HeroSection({
               <div key={i} style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10,
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.85rem', lineHeight: 1.5,
+                fontSize: '0.85rem', lineHeight: 1.4,
                 color: tokens.dark ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.82)',
+                letterSpacing: '0.01em',
               }}>
                 <Icon icon={Check} size="sm" style={{ color: tokens.accent, flexShrink: 0, marginTop: 2 }} />
                 <span>{o}</span>
@@ -516,7 +519,7 @@ export function HeroSection({
                     }} />
                     <div style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.6rem', fontWeight: 700,
+                      fontSize: '0.6rem', fontWeight: 600,
                       letterSpacing: tokens.labelTracking,
                       textTransform: 'uppercase',
                       color: tokens.accent, marginBottom: 10,

@@ -805,7 +805,6 @@ function BackgroundPanel({
         borderRadius: 10,
         boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
         border: '1px solid #e2e8f0',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
         overflow: 'hidden',
       }}
     >
@@ -835,7 +834,7 @@ function BackgroundPanel({
       <div style={{ padding: 14 }}>
         {tab === 'image' ? (
           <>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label style={{ fontSize: 11, fontWeight: 400, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
               Search query
             </label>
             <input
@@ -870,7 +869,7 @@ function BackgroundPanel({
               </button>
               <button
                 onClick={applyImage}
-                style={{ flex: 2, padding: '8px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                style={{ flex: 2, padding: '8px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', lineHeight: 1.5, letterSpacing: '0em' }}
               >
                 Apply
               </button>
@@ -910,7 +909,7 @@ function BackgroundPanel({
           </>
         ) : (
           <>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label style={{ fontSize: 11, fontWeight: 400, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
               Custom color
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
@@ -922,7 +921,7 @@ function BackgroundPanel({
               />
               <span style={{ fontSize: 11, color: '#94a3b8' }}>Pick any background color</span>
             </div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label style={{ fontSize: 11, fontWeight: 400, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
               Presets
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -937,7 +936,7 @@ function BackgroundPanel({
                     background: '#f8fafc',
                     color: '#475569',
                     fontSize: 11,
-                    fontWeight: 500,
+                    fontWeight: 400,
                     cursor: 'pointer',
                   }}
                 >
@@ -1328,11 +1327,10 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
               background: isActive ? ACCENT : 'rgba(99,102,241,0.85)',
               color: '#fff',
               fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
+              fontWeight: 600,
+              letterSpacing: '0.08em', lineHeight: 1.4,
               textTransform: 'uppercase',
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-              backdropFilter: 'blur(8px)',
+                  backdropFilter: 'blur(8px)',
             }}
           >
             {section.sectionType}

@@ -176,7 +176,6 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
             borderBottom: '1px solid rgba(255,255,255,0.1)',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
           }}
         >
           {/* Left: theme info */}
@@ -191,7 +190,7 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 flexShrink: 0,
               }}
             />
-            <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>
+            <span style={{ color: '#fff', fontWeight: 400, fontSize: 13, lineHeight: 1.5, letterSpacing: '0.01em' }}>
               {plugin.name}
             </span>
             <span
@@ -200,6 +199,8 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 fontSize: 11,
                 fontStyle: 'italic',
                 display: 'none',
+                lineHeight: 1.4,
+                letterSpacing: '0.01em',
               }}
               className="theme-preview-character"
             >
@@ -244,6 +245,8 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 color: 'rgba(255,255,255,0.5)',
                 fontSize: 11,
                 marginLeft: 4,
+                lineHeight: 1.4,
+                letterSpacing: '0.01em',
               }}
             >
               <span
@@ -254,6 +257,8 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                   fontSize: 13,
                   color: plugin.tokens.accent,
                   marginRight: 4,
+                  lineHeight: 1.5,
+                  letterSpacing: '0.01em',
                 }}
               >
                 Aa
@@ -264,7 +269,7 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
 
           {/* Right: actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginRight: 4 }}>
+            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginRight: 4, lineHeight: 1.4, letterSpacing: '0.01em' }}>
               Press Esc to close
             </span>
             <button
@@ -276,10 +281,11 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 background: 'transparent',
                 color: 'rgba(255,255,255,0.7)',
                 fontSize: 12,
-                fontWeight: 500,
+                fontWeight: 400,
                 cursor: 'pointer',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
                 transition: 'border-color 0.15s, color 0.15s',
+                lineHeight: 1.4,
+                letterSpacing: '0.01em',
               }}
             >
               <Icon icon={X} size="sm" /> Close
@@ -293,11 +299,12 @@ export function ThemePreviewModal({ plugin, brand, onClose, onApply }: Props) {
                 background: plugin.tokens.accent,
                 color: plugin.tokens.dark ? plugin.tokens.bg : '#fff',
                 fontSize: 12,
-                fontWeight: 700,
+                fontWeight: 600,
                 cursor: 'pointer',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
                 boxShadow: `0 2px 12px ${plugin.tokens.glowColor}`,
                 transition: 'opacity 0.15s',
+                lineHeight: 1.4,
+                letterSpacing: '0.01em',
               }}
             >
               <Icon icon={Check} size="sm" /> Apply Theme

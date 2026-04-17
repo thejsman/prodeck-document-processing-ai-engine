@@ -32,7 +32,8 @@ export function ProcessSteps({ steps, tokens, heading, baseDelay = 0 }: Props) {
               fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
               color: tokens.text,
               marginBottom: 'clamp(1.5rem, 3vw, 2rem)',
-              letterSpacing: '-0.01em',
+              letterSpacing: '-0.005em',
+              lineHeight: 1.3,
             }}
           >
             {heading}
@@ -79,6 +80,8 @@ export function ProcessSteps({ steps, tokens, heading, baseDelay = 0 }: Props) {
                     color: tokens.bg,
                     marginBottom: 14,
                     flexShrink: 0,
+                    lineHeight: 1.5,
+                    letterSpacing: '0em',
                   }}
                 >
                   {step.number}
@@ -87,10 +90,12 @@ export function ProcessSteps({ steps, tokens, heading, baseDelay = 0 }: Props) {
                 <div
                   style={{
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontWeight: 600,
+                    fontWeight: 400,
                     fontSize: '0.95rem',
                     color: tokens.text,
                     marginBottom: 8,
+                    lineHeight: 1.5,
+                    letterSpacing: '0em',
                   }}
                 >
                   {step.title}
@@ -102,7 +107,8 @@ export function ProcessSteps({ steps, tokens, heading, baseDelay = 0 }: Props) {
                     fontWeight: 300,
                     fontSize: '0.82rem',
                     color: tokens.textMuted,
-                    lineHeight: 1.6,
+                    lineHeight: 1.4,
+                    letterSpacing: '0.01em',
                   }}
                 >
                   {step.description}
