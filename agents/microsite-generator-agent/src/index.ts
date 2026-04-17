@@ -1671,7 +1671,7 @@ Return:
     metrics: `${system}
 
 Brief: ${brief}
-Raw content: ${rawBody || '(No source content — derive 3-4 strong KPIs from the brief outcomes, duration, and value)'}
+Section source content: ${effectiveBody || '(No source content — derive 3-4 strong KPIs from the brief outcomes, duration, and value)'}${fallbackContext}
 
 Transform into a Metrics section — a standalone performance KPIs row with scaling strategies. Return:
 {
@@ -1693,7 +1693,7 @@ Transform into a Metrics section — a standalone performance KPIs row with scal
     security: `${system}
 
 Brief: ${brief}
-Raw content: ${rawBody || '(No source content — derive 3-4 security controls from the brief and industry context)'}
+Section source content: ${effectiveBody || '(No source content — derive 3-4 security controls from the brief and industry context)'}${fallbackContext}
 
 Transform into a Security section. Return:
 {
@@ -1714,7 +1714,7 @@ Transform into a Security section. Return:
     techstack: `${system}
 
 Brief: ${brief}
-Raw content: ${rawBody || '(No source content — derive categories from the brief industry and engagement context)'}
+Section source content: ${effectiveBody || '(No source content — derive categories from the brief industry and engagement context)'}${fallbackContext}
 
 Transform into a Tech Stack section. Return:
 {
@@ -1735,7 +1735,7 @@ Transform into a Tech Stack section. Return:
     testing: `${system}
 
 Brief: ${brief}
-Raw content: ${rawBody || '(No source content — derive testing layers from the brief engagement context)'}
+Section source content: ${effectiveBody || '(No source content — derive testing layers from the brief engagement context)'}${fallbackContext}
 
 Transform into a Testing & Quality section. Return:
 {
@@ -3208,8 +3208,8 @@ export class MicrositeGeneratorAgent implements Agent {
                   const overlap = sourceWords.filter(w => keyWords.some(kw => kw.includes(w) || w.includes(kw))).length;
                   if (overlap > bestScore) { bestScore = overlap; bestMatch = v; }
                 }
-                // Use fuzzy match if any word overlaps; otherwise use first non-empty source section
-                return bestScore > 0 ? bestMatch : (sourceSections[0]?.content ?? '');
+                // Return empty on no match so Pass 2 uses full proposalMarkdown instead of wrong section
+                return bestScore > 0 ? bestMatch : '';
               })();
             heading = sourceHeading;
           }
@@ -3221,6 +3221,18 @@ export class MicrositeGeneratorAgent implements Agent {
             if (pricingSections.length > 0) {
               rawBody = pricingSections.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
             }
+          }
+          // Timeline fallback: scan for schedule/phase content
+          if (!rawBody && type === 'timeline') {
+            const timelinePattern = /phase|week|month|sprint|milestone|duration|schedule|roadmap|\d+\s*(day|wk|mo|week|month)/i;
+            const matched = sourceSections.filter(s => timelinePattern.test(s.content) || timelinePattern.test(s.name));
+            if (matched.length > 0) rawBody = matched.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
+          }
+          // Deliverables fallback: scan for deliverable/scope content
+          if (!rawBody && type === 'deliverables') {
+            const deliverablesPattern = /deliverable|include|provide|service|feature|output|artifact|item|scope/i;
+            const matched = sourceSections.filter(s => deliverablesPattern.test(s.content) || deliverablesPattern.test(s.name));
+            if (matched.length > 0) rawBody = matched.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
           }
           resolvedSections.push({ type, heading, rawBody, aiGenerated: planned.aiGenerated || !sourceHeading });
         }
@@ -3252,10 +3264,15 @@ export class MicrositeGeneratorAgent implements Agent {
         console.log(`[microsite-agent] Section count capped at ${MAX_SECTIONS} (was ${originalCount})`);
       }
       // Also honour any explicit user count (if lower than the cap)
+      // Always preserve nextsteps and approval at the end — they are structural, not content sections
       if (customInstructions) {
         const explicitCount = parseExplicitCount(customInstructions);
         if (explicitCount && explicitCount > 0 && explicitCount < MAX_SECTIONS && resolvedSections.length > explicitCount) {
-          resolvedSections.splice(explicitCount);
+          const tail = resolvedSections.filter(s => s.type === 'nextsteps' || s.type === 'approval');
+          const body = resolvedSections.filter(s => s.type !== 'nextsteps' && s.type !== 'approval');
+          const trimCount = Math.max(0, explicitCount - tail.length);
+          resolvedSections.length = 0;
+          resolvedSections.push(...body.slice(0, trimCount), ...tail);
         }
       }
 
