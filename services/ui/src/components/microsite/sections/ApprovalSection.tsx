@@ -199,6 +199,17 @@ export function ApprovalSection({ content, tokens, namespace, proposalId }: Prop
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [emailSent, setEmailSent] = useState(false);
+
+  // On mount, check if this proposal was already approved so we show the
+  // success state instead of the form when the user returns to the microsite.
+  useEffect(() => {
+    if (!namespace || !proposalId) return;
+    fetch(`/api/presentations/${namespace}/${proposalId}/approve`)
+      .then(r => r.json())
+      .then(d => { if (d.approved) setSubmitState('success'); })
+      .catch(() => {});
+  }, [namespace, proposalId]);
 
   const missing: string[] = [];
   if (!name.trim()) missing.push('full name');
@@ -220,6 +231,8 @@ export function ApprovalSection({ content, tokens, namespace, proposalId }: Prop
         }
       );
       if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setEmailSent(data.emailSent === true);
       setSubmitState('success');
     } catch (err) {
       setSubmitState('error');
@@ -324,7 +337,11 @@ export function ApprovalSection({ content, tokens, namespace, proposalId }: Prop
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.95rem', color: tokens.textMuted, lineHeight: 1.7, margin: 0,
               }}>
-                Thank you, <strong style={{ color: tokens.text }}>{name}</strong>. A confirmation has been sent to <strong style={{ color: tokens.accent }}>{email}</strong>.
+                Thank you, <strong style={{ color: tokens.text }}>{name}</strong>.{' '}
+                {emailSent
+                  ? <>A confirmation has been sent to <strong style={{ color: tokens.accent }}>{email}</strong>.</>
+                  : <>Your approval has been recorded.</>
+                }
               </p>
             </div>
           </Reveal>

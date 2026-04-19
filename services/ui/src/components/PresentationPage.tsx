@@ -1144,6 +1144,8 @@ export function PresentationPage() {
         onBack={generating ? undefined : () => setStep("upload")}
         onRegenerate={generating ? undefined : () => setStep("generate")}
         onEdit={generating ? undefined : () => setShowEditor(true)}
+        namespace={selectedNamespace}
+        proposalId={layoutAST.proposalId}
       />
     );
   }

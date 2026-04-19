@@ -88,6 +88,9 @@ interface Props {
   planSectionTypes?: string[];
   /** Called when an AI quick-action is triggered from a section overlay in editor mode. */
   onSectionAiAction?: (sectionId: string, instruction: string) => void;
+  /** Namespace and proposalId — required for the ApprovalSection to check/save approval state. */
+  namespace?: string;
+  proposalId?: string;
 }
 
 /** Wraps each section with visibility animation.
@@ -167,6 +170,8 @@ function renderSection(
   index: number,
   allSections: LayoutAST['sections'],
   brief?: LayoutAST['brief'],
+  namespace?: string,
+  proposalId?: string,
 ) {
   // Root-relative paths (/presentation-images/...) are served by the API.
   // Rewrite them through the Next.js /api proxy so they work in the UI.
@@ -262,7 +267,7 @@ function renderSection(
       inner = <CaseStudySection content={section.content as CaseStudyContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
     case 'approval':
-      inner = <ApprovalSection content={section.content as ApprovalContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} namespace={brief?.clientName?.replace(/\s+/g, '-').toLowerCase()} proposalId={undefined} />;
+      inner = <ApprovalSection content={section.content as ApprovalContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} namespace={namespace} proposalId={proposalId} />;
       break;
     default:
       inner = <GenericSection content={section.content as GenericContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
@@ -298,6 +303,8 @@ function SectionWithOverlay({
   behavior,
   isStreaming,
   onSectionAiAction,
+  namespace,
+  proposalId,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -309,9 +316,11 @@ function SectionWithOverlay({
   behavior?: LayoutAST['behavior'];
   isStreaming?: boolean;
   onSectionAiAction?: (sectionId: string, instruction: string) => void;
+  namespace?: string;
+  proposalId?: string;
 }) {
   const editCtx = useEditContext();
-  const inner = renderSection(section, tokens, brand, index, allSections, brief);
+  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId);
   // Apply per-section background override using scoped CSS to beat inline styles
   const sel = `[data-section-id="${section.id}"] section,[data-section-id="${section.id}"] > div > section`;
   const hasBgColor = !!section.bgColor;
@@ -453,7 +462,7 @@ function isColorDark(hex: string): boolean {
   } catch { return false; }
 }
 
-export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes, onSectionAiAction }: Props) {
+export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscreen', generating, streamingTotal, planSectionTypes, onSectionAiAction, namespace, proposalId }: Props) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -963,6 +972,8 @@ ${el.innerHTML}
                       behavior={ast.behavior}
                       isStreaming={newSectionIds.has(section.id)}
                       onSectionAiAction={onSectionAiAction}
+                      namespace={namespace}
+                      proposalId={proposalId ?? ast.proposalId}
                     />
                   )}
                 </TypewriterSection>
