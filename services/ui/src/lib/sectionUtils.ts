@@ -14,14 +14,16 @@ export function isSectionEmpty(section: LayoutSection): boolean {
   // Array fields that carry the primary content of a section
   const arrayFields = [
     'items',
-    'categories',
-    'layers',
+    'members',    // team
+    'categories', // techstack
+    'layers',     // testing
     'stats',
-    'phases',
+    'metrics',    // casestudy, metrics section
+    'phases',     // timeline
     'highlights',
     'painPoints',
-    'pillars',
-    'rows',
+    'pillars',    // approach
+    'rows',       // comparison, pricing
     'strategies',
   ] as const;
 

@@ -559,7 +559,7 @@ export function Microsite({ ast, onBack, onRegenerate, onEdit, mode = 'fullscree
     : allSections;
 
   // Full list — used for progress counting and seenSectionIds tracking
-  const sections = allSections.filter(s => s.sectionType !== 'chart');
+  const sections = allSections.filter(s => (s.sectionType as string) !== 'chart');
 
   const newSectionIds = new Set<string>();
   if (generating) {
@@ -787,15 +787,16 @@ ${el.innerHTML}
     setPdfProgress(0);
     setPdfProgressMsg('Starting…');
 
-    // Force all animated section wrappers visible before capture.
-    // AnimatedSection sets opacity:0 / translateY on sections not yet scrolled into view —
-    // the clone copies those inline styles, producing invisible slides in the PDF.
-    type SavedStyle = { el: HTMLElement; opacity: string; transform: string };
+    // Force all animated/reveal elements visible before capture.
+    // AnimatedSection and Reveal both set opacity:0 via inline styles on elements not yet
+    // scrolled into view — the clone copies those styles, producing invisible content in the PDF.
+    type SavedStyle = { el: HTMLElement; opacity: string; transform: string; transition: string };
     const savedStyles: SavedStyle[] = [];
-    content.querySelectorAll<HTMLElement>('[data-section-id]').forEach(el => {
-      savedStyles.push({ el, opacity: el.style.opacity, transform: el.style.transform });
+    content.querySelectorAll<HTMLElement>('[data-section-id], [data-reveal]').forEach(el => {
+      savedStyles.push({ el, opacity: el.style.opacity, transform: el.style.transform, transition: el.style.transition });
       el.style.opacity = '1';
       el.style.transform = 'none';
+      el.style.transition = 'none';
     });
 
     try {
@@ -817,10 +818,11 @@ ${el.innerHTML}
       console.error('PDF download failed:', err);
       setPdfProgressMsg('Download failed');
     } finally {
-      // Restore animated section styles so the UI looks normal after download
-      savedStyles.forEach(({ el, opacity, transform }) => {
+      // Restore animated/reveal styles so the UI looks normal after download
+      savedStyles.forEach(({ el, opacity, transform, transition }) => {
         el.style.opacity = opacity;
         el.style.transform = transform;
+        el.style.transition = transition;
       });
       setDownloadingPdf(false);
     }

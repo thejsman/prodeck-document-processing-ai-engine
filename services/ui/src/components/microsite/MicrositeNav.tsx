@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   PluginTokens,
   BrandConfig,
@@ -29,8 +29,12 @@ export function MicrositeNav({
   sections,
   scrollContainerId,
 }: Props) {
-  // Stable filtered list — approval is a sign-off form, not a nav destination
-  const navLinks = sections.filter(s => s.sectionType !== 'approval' && s.sectionType !== 'chart');
+  // Stable filtered list — memoized so IntersectionObserver doesn't reconnect on every streaming update
+  const navLinks = useMemo(
+    () => sections.filter(s => s.sectionType !== 'approval' && (s.sectionType as string) !== 'chart'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sections.map(s => s.id).join(',')],
+  );
 
   const [scrolled, setScrolled] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
@@ -95,7 +99,8 @@ export function MicrositeNav({
               best = id;
             }
           });
-          if (best) setActiveId(best);
+          // Always update — clears activeId when no sections are visible (e.g. at footer)
+          setActiveId(best);
         },
         {
           root: container === document.documentElement ? null : container,
@@ -273,8 +278,12 @@ export function MicrositeNav({
               alignItems: "center",
               gap: navGap,
               flexWrap: "nowrap",
-              overflow: "hidden",
-            }}
+              overflowX: "auto",
+              overflowY: "hidden",
+              scrollbarWidth: "none",
+              // Hide scrollbar on WebKit
+              msOverflowStyle: "none",
+            } as React.CSSProperties}
           >
             {navLinks.map((s) => {
               const isActive = activeId === s.id;
