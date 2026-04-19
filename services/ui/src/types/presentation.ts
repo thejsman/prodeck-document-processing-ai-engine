@@ -2,6 +2,7 @@
 
 export type SectionType =
   | 'hero'
+  | 'overview'
   | 'challenge'
   | 'approach'
   | 'deliverables'
@@ -135,6 +136,15 @@ export interface AIBrief {
 }
 
 // ── Section content shapes (Pass 2 output) ───────────────────────────────────
+
+export interface OverviewContent {
+  eyebrow: string;
+  headline: string;
+  body: string;
+  subheadline?: string;
+  highlights: Array<{ label: string; value: string }>;
+  imageQuery: string;
+}
 
 export interface HeroContent {
   eyebrow: string;
@@ -444,6 +454,7 @@ export interface ApprovalContent {
 
 export type SectionContent =
   | HeroContent
+  | OverviewContent
   | ChallengeContent
   | ApproachContent
   | DeliverablesContent

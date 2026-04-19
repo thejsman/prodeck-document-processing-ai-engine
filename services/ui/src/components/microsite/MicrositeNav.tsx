@@ -129,6 +129,7 @@ export function MicrositeNav({
 
   const NAV_LABEL: Record<string, string> = {
     hero: "Home",
+    overview: "Overview",
     challenge: "Challenge",
     problem: "Problem",
     approach: "Approach",

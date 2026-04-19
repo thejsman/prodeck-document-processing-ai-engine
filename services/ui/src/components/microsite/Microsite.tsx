@@ -6,6 +6,7 @@ import type { LayoutAST, PluginTokens } from '../../types/presentation';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
 import { MicrositeNav } from './MicrositeNav';
 import { HeroSection } from './sections/HeroSection';
+import { OverviewSection } from './sections/OverviewSection';
 import { ChallengeSection } from './sections/ChallengeSection';
 import { ApproachSection } from './sections/ApproachSection';
 import { DeliverablesSection } from './sections/DeliverablesSection';
@@ -43,6 +44,7 @@ import { Footer } from './shared/Footer';
 
 import type {
   HeroContent,
+  OverviewContent,
   ChallengeContent,
   ApproachContent,
   DeliverablesContent,
@@ -196,6 +198,9 @@ function renderSection(
       );
       break;
     }
+    case 'overview':
+      inner = <OverviewSection content={section.content as OverviewContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
+      break;
     case 'challenge':
       inner = <ChallengeSection content={section.content as ChallengeContent} tokens={tokens} imageUrl={imageUrl} index={index} sectionId={sid} />;
       break;
@@ -313,7 +318,7 @@ function SectionWithOverlay({
   // Background image only applies to hero by default.
   // For other sections it only applies when the user explicitly set it via
   // the toolbar (source === 'custom').
-  const isHero = section.sectionType === 'hero';
+  const isHero = section.sectionType === 'hero' || section.sectionType === 'overview';
   const hasBgImage = !!section.image?.url && (isHero || section.image.source === 'custom');
   let bgCssRule = '';
   if (hasBgColor) {

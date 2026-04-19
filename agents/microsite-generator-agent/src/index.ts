@@ -22,6 +22,7 @@ import { detectSectionLimitRequest, type SectionLimitRequest } from './lib/secti
 
 type SectionType =
   | 'hero'
+  | 'overview'
   | 'challenge'
   | 'approach'
   | 'deliverables'
@@ -46,7 +47,7 @@ type SectionType =
   | 'generic';
 
 const ALL_SECTION_TYPES = new Set<string>([
-  'hero','challenge','approach','deliverables','timeline','pricing',
+  'hero','overview','challenge','approach','deliverables','timeline','pricing',
   'whyus','nextsteps','testimonials','showcase','benefits','problem','stats',
   'metrics','security','techstack','testing','faq','team','comparison','casestudy','approval','generic',
 ]);
@@ -92,7 +93,7 @@ function parseExplicitCount(ci: string): number | null {
 
 function classifySection(heading: string): SectionType {
   const h = heading.toLowerCase();
-  if (/executive\s*summary|overview/.test(h)) return 'hero';
+  if (/executive\s*summary|overview/.test(h)) return 'overview';
   if (/\bproblem\b/.test(h) && !/challenge/.test(h)) return 'problem';
   if (/challenge/.test(h)) return 'challenge';
   if (/approach|solution|method|proposed/.test(h)) return 'approach';
@@ -391,8 +392,9 @@ HEADING → TYPE MAPPING EXAMPLES (use semantic intent, not just keywords):
 - "Our Team", "Meet The Team", "Who's Involved", "Key People" → team
 - "Case Study", "Past Work", "Portfolio", "Success Story" → casestudy
 - "How We Compare", "Comparison", "Us vs Others", "Why Not X" → comparison
+- "Executive Summary", "Overview", "Project Overview", "Engagement Summary", "Proposal Summary" → overview
 ${styleHintBlock}
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, generic
+VALID TYPES: hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, generic
 
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
@@ -798,6 +800,7 @@ function pickAngle(): string {
 const VARIANT_POOLS: Record<SectionType, string[]> = {
   // centered excluded from hero fallback pool — it is only allowed for minimal/clean intent
   hero:         ['split',       'editorial',  'asymmetric'],
+  overview:     ['split',       'asymmetric', 'editorial'],
   challenge:    ['asymmetric',  'editorial',  'split',        'centered'],
   // approach and timeline must NOT use card-grid (suppresses diagrams) or minimal (suppresses diagrams)
   approach:     ['split',       'asymmetric', 'editorial',    'centered'],
@@ -837,6 +840,7 @@ function pickVariant(type: SectionType): string {
  *  Alternates editorial ↔ minimal to avoid monotony. */
 const EDITORIAL_VARIANTS: Record<SectionType, string> = {
   hero:         'editorial',
+  overview:     'editorial',
   challenge:    'editorial',
   approach:     'editorial',   // editorial allows diagrams
   deliverables: 'card-grid',
@@ -865,6 +869,7 @@ const EDITORIAL_VARIANTS: Record<SectionType, string> = {
  *  Alternates minimal ↔ centered for variety. */
 const MINIMAL_VARIANTS: Record<SectionType, string> = {
   hero:         'centered',
+  overview:     'split',
   challenge:    'minimal',
   approach:     'split',      // approach needs diagrams — use split instead of minimal
   deliverables: 'minimal',
@@ -895,6 +900,7 @@ const MINIMAL_VARIANTS: Record<SectionType, string> = {
  *  requires symmetry regardless of visual intent. */
 const BOLD_VARIANTS: Record<SectionType, string> = {
   hero:         'split',
+  overview:     'asymmetric',
   challenge:    'asymmetric',
   approach:     'split',
   deliverables: 'card-grid',
@@ -1340,6 +1346,33 @@ export function buildSectionPrompt(
     : '';
 
   const sectionPrompts: Record<SectionType, string> = {
+    overview: `${system}
+
+Brief: ${brief}
+Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
+
+Transform into an Overview / Executive Summary section. This is a content-first section that follows the hero — it should summarise the engagement, explain the context, and surface 3–5 key facts the client should know at a glance.
+
+Return:
+{
+  "eyebrow": "4-8 words e.g. 'Executive Summary'",
+  "headline": "8-14 words — the core value proposition or engagement theme",
+  "subheadline": "1-2 sentences — optional lead-in, max 24 words",
+  "body": "3-5 sentences — what this engagement is, why it matters, what success looks like. Use specific details from the source.",
+  "highlights": [
+    { "value": "Short fact or metric e.g. '8 Weeks'", "label": "What it means e.g. 'Delivery Timeline'" },
+    { "value": "$45,000", "label": "Total Investment" },
+    { "value": "3 Phases", "label": "Structured Approach" }
+  ],
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section. Describe subject, lighting, mood.",
+  ${meta}
+}
+
+RULES:
+- highlights: 3–5 items only. Each 'value' is a short concrete fact (number, date, count, price). Each 'label' is 2–5 words naming what it is.
+- Extract highlights from the proposal — do NOT fabricate numbers.
+- If no concrete facts exist, set highlights to [].`,
+
     hero: `${system}
 
 Brief: ${brief}
@@ -1448,6 +1481,29 @@ MANDATORY EXTRACTION RULES:
 8. ONLY set rows to [] if the proposal contains ZERO price mentions anywhere. If ANY price exists, include it.
 9. NEVER fabricate prices, estimates, or placeholder amounts.
 
+PAYMENT SCHEDULE (REQUIRED — market standard):
+After listing all deliverable rows, add a BLANK SEPARATOR ROW ["", ""] then add 2–4 payment milestone rows.
+- If the proposal explicitly states payment terms, extract them verbatim as milestone rows.
+- If no explicit schedule, derive a standard 3-step schedule from the total:
+  Step 1: "Upon Signing" — 50% of total (or stated deposit)
+  Step 2: "Upon Delivery" — 25% of total (or mid-project milestone amount)
+  Step 3: "Upon Launch / Completion" — remaining 25% (or final balance)
+- Milestone row labels MUST use keywords from this set: "Upon Signing", "Upon Delivery", "Upon Completion", "Upon Launch", "Deposit", "Phase 1 Payment", "Phase 2 Payment", "Milestone 1", "Milestone 2"
+- These milestone rows will be auto-detected and rendered as a separate Payment Schedule section in the UI.
+
+ROWS STRUCTURE:
+Part 1 — Deliverables (services, phases, line items):
+  ["Service / Deliverable", "Investment"]   ← header
+  ["Phase 1: Discovery & Strategy", "$X,XXX"]
+  ["Phase 2: Design & Development", "$X,XXX"]
+  ...
+
+Part 2 — Payment Schedule (separator + milestones):
+  ["", ""]                                  ← blank separator row
+  ["Upon Signing", "50% — $X,XXX"]
+  ["Upon Delivery", "25% — $X,XXX"]
+  ["Upon Launch", "25% — $X,XXX"]
+
 Return:
 {
   "eyebrow": "4-8 words e.g. 'Investment Overview'",
@@ -1455,7 +1511,11 @@ Return:
   "subheadline": "2-3 sentences — what the client gets for this investment, outcomes and ROI",
   "rows": [
     ["Service / Deliverable", "Investment"],
-    ["Exact line item from proposal", "Exact price from proposal"]
+    ["Exact line item from proposal", "Exact price from proposal"],
+    ["", ""],
+    ["Upon Signing", "50% — $X,XXX"],
+    ["Upon Delivery", "25% — $X,XXX"],
+    ["Upon Launch", "25% — $X,XXX"]
   ],
   "totalLabel": "Total Investment: [exact total] — or empty string if no total stated",
   "footnote": "Payment terms, milestones, deposit requirements, validity period — verbatim from proposal",
@@ -2226,7 +2286,7 @@ MANDATORY RULES:
 - The hero is always first, nextsteps is always last
 - Each section must have a unique type — do NOT repeat the same type twice
 
-VALID TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
+VALID TYPES: hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, generic
 
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
@@ -3035,7 +3095,7 @@ export class MicrositeGeneratorAgent implements Agent {
       // Resolve section list from plan or fallback to source order
       const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
 
-      const KNOWN_SECTION_TYPES = new Set<string>(['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','approval','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','generic']);
+      const KNOWN_SECTION_TYPES = new Set<string>(['hero','overview','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','approval','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
         for (const planned of sectionPlan) {
           const rawType = planned.type as string;

@@ -580,7 +580,7 @@ export function HeroSection({
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // CENTERED — default, matches ChallengeSection column layout
+  // CENTERED — default hero (cover slide)
   // ════════════════════════════════════════════════════════════════════════════
   return (
     <section style={sectionStyle}>
