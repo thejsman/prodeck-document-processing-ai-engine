@@ -926,6 +926,9 @@ ${el.innerHTML}
           to   { opacity: 1; transform: none; }
         }
 
+        /* Ensure nav-targeted sections don't scroll behind the sticky nav */
+        [data-section-id] { scroll-margin-top: 70px; }
+
       `}</style>
 
       {/* Nav — uses SCROLL_CONTAINER_ID to find its scroll target */}

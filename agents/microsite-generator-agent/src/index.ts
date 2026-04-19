@@ -357,38 +357,39 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
 - Output a JSON array covering ALL sections found in the proposal. Minimum 7 sections, no upper limit.
 - ALWAYS include: hero (first), nextsteps (second-to-last), approval (last).
 - Map EVERY source heading in the proposal to a section — do NOT skip, compress, or merge any heading that has content. Losing proposal content is a critical failure.
-- For headings that don't map cleanly to a known type, use "generic" type with the original heading preserved as sourceHeading.
-- ONLY include optional section types if the proposal actually contains relevant content for them. Do NOT invent sections with no basis in the proposal.
-- Optional section types (include ONLY if proposal has matching content): problem, challenge, approach, deliverables, showcase, timeline, pricing, stats, benefits, whyus, testimonials, faq, team, casestudy, comparison, metrics, security, techstack, testing, overview, generic.
-- If after mapping all proposal headings the total is below 7, add the most relevant optional types derived from the proposal brief (set aiGenerated: true) until you reach 7.
+- CRITICAL: Each source heading becomes its OWN separate plan entry. NEVER combine two source headings into one plan entry.
+- TYPE SELECTION RULE: Pick the most semantically accurate type for each heading. You are NOT limited to the predefined list — if a heading doesn't fit a predefined type well, OR would duplicate a type already used, invent a concise descriptive type name (lowercase, hyphenated, 2-4 words e.g. "risk-profile", "risk-communication", "market-context", "compliance-overview", "platform-overview"). Custom types render as rich generic sections — use them freely.
+- PREDEFINED TYPES (use when they fit precisely): hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, casestudy, comparison, metrics, security, techstack, testing, generic.
+- DUPLICATE TYPE RULE: If you already assigned type "challenge" to one heading and another heading is also challenge-like, give the second one a custom descriptive type like "risk-communication" or "risk-pricing" — do NOT reuse the same predefined type OR force it into an unrelated predefined type (never use "showcase" for a risk section, never use "benefits" for a risk section).
+- If after mapping all proposal headings the total is below 7, add AI-generated sections (set aiGenerated: true) using the most relevant types derived from the proposal content.
 - CONTENT-FIRST: never compress, merge, or drop unique proposal sections.
 
-HEADING → TYPE MAPPING EXAMPLES (use semantic intent, not just keywords):
-- "Executive Summary", "Overview", "Introduction", "About This Proposal" → hero
-- "The Problem", "Current State", "Pain Points", "The Challenge", "What's Broken", "The Situation", "Context" → challenge
-- "Our Approach", "How We Work", "Methodology", "The Solution", "Our Strategy", "Proposed Solution", "What We'll Do" → approach
-- "What's Included", "Scope of Work", "Deliverables", "What You Get", "Our Work", "Services" → deliverables
-- "Project Plan", "Timeline", "Phases", "Roadmap", "Schedule", "How Long", "Milestones" → timeline
-- "Investment", "Pricing", "Cost", "Budget", "Fees", "What It Costs", "Commercial Terms" → pricing
-- "Why Us", "Why KM", "Our Credentials", "Why Choose Us", "Our Experience", "Track Record", "Who We Are", "About Us" → whyus
-- "What You'll Gain", "Benefits", "Value", "ROI", "What This Means For You", "Why This Matters", "The Upside" → benefits
-- "Results", "Numbers", "Impact", "By The Numbers", "Proof", "Our Work In Numbers" → stats
-- "What Clients Say", "Testimonials", "Social Proof", "Client Stories", "Reviews" → testimonials
-- "Next Steps", "Getting Started", "What Happens Next", "Moving Forward", "How To Begin", "Ready?", "Let's Go" → nextsteps
-- "Frequently Asked Questions", "FAQs", "Common Questions", "Questions & Answers" → faq
-- "Our Team", "Meet The Team", "Who's Involved", "Key People" → team
-- "Case Study", "Past Work", "Portfolio", "Success Story" → casestudy
-- "How We Compare", "Comparison", "Us vs Others", "Why Not X" → comparison
-- "Executive Summary", "Overview", "Project Overview", "Engagement Summary", "Proposal Summary" → overview
+HEADING → TYPE MAPPING EXAMPLES:
+- "Executive Summary", "Introduction", "About This Proposal" → hero
+- "The Problem", "Pain Points", "The Challenge", "Context" → challenge
+- "Our Approach", "Methodology", "Proposed Solution" → approach
+- "Scope of Work", "Deliverables", "What You Get" → deliverables
+- "Timeline", "Phases", "Roadmap", "Milestones" → timeline
+- "Investment", "Pricing", "Budget", "Cost" → pricing
+- "Why Us", "Our Credentials", "About Us" → whyus
+- "Benefits", "Value", "ROI", "The Upside" → benefits
+- "Testimonials", "Client Stories", "Reviews" → testimonials
+- "Next Steps", "Getting Started", "What Happens Next" → nextsteps
+- "FAQ", "Common Questions" → faq
+- "Our Team", "Key People" → team
+- "Risk: Google Business Profile" → risk-profile (custom — fits no predefined type precisely)
+- "Risk: Communication and Implementation" → risk-communication (custom)
+- "Risk: Pricing and Budgeting" → risk-pricing (custom)
+- "Market Overview", "Industry Context" → market-overview (custom)
+- "Governance", "Compliance Framework" → compliance-overview (custom)
 ${styleHintBlock}
-VALID TYPES: hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, comparison, casestudy, generic
-
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
 Format:
 [
   { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
-  { "type": "generic", "sourceHeading": "Evaluation Criteria", "rationale": "Unique section — preserve as generic", "aiGenerated": false },
+  { "type": "risk-profile", "sourceHeading": "Risk: Google Business Profile", "rationale": "Custom type — risk content specific to GBP", "aiGenerated": false },
+  { "type": "risk-communication", "sourceHeading": "Risk: Communication and Implementation", "rationale": "Custom type — second risk section, distinct from first", "aiGenerated": false },
   { "type": "stats", "sourceHeading": null, "rationale": "Metrics scattered across proposal — consolidate", "aiGenerated": true }
 ]
 
@@ -1855,6 +1856,13 @@ Return:
 Rules: Include 3-8 highlights if the source has enumerable content. If no enumerable items exist, omit highlights entirely (do not include empty array).`,
   };
 
+  // Custom/unknown types fall back to generic with heading-specific instruction
+  if (!sectionPrompts[type]) {
+    return sectionPrompts['generic'].replace(
+      'Transform into a Generic section.',
+      `Transform the "${heading}" section into a rich content section. CRITICAL: Every numbered item (1. 2. 3.), every bullet point, every named risk or mitigation strategy must become its OWN separate highlight entry — NEVER merge multiple items into one highlight.`
+    );
+  }
   return sectionPrompts[type];
 }
 
@@ -2341,8 +2349,10 @@ function buildOverrideSectionPrompt(
 
   const sectionSchemas: Record<string, string> = {
     hero: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences max 28 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "imageQuery": "Unsplash search query that matches the VISUAL STYLE and THEME described in the design specification above — reflect the exact mood, colors, subject matter, and aesthetic (e.g. for a child-friendly colorful design: 'colorful playful children learning illustration' not 'business team meeting')" }`,
-    challenge: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "pullquote": "10-18 words sharpest insight", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
-    approach: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "1-2 sentences", "pillars": [{"iconHint": "string", "name": "2-4 words", "description": "2 sentences"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    challenge: `Extract ALL risk/challenge details from the source. CRITICAL: Every numbered mitigation (1. 2. 3.), every bullet point, every named strategy must be its OWN highlight — NEVER merge.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "3-5 sentences describing the full context and stakes", "pullquote": "10-18 words sharpest insight", "highlights": [{ "title": "exact name of this risk/mitigation from source (3-6 words)", "subtitle": "2-3 sentences: what it means, its impact, and the specific action or resolution" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    approach: `Extract ALL approach/methodology details from source. Include every step, pillar, or strategy mentioned.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall approach", "pillars": [{"iconHint": "string", "name": "2-4 words — exact name from source", "description": "3-4 sentences: what this involves, how it works, and what it achieves"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     deliverables: `FIDELITY: Extract EVERY named deliverable from source individually. Use the EXACT deliverable name from source — do NOT paraphrase. If source has 10 deliverables, output 10 items.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
@@ -2372,10 +2382,16 @@ ROW TYPES — use these exact patterns:
     team: `{ "eyebrow": "4-8 words e.g. 'Meet the Team'", "headline": "8-12 words", "subheadline": "1-2 sentences or null", "members": [{ "name": "First Last", "role": "2-4 words, job title", "bio": "2-3 sentences, expertise and relevance to this engagement", "iconHint": "identity|strategy|research|digital|content|launch" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     casestudy: `{ "eyebrow": "4-8 words e.g. 'Case Study'", "headline": "8-14 words, the transformation story headline", "challenge": "3-5 sentences describing the client's core problem, context, and consequences", "solution": "3-5 sentences describing the approach, methodology, and what made it different", "outcome": "3-5 sentences describing measurable results and lasting impact", "metrics": [{ "value": "specific metric e.g. '3×' or '94%'", "label": "2-4 words, what was achieved" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     comparison: `{ "eyebrow": "4-8 words e.g. 'Why Choose Us'", "headline": "8-12 words", "subheadline": "1-2 sentences or null", "usLabel": "2-4 words, our name/label", "themLabel": "2-4 words, competitor label e.g. 'Others'", "rows": [{ "feature": "3-6 words, the capability being compared", "us": "Short value or '✓'", "them": "'✗' or a weaker value" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
-    generic: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-4 sentences", "highlights": [{ "title": "2-6 words", "subtitle": "1-2 sentences" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    generic: `Extract ALL details from this section's source content. Include every named item, point, or fact as a separate highlight.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "3-5 sentences covering the full context from the source", "highlights": [{ "title": "2-6 words — exact name/point from source", "subtitle": "2-3 sentences explaining what this means and why it matters" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
   };
 
-  const schema = sectionSchemas[type] ?? sectionSchemas.generic;
+  // Custom/unknown types get the generic schema but with heading-aware instruction
+  const isCustomType = !sectionSchemas[type];
+  const schema = isCustomType
+    ? `Extract ALL details from the "${heading}" section of the proposal. CRITICAL SPLITTING RULES: (1) Every numbered item (1. 2. 3.) becomes its own highlight. (2) Every bullet point becomes its own highlight. (3) Every named risk, mitigation strategy, or action becomes its own highlight. NEVER merge multiple items into one highlight — if source has 4 mitigations, output 4 highlights.
+{ "eyebrow": "4-8 words capturing the theme of this section", "headline": "8-12 words — the core message of this section", "body": "3-5 sentences covering the full context, stakes, and implications from the source", "highlights": [{ "title": "exact name of this specific item/risk/mitigation from source (3-6 words)", "subtitle": "2-3 sentences: what this specific item means, its impact, and what action is required" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`
+    : sectionSchemas[type];
 
   const fidelityBlock = `\n⚠️ CONTENT FIDELITY (non-negotiable): (1) NEVER invent numbers, percentages, metrics, prices, or figures — only use values that appear VERBATIM in the proposal. If no specific metric exists, describe qualitatively. (2) Use the EXACT names from the proposal for deliverables, phases, line items, people, and companies — do NOT paraphrase or rename. (3) Extract ALL items listed in the source individually — do NOT merge, compress, or drop any named item. (4) If the proposal has no relevant content for a field, leave it minimal or omit — never fabricate. (5) Testimonials: only include real quotes from source; if none exist, set items to [].`;
 
@@ -2715,7 +2731,7 @@ export class MicrositeGeneratorAgent implements Agent {
 
   async run(input: AgentInput): Promise<AgentOutput> {
     const meta = input.metadata ?? {};
-    const proposalMarkdown = (meta.proposalMarkdown as string | undefined) ?? '';
+    const proposalMarkdown = ((meta.proposalMarkdown as string | undefined) ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const namespace = input.namespace;
     const pdfFriendly = !!(meta.pdfFriendly as boolean | undefined);
     const rawInstructions = ((meta.customInstructions as string | undefined) ?? input.prompt ?? '').trim();
@@ -3549,6 +3565,10 @@ export class MicrositeGeneratorAgent implements Agent {
   }
 
   private extractSections(markdown: string): { name: string; content: string }[] {
+    // Normalize Windows CRLF → LF so regex anchors work correctly
+    // (\r is a LineTerminator in JS — `.` won't match it, breaking `^## (.+)$`)
+    markdown = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
     // Try heading levels in descending priority until we get ≥3 sections
     const tryExtract = (prefix: RegExp): { name: string; content: string }[] => {
       const lines = markdown.split('\n');

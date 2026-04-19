@@ -44,6 +44,9 @@ export function MicrositeNav({
   // so the hamburger works inside the editor's 375px preview pane.
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const navRef = useRef<HTMLElement>(null);
+  // Suppress IntersectionObserver active-state updates during programmatic scroll
+  const scrollingRef = useRef<boolean>(false);
+  const scrollingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     const el = navRef.current;
@@ -99,8 +102,8 @@ export function MicrositeNav({
               best = id;
             }
           });
-          // Always update — clears activeId when no sections are visible (e.g. at footer)
-          setActiveId(best);
+          // Suppress updates during programmatic scroll — prevents highlight jumping
+          if (!scrollingRef.current) setActiveId(best);
         },
         {
           root: container === document.documentElement ? null : container,
@@ -120,8 +123,14 @@ export function MicrositeNav({
     const el = document.getElementById(id);
     if (!el) return;
 
+    // Immediately highlight the tapped item and suppress IO updates during scroll
+    setActiveId(id);
+    scrollingRef.current = true;
+    clearTimeout(scrollingTimerRef.current);
+    scrollingTimerRef.current = setTimeout(() => { scrollingRef.current = false; }, 900);
+
     if (container === document.documentElement) {
-      el.scrollIntoView({ behavior: "smooth" });
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
       // Scroll within the container
       const containerTop = container.getBoundingClientRect().top;
@@ -165,12 +174,25 @@ export function MicrositeNav({
   }, {});
   const typeOccurrence: Record<string, number> = {};
 
+  function cleanNavHeading(heading: string): string {
+    return heading
+      // Strip common verbose prefixes: "Risk: Foo Bar" → "Foo Bar"
+      .replace(/^risk[:\s]+/i, '')
+      .replace(/^phase[:\s]+\d+[:\s]*/i, '')
+      .replace(/^step[:\s]+\d+[:\s]*/i, '')
+      .replace(/^section[:\s]+/i, '')
+      // Strip trailing colons/punctuation
+      .replace(/[:\s]+$/, '')
+      .trim();
+  }
+
   function navLabel(s: LayoutSection): string {
     const mapped = NAV_LABEL[s.sectionType];
     if (mapped && typeCounts[s.sectionType] === 1) return mapped;
-    // Multiple sections share this type — use the heading (or first 3 words of it)
+    // Multiple sections share this type — clean and shorten the heading
     if (s.heading) {
-      const words = s.heading.split(/\s+/).slice(0, 3).join(" ");
+      const cleaned = cleanNavHeading(s.heading);
+      const words = cleaned.split(/\s+/).slice(0, 3).join(" ");
       if (words) return words;
     }
     // Last resort: mapped label with a counter

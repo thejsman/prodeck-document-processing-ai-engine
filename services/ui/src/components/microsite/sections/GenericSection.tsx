@@ -20,9 +20,8 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
     ...(content.pillars ?? []).map(p => ({ title: p.name, subtitle: p.description })),
   ];
 
-  const isTwoPath = listItems.length === 2;
-  const hasRightPanel = listItems.length >= 3;
   const bgBase = index % 2 === 0 ? tokens.bg : tokens.surfaceAlt;
+  const hasItems = listItems.length > 0;
 
   return (
     <section
@@ -36,221 +35,172 @@ export function GenericSection({ content, tokens, imageUrl, index, sectionId }: 
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      {/* Decorative gradient orb */}
+      {/* Background watermark number */}
       <div style={{
-        position: 'absolute', top: '10%', right: '-8%',
-        width: 450, height: 450, borderRadius: '50%',
-        background: `radial-gradient(circle, ${tokens.accent}09 0%, transparent 70%)`,
-        pointerEvents: 'none', zIndex: 1,
+        position: 'absolute', bottom: '-2%', right: '2%',
+        fontFamily: `'${tokens.heroFont}', serif`,
+        fontSize: 'clamp(8rem, 18vw, 16rem)',
+        fontWeight: 900,
+        color: `${tokens.accent}06`,
+        lineHeight: 1,
+        pointerEvents: 'none', userSelect: 'none',
+        zIndex: 1,
+      }}>
+        {String(index + 1).padStart(2, '0')}
+      </div>
+
+      {/* Top accent line */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+        background: `linear-gradient(90deg, transparent, ${tokens.accent}40, transparent)`,
+        zIndex: 2,
       }} />
 
       <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
 
-        {/* Eyebrow */}
-        <Reveal>
-          <span style={{
-            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontSize: '0.68rem', fontWeight: 600,
-            letterSpacing: '0.14em', textTransform: 'uppercase' as const,
-            color: tokens.accent, display: 'block',
-            marginBottom: 'clamp(0.75rem, 1.5vw, 1rem)',
-          }}>
-            {content.eyebrow || 'Section'}
-          </span>
-        </Reveal>
+        {/* Header — centered */}
+        <div style={{ maxWidth: 720, margin: '0 auto 0', textAlign: 'center' }}>
+          <Reveal>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+              fontSize: '0.65rem', fontWeight: 700,
+              letterSpacing: '0.18em', textTransform: 'uppercase' as const,
+              color: tokens.accent,
+              marginBottom: 'clamp(0.75rem, 1.5vw, 1rem)',
+            }}>
+              <span style={{ width: 20, height: 1, background: tokens.accent, display: 'inline-block' }} />
+              {content.eyebrow || 'Overview'}
+              <span style={{ width: 20, height: 1, background: tokens.accent, display: 'inline-block' }} />
+            </span>
+          </Reveal>
 
-        {/* Headline + decorative underline */}
-        <div style={{ maxWidth: hasRightPanel ? '55%' : 720 }}>
           <Reveal delay={60}>
             <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
               <h2 style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
                 fontWeight: Number(tokens.heroWeight) || 700,
-                fontSize: 'clamp(1.2rem, 3vw, 2rem)',
+                fontSize: 'clamp(1.4rem, 3.2vw, 2.2rem)',
                 lineHeight: 1.12,
                 letterSpacing: '-0.02em',
                 color: tokens.text,
-                margin: '0 0 clamp(1rem, 2vw, 1.5rem)',
+                margin: '0 0 clamp(1.25rem, 2.5vw, 2rem)',
               }}>
                 {content.headline}
               </h2>
             </InlineEditable>
           </Reveal>
 
-          {/* Accent underline stripe */}
-          <Reveal delay={90}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              marginBottom: 'clamp(1.5rem, 3vw, 2.5rem)',
-            }}>
-              <div style={{ height: 2, width: 36, background: tokens.accent, borderRadius: 2 }} />
-              <div style={{ height: 2, width: 16, background: `${tokens.accent}50`, borderRadius: 2 }} />
-              <div style={{ height: 2, width: 8, background: `${tokens.accent}25`, borderRadius: 2 }} />
-            </div>
-          </Reveal>
-
-          <Reveal delay={130}>
-            <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-              <div style={{
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.9rem', lineHeight: 1.8,
-                color: tokens.textMuted,
-              }}>
-                {(content.body ?? '').split('\n\n').filter(Boolean).map((para, i) => (
-                  <p key={i} style={{ margin: i === 0 ? 0 : '1.1em 0 0' }}>{para}</p>
-                ))}
-              </div>
-            </InlineEditable>
-          </Reveal>
+          {content.body && (
+            <Reveal delay={100}>
+              <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+                <div style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '0.9rem', lineHeight: 1.85,
+                  color: tokens.textMuted,
+                  marginBottom: hasItems ? 'clamp(3rem, 6vw, 5rem)' : 0,
+                }}>
+                  {(content.body ?? '').split('\n\n').filter(Boolean).map((para, i) => (
+                    <p key={i} style={{ margin: i === 0 ? 0 : '1em 0 0' }}>{para}</p>
+                  ))}
+                </div>
+              </InlineEditable>
+            </Reveal>
+          )}
         </div>
 
-        {/* Right panel: 3+ items as premium cards */}
-        {hasRightPanel && (
+        {/* Items — 2-column numbered card grid */}
+        {hasItems && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(0,1fr) minmax(0,0.85fr)',
-            gap: 'clamp(3rem, 6vw, 6rem)',
-            alignItems: 'flex-start',
-            marginTop: 0,
+            gridTemplateColumns: listItems.length === 1 ? '1fr' : 'repeat(2, 1fr)',
+            gap: 'clamp(0.75rem, 2vw, 1.25rem)',
+            marginTop: content.body ? 0 : 'clamp(2.5rem, 5vw, 4rem)',
           }}>
-            <div />
-            <div>
-              <Reveal delay={160}>
-                <p style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '0.62rem', fontWeight: 600,
-                  letterSpacing: '0.14em', textTransform: 'uppercase' as const,
-                  color: tokens.textSubtle,
-                  margin: '0 0 clamp(0.75rem, 1.5vw, 1.25rem)',
-                }}>
-                  Key points
-                </p>
-              </Reveal>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {listItems.map((item, i) => (
-                  <Reveal key={i} delay={200 + i * 50}>
-                    <div style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 14,
-                      padding: '14px 18px',
-                      borderRadius: '0 10px 10px 0',
-                      borderLeft: `3px solid ${tokens.accent}`,
-                      background: `linear-gradient(90deg, ${tokens.accent}08, ${tokens.surfaceCard})`,
-                      boxShadow: `inset 0 0 0 1px ${tokens.border}`,
-                      transition: 'transform 0.15s',
-                    }}>
-                      {/* Dot */}
+            {listItems.map((item, i) => {
+              const isEven = i % 2 === 0;
+              return (
+                <Reveal key={i} delay={150 + i * 60}>
+                  <div style={{
+                    position: 'relative',
+                    padding: 'clamp(1.5rem, 3vw, 2rem)',
+                    borderRadius: tokens.borderRadius ?? '14px',
+                    background: isEven
+                      ? `linear-gradient(135deg, ${tokens.accent}0d, ${tokens.surfaceCard})`
+                      : tokens.surfaceCard,
+                    border: `1px solid ${isEven ? tokens.accent + '22' : tokens.border}`,
+                    boxShadow: isEven ? `0 4px 24px ${tokens.accent}0a, ${tokens.cardShadow ?? ''}` : tokens.cardShadow,
+                    overflow: 'hidden',
+                    transition: 'transform 0.18s, box-shadow 0.18s',
+                  }}>
+                    {/* Subtle corner glow on even cards */}
+                    {isEven && (
                       <div style={{
-                        flexShrink: 0, marginTop: 5,
-                        width: 6, height: 6, borderRadius: '50%',
-                        background: tokens.accent,
-                        boxShadow: `0 0 6px ${tokens.accent}60`,
+                        position: 'absolute', top: 0, right: 0,
+                        width: 100, height: 100,
+                        background: `radial-gradient(circle at top right, ${tokens.accent}14, transparent 70%)`,
+                        pointerEvents: 'none',
                       }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{
-                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                          fontWeight: 600, fontSize: '0.825rem',
-                          color: tokens.text, margin: 0, lineHeight: 1.4,
-                        }}>
-                          {item.title}
-                        </p>
-                        {item.subtitle && (
-                          <p style={{
-                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.8rem', color: tokens.textMuted,
-                            margin: '4px 0 0', lineHeight: 1.55,
-                          }}>
-                            {item.subtitle}
-                          </p>
-                        )}
-                      </div>
+                    )}
+
+                    {/* Item number badge */}
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 32, height: 32, borderRadius: '50%',
+                      background: `${tokens.accent}15`,
+                      border: `1px solid ${tokens.accent}30`,
+                      marginBottom: 'clamp(0.75rem, 1.5vw, 1rem)',
+                    }}>
+                      <span style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontSize: '0.65rem', fontWeight: 800,
+                        color: tokens.accent,
+                        letterSpacing: '0.05em',
+                      }}>
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
                     </div>
-                  </Reveal>
-                ))}
-              </div>
-            </div>
+
+                    <h3 style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontWeight: 700,
+                      fontSize: 'clamp(0.85rem, 1.4vw, 0.95rem)',
+                      color: tokens.text,
+                      margin: '0 0 clamp(0.5rem, 1vw, 0.75rem)',
+                      lineHeight: 1.35,
+                    }}>
+                      {item.title}
+                    </h3>
+
+                    {item.subtitle && (
+                      <p style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontSize: '0.82rem',
+                        color: tokens.textMuted,
+                        margin: 0,
+                        lineHeight: 1.7,
+                      }}>
+                        {item.subtitle}
+                      </p>
+                    )}
+                  </div>
+                </Reveal>
+              );
+            })}
           </div>
         )}
 
-        {/* Two-column path layout */}
-        {isTwoPath && (
-          <Reveal delay={200}>
+        {/* No items: image fallback */}
+        {!hasItems && imageUrl && (
+          <Reveal delay={180}>
             <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 1fr',
               marginTop: 'clamp(2.5rem, 5vw, 4rem)',
-              gap: 2,
-              borderRadius: tokens.borderRadius ?? '12px',
+              borderRadius: tokens.borderRadius ?? '14px',
               overflow: 'hidden',
               border: `1px solid ${tokens.border}`,
               boxShadow: tokens.cardShadow,
             }}>
-              {listItems.map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    position: 'relative',
-                    padding: 'clamp(1.5rem, 3vw, 2.5rem)',
-                    background: i === 0
-                      ? `linear-gradient(135deg, ${tokens.accent}10, ${tokens.surfaceCard})`
-                      : tokens.surfaceCard,
-                    borderRight: i === 0 ? `1px solid ${tokens.accent}25` : undefined,
-                    overflow: 'hidden',
-                  }}
-                >
-                  {/* Path number */}
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 8,
-                    padding: '4px 12px',
-                    borderRadius: 100,
-                    background: `${tokens.accent}12`,
-                    border: `1px solid ${tokens.accent}25`,
-                    marginBottom: 16,
-                  }}>
-                    <span style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.62rem', fontWeight: 700,
-                      letterSpacing: '0.1em', textTransform: 'uppercase' as const,
-                      color: tokens.accent,
-                    }}>
-                      Option {String(i + 1).padStart(2, '0')}
-                    </span>
-                  </div>
-
-                  <h3 style={{
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontWeight: 700, fontSize: '0.95rem',
-                    color: tokens.text, margin: '0 0 10px', lineHeight: 1.3,
-                  }}>
-                    {item.title}
-                  </h3>
-
-                  {item.subtitle && (
-                    <p style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.825rem', color: tokens.textMuted,
-                      margin: 0, lineHeight: 1.6,
-                    }}>
-                      {item.subtitle}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Reveal>
-        )}
-
-        {/* No items: image */}
-        {!hasRightPanel && !isTwoPath && imageUrl && (
-          <Reveal delay={220}>
-            <div style={{ marginTop: 'clamp(2rem, 4vw, 3rem)' }}>
-              <div style={{
-                borderRadius: tokens.borderRadius ?? '12px',
-                overflow: 'hidden',
-                border: `1px solid ${tokens.border}`,
-                boxShadow: tokens.cardShadow,
-              }}>
-                <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
-              </div>
+              <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
             </div>
           </Reveal>
         )}
