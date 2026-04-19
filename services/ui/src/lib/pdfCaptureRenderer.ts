@@ -66,6 +66,7 @@ function toProxyUrl(src: string): string {
  * Find every <img> in the cloned element whose src is a cross-origin URL,
  * fetch it through the proxy, and replace the src with a data URL so
  * html2canvas can draw it without CORS errors.
+ * Also handles lazy-loaded images where src is empty but data-src / data-lazy-src holds the URL.
  */
 async function inlineCloneImages(clone: HTMLElement): Promise<void> {
   const imgs = Array.from(clone.querySelectorAll<HTMLImageElement>('img'));
@@ -73,8 +74,10 @@ async function inlineCloneImages(clone: HTMLElement): Promise<void> {
 
   await Promise.allSettled(
     imgs.map(async img => {
-      const src = img.getAttribute('src') ?? '';
+      const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
       if (!src || src.startsWith('data:')) return; // nothing to do
+      // Ensure the resolved src is actually set on the element
+      if (!img.getAttribute('src') || img.getAttribute('src') !== src) img.src = src;
 
       try {
         const proxyUrl = toProxyUrl(src);
@@ -97,16 +100,14 @@ async function inlineCloneImages(clone: HTMLElement): Promise<void> {
   );
 }
 
-// Minimum scale ratio — never shrink content below this fraction.
-// If section is taller than CAPTURE_H / MIN_SCALE, we clip the bottom
-// rather than producing unreadably tiny text.
-const MIN_SCALE = 0.58;
+// Scale threshold: if the section fits within this ratio, scale-to-fit on one page.
+// Sections taller than CAPTURE_H / FIT_THRESHOLD get sliced across multiple pages
+// so no content is ever clipped.
+const FIT_THRESHOLD = 0.58;
 
 /**
- * Scale `src` canvas into a CAPTURE_W×CAPTURE_H slide canvas.
- * - If src fits within MIN_SCALE threshold → scale to fill slide height.
- * - If src is too tall (would go below MIN_SCALE) → render at MIN_SCALE and clip bottom.
- * Background filled with rootBg.
+ * Scale `src` canvas into a CAPTURE_W×CAPTURE_H slide canvas when it fits.
+ * Used only when naturalH <= CAPTURE_H / FIT_THRESHOLD (i.e. content fits on one page).
  */
 function scaleToSlide(src: HTMLCanvasElement, rootBg: string): HTMLCanvasElement {
   const slideW = Math.round(CAPTURE_W * 1.5);
@@ -117,18 +118,41 @@ function scaleToSlide(src: HTMLCanvasElement, rootBg: string): HTMLCanvasElement
   const ctx = out.getContext('2d')!;
   ctx.fillStyle = rootBg;
   ctx.fillRect(0, 0, slideW, slideH);
-
-  // Ideal ratio to fit full content in the slide
-  const idealRatio = slideH / src.height;
-
-  // If ideal ratio is above MIN_SCALE, scale to fit (nothing clipped)
-  // If below MIN_SCALE, use MIN_SCALE so text stays readable (bottom gets clipped)
-  const ratio = Math.max(idealRatio, MIN_SCALE);
+  const ratio = slideH / src.height; // always fits — no MIN_SCALE needed
   const dw = Math.round(src.width * ratio);
   const dh = Math.round(src.height * ratio);
   const dx = Math.round((slideW - dw) / 2);
   ctx.drawImage(src, dx, 0, dw, dh);
   return out;
+}
+
+/**
+ * Slice a tall full-height canvas into CAPTURE_H-tall page chunks.
+ * Each chunk is a clean 1.5x-scaled canvas ready for jsPDF.
+ * Adds a subtle 4px overlap between pages so content at the boundary is
+ * never cut mid-pixel, giving neat clean page breaks.
+ */
+function sliceIntoPages(src: HTMLCanvasElement, rootBg: string): HTMLCanvasElement[] {
+  const slideW = Math.round(CAPTURE_W * 1.5);
+  const slideH = Math.round(CAPTURE_H * 1.5);
+  // Overlap: repeat 4px of the previous page at the top of the next page
+  // so cuts never fall exactly on a rendered element edge.
+  const OVERLAP_PX = 4;
+  const pages: HTMLCanvasElement[] = [];
+  let sy = 0;
+  while (sy < src.height) {
+    const out = document.createElement('canvas');
+    out.width = slideW;
+    out.height = slideH;
+    const ctx = out.getContext('2d')!;
+    ctx.fillStyle = rootBg;
+    ctx.fillRect(0, 0, slideW, slideH);
+    // Draw the slice: src row sy..sy+slideH → dest row 0..slideH
+    ctx.drawImage(src, 0, sy, slideW, slideH, 0, 0, slideW, slideH);
+    pages.push(out);
+    sy += slideH - OVERLAP_PX;
+  }
+  return pages;
 }
 
 export async function generateCapturePDF(
@@ -284,6 +308,21 @@ export async function generateCapturePDF(
           el.style.animation = 'none';
         });
 
+        // Replace <canvas> elements with static <img> snapshots — html2canvas skips canvas
+        // elements, leaving white boxes for charts/diagrams. Capturing toDataURL first
+        // preserves the rendered content.
+        clone.querySelectorAll<HTMLCanvasElement>('canvas').forEach(c => {
+          try {
+            const img = document.createElement('img');
+            img.src = c.toDataURL('image/png');
+            img.style.cssText = c.style.cssText;
+            img.style.display = 'block';
+            img.width = c.width;
+            img.height = c.height;
+            c.parentNode?.replaceChild(img, c);
+          } catch { /* tainted canvas (cross-origin data) — leave as-is */ }
+        });
+
         // Replace all <img> src with data URLs fetched via proxy — eliminates CORS errors
         await inlineCloneImages(clone);
 
@@ -315,6 +354,21 @@ export async function generateCapturePDF(
           if (mb > 40) el.style.marginBottom = '16px';
         });
 
+        // ── Fix CSS-class gradient text (bg-clip-text / text-transparent) ─────────
+        // The inline-style pass above catches React inline styles. This computed pass
+        // catches Tailwind/CSS-class-based gradient text where computed color resolves
+        // to transparent — without this fix those headings are invisible in the PDF.
+        clone.querySelectorAll<HTMLElement>('*').forEach(el => {
+          const computed = getComputedStyle(el);
+          const c = computed.color;
+          if (c === 'rgba(0, 0, 0, 0)' || c === 'transparent') {
+            el.style.color = '#e6edf3';
+            el.style.backgroundClip = '';
+            el.style.webkitBackgroundClip = '';
+            (el.style as unknown as Record<string, string>).webkitTextFillColor = '';
+          }
+        });
+
         // Measure from the clone itself (not wrapper) so SVG/diagram children are included.
         // scrollHeight misses SVG height; getBoundingClientRect is reliable for rendered height.
         const cloneRect = clone.getBoundingClientRect();
@@ -336,10 +390,15 @@ export async function generateCapturePDF(
           clone.style.backgroundPosition = 'center center';
         }
 
+        // Three cases by natural height:
+        //   A. naturalH ≤ CAPTURE_H           → short: one page, vertically padded
+        //   B. CAPTURE_H < naturalH ≤ MAX_FIT  → medium: capture full height, scale to fit one page
+        //   C. naturalH > MAX_FIT              → tall: capture full height, slice into multiple pages
+        // MAX_FIT = CAPTURE_H / FIT_THRESHOLD ≈ 1241px
+        const MAX_FIT = CAPTURE_H / FIT_THRESHOLD;
+
         if (naturalH <= CAPTURE_H) {
-          // ── Short section: align to top with proportional padding ────────────
-          // Dead-center leaves too much empty space; top-align with 8% padding
-          // looks like a proper slide with breathing room.
+          // ── Case A: short section — one page with breathing room ─────────────
           const topPad = sectionHasImageBg ? 0 : Math.round((CAPTURE_H - naturalH) * 0.25);
           const wrapper = document.createElement('div');
           wrapper.style.cssText = [
@@ -359,7 +418,7 @@ export async function generateCapturePDF(
           host.appendChild(wrapper);
           await nextFrame();
 
-          finalCanvas = await h2canvas(wrapper, {
+          const pageCanvas = await h2canvas(wrapper, {
             scale: 1.5,
             width: CAPTURE_W,
             height: CAPTURE_H,
@@ -367,9 +426,44 @@ export async function generateCapturePDF(
             logging: false,
             backgroundColor: rootBg,
           });
+          const imgData = pageCanvas.toDataURL('image/jpeg', quality);
+          if (i > 0) pdf.addPage([PDF_W_PT, PDF_H_PT], 'landscape');
+          pdf.addImage(imgData, 'JPEG', 0, 0, PDF_W_PT, PDF_H_PT, '', 'FAST');
+
+        } else if (naturalH <= MAX_FIT) {
+          // ── Case B: medium section — capture full height, scale down to one page ─
+          // Content fits when scaled, text remains readable (ratio ≥ FIT_THRESHOLD).
+          const captureH = Math.ceil(naturalH);
+          const wrapper = document.createElement('div');
+          wrapper.style.cssText = [
+            `width:${CAPTURE_W}px`,
+            `height:${captureH}px`,
+            `overflow:visible`,
+            `background:${sectionHasImageBg ? 'transparent' : rootBg}`,
+            `position:relative`,
+          ].join(';');
+          wrapper.appendChild(clone);
+          host.innerHTML = '';
+          host.appendChild(wrapper);
+          await nextFrame();
+
+          const fullCanvas = await h2canvas(wrapper, {
+            scale: 1.5,
+            width: CAPTURE_W,
+            height: captureH,
+            useCORS: true,
+            logging: false,
+            backgroundColor: rootBg,
+          });
+          const scaled = scaleToSlide(fullCanvas, rootBg);
+          const imgData = scaled.toDataURL('image/jpeg', quality);
+          if (i > 0) pdf.addPage([PDF_W_PT, PDF_H_PT], 'landscape');
+          pdf.addImage(imgData, 'JPEG', 0, 0, PDF_W_PT, PDF_H_PT, '', 'FAST');
 
         } else {
-          // ── Tall section: capture full height, then scale down to fit ─────────
+          // ── Case C: tall section — capture full height, slice into clean pages ──
+          // Each page is a 1:1 crop at full resolution — no scaling, no clipping.
+          // A 4px pixel overlap between pages prevents cuts at element boundaries.
           const captureH = Math.ceil(naturalH);
           const wrapper = document.createElement('div');
           wrapper.style.cssText = [
@@ -393,12 +487,13 @@ export async function generateCapturePDF(
             backgroundColor: rootBg,
           });
 
-          finalCanvas = scaleToSlide(fullCanvas, rootBg);
+          const pages = sliceIntoPages(fullCanvas, rootBg);
+          for (let p = 0; p < pages.length; p++) {
+            const imgData = pages[p].toDataURL('image/jpeg', quality);
+            if (i > 0 || p > 0) pdf.addPage([PDF_W_PT, PDF_H_PT], 'landscape');
+            pdf.addImage(imgData, 'JPEG', 0, 0, PDF_W_PT, PDF_H_PT, '', 'FAST');
+          }
         }
-
-        const imgData = finalCanvas.toDataURL('image/jpeg', quality);
-        if (i > 0) pdf.addPage([PDF_W_PT, PDF_H_PT], 'landscape');
-        pdf.addImage(imgData, 'JPEG', 0, 0, PDF_W_PT, PDF_H_PT, '', 'FAST');
       }
     } finally {
       document.body.removeChild(host);

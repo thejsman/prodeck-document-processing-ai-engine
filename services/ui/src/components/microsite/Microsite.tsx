@@ -777,6 +777,18 @@ ${el.innerHTML}
     setDownloadingPdf(true);
     setPdfProgress(0);
     setPdfProgressMsg('Starting…');
+
+    // Force all animated section wrappers visible before capture.
+    // AnimatedSection sets opacity:0 / translateY on sections not yet scrolled into view —
+    // the clone copies those inline styles, producing invisible slides in the PDF.
+    type SavedStyle = { el: HTMLElement; opacity: string; transform: string };
+    const savedStyles: SavedStyle[] = [];
+    content.querySelectorAll<HTMLElement>('[data-section-id]').forEach(el => {
+      savedStyles.push({ el, opacity: el.style.opacity, transform: el.style.transform });
+      el.style.opacity = '1';
+      el.style.transform = 'none';
+    });
+
     try {
       const { generateCapturePDF } = await import('../../lib/pdfCaptureRenderer');
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
@@ -796,6 +808,11 @@ ${el.innerHTML}
       console.error('PDF download failed:', err);
       setPdfProgressMsg('Download failed');
     } finally {
+      // Restore animated section styles so the UI looks normal after download
+      savedStyles.forEach(({ el, opacity, transform }) => {
+        el.style.opacity = opacity;
+        el.style.transform = transform;
+      });
       setDownloadingPdf(false);
     }
   };
