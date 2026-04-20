@@ -100,10 +100,12 @@ async function inlineCloneImages(clone: HTMLElement): Promise<void> {
   );
 }
 
-// Scale threshold: if the section fits within this ratio, scale-to-fit on one page.
-// Sections taller than CAPTURE_H / FIT_THRESHOLD get sliced across multiple pages
-// so no content is ever clipped.
-const FIT_THRESHOLD = 0.58;
+// Scale threshold: if the section's natural height * FIT_THRESHOLD ≤ CAPTURE_H, it fits
+// scaled on one page. Sections taller than CAPTURE_H / FIT_THRESHOLD get sliced.
+// Keep this LOW (0.28) so nearly all sections — including tall generic/stepped variants
+// with 6+ items — scale-to-fit on one slide rather than being pixel-sliced mid-card.
+// Only truly extreme sections (> ~2570px) will slice, and even those get sliced cleanly.
+const FIT_THRESHOLD = 0.28;
 
 /**
  * Scale `src` canvas into a CAPTURE_W×CAPTURE_H slide canvas when it fits.
@@ -118,40 +120,133 @@ function scaleToSlide(src: HTMLCanvasElement, rootBg: string): HTMLCanvasElement
   const ctx = out.getContext('2d')!;
   ctx.fillStyle = rootBg;
   ctx.fillRect(0, 0, slideW, slideH);
-  const ratio = slideH / src.height; // always fits — no MIN_SCALE needed
+  // Scale to fit within the slide (fit-contain: respect both W and H)
+  const ratioH = slideH / src.height;
+  const ratioW = slideW / src.width;
+  const ratio = Math.min(ratioH, ratioW);
   const dw = Math.round(src.width * ratio);
   const dh = Math.round(src.height * ratio);
   const dx = Math.round((slideW - dw) / 2);
-  ctx.drawImage(src, dx, 0, dw, dh);
+  const dy = Math.round((slideH - dh) / 2);
+  ctx.drawImage(src, dx, dy, dw, dh);
   return out;
 }
 
 /**
+ * Parse a CSS color string (rgb/rgba/hex) into [r, g, b] components.
+ */
+function parseBgColor(color: string): [number, number, number] {
+  const rgba = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgba) return [parseInt(rgba[1]), parseInt(rgba[2]), parseInt(rgba[3])];
+  const hex = color.replace('#', '');
+  if (hex.length === 3) {
+    return [
+      parseInt(hex[0] + hex[0], 16),
+      parseInt(hex[1] + hex[1], 16),
+      parseInt(hex[2] + hex[2], 16),
+    ];
+  }
+  if (hex.length >= 6) {
+    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+  }
+  return [13, 17, 23]; // dark fallback
+}
+
+/**
+ * Check if a horizontal pixel row in the canvas is "background-like":
+ * at least 85% of pixels are within ±30 of the rootBg color.
+ * Used to find natural gap rows between cards for smart page breaks.
+ */
+function isBackgroundRow(data: Uint8ClampedArray, y: number, width: number, bg: [number, number, number]): boolean {
+  const [br, bg2, bb] = bg;
+  let matches = 0;
+  const step = Math.max(1, Math.floor(width / 80)); // sample ~80 pixels per row
+  let sampled = 0;
+  for (let x = 0; x < width; x += step) {
+    const idx = (y * width + x) * 4;
+    const dr = Math.abs(data[idx] - br);
+    const dg = Math.abs(data[idx + 1] - bg2);
+    const db = Math.abs(data[idx + 2] - bb);
+    if (dr + dg + db < 90) matches++;
+    sampled++;
+  }
+  return matches / sampled >= 0.85;
+}
+
+/**
+ * Find the best row to cut at, starting from `nominalY` and scanning ±SEARCH_PX
+ * for a background-like row. Returns `nominalY` if no better row found.
+ */
+function findCutRow(
+  data: Uint8ClampedArray,
+  nominalY: number,
+  width: number,
+  height: number,
+  bg: [number, number, number],
+): number {
+  const SEARCH_PX = 120; // scan ±120px from nominal cut point
+  const lo = Math.max(0, nominalY - SEARCH_PX);
+  const hi = Math.min(height - 1, nominalY + SEARCH_PX);
+
+  // Prefer rows closest to nominalY — spiral outward from center
+  for (let delta = 0; delta <= SEARCH_PX; delta++) {
+    const above = nominalY - delta;
+    const below = nominalY + delta;
+    if (above >= lo && isBackgroundRow(data, above, width, bg)) return above;
+    if (below <= hi && below !== above && isBackgroundRow(data, below, width, bg)) return below;
+  }
+  return nominalY;
+}
+
+/**
  * Slice a tall full-height canvas into CAPTURE_H-tall page chunks.
- * Each chunk is a clean 1.5x-scaled canvas ready for jsPDF.
- * Adds a subtle 4px overlap between pages so content at the boundary is
- * never cut mid-pixel, giving neat clean page breaks.
+ * Smart slicing: instead of cutting at fixed pixel intervals, scans ±120px
+ * around each nominal cut point to find a background-colored row (gap between
+ * cards), so cuts never land mid-element.
  */
 function sliceIntoPages(src: HTMLCanvasElement, rootBg: string): HTMLCanvasElement[] {
   const slideW = Math.round(CAPTURE_W * 1.5);
   const slideH = Math.round(CAPTURE_H * 1.5);
-  // Overlap: repeat 4px of the previous page at the top of the next page
-  // so cuts never fall exactly on a rendered element edge.
-  const OVERLAP_PX = 4;
+  const bg = parseBgColor(rootBg);
+
+  // Read pixel data once for cut-point detection
+  const scanCanvas = document.createElement('canvas');
+  scanCanvas.width = src.width;
+  scanCanvas.height = src.height;
+  const scanCtx = scanCanvas.getContext('2d')!;
+  scanCtx.drawImage(src, 0, 0);
+  const pixelData = scanCtx.getImageData(0, 0, src.width, src.height).data;
+
   const pages: HTMLCanvasElement[] = [];
   let sy = 0;
+
   while (sy < src.height) {
+    const nominalEnd = sy + slideH;
+    // Find the best cut row near the nominal end of this page
+    const cutY = nominalEnd >= src.height
+      ? src.height
+      : findCutRow(pixelData, nominalEnd, src.width, src.height, bg);
+
+    const chunkH = Math.min(cutY - sy, src.height - sy);
+    if (chunkH <= 0) break;
+
     const out = document.createElement('canvas');
     out.width = slideW;
     out.height = slideH;
     const ctx = out.getContext('2d')!;
     ctx.fillStyle = rootBg;
     ctx.fillRect(0, 0, slideW, slideH);
-    // Draw the slice: src row sy..sy+slideH → dest row 0..slideH
-    ctx.drawImage(src, 0, sy, slideW, slideH, 0, 0, slideW, slideH);
+
+    // Scale this chunk to fill the slide width, anchored at top
+    const scaleRatio = slideW / src.width;
+    const destH = Math.round(chunkH * scaleRatio);
+    const destY = 0; // top-aligned on slide
+    ctx.drawImage(src, 0, sy, src.width, chunkH, 0, destY, slideW, destH);
+
     pages.push(out);
-    sy += slideH - OVERLAP_PX;
+    sy = cutY;
   }
+
   return pages;
 }
 

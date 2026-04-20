@@ -360,6 +360,7 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
 - CRITICAL: Each source heading becomes its OWN separate plan entry. NEVER combine two source headings into one plan entry.
 - TYPE SELECTION RULE: Pick the most semantically accurate type for each heading. You are NOT limited to the predefined list — if a heading doesn't fit a predefined type well, OR would duplicate a type already used, invent a concise descriptive type name (lowercase, hyphenated, 2-4 words e.g. "risk-profile", "risk-communication", "market-context", "compliance-overview", "platform-overview"). Custom types render as rich generic sections — use them freely.
 - PREDEFINED TYPES (use when they fit precisely): hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, casestudy, comparison, metrics, security, techstack, testing, generic.
+- SHALLOW TYPE WARNING — NEVER use these types for content-heavy proposal sections: "showcase" is for portfolio/visual galleries only — NEVER use it for "Proposed Solution", "Technical Approach", "Methodology", or any section with detailed written content. "benefits" is for short value-prop bullet lists only. "stats" requires real numeric data in the source. If a section has detailed written content (paragraphs, lists of steps, objectives, or strategies), use "approach", "deliverables", "generic", or a custom type instead.
 - DUPLICATE TYPE RULE: If you already assigned type "challenge" to one heading and another heading is also challenge-like, give the second one a custom descriptive type like "risk-communication" or "risk-pricing" — do NOT reuse the same predefined type OR force it into an unrelated predefined type (never use "showcase" for a risk section, never use "benefits" for a risk section).
 - If after mapping all proposal headings the total is below 7, add AI-generated sections (set aiGenerated: true) using the most relevant types derived from the proposal content.
 - CONTENT-FIRST: never compress, merge, or drop unique proposal sections.
@@ -367,7 +368,7 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
 HEADING → TYPE MAPPING EXAMPLES:
 - "Executive Summary", "Introduction", "About This Proposal" → hero
 - "The Problem", "Pain Points", "The Challenge", "Context" → challenge
-- "Our Approach", "Methodology", "Proposed Solution" → approach
+- "Our Approach", "Methodology", "Proposed Solution", "Technical Approach", "Solution Overview" → approach
 - "Scope of Work", "Deliverables", "What You Get" → deliverables
 - "Timeline", "Phases", "Roadmap", "Milestones" → timeline
 - "Investment", "Pricing", "Budget", "Cost" → pricing
@@ -2368,7 +2369,8 @@ ROW TYPES — use these exact patterns:
     approval: `{ "eyebrow": "3-6 words e.g. Approve This Proposal", "headline": "6-10 words e.g. Ready to Move Forward?", "subheadline": "2-3 sentences about signing off and what happens next", "termsText": "2-4 sentences of terms grounded in proposal scope and payment terms", "ctaLabel": "3-5 words e.g. Approve Proposal", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "verbatim or near-verbatim quote from source — only if real quote exists", "name": "real name from source", "title": "job title from source", "company": "company from source"}], "diagram": null }`,
-    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills"], "imageQuery": "Unsplash query" }`,
+    showcase: `Extract ALL key details from the source. For each distinct point, feature, or capability, create a separate highlight.
+{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "3-5 sentences covering the full context and value proposition from the source", "highlights": [{ "title": "2-5 words — exact name/feature from source", "subtitle": "2-3 sentences explaining what this means and why it matters" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}] }`,
     problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query" }`,
     stats: `FIDELITY: Only use numbers, percentages, or figures that appear VERBATIM in the source. NEVER invent metrics. If fewer than 3 real metrics exist, output only what exists.
