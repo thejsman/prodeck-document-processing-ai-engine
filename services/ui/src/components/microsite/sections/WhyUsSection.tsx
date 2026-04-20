@@ -62,6 +62,7 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
             display: 'grid',
             gridTemplateColumns: `repeat(${Math.min(stats.length || 1, 4)}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2vw, 2rem)',
+            alignItems: 'stretch',
           }}
         >
           {stats.map((stat, si) => (
@@ -76,6 +77,8 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
                     background: tokens.surfaceCard,
                     position: 'relative',
                     overflow: 'hidden',
+                    height: '100%',
+                    boxSizing: 'border-box',
                   }}
                 >
                   <div style={{

@@ -78,7 +78,7 @@ export function FaqSection({ content, tokens }: Props) {
         )}
 
         {variant === 'two-column' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 'clamp(1rem, 2vw, 1.5rem)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 'clamp(1rem, 2vw, 1.5rem)', alignItems: 'stretch' }}>
             {items.map((item, i) => (
               <Reveal key={i} delay={160 + i * 60}>
                 <InlineArrayItem arrayPath="items" index={i} total={items.length}>
@@ -90,6 +90,8 @@ export function FaqSection({ content, tokens }: Props) {
                     background: `linear-gradient(145deg, ${tokens.surfaceCard}, ${tokens.surface})`,
                     boxShadow: tokens.cardShadow,
                     overflow: 'hidden',
+                    height: '100%',
+                    boxSizing: 'border-box',
                   }}>
                     {/* Number badge */}
                     <div style={{

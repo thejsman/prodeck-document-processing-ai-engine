@@ -56,6 +56,7 @@ export function TechStackSection({ content, tokens }: Props) {
             display: 'grid',
             gridTemplateColumns: 'repeat(2, 1fr)',
             gap: 'clamp(1.5rem, 3vw, 2rem)',
+            alignItems: 'stretch',
           }}
         >
           {categories.map((category, ci) => (

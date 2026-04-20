@@ -59,10 +59,10 @@ function VariantGrid({ content, tokens, listItems, index }: {
         </div>
         {/* 2-col card grid */}
         {listItems.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: listItems.length === 1 ? '1fr' : 'repeat(2,1fr)', gap: 'clamp(0.75rem,2vw,1.25rem)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: listItems.length === 1 ? '1fr' : 'repeat(2,1fr)', gap: 'clamp(0.75rem,2vw,1.25rem)', alignItems: 'stretch' }}>
             {listItems.map((item, i) => (
-              <Reveal key={i} delay={150 + i * 60}>
-                <div style={{ position: 'relative', padding: 'clamp(1.5rem,3vw,2rem)', borderRadius: tokens.borderRadius ?? '14px', background: i % 2 === 0 ? `linear-gradient(135deg,${tokens.accent}0d,${tokens.surfaceCard})` : tokens.surfaceCard, border: `1px solid ${i % 2 === 0 ? tokens.accent + '22' : tokens.border}`, boxShadow: i % 2 === 0 ? `0 4px 24px ${tokens.accent}0a` : tokens.cardShadow, overflow: 'hidden' }}>
+              <Reveal key={i} delay={150 + i * 60} style={{ height: '100%' }}>
+                <div style={{ position: 'relative', padding: 'clamp(1.5rem,3vw,2rem)', borderRadius: tokens.borderRadius ?? '14px', background: i % 2 === 0 ? `linear-gradient(135deg,${tokens.accent}0d,${tokens.surfaceCard})` : tokens.surfaceCard, border: `1px solid ${i % 2 === 0 ? tokens.accent + '22' : tokens.border}`, boxShadow: i % 2 === 0 ? `0 4px 24px ${tokens.accent}0a` : tokens.cardShadow, overflow: 'hidden', height: '100%', boxSizing: 'border-box' }}>
                   {i % 2 === 0 && <div style={{ position: 'absolute', top: 0, right: 0, width: 100, height: 100, background: `radial-gradient(circle at top right,${tokens.accent}14,transparent 70%)`, pointerEvents: 'none' }} />}
                   <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: '50%', background: `${tokens.accent}15`, border: `1px solid ${tokens.accent}30`, marginBottom: '0.85rem' }}>
                     <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.6rem', fontWeight: 800, color: tokens.accent }}>{String(i + 1).padStart(2, '0')}</span>
@@ -244,10 +244,10 @@ function VariantSpotlight({ content, tokens, listItems }: {
       )}
       {/* Remaining items in a row */}
       {rest.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(rest.length, 3)},1fr)`, gap: 'clamp(0.75rem,1.5vw,1rem)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(rest.length, 3)},1fr)`, gap: 'clamp(0.75rem,1.5vw,1rem)', alignItems: 'stretch' }}>
           {rest.map((item, i) => (
-            <Reveal key={i} delay={200 + i * 55}>
-              <div style={{ padding: 'clamp(1.25rem,2.5vw,1.75rem)', borderRadius: tokens.borderRadius ?? '12px', background: tokens.surfaceCard, border: `1px solid ${tokens.border}`, boxShadow: tokens.cardShadow }}>
+            <Reveal key={i} delay={200 + i * 55} style={{ height: '100%' }}>
+              <div style={{ padding: 'clamp(1.25rem,2.5vw,1.75rem)', borderRadius: tokens.borderRadius ?? '12px', background: tokens.surfaceCard, border: `1px solid ${tokens.border}`, boxShadow: tokens.cardShadow, height: '100%', boxSizing: 'border-box' }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: '0.75rem' }}>
                   <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.6rem', fontWeight: 800, color: tokens.accent }}>{String(i + 2).padStart(2, '0')}</span>
                   <div style={{ height: 1, width: 16, background: `${tokens.accent}50` }} />

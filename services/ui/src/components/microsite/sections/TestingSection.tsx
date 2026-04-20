@@ -59,6 +59,7 @@ export function TestingSection({ content, tokens }: Props) {
             gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))`,
             gap: 'clamp(1rem, 2.5vw, 1.5rem)',
             marginBottom: 'clamp(2rem, 4vw, 3rem)',
+            alignItems: 'stretch',
           }}
         >
           {sortedLayers.map((layer, li) => {
@@ -79,6 +80,8 @@ export function TestingSection({ content, tokens }: Props) {
                       background: `${tokens.accent}0f`,
                       border: `1px solid ${tokens.border}`,
                       gap: 12,
+                      height: '100%',
+                      boxSizing: 'border-box',
                     }}
                   >
                     {/* Coverage number */}
@@ -169,6 +172,7 @@ export function TestingSection({ content, tokens }: Props) {
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
               gap: 'clamp(1rem, 2vw, 1.5rem)',
+              alignItems: 'stretch',
             }}
           >
             {additionalInfo.map((info, ai) => (
@@ -180,6 +184,8 @@ export function TestingSection({ content, tokens }: Props) {
                       borderRadius: 12,
                       border: `1px solid ${tokens.border}`,
                       textAlign: 'center',
+                      height: '100%',
+                      boxSizing: 'border-box',
                     }}
                   >
                     <InlineEditable field={`additionalInfo.${ai}.heading`} label="Heading" value={info.heading ?? ''}>

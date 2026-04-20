@@ -73,6 +73,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
             gap: 'clamp(1rem, 2vw, 1.5rem)',
+            alignItems: 'stretch',
           }}
         >
           {items.map((item, ii) => (
@@ -145,6 +146,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                     boxShadow: tokens.cardShadow,
                     display: 'flex', flexDirection: 'column', gap: 14,
                     overflow: 'hidden',
+                    height: '100%',
                   }}>
                     {/* Corner accent */}
                     <div style={{
