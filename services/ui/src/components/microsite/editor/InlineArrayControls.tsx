@@ -19,14 +19,81 @@ interface ItemProps {
   index: number;
   total: number;
   children: React.ReactNode;
+  /** Override the wrapper element — use "tr" when the child is a <tr> inside a table */
+  as?: 'div' | 'tr';
 }
 
-export function InlineArrayItem({ arrayPath, index, total, children }: ItemProps) {
+export function InlineArrayItem({ arrayPath, index, total, children, as: Tag = 'div' }: ItemProps) {
   const ctx = useEditContext();
   const sectionId = useSectionId();
   const [hovered, setHovered] = useState(false);
 
   if (!ctx || !sectionId) return <>{children}</>;
+
+  // Controls are rendered inside a <td> when wrapping a <tr> to keep valid HTML
+  const controls = hovered ? (
+    <div
+      style={{
+        position: 'absolute',
+        top: 6,
+        right: 6,
+        zIndex: 10000,
+        display: 'flex',
+        gap: 3,
+        alignItems: 'center',
+      }}
+      onClick={e => e.stopPropagation()}
+    >
+      {index > 0 && (
+        <button
+          title="Move up"
+          onClick={() => ctx.moveArrayItem(sectionId, arrayPath, index, index - 1)}
+          style={chipStyle}
+        >↑</button>
+      )}
+      {index < total - 1 && (
+        <button
+          title="Move down"
+          onClick={() => ctx.moveArrayItem(sectionId, arrayPath, index, index + 1)}
+          style={chipStyle}
+        >↓</button>
+      )}
+      <button
+        title="Remove item"
+        onClick={() => ctx.removeArrayItem(sectionId, arrayPath, index)}
+        style={{ ...chipStyle, background: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }}
+      >×</button>
+    </div>
+  ) : null;
+
+  if (Tag === 'tr') {
+    return (
+      <>
+        {/* Clone children (the <tr>) and inject hover handlers via a wrapping approach:
+            since we can't add onMouseEnter to a fragment, we render a sibling <tr>
+            for the controls and use CSS :hover on the parent tbody via onMouseEnter on the tr itself.
+            Instead, we just pass hover state directly onto the tr via cloneElement. */}
+        <tr
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={{ position: 'relative' }}
+        >
+          {/* Render the original tr's children by unwrapping — children IS the <tr> so render its props */}
+          {(children as React.ReactElement<{ children?: React.ReactNode }>).props.children}
+          {hovered && (
+            <td style={{ position: 'relative', width: 0, padding: 0, overflow: 'visible' }}>
+              <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 10000, display: 'flex', gap: 3 }}
+                onClick={e => e.stopPropagation()}>
+                {index > 0 && <button title="Move up" onClick={() => ctx.moveArrayItem(sectionId, arrayPath, index, index - 1)} style={chipStyle}>↑</button>}
+                {index < total - 1 && <button title="Move down" onClick={() => ctx.moveArrayItem(sectionId, arrayPath, index, index + 1)} style={chipStyle}>↓</button>}
+                <button title="Remove item" onClick={() => ctx.removeArrayItem(sectionId, arrayPath, index)} style={{ ...chipStyle, background: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }}>×</button>
+              </div>
+            </td>
+          )}
+        </tr>
+      </>
+    );
+  }
 
   return (
     <div
@@ -35,41 +102,7 @@ export function InlineArrayItem({ arrayPath, index, total, children }: ItemProps
       style={{ position: 'relative' }}
     >
       {children}
-
-      {hovered && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 6,
-            right: 6,
-            zIndex: 10000,
-            display: 'flex',
-            gap: 3,
-            alignItems: 'center',
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          {index > 0 && (
-            <button
-              title="Move up"
-              onClick={() => ctx.moveArrayItem(sectionId, arrayPath, index, index - 1)}
-              style={chipStyle}
-            >↑</button>
-          )}
-          {index < total - 1 && (
-            <button
-              title="Move down"
-              onClick={() => ctx.moveArrayItem(sectionId, arrayPath, index, index + 1)}
-              style={chipStyle}
-            >↓</button>
-          )}
-          <button
-            title="Remove item"
-            onClick={() => ctx.removeArrayItem(sectionId, arrayPath, index)}
-            style={{ ...chipStyle, background: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }}
-          >×</button>
-        </div>
-      )}
+      {controls}
     </div>
   );
 }

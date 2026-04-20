@@ -257,6 +257,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               arrayPath="rows"
                               index={globalIdx}
                               total={rows.length}
+                              as="tr"
                             >
                               <tr
                                 style={{
