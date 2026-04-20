@@ -373,7 +373,7 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
     ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 800)}\n`
     : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 800)}\n` : '');
   const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
-  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Design a curated, high-impact presentation microsite from this proposal. Quality beats quantity — 7 excellent sections outperform 18 mediocre ones every time.
+  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Design a curated, high-impact presentation microsite from this proposal. Quality beats quantity — 8 excellent sections outperform 18 mediocre ones every time.
 ${styleHint}
 SECTION ARCHITECTURE (NON-NEGOTIABLE):
 
@@ -386,12 +386,16 @@ REQUIRED sections — always include all 7, in this order:
   6. pricing    (investment and payment schedule)
   7. nextsteps  (last — always, the conversion closer)
 
-OPTIONAL section — include ONLY if proposal contains a named past success, specific differentiator, or measurable client outcome (NOT generic "we are experienced" claims):
-  8. whyus      (must be placed between timeline and pricing when included)
+OPTIONAL sections — include ONLY if the proposal contains rich, distinct content for each:
+  8. whyus        (must be placed between timeline and pricing when included)
+  9. testimonials (include ONLY when the proposal source contains actual named client quotes, reviews, or feedback — place after whyus. If no real quotes exist, omit entirely)
+  10-15. metrics, benefits, stats, team, faq, casestudy, comparison — add ONLY when the proposal has substantial, unique content for them. Never invent or pad.
 
-HARD LIMIT: Maximum 8 sections. No custom types. No additional sections.
+SECTION COUNT: Minimum 8 sections (all 7 required + at least whyus when eligible). Maximum 15 sections. If user instructions specify a count, follow exactly within this range.
 
-CONSOLIDATION RULES — map ALL proposal content into the 8 canonical sections above:
+DO NOT include approval sections under any circumstances.
+
+CONSOLIDATION RULES — map ALL proposal content into canonical sections above:
 - "Objectives", "Goals", "Project Objectives", "Benefits", "Value Proposition" → fold into hero body or challenge section
 - "Introduction", "Overview", "Executive Summary", "Context", "Background" → fold into hero body
 - "Our Approach", "Methodology", "Proposed Solution", "Solution Overview" → approach
@@ -399,7 +403,9 @@ CONSOLIDATION RULES — map ALL proposal content into the 8 canonical sections a
 - "Assumptions", "Limitations", "Exclusions", "Boundaries" → fold into pricing as footnote text
 - "Risk", "Risk Management", "Compliance", "Security", "Governance" → fold into deliverables detail or pricing footnote
 - "Why Us", "Credentials", "About Us", "Our Team", "Case Studies" → whyus (only if included)
-- "FAQ", "Common Questions", "Testimonials", "Stats", "Metrics" → omit unless content is exceptional; if included, fold into whyus or challenge
+- "Testimonials", "Client Feedback", "Client Testimonials", "Reviews", "What Clients Say" → MUST map to a separate { "type": "testimonials" } entry in the plan — do NOT fold into whyus, do NOT omit if the source heading exists
+- "FAQ", "Common Questions" → omit unless substantial; if included, add as a "faq" section
+- "Stats", "Metrics" → fold into whyus or challenge unless they deserve a standalone "stats" section
 - "Conclusion", "Summary", "Closing", "Next Steps", "Getting Started" → nextsteps
 
 CONTENT FIDELITY — when consolidating:
@@ -416,14 +422,16 @@ DIAGRAM RULE: When outputting a diagram hint, match diagram type to section — 
 ${styleHintBlock}
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
-Format:
+Format (add/remove optional rows as needed — testimonials row is REQUIRED when source contains a testimonials/client feedback heading):
 [
   { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
   { "type": "challenge", "sourceHeading": "The Problem", "rationale": "Client challenge section", "aiGenerated": false },
   { "type": "approach", "sourceHeading": "Proposed Solution", "rationale": "Solution methodology", "aiGenerated": false },
-  { "type": "deliverables", "sourceHeading": "Scope of Work", "rationale": "Tangible outputs — also absorbs Tasks and Workstreams content", "aiGenerated": false },
+  { "type": "deliverables", "sourceHeading": "Scope of Work", "rationale": "Tangible outputs", "aiGenerated": false },
   { "type": "timeline", "sourceHeading": "Implementation Plan", "rationale": "Phases and durations", "aiGenerated": false },
-  { "type": "pricing", "sourceHeading": "Investment", "rationale": "Pricing table — also absorbs Assumptions content as footnote", "aiGenerated": false },
+  { "type": "whyus", "sourceHeading": "Qualifications", "rationale": "Credentials and differentiators", "aiGenerated": false },
+  { "type": "testimonials", "sourceHeading": "Client Testimonials", "rationale": "Real client quotes — MUST include when source heading exists", "aiGenerated": false },
+  { "type": "pricing", "sourceHeading": "Investment", "rationale": "Pricing table", "aiGenerated": false },
   { "type": "nextsteps", "sourceHeading": "Next Steps", "rationale": "Conversion closer", "aiGenerated": false }
 ]
 
@@ -2785,7 +2793,7 @@ export class MicrositeGeneratorAgent implements Agent {
         'Omit decorative sub-labels and long captions. ' +
         'CRITICAL diagram rule: ONLY include a diagram in a section when that section contains ONLY body text with NO card grid, NO stat grid, and NO list items. If a section already has cards, stats, pillars, features, benefits, or any item array, set diagram to empty string — do NOT add a diagram to that section. Diagrams stacked below card grids make sections too tall for a single PDF slide.'
       : '';
-    const customInstructions = (rawInstructions || 'Generate a COMPREHENSIVE multi-section microsite that covers EVERY piece of content from the source document — do not skip, summarize, or omit any topic. There is NO section count limit — include as many sections as the content requires, even if that means 20, 25, or 30+ sections. Every heading, sub-heading, feature, deliverable, phase, benefit, requirement, and detail from the source must appear as its own fully developed section or as detailed content within a section. For each section, extract ALL relevant details, facts, figures, deliverables, timelines, and descriptions from the source. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, deliverables, pricing, casestudy, benefits, stats, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections. NEVER produce thin or sparse sections — if the source document covers a topic in depth, the microsite section must reflect that depth fully. This is a long-scroll website — length is a feature, not a problem.') + pdfConstraints;
+    const customInstructions = (rawInstructions || '') + pdfConstraints;
     if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
     const isFullOverride = fullDesignPrompt.trim().length > 3;
@@ -3077,13 +3085,45 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
+      const MIN_SECTIONS = 8;
+      const MAX_SECTIONS = 15;
+
+      // Always strip approval sections — they are never generated
+      if (sectionPlan) {
+        sectionPlan = sectionPlan.filter(s => s.type !== 'approval');
+      }
+
+      // Deterministic testimonials injection — don't rely on LLM to include it.
+      // If the source proposal contains a testimonials/client feedback heading AND
+      // the plan doesn't already have a testimonials section, inject one before nextsteps.
+      if (sectionPlan) {
+        const hasTestimonialsInPlan = sectionPlan.some(s => s.type === 'testimonials');
+        if (!hasTestimonialsInPlan) {
+          const testimonialsHeading = sourceSections.find(s =>
+            /testimonial|client\s*feedback|client\s*said|what.*say|reviews?\b/i.test(s.name)
+          );
+          if (testimonialsHeading) {
+            const nextstepsIdx = sectionPlan.findIndex(s => s.type === 'nextsteps');
+            const insertAt = nextstepsIdx >= 0 ? nextstepsIdx : sectionPlan.length;
+            sectionPlan.splice(insertAt, 0, {
+              type: 'testimonials',
+              sourceHeading: testimonialsHeading.name,
+              rationale: 'Client testimonials found in source — injected deterministically',
+              aiGenerated: false,
+            });
+            console.log(`[microsite-agent] Injected testimonials section from source heading: "${testimonialsHeading.name}"`);
+          }
+        }
+      }
+
       // Apply section limit request (from detectSectionLimitRequest) after ensureRequiredSections
       if (sectionLimitRequest.hasLimit && sectionPlan) {
         if (sectionLimitRequest.limitType === 'count' && sectionLimitRequest.requestedCount) {
-          const count = sectionLimitRequest.requestedCount;
+          // Clamp the user-requested count within the allowed range
+          const count = Math.min(MAX_SECTIONS, Math.max(MIN_SECTIONS, sectionLimitRequest.requestedCount));
           const hero = sectionPlan.filter(s => s.type === 'hero');
-          const last = sectionPlan.filter(s => s.type === 'nextsteps' || s.type === 'approval');
-          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps' && s.type !== 'approval');
+          const last = sectionPlan.filter(s => s.type === 'nextsteps');
+          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
           const trimmed = [
             ...hero,
             ...middle.slice(0, Math.max(0, count - hero.length - last.length)),
@@ -3106,9 +3146,17 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Remove any approval section — approval is no longer generated
-      if (sectionPlan) {
-        sectionPlan = sectionPlan.filter(s => s.type !== 'approval');
+      // Hard cap: never exceed MAX_SECTIONS regardless of LLM output
+      if (sectionPlan && sectionPlan.length > MAX_SECTIONS) {
+        const hero = sectionPlan.filter(s => s.type === 'hero');
+        const last = sectionPlan.filter(s => s.type === 'nextsteps');
+        const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
+        sectionPlan = [
+          ...hero,
+          ...middle.slice(0, MAX_SECTIONS - hero.length - last.length),
+          ...last,
+        ];
+        console.log('[microsite-agent] Capped to MAX', MAX_SECTIONS, 'sections');
       }
 
       // Parse brief
@@ -3256,8 +3304,8 @@ export class MicrositeGeneratorAgent implements Agent {
       }
 
       // Hard cap: never generate more than 8 sections (6 required + nextsteps + optional whyus)
-      const MAX_SECTIONS = 8;
-      if (resolvedSections.length > MAX_SECTIONS) {
+      const MAX_SECTIONS_EXEC = 15;
+      if (resolvedSections.length > MAX_SECTIONS_EXEC) {
         const originalCount = resolvedSections.length;
         // Preserve nextsteps at tail; keep whyus if present; prioritise required sections
         const requiredOrder: SectionType[] = ['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps'];
@@ -3269,16 +3317,16 @@ export class MicrositeGeneratorAgent implements Agent {
           const bi = requiredOrder.indexOf(b.type as SectionType);
           return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
         });
-        const budget = MAX_SECTIONS - tail.length;
+        const budget = MAX_SECTIONS_EXEC - tail.length;
         resolvedSections.length = 0;
         resolvedSections.push(...body.slice(0, budget), ...tail);
-        console.log(`[microsite-agent] Section count capped at ${MAX_SECTIONS} (was ${originalCount})`);
+        console.log(`[microsite-agent] Section count capped at ${MAX_SECTIONS_EXEC} (was ${originalCount})`);
       }
       // Also honour any explicit user count (if lower than the cap)
       // Always preserve nextsteps at the end — it is a structural section, not content
       if (customInstructions) {
         const explicitCount = parseExplicitCount(customInstructions);
-        if (explicitCount && explicitCount > 0 && explicitCount < MAX_SECTIONS && resolvedSections.length > explicitCount) {
+        if (explicitCount && explicitCount > 0 && explicitCount < MAX_SECTIONS_EXEC && resolvedSections.length > explicitCount) {
           const tail = resolvedSections.filter(s => s.type === 'nextsteps');
           const body = resolvedSections.filter(s => s.type !== 'nextsteps');
           const trimCount = Math.max(0, explicitCount - tail.length);

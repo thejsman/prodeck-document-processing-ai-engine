@@ -9,6 +9,7 @@ import {
   fetchProposalContent,
   fetchMicrositeContent,
   generateMicrositeStream,
+  saveMicrositeAst,
   extractUrlDesign,
   type StreamEvent,
   type ProposalFile,
@@ -409,6 +410,25 @@ export function PresentationPage() {
   useEffect(() => {
     layoutASTRef.current = layoutAST;
   }, [layoutAST]);
+
+  // Auto-save AST to disk (debounced) whenever it changes after initial generation.
+  // This ensures section deletions/edits survive page refresh without requiring
+  // the user to open the full editor and click Export.
+  const astSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedAstRef = useRef<string>('');
+  useEffect(() => {
+    if (!layoutAST || !apiKey || !selectedNamespace) return;
+    const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
+    const serialized = JSON.stringify(layoutAST);
+    if (serialized === lastSavedAstRef.current) return; // no change
+    if (astSaveTimerRef.current) clearTimeout(astSaveTimerRef.current);
+    astSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST);
+        lastSavedAstRef.current = serialized;
+      } catch { /* best-effort — don't show error for background save */ }
+    }, 1000);
+  }, [layoutAST, apiKey, selectedNamespace, selectedProposal]);
   const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal

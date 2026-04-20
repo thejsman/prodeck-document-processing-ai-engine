@@ -1165,6 +1165,30 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     }
   });
 
+  // PUT /presentations/:namespace/:proposalId/microsite
+  // Save (overwrite) the microsite AST to disk — used when user edits sections in the viewer.
+  app.put('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { ast?: Record<string, unknown> } | undefined;
+    if (!body?.ast) return reply.code(400).send({ error: 'ast is required' });
+
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    await mkdir(path.dirname(astPath), { recursive: true });
+    await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
+
+    // Mirror to data/namespaces path if it exists
+    const dataAstPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
+    try {
+      await mkdir(path.dirname(dataAstPath), { recursive: true });
+      await writeFile(dataAstPath, JSON.stringify(body.ast, null, 2), 'utf-8');
+    } catch { /* best-effort mirror */ }
+
+    return reply.send({ ok: true, proposalId });
+  });
+
   // POST /presentations/:namespace/:proposalId/design-edit
   // Apply AI-driven design or content edits to an existing microsite AST.
   // Body: { instruction, targetSectionId?, currentAst, commit?: boolean }
