@@ -39,6 +39,7 @@ interface Props {
   onApply: (newAst: LayoutAST) => void;
   onClose: () => void;
   onPreview?: (previewAst: LayoutAST | null) => void;
+  onRunningChange?: (running: boolean) => void;
 }
 
 type Step = 'idle' | 'running' | 'done';
@@ -68,6 +69,7 @@ export function DesignAgentPanel({
   onApply,
   onClose,
   onPreview,
+  onRunningChange,
 }: Props) {
   const { apiKey } = useAuth();
   const [instruction, setInstruction] = useState(initialInstruction ?? '');
@@ -97,6 +99,7 @@ export function DesignAgentPanel({
     setResult(null);
     onPreview?.(null);
     setStep('running');
+    onRunningChange?.(true);
 
     try {
       const apiResult = await designEditMicrosite(apiKey, namespace, proposalId, {
@@ -129,11 +132,13 @@ export function DesignAgentPanel({
       });
 
       onPreview?.(newAst);
+      onRunningChange?.(false);
       setStep('done');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[DesignAI] Error:', err);
       setError(msg);
+      onRunningChange?.(false);
       setStep('idle');
     }
   }
@@ -161,6 +166,56 @@ export function DesignAgentPanel({
   const changedTokens = result
     ? Object.keys(result.tokensAfter).filter(k => result.tokensAfter[k] !== result.tokensBefore[k])
     : [];
+
+  // When preview is ready, collapse to a bottom bar so the canvas is fully visible
+  if (step === 'done' && result) {
+    return (
+      <div style={{
+        position: 'fixed',
+        bottom: 24,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 10100,
+        background: '#0f172a',
+        border: '1px solid rgba(99,102,241,0.35)',
+        borderRadius: 16,
+        boxShadow: '0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(99,102,241,0.2)',
+        padding: '12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        minWidth: 460,
+        maxWidth: 640,
+      }}>
+        <span style={{ fontSize: 16 }}>✦</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#818cf8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {result.summary || 'Design updated'}
+          </div>
+          <div style={{ fontSize: 10, color: '#475569', marginTop: 1 }}>
+            Previewing changes — scroll to review
+          </div>
+        </div>
+        <button onClick={handleRevert} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+          ✕ Revert
+        </button>
+        <button
+          onClick={() => { setResult(null); onPreview?.(null); setStep('idle'); }}
+          style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.10)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#818cf8', whiteSpace: 'nowrap' }}
+        >
+          ↺ Refine
+        </button>
+        <button
+          onClick={handleApply}
+          disabled={result.changed.length === 0}
+          style={{ padding: '7px 18px', borderRadius: 8, border: 'none', background: result.changed.length === 0 ? '#334155' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: result.changed.length === 0 ? '#475569' : '#fff', fontSize: 12, fontWeight: 700, cursor: result.changed.length === 0 ? 'not-allowed' : 'pointer', boxShadow: result.changed.length === 0 ? 'none' : '0 2px 8px rgba(99,102,241,0.4)', whiteSpace: 'nowrap' }}
+        >
+          ✓ Apply
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div

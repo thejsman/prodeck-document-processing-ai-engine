@@ -206,9 +206,11 @@ const Icon = {
 function EditorCanvas({
   onAiAction,
   previewAst,
+  aiRunning,
 }: {
   onAiAction: (sectionId: string, instruction: string) => void;
   previewAst?: LayoutAST;
+  aiRunning?: boolean;
 }) {
   const ctx = useEditContext()!;
   const activeAst = previewAst ?? ctx.ast;
@@ -238,7 +240,24 @@ function EditorCanvas({
         position: 'relative',
       }}
     >
-      {previewAst && (
+      {aiRunning && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 200,
+          background: 'rgba(13,17,23,0.55)', backdropFilter: 'blur(4px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12,
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: '50%',
+            border: '3px solid rgba(99,102,241,0.3)', borderTopColor: '#6366f1',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, letterSpacing: '0.04em' }}>
+            ✦ AI is redesigning…
+          </span>
+        </div>
+      )}
+      {previewAst && !aiRunning && (
         <div
           style={{
             position: 'sticky',
@@ -254,7 +273,7 @@ function EditorCanvas({
             letterSpacing: '0.04em',
           }}
         >
-          ✦ Previewing changes — click <em>Apply</em> in the Design AI panel to keep, or <em>Revert</em> to undo
+          ✦ Previewing AI changes — click <em>Apply</em> to keep, or <em>Revert</em> to undo
         </div>
       )}
       <div style={{ position: 'relative', minHeight: '100%' }}>
@@ -568,6 +587,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [isDirty, setIsDirty] = useState(false);
   const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
   const [previewAst, setPreviewAst] = useState<LayoutAST | null>(null);
+  const [aiRunning, setAiRunning] = useState(false);
   const savedAstRef = useRef<string>(JSON.stringify(ctx.ast));
   const themeBtnRef = useRef<HTMLDivElement>(null);
 
@@ -1094,7 +1114,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
               flexShrink: 0,
             }}
           >
-            <EditorCanvas onAiAction={handleSectionAiAction} previewAst={previewAst ?? undefined} />
+            <EditorCanvas onAiAction={handleSectionAiAction} previewAst={previewAst ?? undefined} aiRunning={aiRunning} />
           </div>
         </div>
       </div>
@@ -1119,11 +1139,14 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           initialInstruction={panelInstruction}
           onApply={(newAst) => {
             setPreviewAst(null);
+            setAiRunning(false);
             ctx.replaceAst(newAst);
           }}
           onPreview={(ast) => setPreviewAst(ast)}
+          onRunningChange={(running) => setAiRunning(running)}
           onClose={() => {
             setPreviewAst(null);
+            setAiRunning(false);
             setShowDesignPanel(false);
             setPanelInstruction('');
             setPanelTargetSectionId(undefined);
