@@ -184,6 +184,34 @@ export async function createPresentation(
   };
 }
 
+/**
+ * Creates config.json + site.json for a presentation entry if they don't already
+ * exist. Called by generate-stream so the entry is visible via listPresentations.
+ */
+export async function upsertPresentationEntry(
+  workdir: string,
+  namespace: string,
+  proposalId: string,
+  fileName: string,
+  markdown?: string,
+): Promise<void> {
+  const dir = presentationDir(workdir, namespace, proposalId);
+  await mkdir(dir, { recursive: true });
+
+  const now = new Date().toISOString();
+
+  const cPath = configPath(workdir, namespace, proposalId);
+  try { await readFile(cPath, 'utf-8'); } catch {
+    await writeFile(cPath, JSON.stringify({ ...DEFAULT_CONFIG, updatedAt: now }, null, 2), 'utf-8');
+  }
+
+  const sPath = sitePath(workdir, namespace, proposalId);
+  try { await readFile(sPath, 'utf-8'); } catch {
+    const sections = markdown ? parseProposalMarkdown(markdown) : [];
+    await writeFile(sPath, JSON.stringify({ sections, fileName, createdAt: now, updatedAt: now }, null, 2), 'utf-8');
+  }
+}
+
 export async function updateConfig(
   workdir: string,
   namespace: string,
