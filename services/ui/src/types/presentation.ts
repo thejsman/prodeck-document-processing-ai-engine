@@ -166,6 +166,7 @@ export interface ChallengeContent {
   pullquote: string;
   imageQuery: string;
   diagram?: string;
+  highlights?: Array<{ title: string; subtitle?: string }>;
 }
 
 export interface ApproachPillar {
@@ -261,6 +262,8 @@ export interface GenericContent {
   highlights?: Array<{ title: string; subtitle?: string }>;
   items?: Array<{ name: string; detail?: string; iconHint?: string }>;
   pillars?: Array<{ name: string; description?: string; iconHint?: string }>;
+  /** Layout variant hint from agent — overrides content-aware auto-selection */
+  layout?: 'bento' | 'editorial' | 'icon-cards' | 'two-panel' | 'split' | 'timeline-steps';
 }
 
 export interface TestimonialItem {
@@ -281,7 +284,7 @@ export interface ShowcaseContent {
   headline: string;
   subheadline: string;
   body: string;
-  highlights: string[];
+  highlights: string[] | Array<{ title: string; subtitle?: string }>;
   imageQuery: string;
   diagram?: string;
 }

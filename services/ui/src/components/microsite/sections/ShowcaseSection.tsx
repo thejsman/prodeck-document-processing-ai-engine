@@ -19,7 +19,10 @@ interface Props {
 }
 
 export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }: Props) {
-  const highlights = content.highlights ?? [];
+  // Normalize: highlights can be string[] (old) or {title,subtitle}[] (new schema)
+  const highlights = (content.highlights ?? []).map(h =>
+    typeof h === 'string' ? h : h.title
+  );
   // Alternate visual side based on section index
   const visualLeft = index % 2 === 0;
 

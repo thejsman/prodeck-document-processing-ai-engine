@@ -362,19 +362,22 @@ RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instruct
 - PREDEFINED TYPES (use when they fit precisely): hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, casestudy, comparison, metrics, security, techstack, testing, generic.
 - SHALLOW TYPE WARNING — NEVER use these types for content-heavy proposal sections: "showcase" is for portfolio/visual galleries only — NEVER use it for "Proposed Solution", "Technical Approach", "Methodology", or any section with detailed written content. "benefits" is for short value-prop bullet lists only. "stats" requires real numeric data in the source. If a section has detailed written content (paragraphs, lists of steps, objectives, or strategies), use "approach", "deliverables", "generic", or a custom type instead.
 - DUPLICATE TYPE RULE: If you already assigned type "challenge" to one heading and another heading is also challenge-like, give the second one a custom descriptive type like "risk-communication" or "risk-pricing" — do NOT reuse the same predefined type OR force it into an unrelated predefined type (never use "showcase" for a risk section, never use "benefits" for a risk section).
-- If after mapping all proposal headings the total is below 7, add AI-generated sections (set aiGenerated: true) using the most relevant types derived from the proposal content.
-- CONTENT-FIRST: never compress, merge, or drop unique proposal sections.
+- AI-GENERATED SECTIONS RULE: Only add AI-generated sections (aiGenerated: true) if the proposal has fewer than 5 source headings AND a critical section type is completely absent (e.g. no pricing at all, no timeline at all). NEVER add AI-generated sections just to reach a minimum count. Every section must earn its place with real proposal content. Do NOT fabricate sections for "testimonials", "whyus", "stats", "benefits", or "team" unless the proposal explicitly contains that content.
+- CONTENT-FIRST: never compress, merge, or drop unique proposal sections. Never invent content not present in the proposal.
 
 HEADING → TYPE MAPPING EXAMPLES:
-- "Executive Summary", "Introduction", "About This Proposal" → hero
+- "Executive Summary", "About This Proposal" → hero
+- "Introduction", "Context", "Background", "About This Engagement" → overview
 - "The Problem", "Pain Points", "The Challenge", "Context" → challenge
 - "Our Approach", "Methodology", "Proposed Solution", "Technical Approach", "Solution Overview" → approach
 - "Scope of Work", "Deliverables", "What You Get" → deliverables
 - "Timeline", "Phases", "Roadmap", "Milestones" → timeline
-- "Investment", "Pricing", "Budget", "Cost" → pricing
+- "Investment", "Pricing", "Budget", "Budget Estimate", "Cost", "Financial Summary" → pricing
 - "Why Us", "Our Credentials", "About Us" → whyus
 - "Benefits", "Value", "ROI", "The Upside" → benefits
 - "Testimonials", "Client Stories", "Reviews" → testimonials
+- "Project Objectives", "Objectives", "Goals", "Key Goals" → project-objectives (custom)
+- "Conclusion", "Summary", "Closing" → nextsteps
 - "Next Steps", "Getting Started", "What Happens Next" → nextsteps
 - "FAQ", "Common Questions" → faq
 - "Our Team", "Key People" → team
@@ -1298,6 +1301,7 @@ export function buildSectionPrompt(
   sectionInstruction?: string,
   proposalMarkdown?: string,
   referenceDesign?: ReferenceDesign | null,
+  rawItemCount = 0,
 ): string {
   const refBlock = referenceDesign ? formatReferenceDesignBlock(referenceDesign) : '';
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
@@ -1838,31 +1842,41 @@ Transform into a Case Study section with a challenge-solution-outcome narrative 
     generic: `${system}
 
 Brief: ${brief}
-Section heading: ${heading}
+Section heading: "${heading}"
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a website section. CRITICAL: extract ALL content from source — do not truncate.
-If the source has enumerable items, deliverables, goals, or points, include them in "highlights".
+Transform into a rich, visually compelling website section. This section will be rendered as a card grid, editorial list, or split layout — the "highlights" array IS the visual output.
+
+EXTRACTION RULES (non-negotiable):
+1. Every numbered item (1. 2. 3.), every bullet point (- or •), every named goal, risk, deliverable, feature, or strategy MUST become its OWN separate highlight entry. NEVER merge two items into one.
+2. The source content contains approximately ${rawItemCount > 0 ? rawItemCount : 'several'} enumerable items. Your highlights array must match that count (±1 for closely related sub-items). Do NOT compress.
+3. Each highlight title = the item's own concise name (2-6 words, verbatim or near-verbatim from source). Each subtitle = 1-2 sentences of detail from the source for that specific item.
+4. body = 2-4 sentences of narrative context for the overall section — NOT a summary of the items.
+5. layout = pick based on item count: "bento" (1-3 items), "icon-cards" (4-7 items, each with rich subtitle), "editorial" (8+ items), "split" (text-heavy, few or no items + an image), "timeline-steps" (ordered sequential process steps ≤6), "two-panel" (5-8 items, strong contrast left panel).
+
 Return:
 {
-  "eyebrow": "4-8 words — the section label (e.g. 'Project Summary', 'Scope of Work')",
-  "headline": "8-14 words, compelling rewrite of '${heading}'",
-  "body": "3-5 sentences covering the full section topic from source",
+  "eyebrow": "4-8 words — the section label matching '${heading}'",
+  "headline": "8-14 words — a compelling, specific rewrite of '${heading}'",
+  "body": "2-4 sentences of narrative context for this section topic — use concrete details from source",
   "highlights": [
-    { "title": "2-6 words, specific item/goal/deliverable name from source", "subtitle": "1-2 sentences describing this item concretely" }
+    { "title": "exact item name from source, 2-6 words", "subtitle": "1-2 sentences of detail about THIS specific item from source" }
   ],
-  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content.",
+  "layout": "bento|icon-cards|editorial|split|timeline-steps|two-panel",
+  "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section. Describe subject, lighting, mood, color.",
   ${meta}
 }
-Rules: Include 3-8 highlights if the source has enumerable content. If no enumerable items exist, omit highlights entirely (do not include empty array).`,
+
+RULES:
+- highlights: include ALL enumerable items from source — no compression, no merging. If source has 9 items, output 9 highlights.
+- If no enumerable items exist, set highlights to [] and set layout to "split" (text + image).
+- Never fabricate items not present in the source.`,
   };
 
-  // Custom/unknown types fall back to generic with heading-specific instruction
+  // Custom/unknown types fall back to generic with an extra instruction injected at the top
   if (!sectionPrompts[type]) {
-    return sectionPrompts['generic'].replace(
-      'Transform into a Generic section.',
-      `Transform the "${heading}" section into a rich content section. CRITICAL: Every numbered item (1. 2. 3.), every bullet point, every named risk or mitigation strategy must become its OWN separate highlight entry — NEVER merge multiple items into one highlight.`
-    );
+    const customTypeInstruction = `This is a "${heading}" section — a custom content section type. Extract every named item, point, risk, strategy, objective, feature, or deliverable as its own highlight entry. NEVER merge items.\n\n`;
+    return customTypeInstruction + sectionPrompts['generic'];
   }
   return sectionPrompts[type];
 }
@@ -2369,8 +2383,7 @@ ROW TYPES — use these exact patterns:
     approval: `{ "eyebrow": "3-6 words e.g. Approve This Proposal", "headline": "6-10 words e.g. Ready to Move Forward?", "subheadline": "2-3 sentences about signing off and what happens next", "termsText": "2-4 sentences of terms grounded in proposal scope and payment terms", "ctaLabel": "3-5 words e.g. Approve Proposal", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "verbatim or near-verbatim quote from source — only if real quote exists", "name": "real name from source", "title": "job title from source", "company": "company from source"}], "diagram": null }`,
-    showcase: `Extract ALL key details from the source. For each distinct point, feature, or capability, create a separate highlight.
-{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "3-5 sentences covering the full context and value proposition from the source", "highlights": [{ "title": "2-5 words — exact name/feature from source", "subtitle": "2-3 sentences explaining what this means and why it matters" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills, 2-5 words each"], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}] }`,
     problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query" }`,
     stats: `FIDELITY: Only use numbers, percentages, or figures that appear VERBATIM in the source. NEVER invent metrics. If fewer than 3 real metrics exist, output only what exists.
@@ -2450,18 +2463,8 @@ Generate microsite copy following the design specification strictly:`;
 }
 
 // ── Required section enforcement ─────────────────────────────────────────────
-// hero, nextsteps, approval are always required.
-// If the total plan is below MIN_SECTIONS, pad with content-derived sections
-// from the proposal brief — never invent content not present in the proposal.
-
-const MIN_SECTIONS = 7;
-
-// Padding types in priority order — added only when plan is below MIN_SECTIONS.
-// These are the most universally present in any proposal.
-const PADDING_TYPES: SectionType[] = [
-  'overview', 'approach', 'deliverables', 'benefits',
-  'whyus', 'stats', 'timeline', 'pricing',
-];
+// hero, nextsteps, approval are always enforced.
+// Content sections come exclusively from proposal source headings — no padding.
 
 function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
   const presentTypes = new Set(plan.map(s => s.type));
@@ -2489,22 +2492,8 @@ function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
     presentTypes.add('nextsteps' as SectionType);
   }
 
-  // Pad up to MIN_SECTIONS using proposal-derivable section types
-  // hero + content sections + nextsteps + approval = target
-  const currentCount = plan.length + additions.length + 1; // +1 for approval
-  if (currentCount < MIN_SECTIONS) {
-    for (const padType of PADDING_TYPES) {
-      if (plan.length + additions.length + 1 >= MIN_SECTIONS) break;
-      if (presentTypes.has(padType)) continue;
-      additions.push({
-        type: padType,
-        sourceHeading: null,
-        rationale: `Padding to minimum ${MIN_SECTIONS} sections — derived from proposal brief`,
-        aiGenerated: true,
-      });
-      presentTypes.add(padType);
-    }
-  }
+  // Do NOT pad with fabricated sections — only hero/nextsteps/approval are enforced.
+  // Every content section must come from the proposal source headings.
 
   // approval is always injected last — never skip it
   const hasApproval = presentTypes.has('approval' as SectionType);
@@ -3132,7 +3121,7 @@ export class MicrositeGeneratorAgent implements Agent {
       console.log('[microsite-agent] sectionPlan:', sectionPlan ? sectionPlan.map(p => `${p.type}←"${p.sourceHeading ?? 'AI'}" ${p.aiGenerated ? '(ai)' : ''}`).join(', ') : 'NULL — falling back to source order');
 
       // Resolve section list from plan or fallback to source order
-      const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean }> = [];
+      const resolvedSections: Array<{ type: SectionType; heading: string; rawBody: string; aiGenerated: boolean; rawItemCount: number }> = [];
 
       const KNOWN_SECTION_TYPES = new Set<string>(['hero','overview','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps','approval','testimonials','showcase','benefits','problem','stats','metrics','security','techstack','testing','faq','team','comparison','casestudy','generic']);
       if (sectionPlan && sectionPlan.length > 0) {
@@ -3185,7 +3174,8 @@ export class MicrositeGeneratorAgent implements Agent {
             const matched = sourceSections.filter(s => deliverablesPattern.test(s.content) || deliverablesPattern.test(s.name));
             if (matched.length > 0) rawBody = matched.map(s => `## ${s.name}\n${s.content}`).join('\n\n');
           }
-          resolvedSections.push({ type, heading, rawBody, aiGenerated: planned.aiGenerated || !sourceHeading });
+          const rawItemCount = (rawBody.match(/^[\-\*\•]\s+/gm) ?? []).length + (rawBody.match(/^\d+\.\s+/gm) ?? []).length;
+          resolvedSections.push({ type, heading, rawBody, aiGenerated: planned.aiGenerated || !sourceHeading, rawItemCount });
         }
       } else {
         // Fallback: use source sections in order, then run ensureRequiredSections
@@ -3198,11 +3188,14 @@ export class MicrositeGeneratorAgent implements Agent {
         const enrichedPlan = ensureRequiredSections(fallbackPlan);
         for (const planned of enrichedPlan) {
           const src = sourceSections.find(s => s.name === planned.sourceHeading);
+          const body = src?.content ?? '';
+          const rawItemCount = (body.match(/^[\-\*\•]\s+/gm) ?? []).length + (body.match(/^\d+\.\s+/gm) ?? []).length;
           resolvedSections.push({
             type: planned.type,
             heading: planned.sourceHeading ?? planned.type,
-            rawBody: src?.content ?? '',
+            rawBody: body,
             aiGenerated: planned.aiGenerated || !planned.sourceHeading,
+            rawItemCount,
           });
         }
       }
@@ -3310,7 +3303,7 @@ export class MicrositeGeneratorAgent implements Agent {
               const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
               const prompt = isFullOverride
                 ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, proposalMarkdown)
-                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, finalReferenceDesign);
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, finalReferenceDesign, s.rawItemCount);
               try {
                 const timeoutMs = 90_000;
                 const runSection = () => Promise.race([
