@@ -242,10 +242,17 @@ export interface WhyUsContent {
   diagram?: string;
 }
 
+export interface NextStep {
+  stepNumber: string;
+  title: string;
+  description: string;
+}
+
 export interface NextStepsContent {
   eyebrow: string;
   headline: string;
   body: string;
+  steps?: NextStep[];
   ctaPrimary: string;
   ctaSecondary: string;
   urgencyNote: string | null;
