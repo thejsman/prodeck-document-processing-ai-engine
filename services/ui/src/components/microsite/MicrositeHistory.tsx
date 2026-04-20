@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { FolderOpen, X } from "lucide-react";
+import { Icon } from "@/components/ui/Icon";
 import { Microsite } from "./Microsite";
 import { MicrositeEditor } from "./editor/MicrositeEditor";
 import {
@@ -151,11 +153,11 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
           color: "var(--color-text-muted)",
         }}
       >
-        <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.35 }}>🗂</div>
+        <div style={{ marginBottom: 12, opacity: 0.35 }}><Icon icon={FolderOpen} size="xl" /></div>
         <p
           style={{
             fontSize: 14,
-            fontWeight: 600,
+            fontWeight: 400,
             margin: "0 0 4px",
             color: "var(--color-text)",
           }}
@@ -263,9 +265,10 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                       color: accent,
                       borderRadius: 100,
                       fontSize: 10,
-                      fontWeight: 700,
+                      fontWeight: 600,
                       padding: "2px 8px",
-                      letterSpacing: "0.05em",
+                      letterSpacing: "0.08em",
+                      lineHeight: 1.4,
                       textTransform: "uppercase" as const,
                     }}
                   >
@@ -278,7 +281,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                       color: "var(--color-text-muted)",
                       borderRadius: 100,
                       fontSize: 10,
-                      fontWeight: 500,
+                      fontWeight: 400,
                       padding: "2px 8px",
                       border: "1px solid var(--color-border)",
                     }}
@@ -291,10 +294,11 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                 <p
                   style={{
                     fontSize: 14,
-                    fontWeight: 700,
+                    fontWeight: 600,
                     color: "var(--color-text)",
                     margin: "0 0 4px",
-                    lineHeight: 1.3,
+                    lineHeight: 1.5,
+                    letterSpacing: '0em',
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -335,7 +339,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                     borderRadius: 6,
                     padding: "7px 12px",
                     fontSize: 12,
-                    fontWeight: 600,
+                    fontWeight: 400,
                     cursor: "pointer",
                   }}
                 >

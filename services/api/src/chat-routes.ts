@@ -1,8 +1,9 @@
 /**
  * Chat routes — POST /chat/message
  *
- * Accepts an incoming chat message, runs it through the ChatOrchestrator,
- * and returns either a streaming SSE response or a plain JSON response.
+ * Accepts an incoming chat message, runs it through the Chat V2 pipeline
+ * (runChatAgent), and returns either a streaming SSE response or a plain
+ * JSON response.
  *
  * SSE event stream format (when stream=true):
  *
@@ -26,7 +27,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { ChatOrchestrator } from './chat/chat-orchestrator.js';
 import { runChatAgent } from './chat/chat-agent.js';
 import type { ToolEvent } from './chat/tool-router.js';
 import {
@@ -85,8 +85,6 @@ export function registerChatRoutes(
     const chatSessionId = body.chatSessionId.trim();
     const stream = body.stream === true;
 
-    const orchestrator = new ChatOrchestrator(workdir, policyConfig);
-
     if (stream) {
       // ── Streaming SSE response ──────────────────────────────────
       reply.raw.writeHead(200, {
@@ -96,87 +94,42 @@ export function registerChatRoutes(
         'X-Accel-Buffering': 'no',
       });
 
-      // ── Chat V2 feature flag path ─────────────────────────────
-      if (process.env.CHAT_V2 === 'true') {
-        try {
-          await runChatAgent({
-            message,
-            namespace,
-            chatSessionId,
-            workdir,
-            generateFn: llmGenerateFn,
-            policyConfig,
-            onPhase: (phase: string) => {
-              reply.raw.write(`event: phase\ndata: ${JSON.stringify({ phase })}\n\n`);
-            },
-            onChunk: (chunk: string) => {
-              reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
-            },
-            onDone: (response) => {
-              // Convert actionCards array to the actions Record format useSSE expects
-              const actions: Record<string, string> = {};
-              for (const card of response.actionCards) {
-                if (card.type === 'view_proposal') actions.openProposalUrl = card.href;
-                if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
-              }
-              reply.raw.write(
-                `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,
-              );
-            },
-            onToolEvent: (event: ToolEvent) => {
-              reply.raw.write(
-                `event: tool_progress\ndata: ${JSON.stringify({
-                  tool: event.tool,
-                  status: event.phase,
-                  durationMs: event.durationMs,
-                  ...(event.phase === 'error' ? { error: event.message } : {}),
-                })}\n\n`,
-              );
-            },
-          });
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          reply.raw.write(
-            `event: error\ndata: ${JSON.stringify({ error: errorMessage })}\n\n`,
-          );
-        } finally {
-          reply.raw.end();
-        }
-        return;
-      }
-
-      // ── V1 path (existing) ────────────────────────────────────
       try {
-        const result = await orchestrator.processMessage({
+        await runChatAgent({
           message,
           namespace,
           chatSessionId,
-
-          // STEP 6 — emit phase events
+          workdir,
+          generateFn: llmGenerateFn,
+          policyConfig,
           onPhase: (phase: string) => {
             reply.raw.write(`event: phase\ndata: ${JSON.stringify({ phase })}\n\n`);
           },
-
-          // STEP 6 — stream content tokens
           onChunk: (chunk: string) => {
             reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
           },
-
-          // Emit structured proposal section blocks
-          onSection: (section: string, content: string, artifactId: string) => {
+          onDone: (response) => {
+            // Convert actionCards array to the actions Record format useSSE expects
+            const actions: Record<string, string> = {};
+            for (const card of response.actionCards) {
+              if (card.type === 'view_proposal') actions.openProposalUrl = card.href;
+              if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
+            }
             reply.raw.write(
-              `event: proposal_section\ndata: ${JSON.stringify({ section, content, artifactId })}\n\n`,
+              `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,
+            );
+          },
+          onToolEvent: (event: ToolEvent) => {
+            reply.raw.write(
+              `event: tool_progress\ndata: ${JSON.stringify({
+                tool: event.tool,
+                status: event.phase,
+                durationMs: event.durationMs,
+                ...(event.phase === 'error' ? { error: event.message } : {}),
+              })}\n\n`,
             );
           },
         });
-
-        // STEP 7 — final done event with message + actions
-        reply.raw.write(
-          `event: done\ndata: ${JSON.stringify({
-            message: result.message,
-            actions: result.actions ?? {},
-          })}\n\n`,
-        );
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         reply.raw.write(
@@ -190,33 +143,16 @@ export function registerChatRoutes(
     }
 
     // ── Non-streaming JSON response ─────────────────────────────
-
-    // ── Chat V2 feature flag path ─────────────────────────────
-    if (process.env.CHAT_V2 === 'true') {
-      try {
-        const response = await runChatAgent({
-          message,
-          namespace,
-          chatSessionId,
-          workdir,
-          generateFn: llmGenerateFn,
-          policyConfig,
-        });
-        return reply.send({ message: response.text, actions: {} });
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        return reply.code(502).send({ error: `Chat orchestration failed: ${errorMessage}` });
-      }
-    }
-
-    // ── V1 path (existing) ────────────────────────────────────
     try {
-      const result = await orchestrator.processMessage({
+      const response = await runChatAgent({
         message,
         namespace,
         chatSessionId,
+        workdir,
+        generateFn: llmGenerateFn,
+        policyConfig,
       });
-      return reply.send(result);
+      return reply.send({ message: response.text, actions: {} });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: `Chat orchestration failed: ${errorMessage}` });

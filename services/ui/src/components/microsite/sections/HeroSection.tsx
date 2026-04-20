@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useContext, useCallback } from 'react';
+import { Check } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type { PluginTokens, HeroContent, BrandConfig, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -61,13 +63,23 @@ function buildOverlayBackground(overlay: ImageOverlay | undefined): string {
   const opacity = overlay.opacity ?? 0.35;
   switch (overlay.type) {
     case 'vignette':
-      return `radial-gradient(ellipse at center, transparent 30%, ${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')} 100%)`;
+      return `radial-gradient(ellipse at center, transparent 30%, ${color}${Math.round(opacity * 255)
+        .toString(16)
+        .padStart(2, '0')} 100%)`;
     case 'duotone':
-      return `linear-gradient(135deg, ${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')} 0%, ${color}${Math.round(opacity * 0.5 * 255).toString(16).padStart(2, '0')} 100%)`;
+      return `linear-gradient(135deg, ${color}${Math.round(opacity * 255)
+        .toString(16)
+        .padStart(2, '0')} 0%, ${color}${Math.round(opacity * 0.5 * 255)
+        .toString(16)
+        .padStart(2, '0')} 100%)`;
     case 'tint':
-      return `${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
+      return `${color}${Math.round(opacity * 255)
+        .toString(16)
+        .padStart(2, '0')}`;
     default: // gradient
-      return `linear-gradient(180deg, transparent 0%, ${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')} 100%)`;
+      return `linear-gradient(180deg, transparent 0%, ${color}${Math.round(opacity * 255)
+        .toString(16)
+        .padStart(2, '0')} 100%)`;
   }
 }
 
@@ -87,7 +99,9 @@ export function HeroSection({
 
   // Track image URL with error fallback — DALL-E URLs expire after 2h, drop them gracefully
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
-  useEffect(() => { setActiveImageUrl(imageUrl); }, [imageUrl]);
+  useEffect(() => {
+    setActiveImageUrl(imageUrl);
+  }, [imageUrl]);
 
   // Hoist hasBgImage early — used to suppress gradient text when an image fills the background
   // (URL-extracted tokens.text is more readable on image+scrim than a color gradient)
@@ -120,18 +134,18 @@ export function HeroSection({
   }, [behavior?.hasParallax]);
 
   // CTA targets
-  const nonHero = sections.filter(s => s.sectionType !== 'hero');
+  const nonHero = sections.filter((s) => s.sectionType !== 'hero');
   const findSection = (hint: string | undefined) =>
-    hint ? sections.find(s => s.sectionType === hint || s.id === hint) : undefined;
+    hint ? sections.find((s) => s.sectionType === hint || s.id === hint) : undefined;
   const primaryTarget = (
     findSection(content.ctaTarget) ??
-    sections.find(s => s.sectionType === 'pricing') ??
-    sections.find(s => s.sectionType === 'approach') ??
+    sections.find((s) => s.sectionType === 'pricing') ??
+    sections.find((s) => s.sectionType === 'approach') ??
     nonHero[0]
   )?.id;
   const secondaryTarget = (
     findSection(content.ctaSecondaryTarget) ??
-    sections.find(s => s.sectionType === 'nextsteps') ??
+    sections.find((s) => s.sectionType === 'nextsteps') ??
     nonHero[nonHero.length - 1]
   )?.id;
 
@@ -139,12 +153,25 @@ export function HeroSection({
 
   // Reveal wrapper — useCallback keeps the reference stable across re-renders
   // so React doesn't unmount/remount InlineEditable children when context updates.
-  const R = useCallback(function R({ children, delay = 0, style }: {
-    children: React.ReactNode; delay?: number; style?: React.CSSProperties;
-  }) {
-    if (noAnimation) return <div style={style}>{children}</div>;
-    return <Reveal delay={delay} variant={revealVariant} style={style}>{children}</Reveal>;
-  }, [noAnimation, revealVariant]);
+  const R = useCallback(
+    function R({
+      children,
+      delay = 0,
+      style,
+    }: {
+      children: React.ReactNode;
+      delay?: number;
+      style?: React.CSSProperties;
+    }) {
+      if (noAnimation) return <div style={style}>{children}</div>;
+      return (
+        <Reveal delay={delay} variant={revealVariant} style={style}>
+          {children}
+        </Reveal>
+      );
+    },
+    [noAnimation, revealVariant],
+  );
 
   // When image is present, always use white text for contrast — ignore theme text color
   const heroText = hasBgImage ? '#ffffff' : tokens.text;
@@ -156,7 +183,10 @@ export function HeroSection({
   const eyebrow = content.eyebrow?.trim() && (
     <R>
       <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow}>
-        <Label tokens={tokens} style={{ display: 'block', marginBottom: 14, ...(hasBgImage ? { color: heroTextSubtle } : {}) }}>
+        <Label
+          tokens={tokens}
+          style={{ display: 'block', marginBottom: 14, ...(hasBgImage ? { color: heroTextSubtle } : {}) }}
+        >
           {content.eyebrow}
           <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
         </Label>
@@ -170,7 +200,11 @@ export function HeroSection({
   const headline = (
     <R delay={60}>
       <InlineEditable field="headline" label="Headline" value={content.headline}>
-        <Display tokens={tokens} gradient={!hasBgImage} style={{ marginBottom: 18, ...(hasBgImage ? { color: heroText } : {}) }}>
+        <Display
+          tokens={tokens}
+          gradient={!hasBgImage}
+          style={{ marginBottom: 18, ...(hasBgImage ? { color: heroText } : {}) }}
+        >
           {content.headline}
           <TypingCursor visible={twCtx?.activeField === 'headline' && (twCtx?.showCursor ?? false)} />
         </Display>
@@ -183,7 +217,16 @@ export function HeroSection({
       {content.subheadline?.trim() && (
         <R delay={120}>
           <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
-            <Body tokens={tokens} style={{ fontSize: '0.95rem', maxWidth: 560, marginBottom: 10, lineHeight: 1.7, ...(hasBgImage ? { color: heroTextMuted } : {}) }}>
+            <Body
+              tokens={tokens}
+              style={{
+                fontSize: '0.95rem',
+                maxWidth: 560,
+                marginBottom: 10,
+                lineHeight: 1.7,
+                ...(hasBgImage ? { color: heroTextMuted } : {}),
+              }}
+            >
               {content.subheadline}
               <TypingCursor visible={twCtx?.activeField === 'subheadline' && (twCtx?.showCursor ?? false)} />
             </Body>
@@ -193,7 +236,10 @@ export function HeroSection({
       {content.body?.trim() && (
         <R delay={180}>
           <InlineEditable field="body" label="Body" value={content.body} multiline>
-            <Body tokens={tokens} style={{ maxWidth: 520, marginBottom: 28, ...(hasBgImage ? { color: heroTextMuted } : {}) }}>
+            <Body
+              tokens={tokens}
+              style={{ maxWidth: 520, marginBottom: 28, ...(hasBgImage ? { color: heroTextMuted } : {}) }}
+            >
               {content.body}
               <TypingCursor visible={twCtx?.activeField === 'body' && (twCtx?.showCursor ?? false)} />
             </Body>
@@ -206,15 +252,20 @@ export function HeroSection({
   const outcomePills = outcomes.length > 0 && (
     <R delay={220} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 28 }}>
       {outcomes.map((o, i) => (
-        <span key={i} style={{
-          padding: '4px 12px', borderRadius: pillRadius,
-          background: hasBgImage ? 'rgba(255,255,255,0.12)' : tokens.surfaceCard,
-          border: `1px solid ${hasBgImage ? 'rgba(255,255,255,0.25)' : tokens.border}`,
-          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-          fontSize: '0.75rem', fontWeight: 500,
-          color: hasBgImage ? heroTextMuted : tokens.textMuted,
-        }}>
-          ✓ {o}
+        <span
+          key={i}
+          style={{
+            padding: '4px 12px',
+            borderRadius: pillRadius,
+            background: hasBgImage ? 'rgba(255,255,255,0.12)' : tokens.surfaceCard,
+            border: `1px solid ${hasBgImage ? 'rgba(255,255,255,0.25)' : tokens.border}`,
+            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+            fontSize: '0.75rem',
+            fontWeight: 500,
+            color: hasBgImage ? heroTextMuted : tokens.textMuted,
+          }}
+        >
+          <Icon icon={Check} size="xs" /> {o}
         </span>
       ))}
     </R>
@@ -242,48 +293,63 @@ export function HeroSection({
   // Glassmorphic side card — used by split/asymmetric when bg image is present
   const glassCard = (
     <Reveal delay={100} variant="fadeIn">
-      <div ref={parallaxRef} style={{
-        borderRadius: cardRadius,
-        padding: 'clamp(1.5rem, 3vw, 2.5rem)',
-        background: tokens.dark ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.35)',
-        backdropFilter: 'blur(18px)',
-        border: `1px solid ${tokens.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)'}`,
-        boxShadow: `0 8px 40px rgba(0,0,0,0.25)`,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-      }}>
+      <div
+        ref={parallaxRef}
+        style={{
+          borderRadius: cardRadius,
+          padding: 'clamp(1.5rem, 3vw, 2.5rem)',
+          background: tokens.dark ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.35)',
+          backdropFilter: 'blur(18px)',
+          border: `1px solid ${tokens.dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)'}`,
+          boxShadow: `0 8px 40px rgba(0,0,0,0.25)`,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
         {outcomes.length > 0 ? (
           <>
-            <div style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.65rem', fontWeight: 700,
-              letterSpacing: tokens.labelTracking,
-              textTransform: 'uppercase',
-              color: tokens.dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)',
-              marginBottom: 4,
-            }}>
+            <div
+              style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                letterSpacing: tokens.labelTracking,
+                textTransform: 'uppercase',
+                color: tokens.dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)',
+                marginBottom: 4,
+              }}
+            >
               Key Outcomes
             </div>
             {outcomes.map((o, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'flex-start', gap: 10,
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.85rem', lineHeight: 1.5,
-                color: tokens.dark ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.82)',
-              }}>
-                <span style={{ color: tokens.accent, flexShrink: 0, marginTop: 2 }}>✓</span>
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '0.85rem',
+                  lineHeight: 1.4,
+                  color: tokens.dark ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.82)',
+                  letterSpacing: '0.01em',
+                }}
+              >
+                <Icon icon={Check} size="sm" style={{ color: tokens.accent, flexShrink: 0, marginTop: 2 }} />
                 <span>{o}</span>
               </div>
             ))}
           </>
         ) : (
-          <div style={{
-            aspectRatio: '4/3',
-            borderRadius: cardRadius,
-            background: tokens.gradientHero || `${tokens.accent}22`,
-            border: `1px solid ${tokens.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-          }} />
+          <div
+            style={{
+              aspectRatio: '4/3',
+              borderRadius: cardRadius,
+              background: tokens.gradientHero || `${tokens.accent}22`,
+              border: `1px solid ${tokens.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+            }}
+          />
         )}
       </div>
     </Reveal>
@@ -300,9 +366,7 @@ export function HeroSection({
     padding: 'clamp(4rem, 8vw, 7rem) 2rem',
     // No gradient on the hero background — solid fill only.
     // The gradient moves to the heading text instead (Display gradient={!hasBgImage}).
-    background: hasBgImage
-      ? `url(${activeImageUrl}) center center / cover no-repeat`
-      : tokens.bg,
+    background: hasBgImage ? `url(${activeImageUrl}) center center / cover no-repeat` : tokens.bg,
     overflow: 'hidden',
   };
 
@@ -315,9 +379,9 @@ export function HeroSection({
 
   // Hidden probe image — fires onError when the URL is expired or broken (e.g. DALL-E SAS token),
   // clearing the broken background across ALL variants, not just centered.
-  const imageProbeFallback = activeImageUrl
-    ? <img src={activeImageUrl} onError={() => setActiveImageUrl(null)} style={{ display: 'none' }} aria-hidden alt="" />
-    : null;
+  const imageProbeFallback = activeImageUrl ? (
+    <img src={activeImageUrl} onError={() => setActiveImageUrl(null)} style={{ display: 'none' }} aria-hidden alt="" />
+  ) : null;
 
   // ════════════════════════════════════════════════════════════════════════════
   // SPLIT — text left, image right (or reversed by mediaPos)
@@ -328,15 +392,28 @@ export function HeroSection({
       <section style={sectionStyle}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
-        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
+        {hasBgImage && imageOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: buildOverlayBackground(imageOverlay),
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={container}>
-          <div className="ms-split" style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 'clamp(2.5rem, 5vw, 4rem)',
-            alignItems: 'center',
-          }}>
+          <div
+            className="ms-split"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 'clamp(2.5rem, 5vw, 4rem)',
+              alignItems: 'center',
+            }}
+          >
             <div style={{ order: imgLeft ? 2 : 1 }}>
               {eyebrow}
               {headline}
@@ -344,9 +421,7 @@ export function HeroSection({
               {outcomePills}
               {ctaRow}
             </div>
-            <div style={{ order: imgLeft ? 1 : 2 }}>
-              {glassCard}
-            </div>
+            <div style={{ order: imgLeft ? 1 : 2 }}>{glassCard}</div>
           </div>
         </div>
       </section>
@@ -361,22 +436,40 @@ export function HeroSection({
       <section style={sectionStyle}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
-        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
+        {hasBgImage && imageOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: buildOverlayBackground(imageOverlay),
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Left accent bar matching other sections */}
-        <div style={{
-          position: 'absolute', left: 0, top: '15%', bottom: '15%',
-          width: 3,
-          background: `linear-gradient(to bottom, transparent, ${tokens.accent}, transparent)`,
-          zIndex: 4,
-        }} />
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: '15%',
+            bottom: '15%',
+            width: 3,
+            background: `linear-gradient(to bottom, transparent, ${tokens.accent}, transparent)`,
+            zIndex: 4,
+          }}
+        />
         <div style={container}>
-          <div className="ms-split" style={{
-            display: 'grid',
-            gridTemplateColumns: '3fr 2fr',
-            gap: 'clamp(2.5rem, 5vw, 4rem)',
-            alignItems: 'center',
-          }}>
+          <div
+            className="ms-split"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '3fr 2fr',
+              gap: 'clamp(2.5rem, 5vw, 4rem)',
+              alignItems: 'center',
+            }}
+          >
             <div>
               {/* Short tick above eyebrow — same as other asymmetric sections */}
               <R>
@@ -400,16 +493,38 @@ export function HeroSection({
   // ════════════════════════════════════════════════════════════════════════════
   if (resolvedVariant === 'editorial') {
     return (
-      <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg, borderBottom: `1px solid ${tokens.border}` }}>
+      <section
+        style={{
+          ...sectionStyle,
+          background: hasBgImage ? sectionStyle.background : tokens.bg,
+          borderBottom: `1px solid ${tokens.border}`,
+        }}
+      >
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
-        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
+        {hasBgImage && imageOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: buildOverlayBackground(imageOverlay),
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         <NoiseOverlay opacity={Math.min(tokens.noiseOpacity, 0.015)} />
         {/* Top accent rule */}
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-          background: `linear-gradient(to right, ${tokens.accent}, transparent 60%)`,
-        }} />
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: `linear-gradient(to right, ${tokens.accent}, transparent 60%)`,
+          }}
+        />
         <div style={{ ...container, maxWidth: 720 }}>
           {/* Eyebrow as plain label — no pill */}
           {content.eyebrow?.trim() && (
@@ -423,11 +538,15 @@ export function HeroSection({
           )}
           <R delay={60}>
             <InlineEditable field="headline" label="Headline" value={content.headline}>
-              <Display tokens={tokens} gradient style={{
-                fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
-                lineHeight: 1.05,
-                marginBottom: 32,
-              }}>
+              <Display
+                tokens={tokens}
+                gradient
+                style={{
+                  fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
+                  lineHeight: 1.05,
+                  marginBottom: 32,
+                }}
+              >
                 {content.headline}
               </Display>
             </InlineEditable>
@@ -444,12 +563,16 @@ export function HeroSection({
           {content.body?.trim() && (
             <R delay={180}>
               <InlineEditable field="body" label="Body" value={content.body} multiline>
-                <Body tokens={tokens} style={{
-                  maxWidth: 520, lineHeight: 2,
-                  marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
-                  borderLeft: `2px solid ${tokens.border}`,
-                  paddingLeft: 18,
-                }}>
+                <Body
+                  tokens={tokens}
+                  style={{
+                    maxWidth: 520,
+                    lineHeight: 2,
+                    marginBottom: outcomePills ? 24 : showCTA ? 36 : 0,
+                    borderLeft: `2px solid ${tokens.border}`,
+                    paddingLeft: 18,
+                  }}
+                >
                   {content.body}
                 </Body>
               </InlineEditable>
@@ -466,23 +589,37 @@ export function HeroSection({
   // CARD-GRID — headline + row of outcome cards
   // ════════════════════════════════════════════════════════════════════════════
   if (resolvedVariant === 'card-grid') {
-    const cards: string[] = outcomes.length >= 2
-      ? outcomes
-      : [content.subheadline, content.body].filter(Boolean).slice(0, 3) as string[];
+    const cards: string[] =
+      outcomes.length >= 2 ? outcomes : ([content.subheadline, content.body].filter(Boolean).slice(0, 3) as string[]);
 
     return (
       <section style={sectionStyle}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
-        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
+        {hasBgImage && imageOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: buildOverlayBackground(imageOverlay),
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         {/* Dot texture — same as other card-heavy sections */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          backgroundImage: `radial-gradient(${tokens.border} 1px, transparent 1px)`,
-          backgroundSize: '28px 28px',
-          opacity: 0.5, zIndex: 0, pointerEvents: 'none',
-        }} />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `radial-gradient(${tokens.border} 1px, transparent 1px)`,
+            backgroundSize: '28px 28px',
+            opacity: 0.5,
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        />
         <div style={{ ...container, textAlign: 'center' }}>
           {eyebrow}
           {headline}
@@ -497,35 +634,55 @@ export function HeroSection({
           )}
           {cards.length > 0 && (
             <R delay={180}>
-              <div className="ms-grid-3" style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, minmax(0, 1fr))`,
-                gap: 'clamp(1rem, 2.5vw, 1.5rem)',
-                marginBottom: 36,
-              }}>
+              <div
+                className="ms-grid-3"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, minmax(0, 1fr))`,
+                  gap: 'clamp(1rem, 2.5vw, 1.5rem)',
+                  marginBottom: 36,
+                }}
+              >
                 {cards.map((card, i) => (
-                  <div key={i} style={{
-                    padding: 'clamp(1.2rem, 2.5vw, 1.75rem)',
-                    borderRadius: cardRadius,
-                    background: tokens.surfaceCard,
-                    border: `1px solid ${tokens.border}`,
-                    boxShadow: tokens.cardShadow,
-                    textAlign: 'left',
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}>
-                    <div style={{
-                      position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-                      background: `linear-gradient(to right, ${tokens.accent}, transparent)`,
-                    }} />
-                    <div style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.6rem', fontWeight: 700,
-                      letterSpacing: tokens.labelTracking,
-                      textTransform: 'uppercase',
-                      color: tokens.accent, marginBottom: 10,
-                    }}>0{i + 1}</div>
-                    <Body tokens={tokens} style={{ fontSize: '0.88rem', margin: 0 }}>{card}</Body>
+                  <div
+                    key={i}
+                    style={{
+                      padding: 'clamp(1.2rem, 2.5vw, 1.75rem)',
+                      borderRadius: cardRadius,
+                      background: tokens.surfaceCard,
+                      border: `1px solid ${tokens.border}`,
+                      boxShadow: tokens.cardShadow,
+                      textAlign: 'left',
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 2,
+                        background: `linear-gradient(to right, ${tokens.accent}, transparent)`,
+                      }}
+                    />
+                    <div
+                      style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontSize: '0.6rem',
+                        fontWeight: 600,
+                        letterSpacing: tokens.labelTracking,
+                        textTransform: 'uppercase',
+                        color: tokens.accent,
+                        marginBottom: 10,
+                      }}
+                    >
+                      0{i + 1}
+                    </div>
+                    <Body tokens={tokens} style={{ fontSize: '0.88rem', margin: 0 }}>
+                      {card}
+                    </Body>
                   </div>
                 ))}
               </div>
@@ -548,17 +705,31 @@ export function HeroSection({
       <section style={{ ...sectionStyle, background: hasBgImage ? sectionStyle.background : tokens.bg }}>
         {imageProbeFallback}
         {hasBgImage && <div style={{ position: 'absolute', inset: 0, background: bgScrim, zIndex: 1 }} />}
-        {hasBgImage && imageOverlay && <div style={{ position: 'absolute', inset: 0, background: buildOverlayBackground(imageOverlay), zIndex: 2, pointerEvents: 'none' }} />}
+        {hasBgImage && imageOverlay && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: buildOverlayBackground(imageOverlay),
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         <NoiseOverlay opacity={tokens.noiseOpacity} />
         <div style={{ ...container, maxWidth: 800 }}>
           {eyebrow}
           <R delay={60}>
             <InlineEditable field="headline" label="Headline" value={content.headline}>
-              <Display tokens={tokens} gradient style={{
-                fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
-                lineHeight: 1.02,
-                marginBottom: 24,
-              }}>
+              <Display
+                tokens={tokens}
+                gradient
+                style={{
+                  fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
+                  lineHeight: 1.02,
+                  marginBottom: 24,
+                }}
+              >
                 {content.headline}
               </Display>
             </InlineEditable>
@@ -566,7 +737,10 @@ export function HeroSection({
           {content.subheadline?.trim() && (
             <R delay={120}>
               <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline} multiline>
-                <Body tokens={tokens} style={{ fontSize: '0.95rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}>
+                <Body
+                  tokens={tokens}
+                  style={{ fontSize: '0.95rem', maxWidth: 560, lineHeight: 1.75, marginBottom: outcomePills ? 16 : 28 }}
+                >
                   {content.subheadline}
                 </Body>
               </InlineEditable>
@@ -589,12 +763,14 @@ export function HeroSection({
       <NoiseOverlay opacity={tokens.noiseOpacity} />
       <div style={container}>
         {eyebrow}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr',
-          gap: 'clamp(2rem, 4vw, 4rem)',
-          alignItems: 'center',
-        }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr',
+            gap: 'clamp(2rem, 4vw, 4rem)',
+            alignItems: 'center',
+          }}
+        >
           <div>
             {headline}
             {subBody}
@@ -607,4 +783,4 @@ export function HeroSection({
   );
 }
 
-export { };
+export {};

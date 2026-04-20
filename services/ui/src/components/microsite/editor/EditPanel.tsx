@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { ArrowUp, ArrowDown, Pencil } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useEditContext } from './EditContext';
 import type { LayoutAST, SectionType } from '../../../types/presentation';
 
@@ -451,7 +453,6 @@ function FieldInput({ def, value, onChange, isSelected }: FieldProps) {
     border: `1px solid ${borderColor}`,
     background: bg,
     color: 'var(--color-text, #111)',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
     fontSize: 12,
     outline: 'none',
     transition: 'border-color 0.12s, background 0.12s',
@@ -513,13 +514,13 @@ function SectionFieldsPanel({ sectionId, sectionType, content, selection }: Sect
               alignItems: 'center',
               gap: 6,
               fontSize: 11,
-              fontWeight: 600,
+              fontWeight: 400,
               color: isSelected ? '#6366f1' : 'var(--color-text-muted, #666)',
               marginBottom: 4,
               textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-            }}>
+              letterSpacing: '0.08em',
+              lineHeight: 1.4,
+                      }}>
               {isSelected && (
                 <span style={{
                   display: 'inline-block',
@@ -532,7 +533,7 @@ function SectionFieldsPanel({ sectionId, sectionType, content, selection }: Sect
               )}
               {def.label}
               {def.type === 'button' && (
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--color-text-muted, #999)', marginLeft: 'auto', textTransform: 'none' }}>
+                <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-text-muted, #999)', marginLeft: 'auto', textTransform: 'none' }}>
                   button
                 </span>
               )}
@@ -573,13 +574,13 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', margin: 0, fontFamily: 'system-ui' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4, color: 'var(--color-text-muted)', margin: 0 }}>
           {title}
         </p>
         {canAdd && (
           <button
             onClick={() => ctx.addArrayItem(sectionId, arrayPath, { ...itemTemplate })}
-            style={{ padding: '3px 10px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            style={{ padding: '5px 12px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', fontSize: 14, fontWeight: 400, cursor: 'pointer', lineHeight: 1.5, letterSpacing: '0em' }}
           >
             + {addLabel}
           </button>
@@ -588,28 +589,28 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
       {items.map((item, i) => (
         <div key={i} style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', fontFamily: 'system-ui' }}>
+            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-text-muted)' }}>
               #{i + 1}
             </span>
             <div style={{ display: 'flex', gap: 4 }}>
               {canMove && i > 0 && (
                 <button
                   onClick={() => ctx.moveArrayItem(sectionId, arrayPath, i, i - 1)}
-                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 14, cursor: 'pointer', color: 'var(--color-text-muted)' }}
                   title="Move up"
-                >↑</button>
+                ><Icon icon={ArrowUp} size="sm" /></button>
               )}
               {canMove && i < items.length - 1 && (
                 <button
                   onClick={() => ctx.moveArrayItem(sectionId, arrayPath, i, i + 1)}
-                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 11, cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 14, cursor: 'pointer', color: 'var(--color-text-muted)' }}
                   title="Move down"
-                >↓</button>
+                ><Icon icon={ArrowDown} size="sm" /></button>
               )}
               {canRemove && (
                 <button
                   onClick={() => ctx.removeArrayItem(sectionId, arrayPath, i)}
-                  style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', fontSize: 11, cursor: 'pointer', color: '#dc2626' }}
+                  style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', fontSize: 14, cursor: 'pointer', color: '#dc2626' }}
                   title="Remove"
                 >×</button>
               )}
@@ -621,7 +622,7 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
             const isIconField = f.key === 'iconHint';
             return (
               <div key={f.key} style={{ marginBottom: 6 }}>
-                <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <label style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
                   {f.label}
                 </label>
                 {isIconField ? (
@@ -861,15 +862,14 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
       display: 'flex',
       flexDirection: 'column',
       background: 'var(--color-bg, #fff)',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-    }}>
+      }}>
       {/* Panel header */}
       <div style={{
         padding: '14px 16px 12px',
         borderBottom: '1px solid var(--color-border, #e2e8f0)',
         flexShrink: 0,
       }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6366f1' }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6366f1' }}>
           Content Editor
         </p>
         {selection && (
@@ -881,7 +881,7 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
 
       {/* Section selector */}
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border, #e2e8f0)', flexShrink: 0 }}>
-        <label style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
+        <label style={{ fontSize: 11, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
           Section
         </label>
         <select
@@ -910,8 +910,8 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
       <div style={{ padding: '14px 16px', flex: 1, overflowY: 'auto' }}>
         {!section && (
           <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--color-text-muted)' }}>
-            <p style={{ fontSize: 28, margin: '0 0 8px' }}>✏️</p>
-            <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Select a section to edit</p>
+            <span style={{ display: 'block', marginBottom: 8 }}><Icon icon={Pencil} size="xl" /></span>
+            <p style={{ fontSize: 13, fontWeight: 400, margin: 0 }}>Select a section to edit</p>
             <p style={{ fontSize: 12, margin: '6px 0 0', lineHeight: 1.5 }}>
               Use the dropdown above, or click any highlighted element on the canvas
             </p>
@@ -922,7 +922,7 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
           <>
             {/* Section nav title */}
             <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
                 Section Title (nav label)
               </label>
               <input
@@ -968,10 +968,10 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
             {/* Image controls — shown for all sections that have an image */}
             {section.image && (
               <div style={{ marginTop: 20, padding: '12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)' }}>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)', marginBottom: 10, fontFamily: 'system-ui', margin: '0 0 10px' }}>
+                <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4, color: 'var(--color-text-muted)', marginBottom: 10, margin: '0 0 10px' }}>
                   Section Image
                 </p>
-                <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <label style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
                   Search query
                 </label>
                 <input
@@ -981,7 +981,7 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
                   onChange={e => ctx.updateField(section.id, '__imageQuery', e.target.value)}
                   style={{ width: '100%', padding: '6px 9px', borderRadius: 5, border: '1px solid var(--color-border)', fontSize: 12, marginBottom: 8, boxSizing: 'border-box' }}
                 />
-                <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <label style={{ fontSize: 10, fontWeight: 400, color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
                   Image URL (override)
                 </label>
                 <input

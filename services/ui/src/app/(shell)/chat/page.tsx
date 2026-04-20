@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Upload, PanelRight, LayoutGrid, ArrowUp, Plus } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
@@ -361,15 +363,15 @@ export default function ChatPage() {
 
         <div className="chat-v2-header-right">
           <button className="chat-v2-action-btn" onClick={() => setShowUpload((v) => !v)}>
-            <span>⬆</span>
+            <Icon icon={Upload} size="sm" />
             <span>Upload</span>
           </button>
           <button className="chat-v2-action-btn" onClick={() => router.push('/proposal')}>
-            <span>◧</span>
+            <Icon icon={PanelRight} size="sm" />
             <span>Proposal</span>
           </button>
           <button className="chat-v2-action-btn" onClick={() => router.push('/presentation')}>
-            <span>▣</span>
+            <Icon icon={LayoutGrid} size="sm" />
             <span>Microsite</span>
           </button>
           {hasContent && (
@@ -389,7 +391,7 @@ export default function ChatPage() {
             onClick={() => setContextOpen((v) => !v)}
             title={contextOpen ? 'Hide panel' : 'Show context panel'}
           >
-            ◫
+            <Icon icon={PanelRight} size="md" />
           </button>
         </div>
       </header>
@@ -639,7 +641,7 @@ export default function ChatPage() {
                 onClick={() => setShowUpload((v) => !v)}
                 aria-label="Attach files"
               >
-                +
+                <Icon icon={Plus} size="md" />
               </button>
               <textarea
                 ref={textareaRef}
@@ -660,15 +662,7 @@ export default function ChatPage() {
                 {isStreaming ? (
                   <span className="spinner chat-spinner-sm" />
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M8 13V3M3 8l5-5 5 5"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  <Icon icon={ArrowUp} size="md" />
                 )}
               </button>
             </div>

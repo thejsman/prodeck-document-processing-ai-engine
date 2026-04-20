@@ -52,7 +52,7 @@ function buildThemeVariables(tokens: PluginTokens) {
     pieSectionTextColor:    tokens.text,
     pieOpacity:             '1',
     // Typography
-    fontFamily: `'${tokens.bodyFont}', system-ui, sans-serif`,
+    fontFamily: `'${tokens.bodyFont}', sans-serif`,
     fontSize:   '13px',
   };
 }
@@ -67,7 +67,7 @@ export function MermaidChart({ chart, tokens }: Props) {
   const lastThemeRef = useRef<string>('');
 
   useEffect(() => {
-    if (!chart.trim()) return;
+    if (!chart || !chart.trim()) return;
     let cancelled = false;
 
     (async () => {

@@ -27,9 +27,7 @@ export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
   const preparer = proposedBy || brand.companyName;
 
   // Extract domain hint from tagline if it looks like a domain
-  const domainHint = brand.tagline && /^[\w.-]+\.\w{2,}$/.test(brand.tagline.trim())
-    ? brand.tagline.trim()
-    : null;
+  const domainHint = brand.tagline && /^[\w.-]+\.\w{2,}$/.test(brand.tagline.trim()) ? brand.tagline.trim() : null;
 
   return (
     <footer
@@ -38,16 +36,17 @@ export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
         borderTop: `1px solid ${tokens.border}`,
       }}
     >
-      <div style={{
-        maxWidth: 1200,
-        margin: '0 auto',
-        padding: '18px 40px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '2rem',
-      }}>
-
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: '0 auto',
+          padding: '18px 40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '2rem',
+        }}
+      >
         {/* ── Left: icon + client name + domain ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {brand.logoUrl ? (
@@ -61,22 +60,26 @@ export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
           )}
 
           <div>
-            <div style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontWeight: 700,
-              fontSize: '0.88rem',
-              color: tokens.text,
-              lineHeight: 1.25,
-            }}>
+            <div
+              style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                color: tokens.text,
+                lineHeight: 1.25,
+              }}
+            >
               {clientName}
             </div>
             {domainHint && (
-              <div style={{
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.72rem',
-                color: tokens.textSubtle,
-                lineHeight: 1.3,
-              }}>
+              <div
+                style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '0.72rem',
+                  color: tokens.textSubtle,
+                  lineHeight: 1.3,
+                }}
+              >
                 {domainHint}
               </div>
             )}
@@ -86,39 +89,44 @@ export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
         {/* ── Right: "Proposal prepared by" label + preparer name ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
           <div style={{ textAlign: 'right' }}>
-            <div style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.72rem',
-              color: tokens.textSubtle,
-              lineHeight: 1.4,
-            }}>
+            <div
+              style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.72rem',
+                color: tokens.textSubtle,
+                lineHeight: 1.4,
+              }}
+            >
               Proposal prepared by
             </div>
             {date && (
-              <div style={{
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '0.65rem',
-                color: tokens.textSubtle,
-                opacity: 0.65,
-                lineHeight: 1.3,
-              }}>
+              <div
+                style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '0.65rem',
+                  color: tokens.textSubtle,
+                  opacity: 0.65,
+                  lineHeight: 1.3,
+                }}
+              >
                 Proposal prepared {date} · Version 1.0 · Confidential
               </div>
             )}
           </div>
 
-          <div style={{
-            fontFamily: `'${tokens.heroFont}', serif`,
-            fontWeight: 700,
-            fontSize: '1.4rem',
-            color: tokens.text,
-            letterSpacing: '-0.02em',
-            lineHeight: 1,
-          }}>
+          <div
+            style={{
+              fontFamily: `'${tokens.heroFont}', serif`,
+              fontWeight: 700,
+              fontSize: '1.4rem',
+              color: tokens.text,
+              letterSpacing: '-0.02em',
+              lineHeight: 1,
+            }}
+          >
             {preparer}
           </div>
         </div>
-
       </div>
     </footer>
   );

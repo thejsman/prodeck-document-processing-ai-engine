@@ -105,7 +105,7 @@ export function CircularProgress({ value, label, description, labelNode, descrip
               fontFamily: `'${tokens.heroFont}', serif`,
               fontWeight: tokens.heroWeight,
               fontSize: `${size * 0.22}px`,
-              lineHeight: 1,
+              lineHeight: 1.2,
               color: tokens.text,
               letterSpacing: '-0.02em',
             }}
@@ -120,9 +120,9 @@ export function CircularProgress({ value, label, description, labelNode, descrip
         <div
           style={{
             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 700,
+            fontWeight: 600,
             fontSize: '0.85rem',
-            letterSpacing: '0.06em',
+            letterSpacing: '0.08em',
             textTransform: 'uppercase' as const,
             color: tokens.text,
             marginBottom: (description || descriptionNode) ? 6 : 0,
@@ -137,7 +137,8 @@ export function CircularProgress({ value, label, description, labelNode, descrip
               fontWeight: 300,
               fontSize: '0.8rem',
               color: tokens.textMuted,
-              lineHeight: 1.5,
+              lineHeight: 1.4,
+              letterSpacing: '0.01em',
               maxWidth: 160,
             }}
           >

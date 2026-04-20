@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { X, ArrowDown, Check } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '../../../lib/auth-context';
 import { publishMicrosite } from '../../../lib/api';
 import type { LayoutAST } from '../../../types/presentation';
@@ -78,20 +80,19 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
           width: '100%',
           maxWidth: 440,
           boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
           overflow: 'hidden',
         }}
       >
         {/* Header */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <p style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: 0 }}>Publish Microsite</p>
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0' }}>Export as a self-contained HTML file</p>
+            <p style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: 0, lineHeight: 1.5, letterSpacing: '0em' }}>Publish Microsite</p>
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>Export as a self-contained HTML file</p>
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, padding: 4 }}
-          >✕</button>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}
+          ><Icon icon={X} size="md" /></button>
         </div>
 
         {/* Body */}
@@ -110,8 +111,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
             }}
           >
             <div>
-              <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: 0 }}>Download HTML</p>
-              <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0' }}>
+              <p style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', margin: 0, lineHeight: 1.5, letterSpacing: '0.01em' }}>Download HTML</p>
+              <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>
                 {status === 'done'
                   ? `Ready — ${formatBytes(fileSize)}`
                   : 'Single file, no external dependencies'}
@@ -127,13 +128,15 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                 background: status === 'loading' ? '#e2e8f0' : '#6366f1',
                 color: status === 'loading' ? '#94a3b8' : '#fff',
                 fontSize: 12,
-                fontWeight: 700,
+                fontWeight: 600,
                 cursor: status === 'loading' ? 'not-allowed' : 'pointer',
                 flexShrink: 0,
                 whiteSpace: 'nowrap',
+                lineHeight: 1.4,
+                letterSpacing: '0.01em',
               }}
             >
-              {status === 'loading' ? 'Exporting…' : status === 'done' ? '↓ Download again' : '↓ Download'}
+              {status === 'loading' ? 'Exporting…' : <><Icon icon={ArrowDown} size="sm" /> {status === 'done' ? 'Download again' : 'Download'}</>}
             </button>
           </div>
 
@@ -148,8 +151,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div>
-                <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: 0 }}>Preview URL</p>
-                <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0' }}>Share with your team (requires local server)</p>
+                <p style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', margin: 0, lineHeight: 1.5, letterSpacing: '0.01em' }}>Preview URL</p>
+                <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>Share with your team (requires local server)</p>
               </div>
               <button
                 onClick={handleCopyUrl}
@@ -160,13 +163,15 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                   background: copied ? '#f0fdf4' : '#fff',
                   color: copied ? '#166534' : '#475569',
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: 400,
                   cursor: 'pointer',
                   flexShrink: 0,
                   whiteSpace: 'nowrap',
+                  lineHeight: 1.4,
+                  letterSpacing: '0.01em',
                 }}
               >
-                {copied ? '✓ Copied' : 'Copy URL'}
+                {copied ? <><Icon icon={Check} size="sm" /> Copied</> : 'Copy URL'}
               </button>
             </div>
             <input
@@ -197,7 +202,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
 
         {/* Footer */}
         <div style={{ padding: '14px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
-          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0, lineHeight: 1.4, letterSpacing: '0.01em' }}>
             The HTML export includes all fonts and styles inline. It works offline and can be hosted anywhere.
           </p>
         </div>

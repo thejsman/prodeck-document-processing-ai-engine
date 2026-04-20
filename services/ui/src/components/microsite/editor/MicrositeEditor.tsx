@@ -18,18 +18,187 @@ const QUICK_THEMES = THEME_REGISTRY.slice(0, 8);
 
 // ── SVG icon primitives ────────────────────────────────────────────────────
 const Icon = {
-  back: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>,
-  outline: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>,
-  undo: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
-  redo: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>,
-  desktop: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>,
-  tablet: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
-  mobile: <svg width="14" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
-  theme: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>,
-  ai: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/></svg>,
-  publish: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
-  save: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
-  check: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  back: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M19 12H5M12 5l-7 7 7 7" />
+    </svg>
+  ),
+  outline: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="15" y2="12" />
+      <line x1="3" y1="18" x2="18" y2="18" />
+    </svg>
+  ),
+  undo: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="9 14 4 9 9 4" />
+      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+    </svg>
+  ),
+  redo: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="15 14 20 9 15 4" />
+      <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
+    </svg>
+  ),
+  desktop: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  ),
+  tablet: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="4" y="2" width="16" height="20" rx="2" />
+      <line x1="12" y1="18" x2="12.01" y2="18" />
+    </svg>
+  ),
+  mobile: (
+    <svg
+      width="14"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="5" y="2" width="14" height="20" rx="2" />
+      <line x1="12" y1="18" x2="12.01" y2="18" />
+    </svg>
+  ),
+  theme: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+    </svg>
+  ),
+  ai: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z" />
+    </svg>
+  ),
+  publish: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  ),
+  save: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </svg>
+  ),
+  check: (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
 };
 
 // ── Canvas — reads editedAst from context ─────────────────────────────────
@@ -48,7 +217,9 @@ function EditorCanvas({
     : undefined;
   // When the brand has extractedCssVariables (from a custom design prompt), skip
   // primaryColor so the extracted accent overrides the plugin default instead.
-  const hasCssOverride = !!(activeAst.brand?.extractedCssVariables && Object.keys(activeAst.brand.extractedCssVariables).length > 0);
+  const hasCssOverride = !!(
+    activeAst.brand?.extractedCssVariables && Object.keys(activeAst.brand.extractedCssVariables).length > 0
+  );
   const tokens = resolveTokens(
     activeAst.plugin,
     hasCssOverride ? '' : (activeAst.brand?.primaryColor ?? ''),
@@ -57,6 +228,7 @@ function EditorCanvas({
 
   return (
     <div
+      id="ms-editor-scroll"
       style={{
         width: '100%',
         height: '100%',
@@ -67,13 +239,21 @@ function EditorCanvas({
       }}
     >
       {previewAst && (
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 100,
-          background: 'rgba(99,102,241,0.92)', backdropFilter: 'blur(8px)',
-          color: '#fff', textAlign: 'center',
-          fontSize: 13, fontWeight: 700, padding: '7px 14px',
-          letterSpacing: '0.04em',
-        }}>
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 100,
+            background: 'rgba(99,102,241,0.92)',
+            backdropFilter: 'blur(8px)',
+            color: '#fff',
+            textAlign: 'center',
+            fontSize: 13,
+            fontWeight: 700,
+            padding: '7px 14px',
+            letterSpacing: '0.04em',
+          }}
+        >
           ✦ Previewing changes — click <em>Apply</em> in the Design AI panel to keep, or <em>Revert</em> to undo
         </div>
       )}
@@ -98,8 +278,14 @@ function FloatingAIBar({ onSubmit }: { onSubmit: (instruction: string) => void }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); }
-    if (e.key === 'Escape') { setValue(''); inputRef.current?.blur(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    }
+    if (e.key === 'Escape') {
+      setValue('');
+      inputRef.current?.blur();
+    }
   }
 
   return (
@@ -131,7 +317,7 @@ function FloatingAIBar({ onSubmit }: { onSubmit: (instruction: string) => void }
         id="mse-floating-ai-input"
         ref={inputRef}
         value={value}
-        onChange={e => setValue(e.target.value)}
+        onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -212,23 +398,22 @@ function QuickThemePanel({
       }}
     >
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #e2e8f0' }}>
-        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
-          Quick Theme Switch
-        </p>
-        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>
-          Click any theme to apply instantly
-        </p>
+        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Quick Theme Switch</p>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Click any theme to apply instantly</p>
       </div>
 
       <div style={{ padding: 10, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-        {QUICK_THEMES.map(theme => {
+        {QUICK_THEMES.map((theme) => {
           const isActive = theme.id === currentPlugin;
           const c = theme.previewColors;
           return (
             <button
               key={theme.id}
               title={theme.label}
-              onClick={() => { onSelect(theme.id); onClose(); }}
+              onClick={() => {
+                onSelect(theme.id);
+                onClose();
+              }}
               style={{
                 borderRadius: 8,
                 border: isActive ? '2px solid #6366f1' : '2px solid transparent',
@@ -242,24 +427,53 @@ function QuickThemePanel({
               }}
             >
               {/* Mini preview */}
-              <div style={{ position: 'absolute', inset: 0, padding: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div
+                style={{ position: 'absolute', inset: 0, padding: 6, display: 'flex', flexDirection: 'column', gap: 3 }}
+              >
                 <div style={{ height: 3, width: '60%', background: c.accent, borderRadius: 2, opacity: 0.9 }} />
                 <div style={{ height: 2, width: '85%', background: c.text, borderRadius: 2, opacity: 0.3 }} />
                 <div style={{ height: 2, width: '65%', background: c.text, borderRadius: 2, opacity: 0.2 }} />
                 <div style={{ marginTop: 'auto', display: 'flex', gap: 2 }}>
-                  <div style={{ flex: 1, height: 10, background: c.surface, borderRadius: 2, border: `1px solid ${c.border}` }} />
-                  <div style={{ flex: 1, height: 10, background: c.surface, borderRadius: 2, border: `1px solid ${c.border}` }} />
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 10,
+                      background: c.surface,
+                      borderRadius: 2,
+                      border: `1px solid ${c.border}`,
+                    }}
+                  />
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 10,
+                      background: c.surface,
+                      borderRadius: 2,
+                      border: `1px solid ${c.border}`,
+                    }}
+                  />
                 </div>
               </div>
               {/* Active check */}
               {isActive && (
-                <div style={{
-                  position: 'absolute', top: 3, right: 3,
-                  width: 14, height: 14, borderRadius: '50%',
-                  background: '#6366f1', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  fontSize: 8, color: '#fff',
-                }}>✓</div>
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 3,
+                    right: 3,
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: '#6366f1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 8,
+                    color: '#fff',
+                  }}
+                >
+                  ✓
+                </div>
               )}
               {/* Color strip at bottom */}
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, display: 'flex' }}>
@@ -274,7 +488,7 @@ function QuickThemePanel({
 
       {/* Theme labels */}
       <div style={{ padding: '0 10px 6px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-        {QUICK_THEMES.map(theme => (
+        {QUICK_THEMES.map((theme) => (
           <p
             key={theme.id}
             style={{
@@ -295,7 +509,10 @@ function QuickThemePanel({
 
       <div style={{ padding: '10px 14px', borderTop: '1px solid #e2e8f0' }}>
         <button
-          onClick={() => { onClose(); onBrowseAll(); }}
+          onClick={() => {
+            onClose();
+            onBrowseAll();
+          }}
           style={{
             width: '100%',
             padding: '8px',
@@ -325,8 +542,8 @@ type Viewport = 'desktop' | 'tablet' | 'mobile';
 
 const VIEWPORT_OPTIONS: { id: Viewport; label: string; icon: React.ReactNode; width: string }[] = [
   { id: 'desktop', label: 'Desktop', icon: Icon.desktop, width: '100%' },
-  { id: 'tablet',  label: 'Tablet',  icon: Icon.tablet,  width: '768px' },
-  { id: 'mobile',  label: 'Mobile',  icon: Icon.mobile,  width: '375px' },
+  { id: 'tablet', label: 'Tablet', icon: Icon.tablet, width: '768px' },
+  { id: 'mobile', label: 'Mobile', icon: Icon.mobile, width: '375px' },
 ];
 
 interface InnerProps {
@@ -354,7 +571,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const savedAstRef = useRef<string>(JSON.stringify(ctx.ast));
   const themeBtnRef = useRef<HTMLDivElement>(null);
 
-  const currentTheme = THEME_REGISTRY.find(t => t.id === ctx.ast.plugin);
+  const currentTheme = THEME_REGISTRY.find((t) => t.id === ctx.ast.plugin);
 
   // Track dirty state
   useEffect(() => {
@@ -370,7 +587,9 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       savedAstRef.current = JSON.stringify(ctx.ast);
       setIsDirty(false);
       const now = new Date();
-      setLastSavedLabel(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`);
+      setLastSavedLabel(
+        `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+      );
     }, 60_000);
     return () => clearTimeout(timer);
   }, [isDirty, ctx.ast, onExport]);
@@ -398,27 +617,51 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     if (!mod) return;
 
     // Cmd+K — command palette
-    if (e.key === 'k') { e.preventDefault(); showPaletteRef.current ? setShowPalette(false) : setShowPalette(true); return; }
+    if (e.key === 'k') {
+      e.preventDefault();
+      showPaletteRef.current ? setShowPalette(false) : setShowPalette(true);
+      return;
+    }
 
     // Undo / Redo
-    if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); ctxRef.current.undo(); return; }
-    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); ctxRef.current.redo(); return; }
+    if (e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      ctxRef.current.undo();
+      return;
+    }
+    if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+      e.preventDefault();
+      ctxRef.current.redo();
+      return;
+    }
 
     // Section shortcuts — only when a section is active
     const activeId = ctxRef.current.activeSectionId;
     if (!activeId) return;
     const sections = ctxRef.current.ast.sections;
-    const idx = sections.findIndex(s => s.id === activeId);
+    const idx = sections.findIndex((s) => s.id === activeId);
     if (idx === -1) return;
 
     // Ctrl+D — duplicate
-    if (e.key === 'd') { e.preventDefault(); ctxRef.current.duplicateSection(activeId); return; }
+    if (e.key === 'd') {
+      e.preventDefault();
+      ctxRef.current.duplicateSection(activeId);
+      return;
+    }
 
     // Ctrl+↑ — move up
-    if (e.key === 'ArrowUp' && idx > 0) { e.preventDefault(); ctxRef.current.moveArrayItem('__sections__', '__sections__', idx, idx - 1); return; }
+    if (e.key === 'ArrowUp' && idx > 0) {
+      e.preventDefault();
+      ctxRef.current.moveArrayItem('__sections__', '__sections__', idx, idx - 1);
+      return;
+    }
 
     // Ctrl+↓ — move down
-    if (e.key === 'ArrowDown' && idx < sections.length - 1) { e.preventDefault(); ctxRef.current.moveArrayItem('__sections__', '__sections__', idx, idx + 1); return; }
+    if (e.key === 'ArrowDown' && idx < sections.length - 1) {
+      e.preventDefault();
+      ctxRef.current.moveArrayItem('__sections__', '__sections__', idx, idx + 1);
+      return;
+    }
 
     // Ctrl+Delete — delete section (guard: at least 2 sections)
     if (e.key === 'Delete' && sections.length > 1) {
@@ -430,15 +673,18 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   }, []);
 
   // Ctrl+S save shortcut
-  const handleSaveShortcut = useCallback((e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      onExport(ctxRef.current.ast);
-      savedAstRef.current = JSON.stringify(ctxRef.current.ast);
-      setIsDirty(false);
-      setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    }
-  }, [onExport]);
+  const handleSaveShortcut = useCallback(
+    (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        onExport(ctxRef.current.ast);
+        savedAstRef.current = JSON.stringify(ctxRef.current.ast);
+        setIsDirty(false);
+        setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      }
+    },
+    [onExport],
+  );
 
   useEffect(() => {
     document.addEventListener('keydown', handleSaveShortcut);
@@ -470,17 +716,54 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const activeId = ctx.activeSectionId;
     const sections = ctx.ast.sections;
-    const idx = activeId ? sections.findIndex(s => s.id === activeId) : -1;
+    const idx = activeId ? sections.findIndex((s) => s.id === activeId) : -1;
 
     const cmds: PaletteCommand[] = [
-      { id: 'undo',    label: 'Undo',              icon: '↩', shortcut: 'Ctrl+Z',      action: () => ctx.undo(),  description: ctx.canUndo ? 'Revert last change' : 'Nothing to undo' },
-      { id: 'redo',    label: 'Redo',              icon: '↪', shortcut: 'Ctrl+Y',      action: () => ctx.redo(),  description: ctx.canRedo ? 'Re-apply last change' : 'Nothing to redo' },
-      { id: 'outline', label: 'Toggle Outline',    icon: '☰', action: () => setShowOutline(v => !v), description: 'Show/hide section navigator' },
-      { id: 'design',  label: 'Open Design AI',    icon: '✦', action: () => setShowDesignPanel(true), description: 'AI-powered design editing' },
-      { id: 'publish', label: 'Publish / Export',  icon: '↑', action: () => setShowPublishModal(true) },
-      { id: 'save',    label: 'Save',              icon: '💾', shortcut: 'Ctrl+S',      action: () => { onExport(ctx.ast); savedAstRef.current = JSON.stringify(ctx.ast); setIsDirty(false); setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); } },
-      { id: 'theme',   label: 'Browse Themes',     icon: '🎨', action: () => setShowThemeModal(true) },
-      ...VIEWPORT_OPTIONS.map(opt => ({
+      {
+        id: 'undo',
+        label: 'Undo',
+        icon: '↩',
+        shortcut: 'Ctrl+Z',
+        action: () => ctx.undo(),
+        description: ctx.canUndo ? 'Revert last change' : 'Nothing to undo',
+      },
+      {
+        id: 'redo',
+        label: 'Redo',
+        icon: '↪',
+        shortcut: 'Ctrl+Y',
+        action: () => ctx.redo(),
+        description: ctx.canRedo ? 'Re-apply last change' : 'Nothing to redo',
+      },
+      {
+        id: 'outline',
+        label: 'Toggle Outline',
+        icon: '☰',
+        action: () => setShowOutline((v) => !v),
+        description: 'Show/hide section navigator',
+      },
+      {
+        id: 'design',
+        label: 'Open Design AI',
+        icon: '✦',
+        action: () => setShowDesignPanel(true),
+        description: 'AI-powered design editing',
+      },
+      { id: 'publish', label: 'Publish / Export', icon: '↑', action: () => setShowPublishModal(true) },
+      {
+        id: 'save',
+        label: 'Save',
+        icon: '💾',
+        shortcut: 'Ctrl+S',
+        action: () => {
+          onExport(ctx.ast);
+          savedAstRef.current = JSON.stringify(ctx.ast);
+          setIsDirty(false);
+          setLastSavedLabel(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        },
+      },
+      { id: 'theme', label: 'Browse Themes', icon: '🎨', action: () => setShowThemeModal(true) },
+      ...VIEWPORT_OPTIONS.map((opt) => ({
         id: `viewport-${opt.id}`,
         label: `Viewport: ${opt.label}`,
         icon: opt.id === 'desktop' ? '⬜' : opt.id === 'tablet' ? '▭' : '▯',
@@ -490,11 +773,47 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
     if (activeId && idx !== -1) {
       cmds.push(
-        { id: 'duplicate', label: 'Duplicate Section',  icon: '⊕', shortcut: 'Ctrl+D',      action: () => ctx.duplicateSection(activeId), description: `Duplicate "${sections[idx].sectionType}"` },
-        { id: 'move-up',   label: 'Move Section Up',    icon: '↑',  shortcut: 'Ctrl+↑',      action: () => { if (idx > 0) ctx.moveArrayItem('__sections__', '__sections__', idx, idx - 1); } },
-        { id: 'move-down', label: 'Move Section Down',  icon: '↓',  shortcut: 'Ctrl+↓',      action: () => { if (idx < sections.length - 1) ctx.moveArrayItem('__sections__', '__sections__', idx, idx + 1); } },
-        { id: 'delete',    label: 'Delete Section',     icon: '✕',  shortcut: 'Ctrl+Delete',  action: () => { if (sections.length > 1 && confirm(`Delete section?`)) ctx.removeSection(activeId); } },
-        { id: 'lock',      label: ctx.lockedSections.has(activeId) ? 'Unlock Section' : 'Lock Section', icon: '🔒', action: () => ctx.lockedSections.has(activeId) ? ctx.unlockSection(activeId) : ctx.lockSection(activeId) },
+        {
+          id: 'duplicate',
+          label: 'Duplicate Section',
+          icon: '⊕',
+          shortcut: 'Ctrl+D',
+          action: () => ctx.duplicateSection(activeId),
+          description: `Duplicate "${sections[idx].sectionType}"`,
+        },
+        {
+          id: 'move-up',
+          label: 'Move Section Up',
+          icon: '↑',
+          shortcut: 'Ctrl+↑',
+          action: () => {
+            if (idx > 0) ctx.moveArrayItem('__sections__', '__sections__', idx, idx - 1);
+          },
+        },
+        {
+          id: 'move-down',
+          label: 'Move Section Down',
+          icon: '↓',
+          shortcut: 'Ctrl+↓',
+          action: () => {
+            if (idx < sections.length - 1) ctx.moveArrayItem('__sections__', '__sections__', idx, idx + 1);
+          },
+        },
+        {
+          id: 'delete',
+          label: 'Delete Section',
+          icon: '✕',
+          shortcut: 'Ctrl+Delete',
+          action: () => {
+            if (sections.length > 1 && confirm(`Delete section?`)) ctx.removeSection(activeId);
+          },
+        },
+        {
+          id: 'lock',
+          label: ctx.lockedSections.has(activeId) ? 'Unlock Section' : 'Lock Section',
+          icon: '🔒',
+          action: () => (ctx.lockedSections.has(activeId) ? ctx.unlockSection(activeId) : ctx.lockSection(activeId)),
+        },
       );
     }
 
@@ -530,7 +849,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         display: 'flex',
         flexDirection: 'column',
         background: '#f1f5f9',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
       }}
     >
       <style>{`
@@ -611,7 +929,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
       {/* ── Top toolbar ───────────────────────────────────────────────────── */}
       <div className="mse-bar">
-
         {/* Zone 1 — Navigation */}
         <div className="mse-group">
           <button className="mse-icon-btn" onClick={onClose} title="Back">
@@ -619,7 +936,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           </button>
           <button
             className={`mse-icon-btn${showOutline ? ' active' : ''}`}
-            onClick={() => setShowOutline(v => !v)}
+            onClick={() => setShowOutline((v) => !v)}
             title="Section outline"
           >
             {Icon.outline}
@@ -633,7 +950,9 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           <span className="mse-appname">Editor</span>
           {isDirty ? (
             <span className="mse-save-label dirty" title="Unsaved changes — auto-saves in 60 s">
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+              <span
+                style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }}
+              />
               Unsaved
             </span>
           ) : lastSavedLabel ? (
@@ -651,7 +970,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
         {/* Zone 3 — Viewport */}
         <div className="mse-viewport mse-hide-sm" style={{ marginRight: 8 }}>
-          {VIEWPORT_OPTIONS.map(opt => (
+          {VIEWPORT_OPTIONS.map((opt) => (
             <button
               key={opt.id}
               className={`mse-vp-btn${viewport === opt.id ? ' active' : ''}`}
@@ -667,36 +986,38 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
         {/* Zone 4 — History */}
         <div className="mse-group" style={{ marginRight: 8 }}>
-          <button
-            className="mse-icon-btn"
-            onClick={() => ctx.undo()}
-            disabled={!ctx.canUndo}
-            title="Undo (Ctrl+Z)"
-          >{Icon.undo}</button>
-          <button
-            className="mse-icon-btn"
-            onClick={() => ctx.redo()}
-            disabled={!ctx.canRedo}
-            title="Redo (Ctrl+Y)"
-          >{Icon.redo}</button>
+          <button className="mse-icon-btn" onClick={() => ctx.undo()} disabled={!ctx.canUndo} title="Undo (Ctrl+Z)">
+            {Icon.undo}
+          </button>
+          <button className="mse-icon-btn" onClick={() => ctx.redo()} disabled={!ctx.canRedo} title="Redo (Ctrl+Y)">
+            {Icon.redo}
+          </button>
         </div>
 
         <div className="mse-sep" />
 
         {/* Zone 5 — Tools */}
         <div className="mse-group" style={{ gap: 6, marginLeft: 6 }}>
-
           {/* Theme */}
           <div ref={themeBtnRef} style={{ position: 'relative' }}>
             <button
               className={`mse-label-btn${showThemePanel ? ' active' : ''}`}
-              onClick={() => setShowThemePanel(v => !v)}
+              onClick={() => setShowThemePanel((v) => !v)}
               title="Switch theme"
             >
               {Icon.theme}
               <span>Theme</span>
               {currentTheme && (
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: currentTheme.previewColors.accent, display: 'inline-block', flexShrink: 0 }} />
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: currentTheme.previewColors.accent,
+                    display: 'inline-block',
+                    flexShrink: 0,
+                  }}
+                />
               )}
             </button>
             {showThemePanel && (
@@ -712,7 +1033,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           {/* Design AI */}
           <button
             className={`mse-label-btn${showDesignPanel ? ' active' : ''}`}
-            onClick={() => setShowDesignPanel(v => !v)}
+            onClick={() => setShowDesignPanel((v) => !v)}
             title="Design AI panel"
           >
             {Icon.ai}
@@ -720,11 +1041,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           </button>
 
           {/* Publish */}
-          <button
-            className="mse-label-btn"
-            onClick={() => setShowPublishModal(true)}
-            title="Publish / Export"
-          >
+          <button className="mse-label-btn" onClick={() => setShowPublishModal(true)} title="Publish / Export">
             {Icon.publish}
             <span>Publish</span>
           </button>
@@ -748,34 +1065,35 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
       {/* Canvas + optional outline panel */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-
         {/* Left: Section outline */}
-        {showOutline && (
-          <SectionOutline onClose={() => setShowOutline(false)} />
-        )}
+        {showOutline && <SectionOutline onClose={() => setShowOutline(false)} />}
 
         {/* Right: viewport-simulated canvas */}
-        <div style={{
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          justifyContent: 'center',
-          background: viewport !== 'desktop' ? '#e2e8f0' : '#f1f5f9',
-          transition: 'background 0.2s',
-          padding: viewport !== 'desktop' ? '16px 0' : 0,
-          position: 'relative',
-        }}>
-          <div style={{
-            width: VIEWPORT_OPTIONS.find(v => v.id === viewport)?.width ?? '100%',
-            maxWidth: viewport === 'desktop' ? '100%' : undefined,
-            height: viewport !== 'desktop' ? 'calc(100% - 0px)' : '100%',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            boxShadow: viewport !== 'desktop' ? '0 4px 32px rgba(0,0,0,0.22)' : 'none',
-            borderRadius: viewport !== 'desktop' ? 12 : 0,
-            transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
-            flexShrink: 0,
-          }}>
+        <div
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            display: 'flex',
+            justifyContent: 'center',
+            background: viewport !== 'desktop' ? '#e2e8f0' : '#f1f5f9',
+            transition: 'background 0.2s',
+            padding: viewport !== 'desktop' ? '16px 0' : 0,
+            position: 'relative',
+          }}
+        >
+          <div
+            style={{
+              width: VIEWPORT_OPTIONS.find((v) => v.id === viewport)?.width ?? '100%',
+              maxWidth: viewport === 'desktop' ? '100%' : undefined,
+              height: viewport !== 'desktop' ? 'calc(100% - 0px)' : '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              boxShadow: viewport !== 'desktop' ? '0 4px 32px rgba(0,0,0,0.22)' : 'none',
+              borderRadius: viewport !== 'desktop' ? 12 : 0,
+              transition: 'width 0.3s cubic-bezier(0.4,0,0.2,1)',
+              flexShrink: 0,
+            }}
+          >
             <EditorCanvas onAiAction={handleSectionAiAction} previewAst={previewAst ?? undefined} />
           </div>
         </div>
@@ -799,7 +1117,10 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           proposalId={proposalId}
           targetSectionId={panelTargetSectionId}
           initialInstruction={panelInstruction}
-          onApply={(newAst) => { setPreviewAst(null); ctx.replaceAst(newAst); }}
+          onApply={(newAst) => {
+            setPreviewAst(null);
+            ctx.replaceAst(newAst);
+          }}
           onPreview={(ast) => setPreviewAst(ast)}
           onClose={() => {
             setPreviewAst(null);
@@ -814,8 +1135,19 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       {showThemeModal && (
         <ThemeModal
           selectedPlugin={ctx.ast.plugin}
-          onSelect={id => { if (id) { handleThemeSelect(id); setShowThemeModal(false); } }}
-          onPreview={id => { try { setPreviewPlugin(getPlugin(id)); } catch { /* unknown id */ } }}
+          onSelect={(id) => {
+            if (id) {
+              handleThemeSelect(id);
+              setShowThemeModal(false);
+            }
+          }}
+          onPreview={(id) => {
+            try {
+              setPreviewPlugin(getPlugin(id));
+            } catch {
+              /* unknown id */
+            }
+          }}
           onClose={() => setShowThemeModal(false)}
         />
       )}
@@ -835,12 +1167,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       )}
 
       {/* Command palette */}
-      {showPalette && (
-        <CommandPalette
-          commands={paletteCommands}
-          onClose={() => setShowPalette(false)}
-        />
-      )}
+      {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
     </div>
   );
 }
@@ -865,12 +1192,7 @@ export function MicrositeEditor({ ast, namespace, proposalId, onClose, onExport 
 
   return (
     <EditProvider initialAst={ast} onChange={setEditedAst}>
-      <EditorInner
-        onClose={onClose}
-        onExport={handleExport}
-        namespace={namespace}
-        proposalId={proposalId}
-      />
+      <EditorInner onClose={onClose} onExport={handleExport} namespace={namespace} proposalId={proposalId} />
     </EditProvider>
   );
 }

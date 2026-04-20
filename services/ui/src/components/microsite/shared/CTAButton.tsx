@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type { PluginTokens } from '../../../types/presentation';
 
 interface CTAButtonProps {
@@ -39,9 +41,10 @@ export function CTAButton({ children, tokens, variant = 'primary', style, onClic
         background: isPrimary ? tokens.accent : 'transparent',
         color: isPrimary ? (tokens.dark ? tokens.bg : '#FFFFFF') : (hovered ? tokens.accent : tokens.textMuted),
         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-        fontWeight: 600,
+        fontWeight: 400,
         fontSize: '0.9rem',
-        letterSpacing: '0.02em',
+        letterSpacing: '0em',
+        lineHeight: 1.5,
         cursor: 'pointer',
         minHeight: 44,
         boxShadow: isPrimary && hovered
@@ -61,7 +64,7 @@ export function CTAButton({ children, tokens, variant = 'primary', style, onClic
           fontSize: '1.1em',
           lineHeight: 1,
         }}>
-          →
+          <Icon icon={ArrowRight} size="sm" />
         </span>
       )}
     </button>

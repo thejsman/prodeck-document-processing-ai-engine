@@ -1,14 +1,11 @@
-"use client";
+'use client';
 
-import type {
-  PluginTokens,
-  ShowcaseContent,
-} from "../../../types/presentation";
-import { Reveal } from "../shared/Reveal";
-import { NoiseOverlay } from "../shared/NoiseOverlay";
-import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from "../shared/Typography";
-import { InlineEditable } from "../editor/InlineEditable";
-import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
+import type { PluginTokens, ShowcaseContent } from '../../../types/presentation';
+import { Reveal } from '../shared/Reveal';
+import { NoiseOverlay } from '../shared/NoiseOverlay';
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
+import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: ShowcaseContent;
@@ -20,19 +17,17 @@ interface Props {
 
 export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }: Props) {
   // Normalize: highlights can be string[] (old) or {title,subtitle}[] (new schema)
-  const highlights = (content.highlights ?? []).map(h =>
-    typeof h === 'string' ? h : h.title
-  );
+  const highlights = (content.highlights ?? []).map((h) => (typeof h === 'string' ? h : h.title));
   // Alternate visual side based on section index
   const visualLeft = index % 2 === 0;
 
   const visual = (
     <div
       style={{
-        flex: "0 0 clamp(280px, 45%, 520px)",
+        flex: '0 0 clamp(280px, 45%, 520px)',
         borderRadius: 20,
-        overflow: "hidden",
-        position: "relative",
+        overflow: 'hidden',
+        position: 'relative',
         minHeight: 360,
         background: imageUrl
           ? 'transparent'
@@ -48,31 +43,37 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
           src={imageUrl}
           alt=""
           style={{
-            position: "absolute",
+            position: 'absolute',
             inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block',
           }}
         />
       )}
 
       {/* Overlay for readability when image is shown */}
       {imageUrl && (
-        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.45) 100%)" }} />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.45) 100%)',
+          }}
+        />
       )}
 
       {/* Floating pills */}
       <div
         style={{
-          position: "absolute",
+          position: 'absolute',
           inset: 0,
-          display: "flex",
-          flexWrap: "wrap",
+          display: 'flex',
+          flexWrap: 'wrap',
           gap: 10,
           padding: 28,
-          alignContent: "flex-end",
+          alignContent: 'flex-end',
           zIndex: 2,
         }}
       >
@@ -80,16 +81,16 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
           <span
             key={i}
             style={{
-              padding: "6px 14px",
+              padding: '6px 14px',
               borderRadius: 100,
               border: `1px solid ${imageUrl ? 'rgba(255,255,255,0.4)' : tokens.accent + '60'}`,
               background: imageUrl ? 'rgba(255,255,255,0.15)' : `${tokens.accent}15`,
-              backdropFilter: "blur(8px)",
+              backdropFilter: 'blur(8px)',
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: "0.75rem",
+              fontSize: '0.75rem',
               fontWeight: 500,
               color: imageUrl ? '#fff' : tokens.accent,
-              letterSpacing: "0.05em",
+              letterSpacing: '0.05em',
             }}
           >
             {pill}
@@ -101,15 +102,15 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
       {!imageUrl && (
         <div
           style={{
-            position: "absolute",
-            top: "15%",
-            left: "20%",
+            position: 'absolute',
+            top: '15%',
+            left: '20%',
             width: 200,
             height: 200,
-            borderRadius: "50%",
+            borderRadius: '50%',
             background: `radial-gradient(circle, ${tokens.accent}30 0%, transparent 70%)`,
-            filter: "blur(40px)",
-            pointerEvents: "none",
+            filter: 'blur(40px)',
+            pointerEvents: 'none',
           }}
         />
       )}
@@ -120,7 +121,7 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
     <div style={{ flex: 1, minWidth: 0 }}>
       <Reveal>
         <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-          <Label tokens={tokens} style={{ display: "block", marginBottom: 14 }}>
+          <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
             {content.eyebrow}
           </Label>
         </InlineEditable>
@@ -138,9 +139,10 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
             style={{
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontWeight: 500,
-              fontSize: "0.9rem",
+              fontSize: '0.9rem',
               color: tokens.text,
               lineHeight: 1.5,
+              letterSpacing: '0em',
               marginBottom: 18,
             }}
             {...(hasMarkdown(content.subheadline ?? '')
@@ -157,11 +159,11 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
         </InlineEditable>
       </Reveal>
       {/* Highlights as vertical list with accent line */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {highlights.map((h, i) => (
           <Reveal key={i} delay={280 + i * 60}>
             <InlineArrayItem arrayPath="highlights" index={i} total={highlights.length}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div
                   style={{
                     width: 3,
@@ -175,7 +177,7 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
                   <span
                     style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: "0.825rem",
+                      fontSize: '0.825rem',
                       fontWeight: 500,
                       color: tokens.text,
                     }}
@@ -189,11 +191,7 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
         ))}
       </div>
       <div style={{ marginTop: 8 }}>
-        <InlineAddItem
-          arrayPath="highlights"
-          template="New highlight…"
-          label="Add highlight"
-        />
+        <InlineAddItem arrayPath="highlights" template="New highlight…" label="Add highlight" />
       </div>
     </div>
   );
@@ -201,29 +199,29 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
   return (
     <section
       style={{
-        position: "relative",
-        padding: "clamp(4rem, 8vw, 7rem) 2rem",
+        position: 'relative',
+        padding: 'clamp(4rem, 8vw, 7rem) 2rem',
         background: `linear-gradient(180deg, ${tokens.bg} 0%, ${tokens.surfaceAlt} 50%, ${tokens.bg} 100%)`,
-        overflow: "hidden",
+        overflow: 'hidden',
       }}
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
       <div
         style={{
-          position: "relative",
+          position: 'relative',
           zIndex: 5,
           maxWidth: 1100,
-          margin: "0 auto",
+          margin: '0 auto',
         }}
       >
         <div
           className="ms-split"
           style={{
-            display: "flex",
-            flexDirection: visualLeft ? "row" : "row-reverse",
-            gap: "clamp(2rem, 5vw, 5rem)",
-            alignItems: "center",
+            display: 'flex',
+            flexDirection: visualLeft ? 'row' : 'row-reverse',
+            gap: 'clamp(2rem, 5vw, 5rem)',
+            alignItems: 'center',
           }}
         >
           <Reveal delay={visualLeft ? 0 : 80}>{visual}</Reveal>

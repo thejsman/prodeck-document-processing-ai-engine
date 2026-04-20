@@ -1,6 +1,8 @@
 'use client';
 
 import { useTheme, type Theme } from '@/core/theme/theme-provider';
+import { Sun, Moon } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 
 // ── Config ────────────────────────────────────────────────────────
 
@@ -35,7 +37,7 @@ export function ThemeToggle() {
       title={TOOLTIPS[theme]}
       aria-label="Switch theme"
     >
-      {ICONS[theme]}
+      <Icon icon={theme === 'light' ? Sun : Moon} size="md" />
     </button>
   );
 }

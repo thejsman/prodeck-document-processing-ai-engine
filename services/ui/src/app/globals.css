@@ -12,6 +12,14 @@
   /* padding: 0; */
 }
 
+/* Form elements don't inherit font-family by default — force inheritance */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 /* ── Custom Properties ─────────────────────────────────────────── */
 /* Theme-sensitive colors live in theme-tokens.css above.          */
 /* Only non-theme values (radius, shadow, font) remain here.       */
@@ -19,8 +27,12 @@
 :root {
   --radius: 8px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+
+  /* ── Typography token — change font here to update the entire UI ── */
+  --font-family-base: var(--font-inter), 'Inter', sans-serif;
+
+  /* --font is the existing alias consumed throughout the codebase */
+  --font: var(--font-family-base);
 }
 
 /* ── Base ──────────────────────────────────────────────────────── */
@@ -31,7 +43,7 @@ body {
 }
 
 body {
-  font-family: var(--font);
+  font-family: var(--font-family-base);
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
@@ -96,9 +108,9 @@ body {
 
 .page-header-text h1 {
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 
@@ -146,7 +158,9 @@ body {
 
 .header h1 {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .two-col {
@@ -189,9 +203,11 @@ body {
 
 .card h2 {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
   margin-bottom: 16px;
   color: var(--color-text);
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 /* ── Form ──────────────────────────────────────────────────────── */
@@ -203,7 +219,7 @@ body {
 .form-group label {
   display: block;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text-muted);
   margin-bottom: 4px;
 }
@@ -219,7 +235,6 @@ body {
   width: 100%;
   padding: 8px 10px;
   font-size: 14px;
-  font-family: var(--font);
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface);
@@ -261,7 +276,7 @@ body {
 
 .fieldset legend {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text-muted);
   padding: 0 6px;
 }
@@ -279,8 +294,7 @@ body {
   gap: 6px;
   padding: 8px 16px;
   font-size: 14px;
-  font-family: var(--font);
-  font-weight: 500;
+  font-weight: 400;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-surface);
@@ -310,8 +324,8 @@ body {
 }
 
 .btn-sm {
-  padding: 4px 10px;
-  font-size: 13px;
+  padding: 5px 12px;
+  font-size: 14px;
 }
 
 /* ── Error / Status ────────────────────────────────────────────── */
@@ -337,7 +351,7 @@ body {
   display: inline-block;
   padding: 1px 8px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   border-radius: 10px;
   background: var(--color-bg);
   color: var(--color-text-muted);
@@ -365,7 +379,7 @@ body {
 
 .metadata-bar strong {
   color: var(--color-text);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 /* ── Version History ───────────────────────────────────────────── */
@@ -388,7 +402,7 @@ body {
 }
 
 .history-item-name {
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text);
 }
 
@@ -405,7 +419,7 @@ body {
 
 .streaming-section summary {
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text-muted);
   font-size: 13px;
   padding: 8px 0;
@@ -424,28 +438,34 @@ body {
 /* ── Prose (Markdown) ──────────────────────────────────────────── */
 
 .prose {
-  line-height: 1.7;
+  line-height: 1.5;
   color: var(--color-text);
 }
 
 .prose h1 {
   font-size: 1.5em;
-  font-weight: 700;
+  font-weight: 600;
   margin: 1.2em 0 0.5em;
   padding-bottom: 0.3em;
   border-bottom: 1px solid var(--color-border);
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .prose h2 {
   font-size: 1.25em;
-  font-weight: 600;
+  font-weight: 400;
   margin: 1em 0 0.4em;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .prose h3 {
   font-size: 1.1em;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0.8em 0 0.3em;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .prose p {
@@ -478,7 +498,7 @@ body {
 
 .prose th {
   background: var(--color-bg);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .prose blockquote {
@@ -531,6 +551,8 @@ body {
 .gate h1 {
   font-size: 18px;
   margin-bottom: 4px;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .gate p {
@@ -716,17 +738,18 @@ body {
 .sidebar-header {
   display: flex;
   align-items: center;
-  padding: 20px 16px 12px;
-  min-height: 60px;
+  padding: 0 16px;
+  height: 52px;
   flex-shrink: 0;
 }
 
 .sidebar-brand {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
   white-space: nowrap;
-  letter-spacing: -0.01em;
+  letter-spacing: 0em;
+  line-height: 1.5;
 }
 
 .sidebar-brand-icon {
@@ -741,7 +764,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 4px 10px;
-  gap: 2px;
+  gap: 1px;
   overflow-y: auto;
 }
 
@@ -749,18 +772,18 @@ body {
 .sidebar-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-bottom: 4px;
+  gap: 1px;
+  margin-bottom: 1px;
 }
 
 .sidebar-group-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0em;
+  line-height: 1.5;
   color: var(--muted);
-  opacity: 0.6;
   padding: 10px 12px 4px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 /* Nav item */
@@ -768,15 +791,19 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  padding: 0 12px;
+  height: 36px;
+  padding: 0 8px;
+  margin-bottom: 1px;
   border-radius: 10px;
   text-decoration: none;
   color: var(--muted);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
+  background: none;
+  border: none;
+  cursor: pointer;
   transition:
     background 0.2s ease,
     color 0.2s ease,
@@ -792,7 +819,7 @@ body {
 .sidebar-link--active {
   background: var(--primary-soft);
   color: var(--primary);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .sidebar-link--active:hover {
@@ -849,7 +876,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
+  height: 48px;
   padding: 0 20px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -863,10 +890,11 @@ body {
 
 .topbar-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
 }
 
 .topbar-center {
@@ -876,9 +904,9 @@ body {
 }
 
 .topbar-ns-label {
-  font-size: 13px;
+  font-size: 16px;
   color: var(--color-text-muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .topbar-ns-select {
@@ -955,8 +983,10 @@ body {
 
 .dashboard h1 {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 400;
   margin-bottom: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .dashboard-grid {
@@ -973,15 +1003,18 @@ body {
 .dashboard-card h2 {
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--color-text-muted);
   margin-bottom: 12px;
+  line-height: 1.4;
 }
 
 .dashboard-stat {
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--color-text);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
 /* ── Page Header ──────────────────────────────────────────────── */
@@ -992,7 +1025,9 @@ body {
 
 .page-header h1 {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 /* ── Workspace ────────────────────────────────────────────────── */
@@ -1036,7 +1071,7 @@ body {
 
 .workspace-stat {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text-muted);
 }
 
@@ -1098,8 +1133,10 @@ body {
 
 .section-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .section-toggle {
@@ -1297,8 +1334,10 @@ body {
 
 .diff-header h2 {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .diff-body {
@@ -1327,7 +1366,9 @@ body {
 
 .diff-section-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .diff-added {
@@ -1385,9 +1426,10 @@ body {
 
 .diff-content-label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   padding: 6px 14px;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-border);
@@ -1529,7 +1571,9 @@ body {
 
 .admin-nav-label {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 /* ── Namespace Manager ───────────────────────────────────────── */
@@ -1574,7 +1618,7 @@ body {
 }
 
 .ns-list-name {
-  font-weight: 500;
+  font-weight: 400;
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
 }
@@ -1643,7 +1687,7 @@ body {
 
 .upload-file-list-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0 0 10px 0;
   display: flex;
   align-items: center;
@@ -1674,7 +1718,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .upload-file-remove {
@@ -1720,9 +1764,11 @@ body {
 
 .upload-result h3 {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0 0 12px 0;
   color: var(--color-success);
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .upload-result-stats {
@@ -1738,8 +1784,9 @@ body {
 
 .upload-result-value {
   font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 /* ===== Existing Files ===== */
@@ -1764,10 +1811,11 @@ body {
 .existing-files-table th {
   text-align: left;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   padding: 6px 10px;
   border-bottom: 1px solid var(--color-border);
 }
@@ -1782,7 +1830,7 @@ body {
 }
 
 .existing-files-name {
-  font-weight: 500;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1816,7 +1864,9 @@ body {
 .ai-builder-header h3 {
   margin: 0 0 4px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .ai-builder-section {
@@ -1827,10 +1877,11 @@ body {
 
 .ai-builder-label {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
 }
 
 .ai-builder-textarea {
@@ -1886,8 +1937,10 @@ body {
 
 .tpl-editor-sidebar-header h3 {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .tpl-editor-new {
@@ -1923,7 +1976,7 @@ body {
 }
 
 .tpl-list-name {
-  font-weight: 500;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1942,7 +1995,9 @@ body {
 
 .tpl-editor-toolbar h3 {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0em;
   margin: 0;
 }
 
@@ -2056,14 +2111,16 @@ body {
 
 .microsite-section-title {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 400;
   margin-bottom: 12px;
   color: var(--ms-accent, var(--color-primary));
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .microsite-section-body p {
   margin-bottom: 8px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .microsite-section-body p:last-child {
@@ -2098,8 +2155,10 @@ body {
 .microsite-section-body h3,
 .microsite-section-body h4 {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 12px 0 6px;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 /* ── Chat v2 — Conversational Command Center ─────────────────────── */
@@ -2135,8 +2194,10 @@ body {
 
 .chat-v2-ns {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text);
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .chat-v2-status {
@@ -2166,9 +2227,9 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 500;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 400;
   color: var(--muted);
   background: var(--panel-soft);
   border: 1px solid var(--border);
@@ -2272,7 +2333,7 @@ body {
   background: var(--primary-soft);
   color: var(--primary);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2287,7 +2348,7 @@ body {
   padding: 12px 16px;
   border-radius: 16px;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
   word-break: break-word;
 }
 
@@ -2362,9 +2423,11 @@ body {
 
 .chat-empty-title {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
   margin: 0;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .chat-empty-sub {
@@ -2456,7 +2519,6 @@ body {
   outline: none;
   background: transparent;
   font-size: 14px;
-  font-family: var(--font);
   color: var(--text);
   padding: 6px 10px;
   resize: none;
@@ -2523,11 +2585,12 @@ body {
 
 .chat-ctx-title {
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
   margin: 0 0 10px;
+  line-height: 1.4;
 }
 
 .chat-ctx-empty {
@@ -2578,7 +2641,7 @@ body {
 
 .chat-ctx-item-label {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -2614,9 +2677,10 @@ body {
 
 .chat-ctx-stat-value {
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
-  line-height: 1;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
 .chat-ctx-stat-label {
@@ -2721,7 +2785,7 @@ body {
 
 .chat-upload-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text-muted);
   margin-right: 6px;
 }
@@ -2806,7 +2870,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .chat-upload-remove {
@@ -2839,7 +2903,7 @@ body {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 2px 8px;
   border-radius: 10px;
   border: 1px solid;
@@ -2931,8 +2995,10 @@ body {
 
 .ai-editor-header h3 {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .ai-editor-section-name {
@@ -2950,7 +3016,7 @@ body {
 .ai-editor-label {
   display: block;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   margin-bottom: 8px;
   color: var(--color-text);
 }
@@ -2960,7 +3026,6 @@ body {
   min-height: 80px;
   padding: 10px 12px;
   font-size: 14px;
-  font-family: var(--font);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg);
@@ -3075,8 +3140,10 @@ body {
 
 .ai-preview-header h3 {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   margin: 0;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .ai-preview-body {
@@ -3097,9 +3164,10 @@ body {
 
 .ai-preview-column-label {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--color-text-muted);
 }
 
@@ -3108,7 +3176,7 @@ body {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
   overflow-y: auto;
   max-height: 60vh;
 }
@@ -3149,9 +3217,9 @@ body {
   padding: 16px;
   min-height: 200px;
   outline: none;
-  font-family: var(--font);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.5;
+  letter-spacing: 0em;
   color: var(--color-text);
 }
 
@@ -3169,17 +3237,23 @@ body {
 
 .block-editor .tiptap h1 {
   font-size: 1.5em;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .block-editor .tiptap h2 {
   font-size: 1.25em;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .block-editor .tiptap h3 {
   font-size: 1.1em;
-  font-weight: 600;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .block-editor .tiptap ul,
@@ -3246,7 +3320,6 @@ body {
   border-radius: 6px;
   cursor: pointer;
   text-align: left;
-  font-family: var(--font);
 }
 
 .slash-menu__item:hover,
@@ -3267,7 +3340,7 @@ body {
   border-radius: 4px;
   background: var(--color-border);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
   flex-shrink: 0;
 }
@@ -3280,7 +3353,7 @@ body {
 
 .slash-menu__title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text);
 }
 
@@ -3325,11 +3398,10 @@ body {
   border: none;
   background: none;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   cursor: pointer;
   padding: 2px 8px;
   border-radius: 4px;
-  font-family: var(--font);
   color: var(--color-text);
 }
 
@@ -3359,7 +3431,6 @@ body {
   cursor: pointer;
   border-radius: 4px;
   text-align: left;
-  font-family: var(--font);
 }
 
 .callout-block__tone-option:hover,
@@ -3371,7 +3442,6 @@ body {
   width: 100%;
   border: none;
   background: transparent;
-  font-family: var(--font);
   font-size: 13px;
   line-height: 1.6;
   resize: vertical;
@@ -3393,9 +3463,10 @@ body {
   background: #f3f4f6;
   padding: 6px 12px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-border);
 }
@@ -3409,7 +3480,7 @@ body {
   background: #f9fafb;
   padding: 6px 10px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   text-align: left;
   border-bottom: 1px solid var(--color-border);
 }
@@ -3425,7 +3496,6 @@ body {
   background: transparent;
   padding: 4px 8px;
   font-size: 13px;
-  font-family: var(--font);
   outline: none;
 }
 
@@ -3464,7 +3534,6 @@ body {
   font-size: 12px;
   color: var(--color-primary);
   cursor: pointer;
-  font-family: var(--font);
 }
 
 .pricing-table-block__add-btn:hover {
@@ -3484,9 +3553,10 @@ body {
   background: #f3f4f6;
   padding: 6px 12px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-border);
 }
@@ -3542,10 +3612,9 @@ body {
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-primary);
   width: 80px;
-  font-family: var(--font);
   outline: none;
 }
 
@@ -3554,8 +3623,7 @@ body {
   border: none;
   background: transparent;
   font-size: 13px;
-  font-weight: 500;
-  font-family: var(--font);
+  font-weight: 400;
   outline: none;
   padding: 2px 4px;
 }
@@ -3571,7 +3639,6 @@ body {
   background: transparent;
   font-size: 12px;
   color: var(--color-text-muted);
-  font-family: var(--font);
   outline: none;
   padding: 2px 4px;
   margin-top: 2px;
@@ -3607,7 +3674,6 @@ body {
   font-size: 12px;
   color: var(--color-primary);
   cursor: pointer;
-  font-family: var(--font);
 }
 
 .timeline-block__add-btn:hover {
@@ -3619,7 +3685,7 @@ body {
 .section-edit-status {
   font-size: 11px;
   color: #f59e0b;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 /* ── Execution Indicator ─────────────────────────────────────── */
@@ -3638,7 +3704,7 @@ body {
   border: 1px solid rgba(37, 99, 235, 0.2);
   border-radius: 20px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   cursor: pointer;
   transition: background 0.15s;
   white-space: nowrap;
@@ -3677,10 +3743,11 @@ body {
 .exec-panel-header {
   padding: 10px 14px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -3722,7 +3789,7 @@ body {
 
 .exec-panel-item-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3791,8 +3858,10 @@ body {
 
 .exec-drawer-title {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
+  line-height: 1.5;
+  letter-spacing: 0em;
 }
 
 .exec-drawer-close {
@@ -3838,10 +3907,11 @@ body {
 .exec-drawer-section-title {
   padding: 0 20px 6px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
 }
 
 /* Item */
@@ -3867,7 +3937,7 @@ body {
 
 .exec-drawer-item-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3937,7 +4007,7 @@ body {
   justify-content: center;
   flex-shrink: 0;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   margin-top: 1px;
 }
 
@@ -4007,9 +4077,10 @@ body {
 
 .trace-page-title {
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 0;
-  line-height: 1.2;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .trace-page-id {
@@ -4072,7 +4143,7 @@ body {
 
 .metadata-bar strong {
   color: var(--color-text);
-  font-weight: 600;
+  font-weight: 400;
   margin-right: 4px;
 }
 
@@ -4084,8 +4155,9 @@ body {
   padding: 2px 9px;
   border-radius: 99px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   text-transform: uppercase;
   border: 1px solid transparent;
 }
@@ -4254,7 +4326,7 @@ body {
 
 .trace-step-name {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
@@ -4300,7 +4372,7 @@ body {
 
 .trace-detail-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
@@ -4331,10 +4403,11 @@ body {
 
 .trace-detail-label {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   flex-shrink: 0;
 }
 
@@ -4352,10 +4425,11 @@ body {
 
 .trace-detail-section-title {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
 }
 
 .trace-detail-text {
@@ -4485,7 +4559,8 @@ body {
   font-size: 11px;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   margin-top: 3px;
 }
 
@@ -4511,8 +4586,9 @@ body {
   padding: 3px 10px;
   border-radius: 99px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   text-transform: uppercase;
   background: rgba(22, 163, 74, 0.1);
   border: 1px solid rgba(22, 163, 74, 0.3);
@@ -4773,18 +4849,19 @@ body {
 
 .stat-card-label {
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .stat-card-value {
   font-size: 32px;
-  font-weight: 700;
-  line-height: 1;
+  font-weight: 600;
+  line-height: 1.2;
   color: var(--text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .stat-card-trend {
@@ -4820,8 +4897,9 @@ body {
 
 .activity-timeline-title {
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--muted);
   text-transform: uppercase;
   margin-bottom: 16px;
@@ -4874,7 +4952,7 @@ body {
 
 .activity-label {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -4933,8 +5011,9 @@ body {
 
 .quick-actions-title {
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--muted);
   text-transform: uppercase;
   margin-bottom: 14px;
@@ -4977,7 +5056,7 @@ body {
 
 .quick-action-label {
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   text-align: center;
   line-height: 1.3;
@@ -4995,8 +5074,9 @@ body {
 
 .knowledge-stats-title {
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--muted);
   text-transform: uppercase;
   margin-bottom: 14px;
@@ -5028,9 +5108,10 @@ body {
 
 .knowledge-stat-value {
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
-  line-height: 1;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
 .knowledge-stat-label {
@@ -5047,8 +5128,9 @@ body {
 
 .dash-ns-title {
   font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
   color: var(--muted);
   text-transform: uppercase;
   margin-bottom: 14px;
