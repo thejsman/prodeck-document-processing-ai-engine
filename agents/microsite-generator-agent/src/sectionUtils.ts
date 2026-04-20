@@ -17,8 +17,5 @@ export function isSectionEmpty(section: any): boolean {
 
   const hasRows = Array.isArray(c.rows) && c.rows.length > 1
 
-  const hasDiagram = typeof c.diagram === 'string' &&
-    (c.diagram.trim().length > 10 || c.diagram.startsWith('__CUSTOM_SVG__'))
-
-  return !hasText && !hasItems && !hasRows && !hasDiagram
+  return !hasText && !hasItems && !hasRows
 }

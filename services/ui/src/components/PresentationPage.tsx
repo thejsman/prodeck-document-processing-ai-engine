@@ -320,15 +320,18 @@ export function PresentationPage() {
   const [mdContent, setMdContent] = useState("");
   const [loadingContent, setLoadingContent] = useState(false);
 
-  // Step 2
+  // Step 2 — agency brand persisted to localStorage so it survives namespace switches
   const prevNamespaceRef = useRef<string>("");
-  const [brand, setBrand] = useState<BrandConfig>({
-    companyName: "Meridian Studio",
-    tagline: "Strategy & Design Consultancy",
-    logoUrl: null,
-    logoText: "Meridian Studio",
-    primaryColor: "#C8A96E",
-    secondaryColor: "#1A1612",
+  const [brand, setBrand] = useState<BrandConfig>(() => {
+    if (typeof window === 'undefined') return {
+      companyName: '', tagline: 'Strategy & Design Consultancy',
+      logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612',
+    };
+    try {
+      const saved = localStorage.getItem('agency-brand');
+      if (saved) return { ...JSON.parse(saved), logoUrl: null }; // skip saved logoUrl (too large)
+    } catch { /* ignore */ }
+    return { companyName: '', tagline: 'Strategy & Design Consultancy', logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612' };
   });
 
   // Step 2 – logo extraction
@@ -595,21 +598,21 @@ export function PresentationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasGenerating]);
 
+  // Track namespace changes (no longer overwrites agency brand — namespace is the CLIENT, not the proposer)
   useEffect(() => {
     if (selectedNamespace) {
-      setBrand((b) => {
-        const wasAutoSet =
-          b.companyName === "Meridian Studio" ||
-          b.companyName === prevNamespaceRef.current;
-        prevNamespaceRef.current = selectedNamespace;
-        return {
-          ...b,
-          companyName: wasAutoSet ? selectedNamespace : b.companyName,
-          logoText: wasAutoSet ? selectedNamespace : b.logoText,
-        };
-      });
+      prevNamespaceRef.current = selectedNamespace;
     }
   }, [selectedNamespace]);
+
+  // Persist agency brand to localStorage whenever it changes (excluding logoUrl — too large)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const { logoUrl: _skip, ...saveable } = brand;
+      localStorage.setItem('agency-brand', JSON.stringify(saveable));
+    } catch { /* ignore quota errors */ }
+  }, [brand]);
 
   // Fetch plugin list from API once on mount (Phase 5: dynamic discovery)
   useEffect(() => {
@@ -1142,6 +1145,8 @@ export function PresentationPage() {
         onBack={generating ? undefined : () => setStep("upload")}
         onRegenerate={generating ? undefined : () => setStep("generate")}
         onEdit={generating ? undefined : () => setShowEditor(true)}
+        namespace={selectedNamespace}
+        proposalId={layoutAST.proposalId}
       />
     );
   }

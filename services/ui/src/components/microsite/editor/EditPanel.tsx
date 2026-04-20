@@ -253,7 +253,9 @@ function IconPickerField({
 
 const SECTION_LABELS: Partial<Record<SectionType, string>> = {
   hero: 'Hero',
+  overview: 'Overview',
   challenge: 'Challenge',
+  problem: 'Problem',
   approach: 'Approach',
   deliverables: 'Deliverables',
   timeline: 'Timeline',
@@ -263,8 +265,15 @@ const SECTION_LABELS: Partial<Record<SectionType, string>> = {
   testimonials: 'Testimonials',
   showcase: 'Showcase',
   benefits: 'Benefits',
-  problem: 'Problem',
   stats: 'Stats',
+  metrics: 'Metrics',
+  security: 'Security',
+  techstack: 'Tech Stack',
+  testing: 'Testing',
+  faq: 'FAQ',
+  team: 'Team',
+  comparison: 'Comparison',
+  casestudy: 'Case Study',
   generic: 'Generic',
 };
 
@@ -289,11 +298,22 @@ const SECTION_FIELDS: Partial<Record<SectionType, FieldDef[]>> = {
     BTN('ctaPrimary', 'Primary CTA'),
     BTN('ctaSecondary', 'Secondary CTA'),
   ],
+  overview: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+    TEXT('body', 'Body'),
+  ],
   challenge: [
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
     TEXT('body', 'Body'),
     TEXT('pullquote', 'Pull Quote'),
+  ],
+  problem: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('body', 'Body'),
   ],
   approach: [
     SHORT('eyebrow', 'Eyebrow'),
@@ -304,10 +324,23 @@ const SECTION_FIELDS: Partial<Record<SectionType, FieldDef[]>> = {
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
   ],
+  timeline: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+  ],
+  pricing: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+    SHORT('cta', 'CTA Text'),
+    TEXT('footnote', 'Footnote'),
+  ],
   whyus: [
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
     TEXT('body', 'Body'),
+    TEXT('subheadline', 'Subheadline'),
   ],
   nextsteps: [
     SHORT('eyebrow', 'Eyebrow'),
@@ -317,10 +350,9 @@ const SECTION_FIELDS: Partial<Record<SectionType, FieldDef[]>> = {
     BTN('ctaSecondary', 'Secondary CTA'),
     SHORT('urgencyNote', 'Urgency Note'),
   ],
-  timeline: [
+  testimonials: [
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
-    TEXT('subheadline', 'Subheadline'),
   ],
   showcase: [
     SHORT('eyebrow', 'Eyebrow'),
@@ -331,26 +363,56 @@ const SECTION_FIELDS: Partial<Record<SectionType, FieldDef[]>> = {
   benefits: [
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
-  ],
-  problem: [
-    SHORT('eyebrow', 'Eyebrow'),
-    TEXT('headline', 'Headline'),
-    TEXT('body', 'Body'),
+    TEXT('subheadline', 'Subheadline'),
   ],
   stats: [
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
   ],
-  testimonials: [
-    SHORT('eyebrow', 'Eyebrow'),
-    TEXT('headline', 'Headline'),
-  ],
-  pricing: [
+  metrics: [
     SHORT('eyebrow', 'Eyebrow'),
     TEXT('headline', 'Headline'),
     TEXT('subheadline', 'Subheadline'),
-    SHORT('cta', 'CTA Text'),
-    TEXT('footnote', 'Footnote'),
+  ],
+  security: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+  ],
+  techstack: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+  ],
+  testing: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+  ],
+  faq: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+  ],
+  team: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+  ],
+  comparison: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('subheadline', 'Subheadline'),
+    SHORT('usLabel', 'Our Label'),
+    SHORT('themLabel', 'Their Label'),
+  ],
+  casestudy: [
+    SHORT('eyebrow', 'Eyebrow'),
+    TEXT('headline', 'Headline'),
+    TEXT('challenge', 'Challenge'),
+    TEXT('solution', 'Solution'),
+    TEXT('outcome', 'Outcome'),
   ],
   generic: [
     SHORT('eyebrow', 'Eyebrow'),
@@ -611,7 +673,7 @@ const ARRAY_CONFIGS: Partial<Record<SectionType, ArrayConfig>> = {
     fields: [
       { key: 'name', label: 'Name' },
       { key: 'description', label: 'Description', multiline: true },
-      { key: 'iconHint', label: 'Icon hint' },
+      { key: 'iconHint', label: 'Icon' },
     ],
     template: { iconHint: 'star', name: 'New pillar', description: '' },
     addLabel: 'Add pillar',
@@ -620,18 +682,18 @@ const ARRAY_CONFIGS: Partial<Record<SectionType, ArrayConfig>> = {
     arrayPath: 'items',
     title: 'Deliverables',
     fields: [
-      { key: 'title', label: 'Title' },
-      { key: 'description', label: 'Description', multiline: true },
-      { key: 'meta', label: 'Meta' },
+      { key: 'iconHint', label: 'Icon' },
+      { key: 'name', label: 'Name' },
+      { key: 'detail', label: 'Detail', multiline: true },
     ],
-    template: { title: 'New deliverable', description: '', meta: '' },
+    template: { iconHint: 'document', name: 'New deliverable', detail: '' },
     addLabel: 'Add deliverable',
   },
   benefits: {
     arrayPath: 'items',
     title: 'Benefits',
     fields: [
-      { key: 'iconHint', label: 'Icon hint' },
+      { key: 'iconHint', label: 'Icon' },
       { key: 'title', label: 'Title' },
       { key: 'description', label: 'Description', multiline: true },
     ],
@@ -660,16 +722,125 @@ const ARRAY_CONFIGS: Partial<Record<SectionType, ArrayConfig>> = {
     template: { value: '0', label: 'New stat', description: '' },
     addLabel: 'Add stat',
   },
+  metrics: {
+    arrayPath: 'metrics',
+    title: 'Metrics',
+    fields: [
+      { key: 'value', label: 'Value' },
+      { key: 'label', label: 'Label' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { value: '0%', label: 'New metric', description: '' },
+    addLabel: 'Add metric',
+  },
   timeline: {
     arrayPath: 'phases',
     title: 'Phases',
     fields: [
+      { key: 'name', label: 'Name' },
+      { key: 'duration', label: 'Duration' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { name: 'New phase', duration: '2 weeks', description: '' },
+    addLabel: 'Add phase',
+  },
+  faq: {
+    arrayPath: 'items',
+    title: 'Questions',
+    fields: [
+      { key: 'question', label: 'Question' },
+      { key: 'answer', label: 'Answer', multiline: true },
+    ],
+    template: { question: 'New question?', answer: 'Answer goes here…' },
+    addLabel: 'Add question',
+  },
+  team: {
+    arrayPath: 'members',
+    title: 'Team Members',
+    fields: [
+      { key: 'iconHint', label: 'Icon' },
+      { key: 'name', label: 'Name' },
+      { key: 'role', label: 'Role' },
+      { key: 'bio', label: 'Bio', multiline: true },
+    ],
+    template: { iconHint: 'identity', name: 'Team Member', role: 'Role Title', bio: '' },
+    addLabel: 'Add member',
+  },
+  comparison: {
+    arrayPath: 'rows',
+    title: 'Comparison Rows',
+    fields: [
+      { key: 'feature', label: 'Feature' },
+      { key: 'us', label: 'Our Value' },
+      { key: 'them', label: 'Their Value' },
+    ],
+    template: { feature: 'Feature', us: '✓', them: '✗' },
+    addLabel: 'Add row',
+  },
+  casestudy: {
+    arrayPath: 'metrics',
+    title: 'Result Metrics',
+    fields: [
+      { key: 'value', label: 'Value' },
       { key: 'label', label: 'Label' },
+    ],
+    template: { value: '0%', label: 'Result' },
+    addLabel: 'Add metric',
+  },
+  overview: {
+    arrayPath: 'highlights',
+    title: 'Key Highlights',
+    fields: [
+      { key: 'value', label: 'Value' },
+      { key: 'label', label: 'Label' },
+    ],
+    template: { value: '—', label: 'Key fact' },
+    addLabel: 'Add highlight',
+  },
+  whyus: {
+    arrayPath: 'stats',
+    title: 'Stats',
+    fields: [
+      { key: 'value', label: 'Value' },
+      { key: 'label', label: 'Label' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { value: '0', label: 'New stat', description: '' },
+    addLabel: 'Add stat',
+  },
+  security: {
+    arrayPath: 'items',
+    title: 'Security Points',
+    fields: [
+      { key: 'iconHint', label: 'Icon' },
       { key: 'title', label: 'Title' },
       { key: 'description', label: 'Description', multiline: true },
     ],
-    template: { label: 'Phase', title: 'New phase', description: '' },
-    addLabel: 'Add phase',
+    template: { iconHint: 'lock', title: 'Security feature', description: '' },
+    addLabel: 'Add point',
+  },
+  techstack: {
+    arrayPath: 'items',
+    title: 'Technologies',
+    fields: [
+      { key: 'iconHint', label: 'Icon' },
+      { key: 'name', label: 'Name' },
+      { key: 'category', label: 'Category' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { iconHint: 'tool', name: 'Technology', category: 'Category', description: '' },
+    addLabel: 'Add technology',
+  },
+  testing: {
+    arrayPath: 'layers',
+    title: 'Testing Layers',
+    fields: [
+      { key: 'name', label: 'Name' },
+      { key: 'coverage', label: 'Coverage' },
+      { key: 'description', label: 'Description', multiline: true },
+    ],
+    template: { level: 1, name: 'New layer', coverage: '80%', description: '' },
+    addLabel: 'Add layer',
   },
 };
 

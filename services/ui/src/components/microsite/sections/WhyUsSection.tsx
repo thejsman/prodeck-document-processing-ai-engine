@@ -6,7 +6,6 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label } from '../shared/Typography';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -63,6 +62,7 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
             display: 'grid',
             gridTemplateColumns: `repeat(${Math.min(stats.length || 1, 4)}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2vw, 2rem)',
+            alignItems: 'stretch',
           }}
         >
           {stats.map((stat, si) => (
@@ -77,6 +77,8 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
                     background: tokens.surfaceCard,
                     position: 'relative',
                     overflow: 'hidden',
+                    height: '100%',
+                    boxSizing: 'border-box',
                   }}
                 >
                   <div style={{
@@ -137,12 +139,6 @@ export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
           />
         </div>
 
-        <ClickableDiagram
-          diagram={content.diagram ?? ''}
-          tokens={tokens}
-          delay={240 + Math.min((content.stats?.length ?? 3), 4) * 80 + 80}
-          wrapperStyle={{ maxWidth: 520, margin: '0 auto' }}
-        />
       </div>
     </section>
   );

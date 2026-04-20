@@ -6,7 +6,6 @@ import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
 import { Headline, Body, Label } from "../shared/Typography";
 import { getSectionGradient } from "../../../lib/presentation/pluginRegistry";
-import { ClickableDiagram } from "../editor/ClickableDiagram";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
 import { InlineIconEdit } from "../editor/InlineIconEdit";
@@ -22,7 +21,7 @@ interface Props {
   sectionId?: string;
 }
 
-export function ApproachSection({ content, tokens, index }: Props) {
+export function ApproachSection({ content, tokens }: Props) {
   const pillars = content.pillars ?? [];
   const twCtx = useContext(TypewriterStateContext);
   const variant = (content as unknown as Record<string, unknown>).variant as string ?? 'grid';
@@ -42,12 +41,9 @@ export function ApproachSection({ content, tokens, index }: Props) {
 
       <div style={{ position: "relative", zIndex: 5, maxWidth: 960, margin: "0 auto" }}>
         <Reveal>
-          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ""}>
-            <Label tokens={tokens} style={{ display: "block", marginBottom: 16 }}>
-              {content.eyebrow}
-              <TypingCursor visible={twCtx?.activeField === 'eyebrow' && (twCtx?.showCursor ?? false)} />
-            </Label>
-          </InlineEditable>
+          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: tokens.accent, display: 'block', marginBottom: 'clamp(1rem, 2vw, 1.5rem)' }}>
+            {content.eyebrow || 'Approach'}
+          </span>
         </Reveal>
 
         <Reveal delay={80}>
@@ -101,12 +97,12 @@ export function ApproachSection({ content, tokens, index }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
-                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 6px' }}>
+                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 6px' }}>
                           {pillar.name}
                         </h3>
                       </InlineEditable>
                       <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
-                        <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{pillar.description}</Body>
+                        <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{pillar.description}</Body>
                       </InlineEditable>
                     </div>
                   </div>
@@ -126,13 +122,13 @@ export function ApproachSection({ content, tokens, index }: Props) {
                       containerStyle={{ marginBottom: 16, display: 'inline-flex' }}
                     />
                     <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
-                      <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '1.05rem', color: tokens.text, margin: '0 0 10px' }}>
+                      <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 10px' }}>
                         {pillar.name}
                         <TypingCursor visible={twCtx?.activeField === `pillars.${pi}.name` && (twCtx?.showCursor ?? false)} />
                       </h3>
                     </InlineEditable>
                     <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
-                      <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>{pillar.description}</Body>
+                      <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{pillar.description}</Body>
                     </InlineEditable>
                   </div>
                 )}
@@ -149,12 +145,6 @@ export function ApproachSection({ content, tokens, index }: Props) {
           />
         </div>
 
-        <ClickableDiagram
-          diagram={content.diagram ?? ''}
-          tokens={tokens}
-          delay={240 + pillars.length * 80 + 80}
-          caption="Methodology overview"
-        />
       </div>
     </section>
   );

@@ -152,8 +152,13 @@ export function MermaidChart({ chart, tokens }: Props) {
         // Mermaid v11 may leave a hidden error div in body — clean it up
         document.getElementById(`${id}-error`)?.remove();
 
+        // Make SVG fill its container width instead of rendering at fixed pixel size
+        const responsiveSvg = (rendered ?? '')
+          .replace(/(<svg[^>]*)\s+width="[^"]*"/, '$1 width="100%"')
+          .replace(/(<svg[^>]*)\s+height="[^"]*"/, '$1 style="height:auto"');
+
         if (!cancelled) {
-          setSvg(rendered ?? '');
+          setSvg(responsiveSvg);
           setError('');
         }
       } catch (err) {

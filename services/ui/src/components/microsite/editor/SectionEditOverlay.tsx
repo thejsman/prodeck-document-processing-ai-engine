@@ -5,9 +5,6 @@ import { ArrowDown, ArrowUp, Image, Palette, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useEditContext } from './EditContext';
 import type { LayoutSection } from '../../../types/presentation';
-import type { OrbitalDiagramData, PuzzleDiagramData } from '../../../lib/customDiagramRenderer';
-import { CUSTOM_SVG_PREFIX, parseCustomDiagramData } from '../../../lib/customDiagramRenderer';
-
 // ── Colour swatch presets ─────────────────────────────────────────────────────
 
 const BG_PRESETS = [
@@ -21,648 +18,33 @@ const BG_PRESETS = [
   { label: 'Teal', value: '#042f2e' },
   { label: 'Accent tint', value: 'rgba(var(--ms-accent-rgb,99,102,241),0.08)' },
 ];
-
-// ── Sections that DO support diagrams ────────────────────────────────────────
-const DIAGRAM_SECTION_TYPES = new Set([
-  'approach', 'challenge', 'generic', 'security',
-  'techstack', 'testing', 'timeline', 'whyus',
-]);
-
-// ── Context-aware diagram template builders ───────────────────────────────────
-
-function sanitize(s: string) { return (s ?? '').replace(/["]/g, '').slice(0, 40); }
-
-function suggestDiagramType(sectionType: string): string {
-  switch (sectionType) {
-    case 'timeline': return 'gantt';
-    case 'whyus': case 'metrics': case 'stats': return 'pie';
-    case 'security': case 'benefits': case 'techstack': return 'mindmap';
-    case 'testing': return 'orbital';
-    default: return 'flowchart';
-  }
-}
-
-function buildContextTemplate(section: LayoutSection, diagramType: string): string {
-  const c = section.content as unknown as Record<string, unknown>;
-  const hl = sanitize((c.headline as string) || section.heading || 'Overview');
-  type AnyItem = Record<string, string>;
-
-  if (diagramType === 'flowchart') {
-    switch (section.sectionType) {
-      case 'approach': case 'deliverables': case 'problem': {
-        const key = section.sectionType === 'approach' ? 'pillars' : section.sectionType === 'deliverables' ? 'items' : 'painPoints';
-        const raw = (c[key] as unknown[]) ?? [];
-        const items = raw.slice(0, 5);
-        if (items.length) {
-          const nodes = items.map((it, i) => {
-            const label = typeof it === 'string' ? sanitize(it) : sanitize((it as AnyItem).name || (it as AnyItem).title || `Item ${i}`);
-            return `    N${i}["${label}"]`;
-          }).join('\n');
-          const arrows = items.map((_, i) => `    ROOT --> N${i}`).join('\n');
-          return `flowchart TD\n    ROOT["${hl}"]\n${nodes}\n${arrows}`;
-        }
-        break;
-      }
-      case 'challenge':
-        return `flowchart TD\n    A["${hl}"] --> B["Root Cause"]\n    B --> C["Business Impact"]\n    C --> D["Solution Required"]`;
-      case 'nextsteps':
-        return `flowchart LR\n    A["Today"] --> B["${hl}"]\n    B --> C["${sanitize((c.ctaPrimary as string) || 'Get Started')}"]\n    B --> D["${sanitize((c.ctaSecondary as string) || 'Learn More')}"]`;
-      case 'showcase': case 'hero': {
-        const subs = sanitize((c.subheadline as string) || 'Key benefits');
-        return `flowchart TD\n    A["${hl}"] --> B["${subs}"]\n    B --> C["Outcome A"]\n    B --> D["Outcome B"]`;
-      }
-      default: break;
-    }
-    return CHART_TYPES.find(t => t.id === 'flowchart')!.template ?? '';
-  }
-
-  if (diagramType === 'gantt') {
-    if (section.sectionType === 'timeline') {
-      const phases = ((c.phases as AnyItem[]) ?? []).slice(0, 6);
-      if (phases.length) {
-        const lines = phases.map((p, i) => {
-          const name = sanitize(p.name || `Phase ${i + 1}`).replace(/:/g, '');
-          const dur = (p.duration || '14d').match(/(\d+)/)?.[1] ?? '14';
-          return `  ${name} :p${i}, ${i === 0 ? '2025-01-01' : `after p${i - 1}`}, ${dur}d`;
-        }).join('\n');
-        return `gantt\n  title ${hl}\n  dateFormat YYYY-MM-DD\n  section Timeline\n${lines}`;
-      }
-    }
-    return CHART_TYPES.find(t => t.id === 'gantt')!.template ?? '';
-  }
-
-  if (diagramType === 'mindmap') {
-    switch (section.sectionType) {
-      case 'security': case 'benefits': case 'deliverables': {
-        const items = ((c.items as AnyItem[]) ?? []).slice(0, 6);
-        if (items.length) {
-          const branches = items.map(it => `      ${sanitize(it.name || it.title || 'Item')}`).join('\n');
-          return `mindmap\n  root((${hl.slice(0, 18)}))\n    Topics\n${branches}`;
-        }
-        break;
-      }
-      case 'techstack': {
-        const cats = ((c.categories as Array<{name: string; items: string[]}>)) ?? [];
-        if (cats.length) {
-          const branches = cats.slice(0, 4).map(cat => {
-            const subitems = (cat.items ?? []).slice(0, 3).map(i => `        ${sanitize(i)}`).join('\n');
-            return `      ${sanitize(cat.name)}\n${subitems}`;
-          }).join('\n');
-          return `mindmap\n  root((${hl.slice(0, 18)}))\n${branches}`;
-        }
-        break;
-      }
-      default: break;
-    }
-    return CHART_TYPES.find(t => t.id === 'mindmap')!.template ?? '';
-  }
-
-  if (diagramType === 'pie') {
-    const statsKey = section.sectionType === 'metrics' ? 'stats' : 'stats';
-    const raw = (c[statsKey] as AnyItem[]) ?? [];
-    const stats = (Array.isArray(raw) ? raw : [raw]).slice(0, 6);
-    if (stats.length) {
-      const pieces = stats.map(s => {
-        const num = parseFloat((s.number ?? '1').replace(/[^0-9.]/g, '')) || 1;
-        return `  "${sanitize(s.label || 'Item')}": ${num}`;
-      }).join('\n');
-      return `pie title ${hl}\n${pieces}`;
-    }
-    return CHART_TYPES.find(t => t.id === 'pie')!.template ?? '';
-  }
-
-  if (diagramType === 'sequence') {
-    if (section.sectionType === 'testing') {
-      const layers = ((c.layers as AnyItem[]) ?? []).slice(0, 4);
-      if (layers.length) {
-        const msgs = layers.map(l => `  Tester->>${sanitize(l.name || 'Layer').replace(/[-\s]/g, '')}: Execute`).join('\n');
-        return `sequenceDiagram\n  participant Tester\n${msgs}`;
-      }
-    }
-    return CHART_TYPES.find(t => t.id === 'sequence')!.template ?? '';
-  }
-
-  return CHART_TYPES.find(t => t.id === diagramType)?.template ?? '';
-}
-
-function buildOrbitalDefault(section: LayoutSection): OrbitalDiagramData {
-  const c = section.content as unknown as Record<string, unknown>;
-  const hl = sanitize((c.headline as string) || section.heading || 'Core').slice(0, 22);
-  type AnyItem = Record<string, string>;
-  const raw: AnyItem[] = ((c.pillars || c.items) as AnyItem[]) ?? [];
-  const items = raw.slice(0, 6);
-  const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right'] as const;
-  return {
-    type: 'orbital',
-    center: { title: hl, subtitle: section.sectionType },
-    satellites: items.length
-      ? items.map((it, i) => ({
-          title: sanitize(it.name || it.title || `Item ${i + 1}`).slice(0, 22),
-          description: sanitize(it.description || '').slice(0, 40),
-          position: positions[i % positions.length],
-        }))
-      : [
-          { title: 'Feature A', description: 'Key capability', position: 'top-left' },
-          { title: 'Feature B', description: 'Key capability', position: 'top-right' },
-          { title: 'Feature C', description: 'Key capability', position: 'bottom-left' },
-          { title: 'Feature D', description: 'Key capability', position: 'bottom-right' },
-        ],
-  };
-}
-
-function buildPuzzleDefault(section: LayoutSection): PuzzleDiagramData {
-  const c = section.content as unknown as Record<string, unknown>;
-  type AnyItem = Record<string, string>;
-  const raw: AnyItem[] = ((c.pillars || c.items) as AnyItem[]) ?? [];
-  const items = raw.slice(0, 4);
-  const iconTypes = ['process', 'cloud', 'data', 'security'] as const;
-  const positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
-  const labelSides = ['left', 'right', 'left', 'right'] as const;
-  return {
-    type: 'puzzle',
-    backgroundStyle: 'gradient',
-    pieces: items.length
-      ? items.map((it, i) => ({
-          title: sanitize(it.name || it.title || `Topic ${i + 1}`).slice(0, 22),
-          iconType: iconTypes[i % iconTypes.length],
-          position: positions[i],
-          labelSide: labelSides[i],
-        }))
-      : [
-          { title: 'Strategy', iconType: 'process', position: 'top-left', labelSide: 'left' },
-          { title: 'Technology', iconType: 'cloud', position: 'top-right', labelSide: 'right' },
-          { title: 'Data', iconType: 'data', position: 'bottom-left', labelSide: 'left' },
-          { title: 'Security', iconType: 'security', position: 'bottom-right', labelSide: 'right' },
-        ],
-  };
-}
-
-// ── Chart type templates ──────────────────────────────────────────────────────
-
-const CHART_TYPES = [
-  {
-    id: 'flowchart',
-    label: 'Flowchart',
-    icon: '◆',
-    template: `flowchart TD
-    A[Start] --> B{Decision?}
-    B -->|Yes| C[Process A]
-    B -->|No| D[Process B]
-    C --> E[End]
-    D --> E`,
-  },
-  {
-    id: 'sequence',
-    label: 'Sequence',
-    icon: '⇄',
-    template: `sequenceDiagram
-    Client->>+API: Request
-    API->>+Service: Process
-    Service-->>-API: Result
-    API-->>-Client: Response`,
-  },
-  {
-    id: 'gantt',
-    label: 'Gantt',
-    icon: '▤',
-    template: `gantt
-    title Project Timeline
-    dateFormat  YYYY-MM-DD
-    section Phase 1
-    Discovery   :a1, 2024-01-01, 14d
-    Design      :a2, after a1,   21d
-    section Phase 2
-    Development :a3, after a2,   42d
-    Testing     :a4, after a3,   14d`,
-  },
-  {
-    id: 'pie',
-    label: 'Pie Chart',
-    icon: '◉',
-    template: `pie title Budget Allocation
-    "Strategy" : 25
-    "Design" : 20
-    "Development" : 40
-    "QA" : 15`,
-  },
-  {
-    id: 'mindmap',
-    label: 'Mind Map',
-    icon: '❋',
-    template: `mindmap
-  root((Project))
-    Strategy
-      Research
-      Planning
-    Execution
-      Dev
-      Testing
-    Delivery
-      Launch
-      Support`,
-  },
-  {
-    id: 'custom',
-    label: 'Custom',
-    icon: '✎',
-    template: '',
-  },
-  {
-    id: 'orbital',
-    label: 'Orbital',
-    icon: '⊙',
-    template: null,
-  },
-  {
-    id: 'puzzle',
-    label: 'Puzzle',
-    icon: '⬡',
-    template: null,
-  },
-] as Array<{ id: string; label: string; icon: string; template: string | null }>;
-
-// ── Live diagram preview ──────────────────────────────────────────────────────
-
-let _previewCounter = 0;
-
-function DiagramPreview({ code }: { code: string }) {
-  const [svg, setSvg] = useState('');
-  const [error, setError] = useState('');
-  const idRef = useRef(`mmd-prev-${++_previewCounter}`);
-
-  useEffect(() => {
-    if (!code.trim()) { setSvg(''); setError(''); return; }
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
-        const { svg: rendered } = await mermaid.render(idRef.current, code);
-        if (!cancelled) { setSvg(rendered); setError(''); }
-      } catch {
-        if (!cancelled) { setError('Invalid syntax — check your diagram code'); setSvg(''); }
-      }
-    }, 500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [code]);
-
-  if (!code.trim()) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 12, gap: 8 }}>
-        <span style={{ fontSize: 32 }}>◈</span>
-        <span>Select a chart type or enter code</span>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#dc2626', fontSize: 12, gap: 6, padding: 16 }}>
-        <span style={{ fontSize: 24 }}>⚠</span>
-        <span style={{ textAlign: 'center' }}>{error}</span>
-      </div>
-    );
-  }
-  return (
-    <div
-      style={{ width: '100%', height: '100%', overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8 }}
-      // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
-}
-
-// ── Diagram editor modal ──────────────────────────────────────────────────────
-
-// ── Orbital diagram form builder ──────────────────────────────────────────────
-
-const ORBITAL_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right'] as const;
-
-function OrbitalForm({ data, onChange }: { data: OrbitalDiagramData; onChange: (d: OrbitalDiagramData) => void }) {
-  const inp: React.CSSProperties = { width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box', marginBottom: 4 };
-  const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 2 };
-
-  return (
-    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
-      <div style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
-        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Center Node</p>
-        <label style={lbl}>Title</label>
-        <input style={inp} value={data.center.title} onChange={e => onChange({ ...data, center: { ...data.center, title: e.target.value } })} />
-        <label style={lbl}>Subtitle</label>
-        <input style={inp} value={data.center.subtitle} onChange={e => onChange({ ...data, center: { ...data.center, subtitle: e.target.value } })} />
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Satellites ({data.satellites.length}/6)</p>
-        {data.satellites.length < 6 && (
-          <button
-            onClick={() => onChange({ ...data, satellites: [...data.satellites, { title: 'New Satellite', description: 'Description', position: 'right' }] })}
-            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', cursor: 'pointer', fontWeight: 600 }}
-          >
-            + Add
-          </button>
-        )}
-      </div>
-
-      {data.satellites.map((sat, i) => (
-        <div key={i} style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 8, position: 'relative' }}>
-          <button
-            onClick={() => onChange({ ...data, satellites: data.satellites.filter((_, idx) => idx !== i) })}
-            style={{ position: 'absolute', top: 6, right: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1 }}
-          >✕</button>
-          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: '#64748b' }}>Satellite {i + 1}</p>
-          <label style={lbl}>Title</label>
-          <input style={inp} value={sat.title} onChange={e => { const s = [...data.satellites]; s[i] = { ...s[i], title: e.target.value }; onChange({ ...data, satellites: s }); }} />
-          <label style={lbl}>Description</label>
-          <input style={inp} value={sat.description} onChange={e => { const s = [...data.satellites]; s[i] = { ...s[i], description: e.target.value }; onChange({ ...data, satellites: s }); }} />
-          <label style={lbl}>Position</label>
-          <select style={{ ...inp, background: '#fff' }} value={sat.position} onChange={e => { const s = [...data.satellites]; s[i] = { ...s[i], position: e.target.value as typeof sat.position }; onChange({ ...data, satellites: s }); }}>
-            {ORBITAL_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Puzzle diagram form builder ───────────────────────────────────────────────
-
-const PUZZLE_ICON_TYPES = ['gateway', 'monitor', 'stream', 'storage', 'security', 'cloud', 'data', 'api', 'user', 'process', 'integrate', 'deploy'] as const;
-const PUZZLE_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
-
-function PuzzleForm({ data, onChange }: { data: PuzzleDiagramData; onChange: (d: PuzzleDiagramData) => void }) {
-  const inp: React.CSSProperties = { width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box', marginBottom: 4 };
-  const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 2 };
-
-  // Ensure always 4 pieces, one per position
-  const pieces = PUZZLE_POSITIONS.map(pos => data.pieces.find(p => p.position === pos) ?? { title: 'Piece', iconType: 'cloud' as const, position: pos, labelSide: (pos.includes('left') ? 'left' : 'right') as 'left' | 'right' });
-
-  return (
-    <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Background Style</p>
-        <select style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, background: '#fff' }} value={data.backgroundStyle} onChange={e => onChange({ ...data, backgroundStyle: e.target.value as PuzzleDiagramData['backgroundStyle'] })}>
-          <option value="gradient">Gradient</option>
-          <option value="solid">Solid</option>
-          <option value="mesh">Mesh</option>
-        </select>
-      </div>
-
-      <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>4 Puzzle Pieces</p>
-
-      {pieces.map((piece, i) => (
-        <div key={piece.position} style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
-          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'capitalize' }}>{piece.position.replace('-', ' ')}</p>
-          <label style={lbl}>Title</label>
-          <input style={inp} value={piece.title} onChange={e => { const updated = pieces.map((p, idx) => idx === i ? { ...p, title: e.target.value } : p); onChange({ ...data, pieces: updated }); }} />
-          <label style={lbl}>Icon Type</label>
-          <select style={{ ...inp, background: '#fff' }} value={piece.iconType} onChange={e => { const updated = pieces.map((p, idx) => idx === i ? { ...p, iconType: e.target.value as typeof piece.iconType } : p); onChange({ ...data, pieces: updated }); }}>
-            {PUZZLE_ICON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <label style={lbl}>Label Side</label>
-          <select style={{ ...inp, background: '#fff' }} value={piece.labelSide} onChange={e => { const updated = pieces.map((p, idx) => idx === i ? { ...p, labelSide: e.target.value as 'left' | 'right' } : p); onChange({ ...data, pieces: updated }); }}>
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Diagram editor modal ──────────────────────────────────────────────────────
-
-export function DiagramModal({
-  section,
-  diagram,
-  onClose,
-}: {
-  section: LayoutSection;
-  diagram: string;
-  onClose: () => void;
-}) {
-  const ctx = useEditContext()!;
-  const suggestedType = !diagram ? suggestDiagramType(section.sectionType) : null;
-
-  const [activeType, setActiveType] = useState(() => {
-    if (!diagram) return suggestedType ?? 'flowchart';
-    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
-      const data = parseCustomDiagramData(diagram);
-      if (data?.type === 'orbital') return 'orbital';
-      if (data?.type === 'puzzle') return 'puzzle';
-    }
-    if (diagram.startsWith('sequenceDiagram')) return 'sequence';
-    if (diagram.startsWith('gantt')) return 'gantt';
-    if (diagram.startsWith('pie')) return 'pie';
-    if (diagram.startsWith('mindmap')) return 'mindmap';
-    if (diagram.startsWith('flowchart') || diagram.startsWith('graph')) return 'flowchart';
-    return 'custom';
-  });
-
-  const [value, setValue] = useState(() => {
-    if (diagram) return diagram.startsWith(CUSTOM_SVG_PREFIX) ? '' : diagram;
-    const type = suggestedType ?? 'flowchart';
-    if (type === 'orbital' || type === 'puzzle') return '';
-    return buildContextTemplate(section, type);
-  });
-
-  const [orbitalData, setOrbitalData] = useState<OrbitalDiagramData>(() => {
-    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
-      const d = parseCustomDiagramData(diagram);
-      if (d?.type === 'orbital') return d as OrbitalDiagramData;
-    }
-    return buildOrbitalDefault(section);
-  });
-
-  const [puzzleData, setPuzzleData] = useState<PuzzleDiagramData>(() => {
-    if (diagram.startsWith(CUSTOM_SVG_PREFIX)) {
-      const d = parseCustomDiagramData(diagram);
-      if (d?.type === 'puzzle') return d as PuzzleDiagramData;
-    }
-    return buildPuzzleDefault(section);
-  });
-
-  function handleTypeSelect(typeId: string) {
-    setActiveType(typeId);
-    if (typeId === 'orbital') { setOrbitalData(buildOrbitalDefault(section)); return; }
-    if (typeId === 'puzzle') { setPuzzleData(buildPuzzleDefault(section)); return; }
-    const contextTemplate = buildContextTemplate(section, typeId);
-    setValue(contextTemplate || (CHART_TYPES.find(t => t.id === typeId)?.template ?? ''));
-  }
-
-  function handleSave() {
-    let finalValue = value;
-    if (activeType === 'orbital') {
-      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(orbitalData);
-    } else if (activeType === 'puzzle') {
-      finalValue = CUSTOM_SVG_PREFIX + JSON.stringify(puzzleData);
-    }
-    ctx.updateField(section.id, 'diagram', finalValue);
-    onClose();
-  }
-
-  function handleRemove() {
-    ctx.updateField(section.id, 'diagram', '');
-    onClose();
-  }
-
-  const isCustomForm = activeType === 'orbital' || activeType === 'puzzle';
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 30000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        style={{
-          background: '#fff',
-          borderRadius: 14,
-          width: '100%',
-          maxWidth: isCustomForm ? 560 : 900,
-          height: 'min(640px, 90vh)',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.3)',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          transition: 'max-width 0.2s',
-        }}
-      >
-        {/* Header */}
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>Edit Diagram</p>
-            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>
-              {isCustomForm ? 'Fill in the form to build your diagram.' : 'Select a chart type, then customize the code. Preview updates automatically.'}
-            </p>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><Icon icon={X} size="md" /></button>
-        </div>
-
-        {/* Chart type selector */}
-        <div style={{ padding: '10px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 6, flexShrink: 0, overflowX: 'auto' }}>
-          {CHART_TYPES.map(t => (
-            <button
-              key={t.id}
-              onClick={() => handleTypeSelect(t.id)}
-              style={{
-                padding: '5px 12px',
-                borderRadius: 20,
-                border: activeType === t.id ? 'none' : '1px solid #e2e8f0',
-                background: activeType === t.id ? '#6366f1' : '#f8fafc',
-                color: activeType === t.id ? '#fff' : '#475569',
-                fontSize: 12,
-                fontWeight: activeType === t.id ? 700 : 500,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                flexShrink: 0,
-                transition: 'all 0.15s',
-              }}
-            >
-              <span>{t.icon}</span>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Body */}
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {activeType === 'orbital' ? (
-            <OrbitalForm data={orbitalData} onChange={setOrbitalData} />
-          ) : activeType === 'puzzle' ? (
-            <PuzzleForm data={puzzleData} onChange={setPuzzleData} />
-          ) : (
-            <>
-              {/* Code editor */}
-              <div style={{ flex: '0 0 50%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #e2e8f0' }}>
-                <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Code</span>
-                  <span style={{ fontSize: 10, color: '#94a3b8' }}>Mermaid syntax</span>
-                </div>
-                <textarea
-                  value={value}
-                  onChange={e => setValue(e.target.value)}
-                  spellCheck={false}
-                  style={{
-                    flex: 1,
-                    padding: '12px 16px',
-                    border: 'none',
-                    outline: 'none',
-                    fontSize: 12,
-                    fontFamily: 'Consolas, "Courier New", monospace',
-                    lineHeight: 1.7,
-                    resize: 'none',
-                    color: '#1e293b',
-                    background: '#fafafa',
-                  }}
-                />
-              </div>
-
-              {/* Live preview */}
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preview</span>
-                  <span style={{ fontSize: 10, color: '#94a3b8' }}>Updates automatically</span>
-                </div>
-                <div style={{ flex: 1, overflow: 'hidden', background: '#fff' }}>
-                  <DiagramPreview code={value} />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 8, justifyContent: 'space-between', flexShrink: 0 }}>
-          <button
-            onClick={handleRemove}
-            style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#dc2626' }}
-          >
-            Remove diagram
-          </button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#64748b' }}>
-              Cancel
-            </button>
-            <button onClick={handleSave} style={{ padding: '7px 16px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-              Save diagram
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Icon picker ────────────────────────────────────────────────────────────────
 
 const ICON_HINTS = [
-  { hint: 'identity',  emoji: '👤', label: 'Identity' },
-  { hint: 'digital',   emoji: '💻', label: 'Digital' },
-  { hint: 'content',   emoji: '📄', label: 'Content' },
-  { hint: 'strategy',  emoji: '⭐', label: 'Strategy' },
-  { hint: 'research',  emoji: '🔍', label: 'Research' },
-  { hint: 'launch',    emoji: '🚀', label: 'Launch' },
-  { hint: 'document',  emoji: '📁', label: 'Document' },
-  { hint: 'website',   emoji: '🌐', label: 'Website' },
-  { hint: 'photo',     emoji: '🖼', label: 'Photo' },
-  { hint: 'campaign',  emoji: '📢', label: 'Campaign' },
-  { hint: 'default',   emoji: '⊞',  label: 'Grid' },
-  { hint: 'check',     emoji: '✓',  label: 'Check' },
-  { hint: 'star',      emoji: '✦',  label: 'Star' },
-  { hint: 'lock',      emoji: '🔒', label: 'Lock' },
-  { hint: 'bolt',      emoji: '⚡', label: 'Bolt' },
-  { hint: 'target',    emoji: '🎯', label: 'Target' },
-  { hint: 'chart',     emoji: '📊', label: 'Chart' },
-  { hint: 'tool',      emoji: '🔧', label: 'Tool' },
-  { hint: 'gem',       emoji: '💎', label: 'Gem' },
-  { hint: 'trophy',    emoji: '🏆', label: 'Trophy' },
-  { hint: 'shield',    emoji: '🛡',  label: 'Shield' },
-  { hint: 'flag',      emoji: '🚩', label: 'Flag' },
-  { hint: 'leaf',      emoji: '🌿', label: 'Leaf' },
-  { hint: 'fire',      emoji: '🔥', label: 'Fire' },
+  { hint: 'identity', emoji: '👤', label: 'Identity' },
+  { hint: 'digital', emoji: '💻', label: 'Digital' },
+  { hint: 'content', emoji: '📄', label: 'Content' },
+  { hint: 'strategy', emoji: '⭐', label: 'Strategy' },
+  { hint: 'research', emoji: '🔍', label: 'Research' },
+  { hint: 'launch', emoji: '🚀', label: 'Launch' },
+  { hint: 'document', emoji: '📁', label: 'Document' },
+  { hint: 'website', emoji: '🌐', label: 'Website' },
+  { hint: 'photo', emoji: '🖼', label: 'Photo' },
+  { hint: 'campaign', emoji: '📢', label: 'Campaign' },
+  { hint: 'default', emoji: '⊞', label: 'Grid' },
+  { hint: 'check', emoji: '✓', label: 'Check' },
+  { hint: 'star', emoji: '✦', label: 'Star' },
+  { hint: 'lock', emoji: '🔒', label: 'Lock' },
+  { hint: 'bolt', emoji: '⚡', label: 'Bolt' },
+  { hint: 'target', emoji: '🎯', label: 'Target' },
+  { hint: 'chart', emoji: '📊', label: 'Chart' },
+  { hint: 'tool', emoji: '🔧', label: 'Tool' },
+  { hint: 'gem', emoji: '💎', label: 'Gem' },
+  { hint: 'trophy', emoji: '🏆', label: 'Trophy' },
+  { hint: 'shield', emoji: '🛡', label: 'Shield' },
+  { hint: 'flag', emoji: '🚩', label: 'Flag' },
+  { hint: 'leaf', emoji: '🌿', label: 'Leaf' },
+  { hint: 'fire', emoji: '🔥', label: 'Fire' },
 ];
 
 function IconPickerPanel({
@@ -695,7 +77,16 @@ function IconPickerPanel({
       }}
     >
       <div style={{ padding: '10px 12px', borderBottom: '1px solid #e2e8f0' }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#1e293b',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+          }}
+        >
           Pick Icon
         </p>
         <p style={{ margin: '2px 0 0', fontSize: 10, color: '#94a3b8' }}>
@@ -707,7 +98,10 @@ function IconPickerPanel({
           <button
             key={hint}
             title={label}
-            onClick={() => { ctx.updateField(sectionId, fieldPath, hint); onClose(); }}
+            onClick={() => {
+              ctx.updateField(sectionId, fieldPath, hint);
+              onClose();
+            }}
             style={{
               width: 40,
               height: 40,
@@ -727,20 +121,37 @@ function IconPickerPanel({
         ))}
       </div>
       <div style={{ padding: '8px 12px', borderTop: '1px solid #e2e8f0' }}>
-        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <label
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: '#64748b',
+            display: 'block',
+            marginBottom: 4,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
           Custom hint text
         </label>
         <input
           type="text"
           defaultValue={currentHint}
           placeholder="e.g. check, star, rocket…"
-          onKeyDown={e => {
+          onKeyDown={(e) => {
             if (e.key === 'Enter') {
               ctx.updateField(sectionId, fieldPath, (e.target as HTMLInputElement).value);
               onClose();
             }
           }}
-          style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box' }}
+          style={{
+            width: '100%',
+            padding: '5px 8px',
+            borderRadius: 5,
+            border: '1px solid #e2e8f0',
+            fontSize: 12,
+            boxSizing: 'border-box',
+          }}
         />
       </div>
     </div>
@@ -749,20 +160,14 @@ function IconPickerPanel({
 
 // ── Background picker panel ───────────────────────────────────────────────────
 
-function BackgroundPanel({
-  section,
-  onClose,
-}: {
-  section: LayoutSection;
-  onClose: () => void;
-}) {
+function BackgroundPanel({ section, onClose }: { section: LayoutSection; onClose: () => void }) {
   const ctx = useEditContext()!;
   const [tab, setTab] = useState<'image' | 'color' | 'upload'>('image');
   const [imgUrl, setImgUrl] = useState(section.image?.url ?? '');
   const [imgQuery, setImgQuery] = useState(section.image?.query ?? '');
 
   function applyImage() {
-    ctx.updateField(section.id, '__bgColor', '');   // clear solid color override
+    ctx.updateField(section.id, '__bgColor', ''); // clear solid color override
     if (imgUrl.trim()) {
       ctx.updateField(section.id, '__imageUrl', imgUrl.trim());
       ctx.updateField(section.id, '__imageSource', 'custom');
@@ -775,9 +180,9 @@ function BackgroundPanel({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => {
+    reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
-      ctx.updateField(section.id, '__bgColor', '');  // clear solid color override
+      ctx.updateField(section.id, '__bgColor', ''); // clear solid color override
       ctx.updateField(section.id, '__imageUrl', dataUrl);
       ctx.updateField(section.id, '__imageSource', 'custom');
       onClose();
@@ -810,7 +215,7 @@ function BackgroundPanel({
     >
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
-        {(['image', 'color', 'upload'] as const).map(t => (
+        {(['image', 'color', 'upload'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -826,7 +231,15 @@ function BackgroundPanel({
               borderBottom: tab === t ? '2px solid #6366f1' : '2px solid transparent',
             }}
           >
-            {t === 'image' ? <><Icon icon={Image} size="sm" /> Image</> : <><Icon icon={Palette} size="sm" /> Color</>}
+            {t === 'image' ? (
+              <>
+                <Icon icon={Image} size="sm" /> Image
+              </>
+            ) : (
+              <>
+                <Icon icon={Palette} size="sm" /> Color
+              </>
+            )}
           </button>
         ))}
       </div>
@@ -834,25 +247,62 @@ function BackgroundPanel({
       <div style={{ padding: 14 }}>
         {tab === 'image' ? (
           <>
-            <label style={{ fontSize: 11, fontWeight: 400, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 400,
+                color: '#64748b',
+                display: 'block',
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                lineHeight: 1.4,
+              }}
+            >
               Search query
             </label>
             <input
               type="text"
               value={imgQuery}
-              onChange={e => setImgQuery(e.target.value)}
+              onChange={(e) => setImgQuery(e.target.value)}
               placeholder="e.g. modern office collaboration"
-              style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, marginBottom: 10, boxSizing: 'border-box' }}
+              style={{
+                width: '100%',
+                padding: '7px 9px',
+                borderRadius: 6,
+                border: '1px solid #e2e8f0',
+                fontSize: 12,
+                marginBottom: 10,
+                boxSizing: 'border-box',
+              }}
             />
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#64748b',
+                display: 'block',
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
               Image URL
             </label>
             <input
               type="text"
               value={imgUrl}
-              onChange={e => setImgUrl(e.target.value)}
+              onChange={(e) => setImgUrl(e.target.value)}
               placeholder="https://images.unsplash.com/…"
-              style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, marginBottom: 10, boxSizing: 'border-box' }}
+              style={{
+                width: '100%',
+                padding: '7px 9px',
+                borderRadius: 6,
+                border: '1px solid #e2e8f0',
+                fontSize: 12,
+                marginBottom: 10,
+                boxSizing: 'border-box',
+              }}
             />
             {imgUrl && (
               <div style={{ borderRadius: 6, overflow: 'hidden', height: 80, marginBottom: 10 }}>
@@ -862,14 +312,41 @@ function BackgroundPanel({
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button
-                onClick={() => { ctx.updateField(section.id, '__bgColor', ''); ctx.updateField(section.id, '__imageUrl', null); ctx.updateField(section.id, '__imageSource', 'gradient'); onClose(); }}
-                style={{ flex: 1, padding: '7px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' }}
+                onClick={() => {
+                  ctx.updateField(section.id, '__bgColor', '');
+                  ctx.updateField(section.id, '__imageUrl', null);
+                  ctx.updateField(section.id, '__imageSource', 'gradient');
+                  onClose();
+                }}
+                style={{
+                  flex: 1,
+                  padding: '7px',
+                  borderRadius: 6,
+                  border: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: '#475569',
+                }}
               >
                 Use gradient
               </button>
               <button
                 onClick={applyImage}
-                style={{ flex: 2, padding: '8px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', lineHeight: 1.5, letterSpacing: '0em' }}
+                style={{
+                  flex: 2,
+                  padding: '8px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#6366f1',
+                  color: '#fff',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  lineHeight: 1.5,
+                  letterSpacing: '0em',
+                }}
               >
                 Apply
               </button>
@@ -877,7 +354,17 @@ function BackgroundPanel({
           </>
         ) : tab === 'upload' ? (
           <>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#64748b',
+                display: 'block',
+                marginBottom: 8,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
               Upload image file
             </label>
             <label
@@ -909,26 +396,62 @@ function BackgroundPanel({
           </>
         ) : (
           <>
-            <label style={{ fontSize: 11, fontWeight: 400, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 400,
+                color: '#64748b',
+                display: 'block',
+                marginBottom: 8,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                lineHeight: 1.4,
+              }}
+            >
               Custom color
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
               <input
                 type="color"
                 defaultValue="#1e293b"
-                onChange={e => { ctx.updateField(section.id, '__imageUrl', null); ctx.updateField(section.id, '__bgColor', e.target.value); }}
-                style={{ width: 40, height: 36, borderRadius: 6, border: '1px solid #e2e8f0', cursor: 'pointer', padding: 2 }}
+                onChange={(e) => {
+                  ctx.updateField(section.id, '__imageUrl', null);
+                  ctx.updateField(section.id, '__bgColor', e.target.value);
+                }}
+                style={{
+                  width: 40,
+                  height: 36,
+                  borderRadius: 6,
+                  border: '1px solid #e2e8f0',
+                  cursor: 'pointer',
+                  padding: 2,
+                }}
               />
               <span style={{ fontSize: 11, color: '#94a3b8' }}>Pick any background color</span>
             </div>
-            <label style={{ fontSize: 11, fontWeight: 400, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: 1.4 }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 400,
+                color: '#64748b',
+                display: 'block',
+                marginBottom: 8,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                lineHeight: 1.4,
+              }}
+            >
               Presets
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {BG_PRESETS.map(preset => (
+              {BG_PRESETS.map((preset) => (
                 <button
                   key={preset.label}
-                  onClick={() => { ctx.updateField(section.id, '__imageUrl', null); ctx.updateField(section.id, '__bgColor', preset.value); onClose(); }}
+                  onClick={() => {
+                    ctx.updateField(section.id, '__imageUrl', null);
+                    ctx.updateField(section.id, '__bgColor', preset.value);
+                    onClose();
+                  }}
                   style={{
                     padding: '5px 10px',
                     borderRadius: 100,
@@ -953,9 +476,15 @@ function BackgroundPanel({
         <button
           onClick={resetToTheme}
           style={{
-            width: '100%', padding: '7px', borderRadius: 6,
-            border: '1px solid #e2e8f0', background: '#f8fafc',
-            color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            width: '100%',
+            padding: '7px',
+            borderRadius: 6,
+            border: '1px solid #e2e8f0',
+            background: '#f8fafc',
+            color: '#64748b',
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: 'pointer',
           }}
         >
           ↺ Reset to theme default
@@ -969,16 +498,16 @@ function BackgroundPanel({
 
 const SECTION_VARIANTS: Record<string, { id: string; label: string; icon: string; desc: string }[]> = {
   hero: [
-    { id: 'centered',     label: 'Centered',     icon: '⊡', desc: 'Centered headline + CTA' },
-    { id: 'split',        label: 'Split',        icon: '⊞', desc: 'Text left, visual right' },
-    { id: 'asymmetric',   label: 'Asymmetric',   icon: '⊟', desc: 'Bold headline + aside' },
-    { id: 'editorial',    label: 'Editorial',    icon: '⊠', desc: 'Magazine-style layout' },
-    { id: 'card-grid',    label: 'Card Grid',    icon: '▦', desc: 'Full-width card grid' },
+    { id: 'centered', label: 'Centered', icon: '⊡', desc: 'Centered headline + CTA' },
+    { id: 'split', label: 'Split', icon: '⊞', desc: 'Text left, visual right' },
+    { id: 'asymmetric', label: 'Asymmetric', icon: '⊟', desc: 'Bold headline + aside' },
+    { id: 'editorial', label: 'Editorial', icon: '⊠', desc: 'Magazine-style layout' },
+    { id: 'card-grid', label: 'Card Grid', icon: '▦', desc: 'Full-width card grid' },
     { id: 'type-forward', label: 'Type Forward', icon: '⊞', desc: 'Typography-first hero' },
   ],
   approach: [
-    { id: 'grid', label: 'Grid',  icon: '▦', desc: 'Cards in a responsive grid' },
-    { id: 'list', label: 'List',  icon: '☰', desc: 'Rows with icon + text side-by-side' },
+    { id: 'grid', label: 'Grid', icon: '▦', desc: 'Cards in a responsive grid' },
+    { id: 'list', label: 'List', icon: '☰', desc: 'Rows with icon + text side-by-side' },
   ],
   benefits: [
     { id: 'grid', label: 'Grid', icon: '▦', desc: 'Cards in a responsive grid' },
@@ -997,11 +526,11 @@ const SECTION_VARIANTS: Record<string, { id: string; label: string; icon: string
     { id: 'list', label: 'List', icon: '☰', desc: 'Avatar left, bio right' },
   ],
   timeline: [
-    { id: 'vertical',   label: 'Vertical',   icon: '⬇', desc: 'Spine on left, cards right' },
+    { id: 'vertical', label: 'Vertical', icon: '⬇', desc: 'Spine on left, cards right' },
     { id: 'horizontal', label: 'Horizontal', icon: '⮕', desc: 'Phases in a row' },
   ],
   faq: [
-    { id: 'accordion',  label: 'Accordion',  icon: '⊟', desc: 'Collapsible Q&A rows' },
+    { id: 'accordion', label: 'Accordion', icon: '⊟', desc: 'Collapsible Q&A rows' },
     { id: 'two-column', label: 'Two Column', icon: '⊞', desc: 'All items always visible' },
   ],
   problem: [
@@ -1022,13 +551,7 @@ const VARIANT_DEFAULTS: Record<string, string> = {
   problem: 'list',
 };
 
-function LayoutVariantPanel({
-  section,
-  onClose,
-}: {
-  section: LayoutSection;
-  onClose: () => void;
-}) {
+function LayoutVariantPanel({ section, onClose }: { section: LayoutSection; onClose: () => void }) {
   const ctx = useEditContext()!;
   const variants = SECTION_VARIANTS[section.sectionType];
 
@@ -1038,24 +561,44 @@ function LayoutVariantPanel({
   const current = (content.variant as string) ?? VARIANT_DEFAULTS[section.sectionType] ?? variants[0].id;
 
   return (
-    <div style={{
-      position: 'absolute', top: '100%', left: 8, zIndex: 25000,
-      background: '#fff', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-      border: '1px solid #e2e8f0', fontFamily: 'system-ui', overflow: 'hidden', width: 240,
-    }}>
+    <div
+      style={{
+        position: 'absolute',
+        top: '100%',
+        left: 8,
+        zIndex: 25000,
+        background: '#fff',
+        borderRadius: 10,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+        border: '1px solid #e2e8f0',
+        fontFamily: 'system-ui',
+        overflow: 'hidden',
+        width: 240,
+      }}
+    >
       <div style={{ padding: '10px 12px', borderBottom: '1px solid #e2e8f0' }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#1e293b',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+          }}
+        >
           Layout
         </p>
-        <p style={{ margin: '2px 0 0', fontSize: 10, color: '#94a3b8' }}>
-          {section.sectionType} section
-        </p>
+        <p style={{ margin: '2px 0 0', fontSize: 10, color: '#94a3b8' }}>{section.sectionType} section</p>
       </div>
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {variants.map(v => (
+        {variants.map((v) => (
           <button
             key={v.id}
-            onClick={() => { ctx.updateField(section.id, 'variant', v.id); onClose(); }}
+            onClick={() => {
+              ctx.updateField(section.id, 'variant', v.id);
+              onClose();
+            }}
             style={{
               padding: '8px 10px',
               borderRadius: 6,
@@ -1075,7 +618,14 @@ function LayoutVariantPanel({
             <span style={{ fontSize: 15 }}>{v.icon}</span>
             <span style={{ flex: 1 }}>
               {v.label}
-              <span style={{ display: 'block', fontSize: 10, color: current === v.id ? '#818cf8' : '#94a3b8', fontWeight: 400 }}>
+              <span
+                style={{
+                  display: 'block',
+                  fontSize: 10,
+                  color: current === v.id ? '#818cf8' : '#94a3b8',
+                  fontWeight: 400,
+                }}
+              >
                 {v.desc}
               </span>
             </span>
@@ -1091,8 +641,8 @@ function LayoutVariantPanel({
 
 function EmbedPanel({ section, onClose }: { section: LayoutSection; onClose: () => void }) {
   const ctx = useEditContext()!;
-  const [url, setUrl] = useState((section.embed?.url) ?? '');
-  const [title, setTitle] = useState((section.embed?.title) ?? '');
+  const [url, setUrl] = useState(section.embed?.url ?? '');
+  const [title, setTitle] = useState(section.embed?.title ?? '');
 
   function detectType(u: string): string {
     if (u.match(/youtube\.com|youtu\.be/)) return 'YouTube';
@@ -1104,13 +654,13 @@ function EmbedPanel({ section, onClose }: { section: LayoutSection; onClose: () 
   function handleSave() {
     if (!url.trim()) {
       // Remove embed
-      const sections = ctx.ast.sections.map(sec =>
-        sec.id === section.id ? { ...sec, embed: undefined } : sec
+      const sections = ctx.ast.sections.map((sec) =>
+        sec.id === section.id ? { ...sec, embed: undefined } : sec,
       ) as typeof ctx.ast.sections;
       ctx.replaceAst({ ...ctx.ast, sections });
     } else {
-      const sections = ctx.ast.sections.map(sec =>
-        sec.id === section.id ? { ...sec, embed: { url: url.trim(), title: title.trim() || undefined } } : sec
+      const sections = ctx.ast.sections.map((sec) =>
+        sec.id === section.id ? { ...sec, embed: { url: url.trim(), title: title.trim() || undefined } } : sec,
       ) as typeof ctx.ast.sections;
       ctx.replaceAst({ ...ctx.ast, sections });
     }
@@ -1120,32 +670,40 @@ function EmbedPanel({ section, onClose }: { section: LayoutSection; onClose: () 
   const detected = detectType(url);
 
   return (
-    <div style={{
-      position: 'absolute',
-      top: '100%',
-      left: 0,
-      zIndex: 25000,
-      marginTop: 6,
-      background: '#fff',
-      borderRadius: 10,
-      boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
-      border: '1px solid #e2e8f0',
-      padding: 14,
-      width: 320,
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-    }}>
+    <div
+      style={{
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        zIndex: 25000,
+        marginTop: 6,
+        background: '#fff',
+        borderRadius: 10,
+        boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+        border: '1px solid #e2e8f0',
+        padding: 14,
+        width: 320,
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      }}
+    >
       <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#1e293b' }}>📎 Embed Media</p>
       <p style={{ margin: '0 0 10px', fontSize: 11, color: '#94a3b8' }}>Paste a YouTube, Loom, or any iframe URL</p>
 
       <div style={{ marginBottom: 8 }}>
-        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>URL</label>
+        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>
+          URL
+        </label>
         <input
           value={url}
-          onChange={e => setUrl(e.target.value)}
+          onChange={(e) => setUrl(e.target.value)}
           placeholder="https://www.youtube.com/watch?v=..."
           style={{
-            width: '100%', padding: '7px 10px', borderRadius: 6,
-            border: '1px solid #e2e8f0', fontSize: 12, outline: 'none',
+            width: '100%',
+            padding: '7px 10px',
+            borderRadius: 6,
+            border: '1px solid #e2e8f0',
+            fontSize: 12,
+            outline: 'none',
             boxSizing: 'border-box',
           }}
         />
@@ -1155,14 +713,20 @@ function EmbedPanel({ section, onClose }: { section: LayoutSection; onClose: () 
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Caption (optional)</label>
+        <label style={{ fontSize: 10, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>
+          Caption (optional)
+        </label>
         <input
           value={title}
-          onChange={e => setTitle(e.target.value)}
+          onChange={(e) => setTitle(e.target.value)}
           placeholder="Video title or description"
           style={{
-            width: '100%', padding: '7px 10px', borderRadius: 6,
-            border: '1px solid #e2e8f0', fontSize: 12, outline: 'none',
+            width: '100%',
+            padding: '7px 10px',
+            borderRadius: 6,
+            border: '1px solid #e2e8f0',
+            fontSize: 12,
+            outline: 'none',
             boxSizing: 'border-box',
           }}
         />
@@ -1172,19 +736,34 @@ function EmbedPanel({ section, onClose }: { section: LayoutSection; onClose: () 
         <button
           onClick={handleSave}
           style={{
-            flex: 1, padding: '7px', borderRadius: 6, border: 'none',
-            background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700,
+            flex: 1,
+            padding: '7px',
+            borderRadius: 6,
+            border: 'none',
+            background: '#6366f1',
+            color: '#fff',
+            fontSize: 11,
+            fontWeight: 700,
             cursor: 'pointer',
           }}
-        >{url.trim() ? 'Embed' : 'Remove'}</button>
+        >
+          {url.trim() ? 'Embed' : 'Remove'}
+        </button>
         <button
           onClick={onClose}
           style={{
-            padding: '7px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
-            background: '#fff', color: '#64748b', fontSize: 11, fontWeight: 600,
+            padding: '7px 12px',
+            borderRadius: 6,
+            border: '1px solid #e2e8f0',
+            background: '#fff',
+            color: '#64748b',
+            fontSize: 11,
+            fontWeight: 600,
             cursor: 'pointer',
           }}
-        >Cancel</button>
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -1202,17 +781,16 @@ interface Props {
 
 const ACCENT = '#6366f1';
 
-type ActivePanel = 'bg' | 'diagram' | 'layout' | 'icon' | 'embed' | 'ai' | null;
+type ActivePanel = 'bg' | 'layout' | 'icon' | 'embed' | 'ai' | null;
 
 export function SectionEditOverlay({ section, sectionIndex, totalSections, children, onAiAction }: Props) {
   const ctx = useEditContext();
   const [hovered, setHovered] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
-  const [showDiagramModal, setShowDiagramModal] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   const togglePanel = useCallback((panel: ActivePanel) => {
-    setActivePanel(prev => prev === panel ? null : panel);
+    setActivePanel((prev) => (prev === panel ? null : panel));
   }, []);
 
   // Close panel when clicking outside toolbar
@@ -1231,13 +809,8 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
   if (!ctx) return <>{children}</>;
 
   const isActive = ctx.activeSectionId === section.id;
-  const hasDiagram = !!(section.content as unknown as Record<string, unknown>).diagram;
 
-  function toolbarBtn(
-    label: string,
-    panelId: ActivePanel,
-    onClick?: () => void,
-  ) {
+  function toolbarBtn(label: string, panelId: ActivePanel, onClick?: () => void) {
     const active = activePanel === panelId;
     return (
       <button
@@ -1298,7 +871,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             letterSpacing: '0.03em',
             whiteSpace: 'nowrap',
           }}
-          onClick={e => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           ✎ Click any text to edit
         </div>
@@ -1317,7 +890,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
             gap: 4,
             alignItems: 'center',
           }}
-          onClick={e => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           {/* Section label */}
           <span
@@ -1328,9 +901,10 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
               color: '#fff',
               fontSize: 10,
               fontWeight: 600,
-              letterSpacing: '0.08em', lineHeight: 1.4,
+              letterSpacing: '0.08em',
+              lineHeight: 1.4,
               textTransform: 'uppercase',
-                  backdropFilter: 'blur(8px)',
+              backdropFilter: 'blur(8px)',
             }}
           >
             {section.sectionType}
@@ -1340,7 +914,7 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
           {onAiAction && (
             <div style={{ position: 'relative' }}>
               {toolbarBtn('✦ AI', 'ai')}
-              {activePanel === ('ai') && (
+              {activePanel === 'ai' && (
                 <div
                   style={{
                     position: 'absolute',
@@ -1357,21 +931,75 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                   }}
                 >
                   <div style={{ padding: '7px 12px 5px', borderBottom: `1px solid ${ACCENT}18` }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: ACCENT, letterSpacing: '0.07em', textTransform: 'uppercase' }}>✦ AI Actions</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: ACCENT,
+                        letterSpacing: '0.07em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      ✦ AI Actions
+                    </span>
                   </div>
                   {[
-                    { icon: '✎', label: 'Rewrite',       desc: 'Improve copy',              instruction: 'Rewrite this section with improved copy' },
-                    { icon: '✂', label: 'Shorten',       desc: 'Make concise',              instruction: 'Make this section more concise — 3 bullet points max' },
-                    { icon: '↕', label: 'Expand',        desc: 'Add more detail',           instruction: 'Expand this section with more detail and supporting evidence' },
-                    { icon: '💼', label: 'C-Suite tone',  desc: 'Executive-friendly',        instruction: 'Rewrite this section for a C-suite executive audience — strategic, concise, outcome-focused' },
-                    { icon: '🔥', label: 'More urgent',   desc: 'Increase urgency',          instruction: 'Rewrite this section to feel more urgent and compelling' },
-                    { icon: '📊', label: 'Add stats',     desc: 'Insert data points',        instruction: 'Enhance this section by adding relevant statistics, percentages, or data points' },
-                    { icon: '◈', label: 'Restyle',       desc: 'New visual treatment',      instruction: 'Restyle this section — make it more visually striking' },
-                    { icon: '🌍', label: 'Simplify',      desc: 'Plain language',            instruction: 'Rewrite this section in plain, simple language anyone can understand' },
+                    {
+                      icon: '✎',
+                      label: 'Rewrite',
+                      desc: 'Improve copy',
+                      instruction: 'Rewrite this section with improved copy',
+                    },
+                    {
+                      icon: '✂',
+                      label: 'Shorten',
+                      desc: 'Make concise',
+                      instruction: 'Make this section more concise — 3 bullet points max',
+                    },
+                    {
+                      icon: '↕',
+                      label: 'Expand',
+                      desc: 'Add more detail',
+                      instruction: 'Expand this section with more detail and supporting evidence',
+                    },
+                    {
+                      icon: '💼',
+                      label: 'C-Suite tone',
+                      desc: 'Executive-friendly',
+                      instruction:
+                        'Rewrite this section for a C-suite executive audience — strategic, concise, outcome-focused',
+                    },
+                    {
+                      icon: '🔥',
+                      label: 'More urgent',
+                      desc: 'Increase urgency',
+                      instruction: 'Rewrite this section to feel more urgent and compelling',
+                    },
+                    {
+                      icon: '📊',
+                      label: 'Add stats',
+                      desc: 'Insert data points',
+                      instruction: 'Enhance this section by adding relevant statistics, percentages, or data points',
+                    },
+                    {
+                      icon: '◈',
+                      label: 'Restyle',
+                      desc: 'New visual treatment',
+                      instruction: 'Restyle this section — make it more visually striking',
+                    },
+                    {
+                      icon: '🌍',
+                      label: 'Simplify',
+                      desc: 'Plain language',
+                      instruction: 'Rewrite this section in plain, simple language anyone can understand',
+                    },
                   ].map(({ icon, label, desc, instruction }) => (
                     <button
                       key={label}
-                      onClick={() => { onAiAction(section.id, instruction); setActivePanel(null); }}
+                      onClick={() => {
+                        onAiAction(section.id, instruction);
+                        setActivePanel(null);
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1389,18 +1017,34 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                         transition: 'background 0.1s',
                         fontFamily: 'inherit',
                       }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${ACCENT}12`; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLElement).style.background = `${ACCENT}12`;
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      }}
                     >
-                      <span style={{
-                        width: 26, height: 26, borderRadius: 7, flexShrink: 0,
-                        background: `${ACCENT}18`,
-                        color: ACCENT, fontSize: 13,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontWeight: 700,
-                      }}>{icon}</span>
+                      <span
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: 7,
+                          flexShrink: 0,
+                          background: `${ACCENT}18`,
+                          color: ACCENT,
+                          fontSize: 13,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {icon}
+                      </span>
                       <span>
-                        <span style={{ display: 'block', fontWeight: 600, color: '#1e293b', fontSize: 12 }}>{label}</span>
+                        <span style={{ display: 'block', fontWeight: 600, color: '#1e293b', fontSize: 12 }}>
+                          {label}
+                        </span>
                         <span style={{ display: 'block', fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{desc}</span>
                       </span>
                     </button>
@@ -1413,28 +1057,13 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
           {/* Background button */}
           <div style={{ position: 'relative' }}>
             {toolbarBtn('🖼 Background', 'bg')}
-            {activePanel === 'bg' && (
-              <BackgroundPanel section={section} onClose={() => setActivePanel(null)} />
-            )}
+            {activePanel === 'bg' && <BackgroundPanel section={section} onClose={() => setActivePanel(null)} />}
           </div>
-
-          {/* Diagram button — only for sections that support diagrams */}
-          {DIAGRAM_SECTION_TYPES.has(section.sectionType) && (
-            <div style={{ position: 'relative' }}>
-              {toolbarBtn(
-                hasDiagram ? '◈ Diagram' : '+ Diagram',
-                null,
-                () => setShowDiagramModal(true),
-              )}
-            </div>
-          )}
 
           {/* Embed media */}
           <div style={{ position: 'relative' }}>
             {toolbarBtn(section.embed?.url ? '📎 Embedded' : '📎 Embed', 'embed')}
-            {activePanel === 'embed' && (
-              <EmbedPanel section={section} onClose={() => setActivePanel(null)} />
-            )}
+            {activePanel === 'embed' && <EmbedPanel section={section} onClose={() => setActivePanel(null)} />}
           </div>
 
           {/* Layout variant — available for all sections that define variants */}
@@ -1463,7 +1092,9 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                 boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
               }}
               title="Move section up"
-            ><Icon icon={ArrowUp} size="sm" /></button>
+            >
+              <Icon icon={ArrowUp} size="sm" />
+            </button>
           )}
           {sectionIndex < totalSections - 1 && (
             <button
@@ -1480,7 +1111,9 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                 boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
               }}
               title="Move section down"
-            ><Icon icon={ArrowDown} size="sm" /></button>
+            >
+              <Icon icon={ArrowDown} size="sm" />
+            </button>
           )}
 
           {/* Duplicate section */}
@@ -1499,7 +1132,9 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
               fontWeight: 700,
             }}
             title="Duplicate section (Ctrl+D)"
-          >⊕</button>
+          >
+            ⊕
+          </button>
 
           {/* Delete section */}
           {totalSections > 1 && (
@@ -1522,18 +1157,11 @@ export function SectionEditOverlay({ section, sectionIndex, totalSections, child
                 fontWeight: 700,
               }}
               title="Delete section"
-            >✕</button>
+            >
+              ✕
+            </button>
           )}
         </div>
-      )}
-
-      {/* Diagram modal */}
-      {showDiagramModal && (
-        <DiagramModal
-          section={section}
-          diagram={String((section.content as unknown as Record<string, unknown>).diagram ?? '')}
-          onClose={() => setShowDiagramModal(false)}
-        />
       )}
     </div>
   );

@@ -5,7 +5,6 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Headline, Body, Label, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
@@ -38,7 +37,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
           </InlineEditable>
         </Reveal>
 
-        <div style={{ display: 'grid', gridTemplateColumns: (imageUrl || content.diagram) ? '1fr 1fr' : '1fr', gap: 'clamp(2rem, 4vw, 4rem)', alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '1fr 1fr' : '1fr', gap: 'clamp(2rem, 4vw, 4rem)', alignItems: 'center' }}>
           <div>
             <Reveal delay={80}>
               <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
@@ -67,7 +66,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
                       fontFamily: `'${tokens.heroFont}', serif`,
                       fontWeight: tokens.heroWeight,
                       fontStyle: 'italic',
-                      fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)',
+                      fontSize: 'clamp(0.9rem, 1.8vw, 1.05rem)',
                       lineHeight: 1.5,
                       color: tokens.text,
                     }}
@@ -80,9 +79,7 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
             )}
           </div>
 
-          {content.diagram ? (
-            <ClickableDiagram diagram={content.diagram} tokens={tokens} delay={200} caption="Impact chain" />
-          ) : imageUrl ? (
+          {imageUrl ? (
             <Reveal delay={200}>
               <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${tokens.border}` }}>
                 <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
@@ -90,6 +87,20 @@ export function ChallengeSection({ content, tokens, imageUrl, index, sectionId }
             </Reveal>
           ) : null}
         </div>
+
+        {/* Highlights grid — rendered when override mode generates individual risk/challenge items */}
+        {(content.highlights ?? []).length > 0 && (
+          <div style={{ marginTop: 'clamp(2rem,4vw,3.5rem)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'clamp(0.75rem,1.5vw,1.25rem)', alignItems: 'stretch' }}>
+            {(content.highlights ?? []).map((h, i) => (
+              <Reveal key={i} delay={280 + i * 55} style={{ height: '100%' }}>
+                <div style={{ padding: 'clamp(1.25rem,2.5vw,1.75rem)', borderRadius: tokens.borderRadius ?? '12px', background: tokens.surfaceCard, border: `1px solid ${tokens.border}`, borderTop: `2px solid ${tokens.accent}`, boxShadow: tokens.cardShadow, height: '100%', boxSizing: 'border-box' }}>
+                  <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.9rem', color: tokens.text, margin: '0 0 0.6rem', lineHeight: 1.35 }}>{h.title}</h3>
+                  {h.subtitle && <p style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.82rem', color: tokens.textMuted, margin: 0, lineHeight: 1.7 }}>{h.subtitle}</p>}
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

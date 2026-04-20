@@ -7,7 +7,6 @@ import { GlassCard } from '../shared/GlassCard';
 import { Headline, SubHeadline, Label } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
-import { ClickableDiagram } from '../editor/ClickableDiagram';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
@@ -57,6 +56,7 @@ export function TechStackSection({ content, tokens }: Props) {
             display: 'grid',
             gridTemplateColumns: 'repeat(2, 1fr)',
             gap: 'clamp(1.5rem, 3vw, 2rem)',
+            alignItems: 'stretch',
           }}
         >
           {categories.map((category, ci) => (
@@ -94,7 +94,7 @@ export function TechStackSection({ content, tokens }: Props) {
                         <li
                           style={{
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.9rem',
+                            fontSize: '0.825rem',
                             fontWeight: 300,
                             color: tokens.textMuted,
                             lineHeight: 1.6,
@@ -142,7 +142,6 @@ export function TechStackSection({ content, tokens }: Props) {
           />
         </div>
 
-        <ClickableDiagram diagram={content.diagram ?? ''} tokens={tokens} delay={240} caption="Technology stack" />
       </div>
 
       <style>{`

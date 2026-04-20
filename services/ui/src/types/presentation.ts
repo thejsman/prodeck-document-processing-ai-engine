@@ -2,6 +2,7 @@
 
 export type SectionType =
   | 'hero'
+  | 'overview'
   | 'challenge'
   | 'approach'
   | 'deliverables'
@@ -22,7 +23,7 @@ export type SectionType =
   | 'team'
   | 'comparison'
   | 'casestudy'
-  | 'chart'
+  | 'approval'
   | 'generic';
 
 // ── Parsed markdown structures ───────────────────────────────────────────────
@@ -136,6 +137,15 @@ export interface AIBrief {
 
 // ── Section content shapes (Pass 2 output) ───────────────────────────────────
 
+export interface OverviewContent {
+  eyebrow: string;
+  headline: string;
+  body: string;
+  subheadline?: string;
+  highlights: Array<{ label: string; value: string }>;
+  imageQuery: string;
+}
+
 export interface HeroContent {
   eyebrow: string;
   headline: string;
@@ -156,6 +166,7 @@ export interface ChallengeContent {
   pullquote: string;
   imageQuery: string;
   diagram?: string;
+  highlights?: Array<{ title: string; subtitle?: string }>;
 }
 
 export interface ApproachPillar {
@@ -192,6 +203,8 @@ export interface TimelinePhase {
   duration: string;
   name: string;
   description: string;
+  outcomes?: string[];
+  deliverables?: string[];
 }
 
 export interface TimelineContent {
@@ -246,6 +259,11 @@ export interface GenericContent {
   body: string;
   imageQuery: string;
   diagram?: string;
+  highlights?: Array<{ title: string; subtitle?: string }>;
+  items?: Array<{ name: string; detail?: string; iconHint?: string }>;
+  pillars?: Array<{ name: string; description?: string; iconHint?: string }>;
+  /** Layout variant hint from agent — overrides content-aware auto-selection */
+  layout?: 'bento' | 'editorial' | 'icon-cards' | 'two-panel' | 'split' | 'timeline-steps';
 }
 
 export interface TestimonialItem {
@@ -266,7 +284,7 @@ export interface ShowcaseContent {
   headline: string;
   subheadline: string;
   body: string;
-  highlights: string[];
+  highlights: string[] | Array<{ title: string; subtitle?: string }>;
   imageQuery: string;
   diagram?: string;
 }
@@ -428,24 +446,18 @@ export interface CaseStudyContent {
 
 // ── Chart ────────────────────────────────────────────────────────────────────
 
-export interface ChartDataPoint {
-  label: string;
-  value: number;
-  color?: string;
-}
-
-export interface ChartContent {
+export interface ApprovalContent {
   eyebrow: string;
   headline: string;
-  body?: string;
-  chartType: 'bar' | 'line' | 'pie' | 'donut';
-  data: ChartDataPoint[];
-  unit?: string;
+  subheadline: string;
+  termsText?: string;
+  ctaLabel?: string;
   imageQuery: string;
 }
 
 export type SectionContent =
   | HeroContent
+  | OverviewContent
   | ChallengeContent
   | ApproachContent
   | DeliverablesContent
@@ -466,20 +478,8 @@ export type SectionContent =
   | TeamContent
   | ComparisonContent
   | CaseStudyContent
-  | ChartContent
+  | ApprovalContent
   | GenericContent;
-
-// ── Diagram metadata (detector output, stored alongside each section) ────────
-
-export interface DiagramMeta {
-  typeId: string | null;
-  typeLabel: string | null;
-  category: string | null;
-  confidence: 'high' | 'medium' | 'low' | null;
-  matchedKeywords: string[];
-  score: number;
-  isCustomSvg: boolean;
-}
 
 // ── Layout AST ───────────────────────────────────────────────────────────────
 
@@ -488,8 +488,6 @@ export interface LayoutSection {
   heading: string;
   sectionType: SectionType;
   content: SectionContent;
-  /** Diagram type metadata from the keyword detector — null when no diagram */
-  diagramMeta?: DiagramMeta | null;
   image: {
     source: 'unsplash' | 'gradient' | 'custom';
     query: string;

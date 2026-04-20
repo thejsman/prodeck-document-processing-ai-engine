@@ -58,7 +58,6 @@ const SECTION_GROUPS: Array<{
       { id: 'techstack', label: 'Tech Stack', icon: '⚙️', desc: 'Tools & technologies' },
       { id: 'security',  label: 'Security',   icon: '🔒', desc: 'Trust & compliance' },
       { id: 'testing',   label: 'Testing',    icon: '✅', desc: 'QA & validation' },
-      { id: 'chart',     label: 'Chart',      icon: '📉', desc: 'Data visualisation' },
     ],
   },
   {
@@ -288,20 +287,6 @@ function getDefaultContent(sectionType: string): Record<string, unknown> {
           { iconHint: 'identity', name: 'Alex Johnson', role: 'Project Lead', bio: 'Experienced leader with 10+ years delivering complex projects.' },
           { iconHint: 'identity', name: 'Sam Rivera', role: 'Lead Designer', bio: 'Award-winning designer focused on user-centred experiences.' },
           { iconHint: 'identity', name: 'Jordan Lee', role: 'Technical Lead', bio: 'Full-stack engineer specialising in scalable architectures.' },
-        ],
-      };
-    case 'chart':
-      return {
-        eyebrow: 'DATA & INSIGHTS',
-        headline: 'The Numbers Tell the Story',
-        body: 'Visual representation of key performance data.',
-        chartType: 'bar',
-        unit: '',
-        data: [
-          { label: 'Q1', value: 42 },
-          { label: 'Q2', value: 67 },
-          { label: 'Q3', value: 85 },
-          { label: 'Q4', value: 93 },
         ],
       };
     case 'whyus':

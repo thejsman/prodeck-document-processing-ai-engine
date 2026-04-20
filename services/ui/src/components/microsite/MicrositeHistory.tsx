@@ -138,6 +138,8 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
         ast={previewEntry.ast}
         onBack={() => { refresh(); setPreviewEntry(null); }}
         onEdit={() => setEditingEntry(previewEntry)}
+        namespace={previewEntry.namespace}
+        proposalId={previewEntry.id}
       />
     );
   }

@@ -5,156 +5,128 @@ import type { PluginTokens, BrandConfig, LayoutSection } from '../../../types/pr
 interface Props {
   tokens: PluginTokens;
   brand: BrandConfig;
-  sections: LayoutSection[];
+  sections?: LayoutSection[];
   client?: string;
   date?: string;
+  proposedBy?: string;
 }
 
-export function Footer({ tokens, brand, sections, client, date }: Props) {
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-  };
+function BrandIcon({ color }: { color: string }) {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="11" height="11" rx="2" fill={color} opacity="0.9" />
+      <rect x="17" y="4" width="11" height="11" rx="2" fill={color} opacity="0.5" />
+      <rect x="4" y="17" width="11" height="11" rx="2" fill={color} opacity="0.5" />
+      <rect x="17" y="17" width="11" height="11" rx="2" fill={color} opacity="0.9" />
+    </svg>
+  );
+}
+
+export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
+  const clientName = client || brand.companyName;
+  const preparer = proposedBy || brand.companyName;
+
+  // Extract domain hint from tagline if it looks like a domain
+  const domainHint = brand.tagline && /^[\w.-]+\.\w{2,}$/.test(brand.tagline.trim()) ? brand.tagline.trim() : null;
 
   return (
     <footer
       style={{
-        background: tokens.surface,
-        borderTop: 'none',
-        borderImage: `linear-gradient(90deg, transparent, ${tokens.accent}40, transparent) 1`,
-        borderImageSlice: 1,
-        borderTopWidth: 1,
-        borderTopStyle: 'solid',
-        padding: 'clamp(2rem, 4vw, 3.5rem) 2rem env(safe-area-inset-bottom, 2rem)',
+        background: tokens.bg,
+        borderTop: `1px solid ${tokens.border}`,
       }}
     >
       <div
         style={{
-          maxWidth: 960,
+          maxWidth: 1200,
           margin: '0 auto',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          padding: '18px 40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
           gap: '2rem',
-          marginBottom: '2rem',
         }}
       >
-        {/* Company info */}
-        <div>
-          <p style={{
-            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 400,
-            fontSize: 14,
-            color: tokens.accent,
-            letterSpacing: tokens.labelTracking,
-            textTransform: 'uppercase',
-            margin: '0 0 8px',
-            lineHeight: 1.5,
-          }}>
-            {brand.companyName}
-          </p>
-          {brand.tagline && (
-            <p style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: 13,
-              color: tokens.textMuted,
-              margin: 0,
-              lineHeight: 1.5,
-              letterSpacing: '0.01em',
-            }}>
-              {brand.tagline}
-            </p>
+        {/* ── Left: icon + client name + domain ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {brand.logoUrl ? (
+            <img
+              src={brand.logoUrl}
+              alt={clientName}
+              style={{ height: 32, width: 'auto', objectFit: 'contain', flexShrink: 0 }}
+            />
+          ) : (
+            <BrandIcon color={tokens.text} />
           )}
-        </div>
 
-        {/* Section nav */}
-        <div>
-          <p style={{
-            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-            fontWeight: 400,
-            fontSize: 11,
-            color: tokens.textSubtle,
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            margin: '0 0 12px',
-            lineHeight: 1.4,
-          }}>
-            Sections
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {sections.slice(0, 6).map((s) => (
-              <button
-                key={s.id}
-                onClick={() => scrollTo(s.id)}
-                onMouseEnter={(e) => (e.currentTarget.style.color = tokens.accent)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = tokens.textMuted)}
+          <div>
+            <div
+              style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                color: tokens.text,
+                lineHeight: 1.25,
+              }}
+            >
+              {clientName}
+            </div>
+            {domainHint && (
+              <div
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  textAlign: 'left',
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: 13,
-                  color: tokens.textMuted,
-                  padding: 0,
-                  transition: 'color 0.2s',
-                  lineHeight: 1.5,
-                  letterSpacing: '0.01em',
+                  fontSize: '0.72rem',
+                  color: tokens.textSubtle,
+                  lineHeight: 1.3,
                 }}
               >
-                {s.heading}
-              </button>
-            ))}
+                {domainHint}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Prepared for */}
-        {client && (
-          <div>
-            <p style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontWeight: 400,
-              fontSize: 11,
-              color: tokens.textSubtle,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              margin: '0 0 12px',
-            }}>
-              Prepared For
-            </p>
-            <p style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: 13,
-              color: tokens.textMuted,
-              margin: 0,
-              lineHeight: 1.5,
-              letterSpacing: '0.01em',
-            }}>
-              {client}
-              {date && <><br />{date}</>}
-            </p>
+        {/* ── Right: "Proposal prepared by" label + preparer name ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+          <div style={{ textAlign: 'right' }}>
+            <div
+              style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.72rem',
+                color: tokens.textSubtle,
+                lineHeight: 1.4,
+              }}
+            >
+              Proposal prepared by
+            </div>
+            {date && (
+              <div
+                style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '0.65rem',
+                  color: tokens.textSubtle,
+                  opacity: 0.65,
+                  lineHeight: 1.3,
+                }}
+              >
+                Proposal prepared {date} · Version 1.0 · Confidential
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Bottom bar */}
-      <div style={{
-        borderTop: `1px solid ${tokens.borderSubtle}`,
-        paddingTop: '1rem',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 8,
-      }}>
-        <p style={{
-          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-          fontSize: 11,
-          color: tokens.textSubtle,
-          margin: 0,
-          lineHeight: 1.4,
-          letterSpacing: '0.01em',
-        }}>
-          Confidential &middot; &copy; {new Date().getFullYear()} {brand.companyName}
-        </p>
+          <div
+            style={{
+              fontFamily: `'${tokens.heroFont}', serif`,
+              fontWeight: 700,
+              fontSize: '1.4rem',
+              color: tokens.text,
+              letterSpacing: '-0.02em',
+              lineHeight: 1,
+            }}
+          >
+            {preparer}
+          </div>
+        </div>
       </div>
     </footer>
   );

@@ -19,6 +19,9 @@ interface Props {
 export function TestimonialsSection({ content, tokens, sectionId }: Props) {
   const items = content.items ?? [];
 
+  // Suppress section entirely when no real testimonials exist (agent returns [] when no source quotes)
+  if (items.length === 0) return null;
+
   return (
     <section
       style={{
@@ -70,12 +73,13 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
             display: 'grid',
             gridTemplateColumns: `repeat(${Math.min(items.length, 3)}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2vw, 1.5rem)',
+            alignItems: 'stretch',
           }}
         >
           {items.map((item, i) => (
             <Reveal key={i} delay={160 + i * 80}>
               <InlineArrayItem arrayPath="items" index={i} total={items.length}>
-                <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
                   {/* Quote mark */}
                   <div style={{ fontFamily: 'Georgia, serif', fontSize: '3rem', lineHeight: 0.8, color: tokens.accent, fontWeight: 700 }}>
                     &ldquo;
@@ -86,7 +90,7 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
                     <p
                       style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '1rem',
+                        fontSize: '0.875rem',
                         lineHeight: 1.75,
                         color: tokens.text,
                         fontStyle: 'italic',

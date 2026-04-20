@@ -63,7 +63,7 @@ export function NextStepsSection({ content, tokens, index, sections = [], sectio
 
         <Reveal delay={160}>
           <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-            <Body tokens={tokens} style={{ maxWidth: 580, margin: '0 auto 40px', fontSize: '1.05rem' }}>
+            <Body tokens={tokens} style={{ maxWidth: 580, margin: '0 auto 40px' }}>
               {content.body}
             </Body>
           </InlineEditable>
