@@ -43,6 +43,7 @@ export function MicrositeNav({
   // Detect actual nav container width instead of relying on @media queries,
   // so the hamburger works inside the editor's 375px preview pane.
   const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [navWidth, setNavWidth] = useState(1200);
   const navRef = useRef<HTMLElement>(null);
   // Suppress IntersectionObserver active-state updates during programmatic scroll
   const scrollingRef = useRef<boolean>(false);
@@ -52,7 +53,9 @@ export function MicrositeNav({
     const el = navRef.current;
     if (!el) return;
     const obs = new ResizeObserver(([entry]) => {
-      setIsMobileLayout(entry.contentRect.width < 640);
+      const w = entry.contentRect.width;
+      setNavWidth(w);
+      setIsMobileLayout(w < 640);
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -212,14 +215,20 @@ export function MicrositeNav({
     : 'rgba(0,0,0,0.52)';
   const navLogoColor = tokens.accent;
 
-  // Scale font size down as section count grows: 11px for ≤4, down to 10px for 14+
-  const navFontSize = Math.round(
-    Math.max(10, Math.min(11, 12 - sections.length * 0.15)),
-  );
-  // Scale gap down proportionally
-  const navGap = Math.round(
-    Math.max(10, Math.min(24, 26 - sections.length * 0.9)),
-  );
+  const navFontSize = 11;
+  const navGap = 20;
+
+  // How many links fit in available space (logo ~200px, padding 48px, "More" btn ~64px)
+  const LOGO_RESERVED = 220;
+  const MORE_BTN_W = 70;
+  const AVG_ITEM_W = 72; // rough px per nav item at 11px uppercase
+  const availableW = Math.max(0, navWidth - LOGO_RESERVED - MORE_BTN_W);
+  const maxVisible = Math.max(2, Math.floor(availableW / AVG_ITEM_W));
+  const visibleLinks = navLinks.slice(0, maxVisible);
+  const overflowLinks = navLinks.slice(maxVisible);
+  const hasOverflow = overflowLinks.length > 0;
+
+  const [moreOpen, setMoreOpen] = useState(false);
 
   return (
     <>
@@ -265,8 +274,8 @@ export function MicrositeNav({
           borderBottom: `1px solid ${scrolled ? tokens.border : "transparent"}`,
         }}
       >
-        {/* Logo / Company name */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        {/* Logo / Company name — never shrinks */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           {brand.logoUrl ? (
             <img
               src={brand.logoUrl}
@@ -294,20 +303,8 @@ export function MicrositeNav({
 
         {/* Desktop nav links — hidden when container is narrow */}
         {!isMobileLayout && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: navGap,
-              flexWrap: "nowrap",
-              overflowX: "auto",
-              overflowY: "hidden",
-              scrollbarWidth: "none",
-              // Hide scrollbar on WebKit
-              msOverflowStyle: "none",
-            } as React.CSSProperties}
-          >
-            {navLinks.map((s) => {
+          <div style={{ display: "flex", alignItems: "center", gap: navGap, flexShrink: 0, position: "relative" }}>
+            {visibleLinks.map((s) => {
               const isActive = activeId === s.id;
               return (
                 <button
@@ -336,6 +333,97 @@ export function MicrositeNav({
                 </button>
               );
             })}
+
+            {/* "More" dropdown for overflow sections */}
+            {hasOverflow && (
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <button
+                  onClick={() => setMoreOpen(o => !o)}
+                  style={{
+                    background: moreOpen ? `${tokens.accent}14` : "none",
+                    border: `1px solid ${moreOpen ? tokens.accent + "60" : "transparent"}`,
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: navFontSize,
+                    fontWeight: 600,
+                    color: overflowLinks.some(s => s.id === activeId) ? tokens.accent : navInactiveColor,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase" as const,
+                    padding: "4px 8px",
+                    whiteSpace: "nowrap",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    transition: "color 0.2s, background 0.15s",
+                  }}
+                >
+                  More
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style={{ transform: moreOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}>
+                    <path d="M1 3l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {moreOpen && (
+                  <>
+                    {/* Click-away backdrop */}
+                    <div
+                      style={{ position: "fixed", inset: 0, zIndex: 498 }}
+                      onClick={() => setMoreOpen(false)}
+                    />
+                    {/* Dropdown panel */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 10px)",
+                        right: 0,
+                        zIndex: 499,
+                        background: `${tokens.bg}f8`,
+                        backdropFilter: "blur(20px)",
+                        border: `1px solid ${tokens.border}`,
+                        borderRadius: 10,
+                        padding: "6px",
+                        minWidth: 160,
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+                        display: "flex",
+                        flexDirection: "column" as const,
+                        gap: 2,
+                      }}
+                    >
+                      {overflowLinks.map((s) => {
+                        const isActive = activeId === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => { scrollTo(s.id); setMoreOpen(false); }}
+                            style={{
+                              background: isActive ? `${tokens.accent}14` : "none",
+                              border: "none",
+                              borderLeft: isActive ? `2px solid ${tokens.accent}` : "2px solid transparent",
+                              cursor: "pointer",
+                              textAlign: "left" as const,
+                              padding: "8px 10px 8px 12px",
+                              borderRadius: "0 6px 6px 0",
+                              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                              fontSize: 11,
+                              fontWeight: isActive ? 700 : 600,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase" as const,
+                              color: isActive ? tokens.accent : navInactiveColor,
+                              whiteSpace: "nowrap",
+                              transition: "color 0.15s, background 0.15s",
+                              width: "100%",
+                            }}
+                          >
+                            {navLabel(s)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 

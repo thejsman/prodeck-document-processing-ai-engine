@@ -486,8 +486,8 @@ Company: ${companyName ?? 'the proposing company'}
 Tagline: ${tagline ?? ''}
 ${customInstructions ? `\nStyle notes: ${customInstructions.slice(0, 300)}` : ''}
 
-PROPOSAL (first 3000 chars):
-${planningMarkdown.slice(0, 3000)}
+PROPOSAL:
+${planningMarkdown}
 
 Return ONLY valid JSON matching this exact schema — no markdown, no explanation:
 {
@@ -2300,7 +2300,7 @@ VALID TYPES: hero, overview, challenge, approach, deliverables, timeline, pricin
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
 PROPOSAL:
-${markdown.slice(0, 8000)}`;
+${markdown}`;
 }
 
 function buildOverrideBriefPrompt(
