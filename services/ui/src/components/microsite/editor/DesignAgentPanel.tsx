@@ -18,13 +18,9 @@ const QUICK_CHIPS = [
   { icon: '🎮', text: 'Playful & rounded' },
   { icon: '⬛', text: 'Brutalist — stark, high contrast' },
   { icon: '🌿', text: 'Warm earthy tones' },
-  { icon: '🎵', text: 'Generate color harmony' },
   { icon: '✨', text: 'Add animations & motion' },
   { icon: '〰', text: 'Add wavy section dividers' },
   { icon: '✦', text: 'Add floating orbs decoration' },
-  { icon: 'Aa', text: 'Bold monumental typography' },
-  { icon: 'Aa', text: 'Change font to Poppins' },
-  { icon: 'Aa', text: 'Change font to Montserrat' },
   { icon: '✋', text: 'Add hover lift effects' },
 ];
 

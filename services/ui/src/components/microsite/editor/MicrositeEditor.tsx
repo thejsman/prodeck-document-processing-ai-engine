@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { LayoutAST } from '../../../types/presentation';
-import { EditProvider, useEditContext } from './EditContext';
+import { EditProvider, useEditContext, EditContextBlocker } from './EditContext';
 import { Microsite } from '../Microsite';
 import { DesignAgentPanel } from './DesignAgentPanel';
 import { PublishModal } from './PublishModal';
@@ -10,8 +10,11 @@ import { ThemeModal } from '../ThemeModal';
 import { ThemePreviewModal } from '../ThemePreviewModal';
 import { SectionOutline } from './SectionOutline';
 import { CommandPalette, type PaletteCommand } from './CommandPalette';
+import { TypographyPicker } from './TypographyPicker';
+import { ColorPaletteEditor } from './ColorPaletteEditor';
+import { SnapshotsModal } from './SnapshotsModal';
 import { resolveTokens, getPlugin, THEME_REGISTRY } from '../../../lib/presentation/pluginRegistry';
-import type { PluginMeta } from '../../../types/presentation';
+import type { LayoutAST, PluginMeta } from '../../../types/presentation';
 
 // Popular themes shown in quick picker (first 8)
 const QUICK_THEMES = THEME_REGISTRY.slice(0, 8);
@@ -186,17 +189,37 @@ const Icon = {
     </svg>
   ),
   check: (
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  type: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
+    </svg>
+  ),
+  palette: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+      <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+    </svg>
+  ),
+  history: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 .49-4.95" />
+    </svg>
+  ),
+  eye: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  eyeOff: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   ),
 };
@@ -588,8 +611,22 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
   const [previewAst, setPreviewAst] = useState<LayoutAST | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
+  const [showTypography, setShowTypography] = useState(false);
+  const [showColorPalette, setShowColorPalette] = useState(false);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
   const savedAstRef = useRef<string>(JSON.stringify(ctx.ast));
   const themeBtnRef = useRef<HTMLDivElement>(null);
+  const typoBtnRef = useRef<HTMLDivElement>(null);
+  const colorBtnRef = useRef<HTMLDivElement>(null);
+
+  const hasCssOverride = !!(ctx.ast.brand?.extractedCssVariables && Object.keys(ctx.ast.brand.extractedCssVariables).length > 0);
+  const mergedTokens = ctx.ast.customTokens ? { ...(ctx.ast.customDesignSystem ?? {}), ...ctx.ast.customTokens } : undefined;
+  const resolvedTokens = resolveTokens(
+    ctx.ast.plugin,
+    hasCssOverride ? '' : (ctx.ast.brand?.primaryColor ?? ''),
+    mergedTokens as Parameters<typeof resolveTokens>[2],
+  );
 
   const currentTheme = THEME_REGISTRY.find((t) => t.id === ctx.ast.plugin);
 
@@ -640,6 +677,13 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     if (e.key === 'k') {
       e.preventDefault();
       showPaletteRef.current ? setShowPalette(false) : setShowPalette(true);
+      return;
+    }
+
+    // Cmd+Shift+P — preview mode toggle
+    if (e.key === 'p' && e.shiftKey) {
+      e.preventDefault();
+      setPreviewMode(v => !v);
       return;
     }
 
@@ -783,6 +827,10 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         },
       },
       { id: 'theme', label: 'Browse Themes', icon: '🎨', action: () => setShowThemeModal(true) },
+      { id: 'typography', label: 'Typography — Font Pairs', icon: 'Aa', action: () => setShowTypography(true) },
+      { id: 'colors', label: 'Edit Color Palette', icon: '🎨', action: () => setShowColorPalette(true) },
+      { id: 'snapshots', label: 'Snapshots — Save & Restore', icon: '💾', shortcut: undefined, action: () => setShowSnapshots(true) },
+      { id: 'preview', label: previewMode ? 'Exit Preview Mode' : 'Preview Mode (hide editor UI)', icon: '👁', shortcut: 'Ctrl+Shift+P', action: () => setPreviewMode(v => !v) },
       ...VIEWPORT_OPTIONS.map((opt) => ({
         id: `viewport-${opt.id}`,
         label: `Viewport: ${opt.label}`,
@@ -1012,12 +1060,58 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           <button className="mse-icon-btn" onClick={() => ctx.redo()} disabled={!ctx.canRedo} title="Redo (Ctrl+Y)">
             {Icon.redo}
           </button>
+          <button className="mse-icon-btn" onClick={() => setShowSnapshots(true)} title="Snapshots — save & restore checkpoints">
+            {Icon.history}
+          </button>
         </div>
 
         <div className="mse-sep" />
 
         {/* Zone 5 — Tools */}
         <div className="mse-group" style={{ gap: 6, marginLeft: 6 }}>
+
+          {/* Preview mode toggle */}
+          <button
+            className={`mse-icon-btn${previewMode ? ' active' : ''}`}
+            onClick={() => setPreviewMode(v => !v)}
+            title={previewMode ? 'Exit preview (Ctrl+Shift+P)' : 'Preview mode — hide editor UI (Ctrl+Shift+P)'}
+          >
+            {previewMode ? Icon.eyeOff : Icon.eye}
+          </button>
+
+          {/* Color palette editor */}
+          <div ref={colorBtnRef} style={{ position: 'relative' }}>
+            <button
+              className={`mse-icon-btn${showColorPalette ? ' active' : ''}`}
+              onClick={() => { setShowColorPalette(v => !v); setShowTypography(false); }}
+              title="Edit color palette"
+            >
+              {Icon.palette}
+            </button>
+            {showColorPalette && (
+              <ColorPaletteEditor
+                tokens={resolvedTokens}
+                onClose={() => setShowColorPalette(false)}
+              />
+            )}
+          </div>
+
+          {/* Typography picker */}
+          <div ref={typoBtnRef} style={{ position: 'relative' }}>
+            <button
+              className={`mse-icon-btn${showTypography ? ' active' : ''}`}
+              onClick={() => { setShowTypography(v => !v); setShowColorPalette(false); }}
+              title="Typography — font pairs"
+            >
+              {Icon.type}
+            </button>
+            {showTypography && (
+              <TypographyPicker onClose={() => setShowTypography(false)} />
+            )}
+          </div>
+
+          <div className="mse-sep" />
+
           {/* Theme */}
           <div ref={themeBtnRef} style={{ position: 'relative' }}>
             <button
@@ -1084,9 +1178,9 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       </div>
 
       {/* Canvas + optional outline panel */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-        {/* Left: Section outline */}
-        {showOutline && <SectionOutline onClose={() => setShowOutline(false)} />}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', position: 'relative' }}>
+        {/* Left: Section outline (hidden in preview mode) */}
+        {showOutline && !previewMode && <SectionOutline onClose={() => setShowOutline(false)} />}
 
         {/* Right: viewport-simulated canvas */}
         <div
@@ -1114,8 +1208,40 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
               flexShrink: 0,
             }}
           >
-            <EditorCanvas onAiAction={handleSectionAiAction} previewAst={previewAst ?? undefined} aiRunning={aiRunning} />
+            {previewMode ? (
+              <div style={{ width: '100%', height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
+                <EditContextBlocker>
+                  <Microsite ast={previewAst ?? ctx.ast} mode="embedded" />
+                </EditContextBlocker>
+              </div>
+            ) : (
+              <EditorCanvas onAiAction={handleSectionAiAction} previewAst={previewAst ?? undefined} aiRunning={aiRunning} />
+            )}
           </div>
+
+          {/* Preview mode floating exit pill */}
+          {previewMode && (
+            <div style={{
+              position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)',
+              zIndex: 500, display: 'flex', alignItems: 'center', gap: 8,
+              background: 'rgba(15,23,42,0.88)', backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(255,255,255,0.15)', borderRadius: 100,
+              padding: '6px 16px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+            }}>
+              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Preview
+              </span>
+              <button
+                onClick={() => setPreviewMode(false)}
+                style={{
+                  padding: '3px 10px', borderRadius: 100,
+                  border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)',
+                  color: '#e2e8f0', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}
+              >Exit ✕</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1191,6 +1317,21 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
       {/* Command palette */}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
+
+      {/* Snapshots modal */}
+      {showSnapshots && (
+        <SnapshotsModal
+          ast={ctx.ast}
+          namespace={namespace}
+          proposalId={proposalId}
+          onRestore={(restoredAst: LayoutAST) => {
+            ctx.replaceAst(restoredAst);
+            savedAstRef.current = JSON.stringify(restoredAst);
+            setIsDirty(false);
+          }}
+          onClose={() => setShowSnapshots(false)}
+        />
+      )}
     </div>
   );
 }
