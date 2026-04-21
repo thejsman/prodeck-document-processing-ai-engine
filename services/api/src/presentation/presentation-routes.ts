@@ -26,6 +26,7 @@ import {
   getPresentation,
   createPresentation,
   updateConfig,
+  upsertPresentationEntry,
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
@@ -1136,6 +1137,11 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
       send({ type: 'complete', ast });
       if (ast?.sections) {
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        // Upsert a presentation record so listPresentations can find this microsite
+        const fileName = proposalId.includes('::')
+          ? proposalId.split('::').slice(1).join('::') + '.md'
+          : proposalId + '.md';
+        await upsertPresentationEntry(workdir, namespace, proposalId, fileName, markdown);
       }
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : String(err) });

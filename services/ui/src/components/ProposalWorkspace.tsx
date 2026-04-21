@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useImperativeHandle, forwardRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ProposalDocument, ProposalMeta, ProposalStatus } from '@/lib/api';
 import {
   parseProposalSections,
   reassembleMarkdown,
-  downloadMarkdown,
   type ParsedProposal,
 } from '@/lib/proposal-utils';
 import { SectionCard } from './SectionCard';
@@ -15,19 +14,28 @@ import { SectionCard } from './SectionCard';
 // Status helpers
 // ---------------------------------------------------------------------------
 
-const STATUS_LABELS: Record<ProposalStatus, string> = {
+export const STATUS_LABELS: Record<ProposalStatus, string> = {
   draft: 'Draft',
   under_review: 'Under Review',
   approved: 'Approved',
   finalized: 'Finalized',
 };
 
-const STATUS_TRANSITIONS: Record<ProposalStatus, ProposalStatus[]> = {
+export const STATUS_TRANSITIONS: Record<ProposalStatus, ProposalStatus[]> = {
   draft: ['under_review'],
   under_review: ['approved', 'draft'],
   approved: ['finalized', 'under_review'],
   finalized: [],
 };
+
+// ---------------------------------------------------------------------------
+// Ref handle
+// ---------------------------------------------------------------------------
+
+export interface ProposalWorkspaceHandle {
+  expandAll(): void;
+  collapseAll(): void;
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -52,7 +60,7 @@ interface Props {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ProposalWorkspace({
+export const ProposalWorkspace = forwardRef<ProposalWorkspaceHandle, Props>(function ProposalWorkspace({
   document,
   isGenerating,
   regeneratingSection,
@@ -65,7 +73,7 @@ export function ProposalWorkspace({
   onShowDiff,
   onSaveSection,
   isSaving,
-}: Props) {
+}: Props, ref) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
   );
@@ -100,11 +108,7 @@ export function ProposalWorkspace({
     setCollapsedSections(new Set(parsed.sections.map((s) => s.title)));
   }
 
-  function handleDownload() {
-    if (!document) return;
-    const client = (document.metadata.client as string) ?? 'proposal';
-    downloadMarkdown(document.content, client);
-  }
+  useImperativeHandle(ref, () => ({ expandAll, collapseAll }));
 
   // ── Empty state ──────────────────────────────────────────
   if (!document && !isGenerating) {
@@ -140,103 +144,9 @@ export function ProposalWorkspace({
     string,
     string | number | string[] | undefined
   >;
-  const failedCount = ((m.retried_sections as string[]) ?? []).length;
-  const totalSections = parsed.sections.length;
-  const lockedCount = meta?.lockedSections.length ?? 0;
-  const currentStatus = meta?.status ?? 'draft';
-  const transitions = STATUS_TRANSITIONS[currentStatus];
 
   return (
     <div className="workspace">
-      {/* ── Toolbar ───────────────────────────────────── */}
-      <div className="workspace-toolbar">
-        <div className="workspace-toolbar-left">
-          <span className="workspace-stat">
-            {totalSections} section{totalSections !== 1 ? 's' : ''}
-          </span>
-          {failedCount > 0 && (
-            <span className="workspace-stat workspace-stat--error">
-              {failedCount} failed
-            </span>
-          )}
-          {lockedCount > 0 && (
-            <span className="workspace-stat">
-              {lockedCount} locked
-            </span>
-          )}
-          {m.retrieval_mode ? (
-            <span className="badge">
-              {String(m.retrieval_mode).toUpperCase()}
-            </span>
-          ) : null}
-          {m.pricing_mode ? (
-            <span className="badge">Pricing: {String(m.pricing_mode)}</span>
-          ) : null}
-          <span className={`badge badge--${currentStatus.replace('_', '-')}`}>
-            {STATUS_LABELS[currentStatus]}
-          </span>
-        </div>
-        <div className="workspace-toolbar-right">
-          {/* Status transition buttons */}
-          {transitions.length > 0 && (
-            <div className="status-controls">
-              {transitions.map((next) => (
-                <button
-                  key={next}
-                  className="btn btn-sm"
-                  onClick={() => onSetStatus(next)}
-                  disabled={isGenerating}
-                >
-                  {STATUS_LABELS[next]}
-                </button>
-              ))}
-            </div>
-          )}
-          <button
-            className="btn btn-sm"
-            onClick={expandAll}
-            disabled={isGenerating}
-          >
-            Expand All
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={collapseAll}
-            disabled={isGenerating}
-          >
-            Collapse All
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={onShowDiff}
-            disabled={isGenerating}
-          >
-            Compare Versions
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={handleDownload}
-            disabled={isGenerating}
-          >
-            Download .md
-          </button>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={onRegenerateAll}
-            disabled={isGenerating || isFinalized}
-            style={{ width: 'auto' }}
-          >
-            {isGenerating && regeneratingSection === null ? (
-              <>
-                <span className="spinner" /> Regenerating...
-              </>
-            ) : (
-              'Regenerate All'
-            )}
-          </button>
-        </div>
-      </div>
-
       {/* ── Document Header ──────────────────────────── */}
       {parsed.header && (
         <div className="card workspace-header-card">
@@ -297,4 +207,4 @@ export function ProposalWorkspace({
       </div>
     </div>
   );
-}
+});
