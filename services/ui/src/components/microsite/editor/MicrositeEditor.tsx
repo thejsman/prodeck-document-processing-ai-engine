@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import type { LayoutAST } from '../../../types/presentation';
 import { EditProvider, useEditContext, EditContextBlocker } from './EditContext';
 import { Microsite } from '../Microsite';
 import { DesignAgentPanel } from './DesignAgentPanel';

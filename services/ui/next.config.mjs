@@ -5,7 +5,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "standalone",
   // Mermaid v11 is ESM-only — webpack must transpile it to avoid production
   // build failures where the mermaid chunk loads but evaluates incorrectly.
   transpilePackages: ["mermaid"],
