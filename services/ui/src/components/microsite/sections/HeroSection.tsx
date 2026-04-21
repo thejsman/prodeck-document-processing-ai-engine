@@ -543,7 +543,7 @@ export function HeroSection({
                 gradient
                 style={{
                   fontSize: 'clamp(1.5rem, 6cqi, 4rem)',
-                  lineHeight: 1.05,
+                  lineHeight: 1.15,
                   marginBottom: 32,
                 }}
               >
@@ -726,7 +726,7 @@ export function HeroSection({
                 gradient
                 style={{
                   fontSize: 'clamp(1.6rem, 6cqi, 4.5rem)',
-                  lineHeight: 1.02,
+                  lineHeight: 1.15,
                   marginBottom: 24,
                 }}
               >
