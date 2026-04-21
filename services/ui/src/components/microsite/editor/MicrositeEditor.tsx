@@ -12,7 +12,6 @@ import { SectionOutline } from './SectionOutline';
 import { CommandPalette, type PaletteCommand } from './CommandPalette';
 import { TypographyPicker } from './TypographyPicker';
 import { ColorPaletteEditor } from './ColorPaletteEditor';
-import { SnapshotsModal } from './SnapshotsModal';
 import { resolveTokens, getPlugin, THEME_REGISTRY } from '../../../lib/presentation/pluginRegistry';
 import type { LayoutAST, PluginMeta } from '../../../types/presentation';
 
@@ -605,6 +604,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [panelInstruction, setPanelInstruction] = useState('');
   const [panelTargetSectionId, setPanelTargetSectionId] = useState<string | undefined>(undefined);
+  const [panelInitialTab, setPanelInitialTab] = useState<'design' | 'content'>('design');
   const [showOutline, setShowOutline] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -613,7 +613,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const [aiRunning, setAiRunning] = useState(false);
   const [showTypography, setShowTypography] = useState(false);
   const [showColorPalette, setShowColorPalette] = useState(false);
-  const [showSnapshots, setShowSnapshots] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const savedAstRef = useRef<string>(JSON.stringify(ctx.ast));
   const themeBtnRef = useRef<HTMLDivElement>(null);
@@ -629,6 +628,11 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   );
 
   const currentTheme = THEME_REGISTRY.find((t) => t.id === ctx.ast.plugin);
+
+  // Deselect active section when Design AI panel opens
+  useEffect(() => {
+    if (showDesignPanel) ctx.selectSection('');
+  }, [showDesignPanel]);
 
   // Track dirty state
   useEffect(() => {
@@ -766,6 +770,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
     const { sectionId, instruction } = ctx.pendingSectionAI;
     setPanelInstruction(instruction);
     setPanelTargetSectionId(sectionId);
+    setPanelInitialTab('content');
     setShowDesignPanel(true);
     ctx.clearSectionAITrigger();
   }, [ctx.pendingSectionAI, ctx]);
@@ -773,6 +778,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
   const handleSectionAiAction = useCallback((sectionId: string, instruction: string) => {
     setPanelInstruction(instruction);
     setPanelTargetSectionId(sectionId);
+    setPanelInitialTab('content');
     setShowDesignPanel(true);
   }, []);
 
@@ -810,7 +816,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         id: 'design',
         label: 'Open Design AI',
         icon: '✦',
-        action: () => setShowDesignPanel(true),
+        action: () => { setPanelInitialTab('design'); setPanelTargetSectionId(undefined); setShowDesignPanel(true); },
         description: 'AI-powered design editing',
       },
       { id: 'publish', label: 'Publish / Export', icon: '↑', action: () => setShowPublishModal(true) },
@@ -829,7 +835,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       { id: 'theme', label: 'Browse Themes', icon: '🎨', action: () => setShowThemeModal(true) },
       { id: 'typography', label: 'Typography — Font Pairs', icon: 'Aa', action: () => setShowTypography(true) },
       { id: 'colors', label: 'Edit Color Palette', icon: '🎨', action: () => setShowColorPalette(true) },
-      { id: 'snapshots', label: 'Snapshots — Save & Restore', icon: '💾', shortcut: undefined, action: () => setShowSnapshots(true) },
       { id: 'preview', label: previewMode ? 'Exit Preview Mode' : 'Preview Mode (hide editor UI)', icon: '👁', shortcut: 'Ctrl+Shift+P', action: () => setPreviewMode(v => !v) },
       ...VIEWPORT_OPTIONS.map((opt) => ({
         id: `viewport-${opt.id}`,
@@ -1060,9 +1065,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           <button className="mse-icon-btn" onClick={() => ctx.redo()} disabled={!ctx.canRedo} title="Redo (Ctrl+Y)">
             {Icon.redo}
           </button>
-          <button className="mse-icon-btn" onClick={() => setShowSnapshots(true)} title="Snapshots — save & restore checkpoints">
-            {Icon.history}
-          </button>
         </div>
 
         <div className="mse-sep" />
@@ -1147,7 +1149,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           {/* Design AI */}
           <button
             className={`mse-label-btn${showDesignPanel ? ' active' : ''}`}
-            onClick={() => setShowDesignPanel((v) => !v)}
+            onClick={() => { setPanelInitialTab('design'); setPanelTargetSectionId(undefined); setPanelInstruction(''); setShowDesignPanel((v) => !v); }}
             title="Design AI panel"
           >
             {Icon.ai}
@@ -1193,6 +1195,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
             transition: 'background 0.2s',
             padding: viewport !== 'desktop' ? '16px 0' : 0,
             position: 'relative',
+            pointerEvents: showDesignPanel ? 'none' : undefined,
           }}
         >
           <div
@@ -1263,6 +1266,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           proposalId={proposalId}
           targetSectionId={panelTargetSectionId}
           initialInstruction={panelInstruction}
+          initialTab={panelInitialTab}
           onApply={(newAst) => {
             setPreviewAst(null);
             setAiRunning(false);
@@ -1318,20 +1322,6 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       {/* Command palette */}
       {showPalette && <CommandPalette commands={paletteCommands} onClose={() => setShowPalette(false)} />}
 
-      {/* Snapshots modal */}
-      {showSnapshots && (
-        <SnapshotsModal
-          ast={ctx.ast}
-          namespace={namespace}
-          proposalId={proposalId}
-          onRestore={(restoredAst: LayoutAST) => {
-            ctx.replaceAst(restoredAst);
-            savedAstRef.current = JSON.stringify(restoredAst);
-            setIsDirty(false);
-          }}
-          onClose={() => setShowSnapshots(false)}
-        />
-      )}
     </div>
   );
 }
