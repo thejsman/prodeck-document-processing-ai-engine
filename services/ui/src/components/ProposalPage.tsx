@@ -1,9 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { X, MoreVertical, ChevronDown, ChevronRight, RefreshCw, GitBranch, Plus, ArrowDown } from 'lucide-react';
-import { Icon } from '@/components/ui/Icon';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type {
   ProposalDocument,
   ProposalFile,
@@ -26,12 +24,12 @@ import {
 import {
   parseProposalSections,
   reassembleMarkdown,
-  downloadMarkdown,
 } from '@/lib/proposal-utils';
 import { useAuth } from '@/lib/auth-context';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { ProposalForm } from './ProposalForm';
-import { ProposalWorkspace, type ProposalWorkspaceHandle, STATUS_LABELS } from './ProposalWorkspace';
+import { ProposalWorkspace } from './ProposalWorkspace';
+import { VersionHistory } from './VersionHistory';
 import { DiffViewer } from './DiffViewer';
 import { ProposalAIEditor } from './ProposalAIEditor';
 import { ProposalSectionPreview } from './ProposalSectionPreview';
@@ -39,7 +37,6 @@ import { ProposalSectionPreview } from './ProposalSectionPreview';
 export function ProposalPage() {
   const { apiKey } = useAuth();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const [currentDocument, setCurrentDocument] =
@@ -59,59 +56,6 @@ export function ProposalPage() {
   const [diffData, setDiffData] = useState<SectionDiff[]>([]);
   const [workflowError, setWorkflowError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-
-  // Modal open state
-  const [modalOpen, setModalOpen] = useState(false);
-
-  // Overflow menu state
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [allExpanded, setAllExpanded] = useState(true);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const workspaceRef = useRef<ProposalWorkspaceHandle>(null);
-
-  // Proposal display name
-  const proposalName = (currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined
-    ?? searchParams.get('artifact')
-    ?? 'Proposals';
-
-  // Close overflow menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handleMouseDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
-  }, [menuOpen]);
-
-  // Section count + status for header display
-  const sectionCount = useMemo(() => {
-    if (!currentDocument) return 0;
-    const retried = (currentDocument.metadata as Record<string, unknown>).retried_sections as string[] ?? [];
-    return parseProposalSections(currentDocument.content, retried).sections.length;
-  }, [currentDocument]);
-
-  const currentStatus = meta?.status ?? 'draft';
-  const isFinalized = currentStatus === 'finalized';
-
-  function handleDownload() {
-    if (!currentDocument) return;
-    const client = (currentDocument.metadata as Record<string, unknown>).client as string ?? 'proposal';
-    downloadMarkdown(currentDocument.content, client);
-  }
-
-  const handleExpandCollapse = useCallback(() => {
-    if (allExpanded) {
-      workspaceRef.current?.collapseAll();
-      setAllExpanded(false);
-    } else {
-      workspaceRef.current?.expandAll();
-      setAllExpanded(true);
-    }
-    setMenuOpen(false);
-  }, [allExpanded]);
 
   // AI rewrite state
   const [aiEditingSection, setAiEditingSection] = useState<string | null>(null);
@@ -394,35 +338,6 @@ export function ProposalPage() {
     }
   }
 
-  function handleGenerateMicrosite() {
-    if (!currentDocument) return;
-    const fileName = currentFileName();
-    const ns = fileName?.includes('::') ? fileName.split('::')[0] : '';
-    const m = currentDocument.metadata as Record<string, unknown>;
-    const proposalFile: ProposalFile = {
-      fileName: fileName ?? '',
-      client: proposalName ?? '',
-      version: (m.version as number | null) ?? null,
-      createdAt: (m.created_at as string | undefined) ?? new Date().toISOString(),
-      sizeBytes: 0,
-      status: currentStatus,
-      lockedSections: meta?.lockedSections ?? [],
-    };
-    try {
-      sessionStorage.setItem('ms_wizard_state', JSON.stringify({
-        step: 'brand',
-        wasGenerating: false,
-        progress: [],
-        streamingSections: [],
-        error: null,
-        selectedNamespace: ns,
-        selectedProposal: proposalFile,
-      }));
-      if (ns) localStorage.setItem('ms_namespace', ns);
-    } catch { /* ignore */ }
-    router.push('/presentation');
-  }
-
   async function handleSelectHistory(file: ProposalFile) {
     setWorkflowError('');
     setRegenError('');
@@ -510,239 +425,42 @@ export function ProposalPage() {
     }
   }
 
-  const STATUS_COLORS: Record<string, { color: string; borderColor: string }> = {
-    draft:        { color: '#6b7280',  borderColor: '#d1d5db' },
-    under_review: { color: '#2563eb',  borderColor: '#93c5fd' },
-    approved:     { color: '#16a34a',  borderColor: '#86efac' },
-    finalized:    { color: '#7c3aed',  borderColor: '#c4b5fd' },
-  };
-  const sc = STATUS_COLORS[currentStatus] ?? STATUS_COLORS.draft;
-
-  const menuItemStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    width: '100%',
-    padding: '10px 16px',
-    fontSize: 13,
-    color: 'var(--text)',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    textAlign: 'left',
-    whiteSpace: 'nowrap',
-  };
-
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      {/* ── Header ── */}
-      <header className="chat-v2-header">
-        <div className="chat-v2-header-left">
-          <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
-          {currentDocument && (
-            <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
-              {sectionCount} section{sectionCount !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
-        <div className="chat-v2-header-right">
-          <button
-            style={{
-              height: 30,
-              padding: '0 12px',
-              whiteSpace: 'nowrap',
-              background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
-              color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
-              border: 'none',
-              borderRadius: 'var(--radius)',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
-              flexShrink: 0,
-              opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
-            }}
-            disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
-            onClick={handleGenerateMicrosite}
-          >
-            Generate Microsite
-          </button>
-          {currentDocument && (
-            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-              <select
-                className="select"
-                style={{
-                  width: 'auto',
-                  height: 30,
-                  padding: '0 24px 0 8px',
-                  color: sc.color,
-                  borderColor: sc.borderColor,
-                  fontWeight: 500,
-                  fontSize: 13,
-                  transition: 'border-color 0.15s, color 0.15s',
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  paddingRight: 24,
-                }}
-                value={currentStatus}
-                disabled={isGenerating}
-                onChange={e => handleSetStatus(e.target.value as ProposalStatus)}
-              >
-                <option value="draft" style={{ color: STATUS_COLORS.draft.color }}>Draft</option>
-                <option value="under_review" style={{ color: STATUS_COLORS.under_review.color }}>Under Review</option>
-                <option value="approved" style={{ color: STATUS_COLORS.approved.color }}>Approved</option>
-              </select>
-              <Icon
-                icon={ChevronDown}
-                size="sm"
-                style={{
-                  position: 'absolute',
-                  right: 6,
-                  pointerEvents: 'none',
-                  color: sc.color,
-                  flexShrink: 0,
-                }}
-              />
-            </div>
-          )}
-          {/* Overflow menu */}
-          <div ref={menuRef} style={{ position: 'relative' }}>
-            <button
-              className="chat-v2-panel-toggle"
-              onClick={() => setMenuOpen(v => !v)}
-              title="More actions"
-              aria-label="More actions"
-            >
-              <Icon icon={MoreVertical} size="sm" />
-            </button>
-
-            {menuOpen && (
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                right: 0,
-                background: 'var(--panel)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                zIndex: 100,
-                minWidth: 210,
-                padding: '4px 0',
-              }}>
-                <button
-                  style={menuItemStyle}
-                  onClick={handleExpandCollapse}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon icon={allExpanded ? ChevronDown : ChevronRight} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  {allExpanded ? 'Collapse All' : 'Expand All'}
-                </button>
-                <button
-                  style={menuItemStyle}
-                  onClick={() => { handleShowDiff(); setMenuOpen(false); }}
-                  disabled={!currentDocument || isGenerating}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon icon={GitBranch} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  Compare Versions
-                </button>
-                <button
-                  style={menuItemStyle}
-                  onClick={() => { handleDownload(); setMenuOpen(false); }}
-                  disabled={!currentDocument}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon icon={ArrowDown} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  Download .md
-                </button>
-                <button
-                  style={menuItemStyle}
-                  onClick={() => { handleRegenerateAll(); setMenuOpen(false); }}
-                  disabled={!currentDocument || isGenerating || isFinalized}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon icon={RefreshCw} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  Regenerate All
-                </button>
-                <button
-                  style={menuItemStyle}
-                  onClick={() => { setModalOpen(true); setMenuOpen(false); }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon icon={Plus} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  Generate Proposal
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button
-            className="chat-v2-panel-toggle"
-            onClick={() => router.back()}
-            title="Close"
-            aria-label="Close"
-          >
-            <Icon icon={X} size="sm" />
-          </button>
-        </div>
-      </header>
-
-      {/* ── Content ── */}
-      <div className="page-container" style={{ flex: 1, overflowY: 'auto' }}>
-        {(regenError || workflowError) && (
-          <p className="error">{regenError || workflowError}</p>
-        )}
-        <ProposalWorkspace
-          ref={workspaceRef}
-          document={currentDocument}
-          isGenerating={isGenerating}
-          regeneratingSection={regeneratingSection}
-          meta={meta}
-          onRegenerateAll={handleRegenerateAll}
-          onRegenerateSection={handleRegenerateSection}
-          onImproveWithAI={handleOpenAIEditor}
-          onToggleLock={handleToggleLock}
-          onSetStatus={handleSetStatus}
-          onShowDiff={handleShowDiff}
-          onSaveSection={handleSaveSection}
-          isSaving={isSaving}
-        />
+      <div className="page-header">
+        <h1>Proposal Generator</h1>
       </div>
-      </div>{/* end flex-column wrapper */}
 
-      {/* ── Generate Proposal modal ── */}
-      {modalOpen && (
-        <div className="ai-editor-overlay" onClick={() => setModalOpen(false)}>
-          <div
-            className="ai-editor-modal"
-            style={{ maxWidth: 480 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="ai-editor-header">
-              <h3>Generate Proposal</h3>
-              <button
-                onClick={() => setModalOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', color: 'var(--muted)' }}
-                aria-label="Close"
-              >
-                <Icon icon={X} size="md" />
-              </button>
-            </div>
-            <div style={{ padding: '20px', overflowY: 'auto' }}>
-              <ProposalForm
-                onGenerate={(doc, req) => { handleGenerate(doc, req); setModalOpen(false); }}
-                isGenerating={isGenerating}
-                setIsGenerating={setIsGenerating}
-              />
-            </div>
-          </div>
+      <div className="two-col">
+        <div className="col-left">
+          <ProposalForm
+            onGenerate={handleGenerate}
+            isGenerating={isGenerating}
+            setIsGenerating={setIsGenerating}
+          />
+          <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
         </div>
-      )}
+
+        <div className="col-right">
+          {(regenError || workflowError) && (
+            <p className="error">{regenError || workflowError}</p>
+          )}
+          <ProposalWorkspace
+            document={currentDocument}
+            isGenerating={isGenerating}
+            regeneratingSection={regeneratingSection}
+            meta={meta}
+            onRegenerateAll={handleRegenerateAll}
+            onRegenerateSection={handleRegenerateSection}
+            onImproveWithAI={handleOpenAIEditor}
+            onToggleLock={handleToggleLock}
+            onSetStatus={handleSetStatus}
+            onShowDiff={handleShowDiff}
+            onSaveSection={handleSaveSection}
+            isSaving={isSaving}
+          />
+        </div>
+      </div>
 
       {showDiff && (
         <DiffViewer diffs={diffData} onClose={() => setShowDiff(false)} />

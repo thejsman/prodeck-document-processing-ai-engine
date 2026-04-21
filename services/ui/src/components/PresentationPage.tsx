@@ -4,9 +4,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useExecutionStore } from "@/core/execution/execution-store";
 import {
+  fetchNamespaces,
+  fetchProposals,
   fetchProposalContent,
   fetchMicrositeContent,
-  fetchPresentations,
   generateMicrositeStream,
   saveMicrositeAst,
   extractUrlDesign,
@@ -15,7 +16,6 @@ import {
   type SynthesizedDesignSystem,
   type ReferenceDesign,
 } from "@/lib/api";
-import { useNamespacePanelStore } from "@/lib/namespace-panel-store";
 import type {
   LayoutAST,
   LayoutSection,
@@ -42,9 +42,14 @@ import {
 } from "@/lib/useMicrositeHistory";
 
 // ── Pipeline steps ───────────────────────────────────────────────────────────
-type StepId = "brand" | "plugin" | "generate" | "preview";
+type StepId = "upload" | "brand" | "plugin" | "generate" | "preview";
 
 const STEPS: Array<{ id: StepId; label: string; description: string }> = [
+  {
+    id: "upload",
+    label: "Select Proposal",
+    description: "Choose a source proposal",
+  },
   { id: "brand", label: "Brand Setup", description: "Your identity & colors" },
   { id: "plugin", label: "Choose Style", description: "Pick a design system" },
   {
@@ -286,25 +291,30 @@ export function PresentationPage() {
   const { apiKey } = useAuth();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
-  const setMicrosites = useNamespacePanelStore((s) => s.setMicrosites);
 
   // Restore wizard state from sessionStorage on mount
   const _snap = readSnapshot();
 
   // Wizard state
   const [step, setStep] = useState<StepId>(() => {
-    if (_snap && (_snap.step === "brand" || _snap.step === "generate" || _snap.step === "preview"))
+    // If there's a saved generate/preview step, restore it
+    if (_snap && (_snap.step === "generate" || _snap.step === "preview"))
       return _snap.step;
-    return "brand";
+    return "upload";
   });
 
   // Step 1
+  const [namespaces, setNamespaces] = useState<string[]>([]);
+  const [namespacesLoading, setNamespacesLoading] = useState(false);
   const [selectedNamespace, setSelectedNamespace] = useState<string>(() => {
     if (_snap?.selectedNamespace) return _snap.selectedNamespace;
     return typeof window !== "undefined"
       ? localStorage.getItem("ms_namespace") || ""
       : "";
   });
+  const [proposals, setProposals] = useState<ProposalFile[]>([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [proposalsError, setProposalsError] = useState<string | null>(null);
   const [selectedProposal, setSelectedProposal] = useState<ProposalFile | null>(
     () => _snap?.selectedProposal ?? null,
   );
@@ -632,6 +642,47 @@ export function PresentationPage() {
       .catch(() => {});
   }, [apiKey]);
 
+  useEffect(() => {
+    if (step !== "upload" || !apiKey) return;
+    setNamespacesLoading(true);
+    fetchNamespaces(apiKey)
+      .then(setNamespaces)
+      .catch(() => {})
+      .finally(() => setNamespacesLoading(false));
+  }, [step, apiKey]);
+
+  useEffect(() => {
+    setProposals([]);
+    setSelectedProposal(null);
+    setMdContent("");
+    setProposalsError(null);
+  }, [selectedNamespace]);
+
+  useEffect(() => {
+    if (step !== "upload" || !apiKey || !selectedNamespace) return;
+    setProposalsLoading(true);
+    fetchProposals(apiKey)
+      .then((all) =>
+        setProposals(
+          all.filter((p) => {
+            if (p.status !== "approved") return false;
+            // Namespace-scoped proposals have fileName like "km-digital::file.md"
+            if (p.fileName.includes("::")) {
+              const fileNs = p.fileName.split("::")[0];
+              return fileNs === selectedNamespace;
+            }
+            // Legacy proposals (no namespace prefix): fall back to fuzzy client name match
+            const nsKey = selectedNamespace
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "");
+            const clientKey = p.client.toLowerCase().replace(/[^a-z0-9]/g, "");
+            return clientKey.includes(nsKey) || nsKey.includes(clientKey);
+          }),
+        ),
+      )
+      .catch((e) => setProposalsError((e as Error).message))
+      .finally(() => setProposalsLoading(false));
+  }, [step, apiKey, selectedNamespace]);
 
   const selectProposal = useCallback(
     async (p: ProposalFile) => {
@@ -641,7 +692,8 @@ export function PresentationPage() {
       try {
         const doc = await fetchProposalContent(apiKey, p.fileName);
         setMdContent(doc.content);
-      } catch {
+      } catch (e) {
+        setProposalsError(`Could not load proposal: ${(e as Error).message}`);
         setSelectedProposal(null);
       } finally {
         setLoadingContent(false);
@@ -651,13 +703,6 @@ export function PresentationPage() {
   );
 
   const stepIdx = STEPS.findIndex((s) => s.id === step);
-
-  // Auto-load content when a proposal is pre-selected (e.g. navigated from proposal page)
-  useEffect(() => {
-    if (!selectedProposal || !apiKey || mdContent) return;
-    selectProposal(selectedProposal);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProposal, apiKey]);
 
   // Restore layoutAST from disk when navigating to preview without an in-memory AST
   useEffect(() => {
@@ -991,13 +1036,6 @@ export function PresentationPage() {
             setStep("preview");
             updateExecution(execId, { status: "completed" });
             clearSnapshot();
-            // Push the new microsite into the namespace panel store so it
-            // appears in the right panel immediately when the user navigates back.
-            if (selectedNamespace) {
-              fetchPresentations(apiKey, selectedNamespace)
-                .then(ms => setMicrosites(selectedNamespace, ms))
-                .catch(() => {});
-            }
           } else if (event.type === "error") {
             throw new Error(
               (event as { type: "error"; message: string }).message,
@@ -1051,7 +1089,7 @@ export function PresentationPage() {
   useEffect(() => {
     if (step === "preview" && !loadingAST && !layoutAST) {
       clearSnapshot();
-      setStep("brand");
+      setStep("upload");
     }
   }, [step, loadingAST, layoutAST]);
 
@@ -1124,7 +1162,7 @@ export function PresentationPage() {
         generating={generating}
         streamingTotal={generating ? streamingTotal : undefined}
         planSectionTypes={generating ? planSectionTypes : undefined}
-        onBack={generating ? undefined : () => setStep("brand")}
+        onBack={generating ? undefined : () => setStep("upload")}
         onRegenerate={generating ? undefined : () => setStep("generate")}
         onEdit={generating ? undefined : () => setShowEditor(true)}
         namespace={selectedNamespace}
@@ -1149,9 +1187,7 @@ export function PresentationPage() {
           <div>
             <h1>Microsite Builder</h1>
             <p className="muted" style={{ marginTop: 4 }}>
-              {selectedProposal
-                ? selectedProposal.client || selectedProposal.fileName
-                : "Transform a proposal into a high-end presentation microsite"}
+              Transform a proposal into a high-end presentation microsite
             </p>
           </div>
         </div>
@@ -1394,7 +1430,216 @@ export function PresentationPage() {
 
             {/* Card body */}
             <div style={{ padding: 24 }}>
-              {/* ═══ STEP 1: BRAND SETUP ═══ */}
+              {/* ═══ STEP 1: SELECT PROPOSAL ═══ */}
+              {step === "upload" && (
+                <div>
+                  {/* Namespace */}
+                  <div className="form-group">
+                    <label>Project</label>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        className="select"
+                        value={selectedNamespace}
+                        disabled={namespacesLoading}
+                        onChange={(e) => {
+                          setSelectedNamespace(e.target.value);
+                          localStorage.setItem("ms_namespace", e.target.value);
+                        }}
+                      >
+                        <option value="">
+                          {namespacesLoading
+                            ? "Loading namespaces…"
+                            : "Select a namespace…"}
+                        </option>
+                        {namespaces.map((ns) => (
+                          <option key={ns} value={ns}>
+                            {ns}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedNamespace && (
+                      <p className="muted" style={{ marginTop: 4 }}>
+                        Showing approved proposals for{" "}
+                        <strong style={{ color: "var(--color-text)" }}>
+                          {selectedNamespace}
+                        </strong>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Proposal list */}
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label
+                      style={{
+                        color: selectedNamespace
+                          ? undefined
+                          : "var(--color-border)",
+                      }}
+                    >
+                      Proposal
+                    </label>
+
+                    {!selectedNamespace && (
+                      <div
+                        style={{
+                          padding: "2rem",
+                          textAlign: "center",
+                          border: "1px dashed var(--color-border)",
+                          borderRadius: "var(--radius)",
+                        }}
+                      >
+                        <p className="muted">Select a namespace first</p>
+                      </div>
+                    )}
+
+                    {selectedNamespace && proposalsLoading && (
+                      <p className="loading">Loading proposals…</p>
+                    )}
+
+                    {selectedNamespace &&
+                      proposalsError &&
+                      !proposalsLoading && (
+                        <p className="error">{proposalsError}</p>
+                      )}
+
+                    {selectedNamespace &&
+                      !proposalsLoading &&
+                      !proposalsError &&
+                      proposals.length === 0 && (
+                        <div
+                          style={{
+                            padding: "2rem",
+                            textAlign: "center",
+                            border: "1px dashed var(--color-border)",
+                            borderRadius: "var(--radius)",
+                          }}
+                        >
+                          <p className="muted">
+                            No approved proposals found in{" "}
+                            <strong>{selectedNamespace}</strong>. Approve a
+                            proposal first.
+                          </p>
+                        </div>
+                      )}
+
+                    {selectedNamespace &&
+                      !proposalsLoading &&
+                      proposals.length > 0 && (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fill, minmax(240px, 1fr))",
+                            gap: "0.75rem",
+                          }}
+                        >
+                          {proposals.map((p) => {
+                            const isSelected =
+                              selectedProposal?.fileName === p.fileName;
+                            return (
+                              <button
+                                key={p.fileName}
+                                onClick={() => selectProposal(p)}
+                                style={{
+                                  textAlign: "left",
+                                  padding: "12px 14px",
+                                  borderRadius: "var(--radius)",
+                                  cursor: "pointer",
+                                  border: `1px solid ${isSelected ? "var(--color-primary)" : "var(--color-border)"}`,
+                                  background: isSelected
+                                    ? "var(--color-primary-muted, rgba(99,102,241,0.15))"
+                                    : "var(--color-surface)",
+                                  boxShadow: isSelected
+                                    ? "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))"
+                                    : "var(--shadow)",
+                                  transition: "border-color 0.15s",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 8,
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontWeight: 600,
+                                      fontSize: 13,
+                                      color: "var(--color-text)",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
+                                      overflow: "hidden",
+                                      minWidth: 0,
+                                    } as React.CSSProperties}
+                                  >
+                                    {p.client || p.fileName}
+                                  </span>
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: "#16a34a18",
+                                      color: "var(--color-success)",
+                                      border: "none",
+                                      fontSize: 11,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    approved
+                                  </span>
+                                </div>
+                                <p
+                                  className="muted"
+                                  style={{
+                                    fontSize: 11,
+                                    marginBottom: 0,
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    overflow: "hidden",
+                                    wordBreak: "break-all",
+                                  } as React.CSSProperties}
+                                >
+                                  {p.fileName}
+                                </p>
+                                {p.createdAt && (
+                                  <p className="muted" style={{ fontSize: 11 }}>
+                                    {new Date(p.createdAt).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {isSelected && loadingContent && (
+                                  <p
+                                    className="loading"
+                                    style={{ marginTop: 4 }}
+                                  >
+                                    Loading content…
+                                  </p>
+                                )}
+                                {isSelected && !loadingContent && mdContent && (
+                                  <p
+                                    style={{
+                                      fontSize: 11,
+                                      color: "var(--color-success)",
+                                      marginTop: 4,
+                                    }}
+                                  >
+                                    ✓ Loaded
+                                  </p>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                  </div>
+                </div>
+              )}
+
+              {/* ═══ STEP 2: BRAND SETUP ═══ */}
               {step === "brand" && (
                 <div>
                   <div className="form-row">
@@ -2583,7 +2828,8 @@ export function PresentationPage() {
                 className="btn"
                 onClick={() => {
                   const prev: Record<StepId, StepId | null> = {
-                    brand: null,
+                    upload: null,
+                    brand: "upload",
                     plugin: "brand",
                     generate: "plugin",
                     preview: "plugin",
@@ -2591,7 +2837,7 @@ export function PresentationPage() {
                   const p = prev[step];
                   if (p) setStep(p);
                 }}
-                disabled={step === "brand"}
+                disabled={step === "upload"}
                 style={{ minWidth: 96 }}
               >
                 ← Back
@@ -2601,6 +2847,16 @@ export function PresentationPage() {
                 Step {stepIdx + 1} of {STEPS.length}
               </span>
 
+              {step === "upload" && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setStep("brand")}
+                  disabled={!mdContent.trim() || loadingContent}
+                  style={{ minWidth: 120, width: "auto" }}
+                >
+                  Next →
+                </button>
+              )}
               {step === "brand" && (
                 <button
                   className="btn btn-primary"

@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "fuser -k 3000/tcp 2>/dev/null; tsc && node --env-file=../../deployment/.env dist/index.js",
+    "dev": "node --env-file=../../deployment/.env dist/index.js",
     "clean": "rm -rf dist",
     "test": "vitest run"
   },

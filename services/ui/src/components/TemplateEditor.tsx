@@ -373,7 +373,7 @@ export function TemplateEditor({
             <ul className="tpl-list">
               {templates.map((t) => (
                 <li
-                  key={t.id}
+                  key={t.name}
                   className={`tpl-list-item${selected === t.name ? ' tpl-list-item--active' : ''}`}
                   onClick={() => handleSelect(t.name)}
                 >
