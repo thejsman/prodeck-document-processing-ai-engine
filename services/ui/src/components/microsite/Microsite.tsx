@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Pencil, RefreshCw } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { createPortal } from 'react-dom';
@@ -672,7 +672,11 @@ function isColorDark(hex: string): boolean {
   }
 }
 
-export function Microsite({
+export interface MicrositeHandle {
+  downloadPdf: () => Promise<void>;
+}
+
+export const Microsite = React.forwardRef<MicrositeHandle, Props>(function Microsite({
   ast,
   onBack,
   onRegenerate,
@@ -684,7 +688,7 @@ export function Microsite({
   onSectionAiAction,
   namespace,
   proposalId,
-}: Props) {
+}: Props, ref) {
   const { apiKey } = useAuth();
   const editCtx = useEditContext();
   const plugin = getPlugin(ast.plugin);
@@ -1067,6 +1071,8 @@ ${el.innerHTML}
   // In embedded mode the caller supplies its own scroll container — use a plain div.
   const isEmbedded = mode === 'embedded';
 
+  useImperativeHandle(ref, () => ({ downloadPdf }), [downloadPdf]);
+
   return (
     <MicrositeEffectsContext.Provider value={effectsContextValue}>
       <div
@@ -1442,6 +1448,6 @@ ${el.innerHTML}
       </div>
     </MicrositeEffectsContext.Provider>
   );
-}
+});
 
 export { SCROLL_CONTAINER_ID, EMBEDDED_SCROLL_CONTAINER_ID };

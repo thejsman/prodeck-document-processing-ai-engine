@@ -380,6 +380,14 @@ export async function fetchKnowledgeFiles(apiKey: string, namespace: string): Pr
   return data.files;
 }
 
+export async function deleteKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
+  const res = await fetch(
+    `/api/knowledge/files/${encodeURIComponent(fileName)}?namespace=${encodeURIComponent(namespace)}`,
+    { method: 'DELETE', headers: authHeaders(apiKey) },
+  );
+  await handleResponse<{ ok: boolean }>(res);
+}
+
 export async function reindexKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch('/api/knowledge/reindex', {
     method: 'POST',

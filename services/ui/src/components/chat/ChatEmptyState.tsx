@@ -27,18 +27,7 @@ export function ChatEmptyState({ namespace, onSuggestion, insights }: Props) {
         or trigger AI workflows.
       </p>
 
-      {hasDynamicInsights && (
-        <div className="chat-empty-insights">
-          <p className="chat-empty-insights-label">Project insights</p>
-          <ul className="chat-empty-insights-list">
-            {insights.map((s) => (
-              <li key={s} className="chat-empty-insights-item">{s}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="chat-empty-suggestions">
+<div className="chat-empty-suggestions">
         {STATIC_SUGGESTIONS.map((s) => (
           <button
             key={s}

@@ -71,7 +71,7 @@ export default function TemplatesPage() {
     setListError('');
     try {
       const list = await fetchTemplates(apiKey);
-      setTemplates(list);
+      setTemplates(list.filter(t => t.id !== 'default'));
     } catch (err) {
       setListError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -100,7 +100,7 @@ export default function TemplatesPage() {
     try {
       await deleteTemplate(apiKey!, name);
       if (selectedTemplate === name) setSelectedTemplate(null);
-      setTemplates(prev => prev.filter(t => t.name !== name));
+      setTemplates(prev => prev.filter(t => t.id !== name));
       toast.success(`Deleted "${name}"`);
     } catch (err) {
       toast.error('Delete failed: ' + (err instanceof Error ? err.message : String(err)));
@@ -226,31 +226,31 @@ export default function TemplatesPage() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {templates.map(t => {
-                      const isHovered = hoveredTemplate === t.name && (menuTemplate === null || menuTemplate === t.name);
-                      const isMenuOpen = menuTemplate === t.name;
+                      const isHovered = hoveredTemplate === t.id && (menuTemplate === null || menuTemplate === t.id);
+                      const isMenuOpen = menuTemplate === t.id;
                       return (
                         <div
-                          key={t.name}
-                          style={{ position: 'relative', zIndex: isMenuOpen ? 10 : 'auto' }}
-                          onMouseEnter={() => { if (menuTemplate === null || menuTemplate === t.name) setHoveredTemplate(t.name); }}
+                          key={t.id}
+                          style={{ position: 'relative', zIndex: isMenuOpen ? 10 : undefined }}
+                          onMouseEnter={() => { if (menuTemplate === null || menuTemplate === t.id) setHoveredTemplate(t.id); }}
                           onMouseLeave={() => setHoveredTemplate(null)}
                         >
                           <button
-                            className={`sidebar-link${selectedTemplate === t.name ? ' sidebar-link--active' : ''}`}
+                            className={`sidebar-link${selectedTemplate === t.id ? ' sidebar-link--active' : ''}`}
                             style={{
                               border: 'none', cursor: 'pointer', width: '100%',
-                              textAlign: 'left', height: 'auto', flexDirection: 'column',
-                              alignItems: 'flex-start', gap: 0, background: 'var(--panel-soft)',
-                              paddingTop: 6, paddingBottom: 6, paddingLeft: 10,
+                              textAlign: 'left', height: 32, flexDirection: 'row',
+                              alignItems: 'center', gap: 8, background: 'var(--panel-soft)',
+                              paddingTop: 0, paddingBottom: 0, paddingLeft: 10,
                               paddingRight: isHovered || isMenuOpen ? 36 : 10,
                               transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease, transform 0.2s ease',
                             }}
-                            onClick={() => { if (menuTemplate) return; setSelectedTemplate(t.name); }}
+                            onClick={() => { if (menuTemplate) return; setSelectedTemplate(t.id); }}
                           >
-                            <span style={{ fontSize: 14, fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', display: 'block' }}>
+                            <span style={{ fontSize: 13, fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                               {t.name}
                             </span>
-                            <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'block' }}>
+                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: '1px 5px', borderRadius: 4, background: 'var(--primary-soft)', color: 'var(--primary)', border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)' }}>
                               v{t.version}
                             </span>
                           </button>
@@ -266,7 +266,7 @@ export default function TemplatesPage() {
                                 style={{ padding: '3px 5px', border: 'none', lineHeight: 1, display: 'flex', alignItems: 'center' }}
                                 title="Options"
                                 disabled={deletingTemplate !== null}
-                                onClick={e => { e.stopPropagation(); setMenuTemplate(isMenuOpen ? null : t.name); }}
+                                onClick={e => { e.stopPropagation(); setMenuTemplate(isMenuOpen ? null : t.id); }}
                               >
                                 <Icon icon={MoreHorizontal} size="sm" />
                               </button>
@@ -275,9 +275,9 @@ export default function TemplatesPage() {
                                   <button
                                     className="btn btn-sm"
                                     style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 12px', color: 'var(--danger)', gap: 8 }}
-                                    onClick={() => handleDeleteTemplate(t.name)}
+                                    onClick={() => handleDeleteTemplate(t.id)}
                                   >
-                                    {deletingTemplate === t.name
+                                    {deletingTemplate === t.id
                                       ? <span className="spinner" />
                                       : <><Icon icon={Trash2} size="sm" /><span>Delete</span></>
                                     }

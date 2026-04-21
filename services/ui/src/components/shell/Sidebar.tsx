@@ -77,7 +77,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         {menuOpen && (
           <div style={{
             position: 'absolute', bottom: 'calc(100% + 4px)',
-            left: 8, right: 8,
+            left: 0, right: 0,
             background: 'var(--panel)', border: '1px solid var(--border)',
             borderRadius: 8, padding: '4px 0', zIndex: 200,
             boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
@@ -87,7 +87,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 key={item.href}
                 href={item.href}
                 className="sidebar-link"
-                style={{ borderRadius: 0, height: 36, paddingLeft: 14 }}
+                style={{ borderRadius: 0, height: 36, paddingLeft: 12 }}
                 onClick={() => { setMenuOpen(false); onMobileClose(); }}
               >
                 <span className="sidebar-label" style={{ fontSize: 13 }}>{item.label}</span>
@@ -96,7 +96,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
             <button
               className="sidebar-link"
-              style={{ borderRadius: 0, height: 36, paddingLeft: 14, width: '100%', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--danger)' }}
+              style={{ borderRadius: 0, height: 36, paddingLeft: 12, width: '100%', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--danger)' }}
               onClick={() => { setMenuOpen(false); clearApiKey(); }}
             >
               <span className="sidebar-label" style={{ fontSize: 13, color: 'var(--danger)' }}>Disconnect</span>
@@ -105,7 +105,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         )}
 
         {/* User row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
           <div style={{
             width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
             background: 'var(--primary)', color: '#fff',

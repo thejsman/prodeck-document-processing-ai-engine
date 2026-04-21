@@ -26,6 +26,7 @@
   /* Accent */
   --primary:      #5b8cff;
   --primary-soft: #2a3f8f;
+  --primary-dim:  #1a2750;
 
   /* Status */
   --success: #22c55e;
@@ -60,6 +61,7 @@
   /* Accent */
   --primary:      #3b82f6;
   --primary-soft: #dbeafe;
+  --primary-dim:  #e0ecfd;
 
   /* Status */
   --success: #16a34a;

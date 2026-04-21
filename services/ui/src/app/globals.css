@@ -738,7 +738,7 @@ body {
 .sidebar-header {
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 8px 0 18px;
   height: 52px;
   flex-shrink: 0;
 }
@@ -763,7 +763,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 4px 10px;
+  padding: 4px 8px;
   gap: 1px;
   overflow-y: auto;
 }
@@ -782,7 +782,7 @@ body {
   letter-spacing: 0em;
   line-height: 1.5;
   color: var(--muted);
-  padding: 10px 12px 4px;
+  padding: 10px 0 4px;
   text-transform: none;
 }
 
@@ -790,11 +790,11 @@ body {
 .sidebar-link {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   height: 36px;
   padding: 0 8px;
   margin-bottom: 1px;
-  border-radius: 10px;
+  border-radius: 8px;
   text-decoration: none;
   color: var(--muted);
   font-size: 14px;
@@ -844,7 +844,7 @@ body {
 /* Sidebar footer — collapse toggle */
 .sidebar-footer {
   flex-shrink: 0;
-  padding: 10px;
+  padding: 10px 8px;
   border-top: 1px solid var(--border);
 }
 
@@ -2563,7 +2563,7 @@ body {
   width: 256px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--bg);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

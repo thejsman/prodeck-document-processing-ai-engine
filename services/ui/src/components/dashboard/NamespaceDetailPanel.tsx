@@ -15,6 +15,15 @@ import {
 } from '@/lib/api';
 import { Icon } from '@/components/ui/Icon';
 
+function parseMicrositeLabel(proposalId: string): string {
+  const raw = proposalId.includes('::') ? proposalId.split('::').slice(1).join('::') : proposalId;
+  const withoutExt = raw.replace(/\.[^.]+$/, '');
+  const vMatch = withoutExt.match(/_v(\d+)$/);
+  const name = vMatch ? withoutExt.slice(0, -vMatch[0].length) : withoutExt;
+  const version = vMatch ? parseInt(vMatch[1], 10) : null;
+  return version != null ? `${name} · ${version}` : name;
+}
+
 interface SectionProps {
   icon: React.FC<LucideProps>;
   label: string;
@@ -128,7 +137,7 @@ export function NamespaceDetailPanel() {
             </div>
           ) : (
             proposals.map(p => (
-              <div key={p.fileName} className="sidebar-link" style={{ cursor: 'default' }}>
+              <div key={p.fileName} className="sidebar-link" style={{ cursor: 'default', background: 'var(--primary-dim)' }}>
                 <span className="sidebar-label">{p.client || p.fileName}</span>
               </div>
             ))
@@ -142,8 +151,8 @@ export function NamespaceDetailPanel() {
             </div>
           ) : (
             microsites.map(m => (
-              <div key={m.proposalId} className="sidebar-link" style={{ cursor: 'default' }}>
-                <span className="sidebar-label">{m.fileName}</span>
+              <div key={m.proposalId} className="sidebar-link" style={{ cursor: 'default', background: 'var(--primary-dim)' }}>
+                <span className="sidebar-label">{parseMicrositeLabel(m.proposalId)}</span>
               </div>
             ))
           )}
@@ -156,7 +165,7 @@ export function NamespaceDetailPanel() {
             </div>
           ) : (
             files.map(f => (
-              <div key={f.fileName} className="sidebar-link" style={{ cursor: 'default' }}>
+              <div key={f.fileName} className="sidebar-link" style={{ cursor: 'default', background: 'var(--primary-dim)' }}>
                 <span className="sidebar-label">{f.fileName}</span>
               </div>
             ))

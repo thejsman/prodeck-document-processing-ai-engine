@@ -386,65 +386,8 @@ export function TemplateEditor({
         </div>
       )}
 
-      {/* Editor panel */}
-      <div className={`tpl-editor-main${showEditor ? ' card' : ''}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        {/* AI draft naming form — shown inline when the sidebar is hidden */}
-        {hideSidebar && isAiDraft && showNew && (
-          <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--panel-soft)', borderRadius: 8 }}>
-            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-              Name the AI-generated template to save it.
-            </p>
-            <input
-              ref={newInputRef}
-              className="input"
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value.toLowerCase())}
-              placeholder="e.g. sales-brief"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateNew();
-                if (e.key === 'Escape') handleCancelNew();
-              }}
-            />
-            {nameValidationError && <p className="error" style={{ marginTop: 4 }}>{nameValidationError}</p>}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button
-                className="btn btn-primary"
-                onClick={handleCreateNew}
-                disabled={!newName.trim() || !!nameValidationError || saving}
-                style={{ flex: 1 }}
-              >
-                {saving ? 'Saving…' : 'Save AI Template'}
-              </button>
-              <button className="btn" onClick={handleCancelNew}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {listLoading ? (
-          <p className="loading">Loading templates&hellip;</p>
-        ) : listError ? (
-          <p className="error">{listError}</p>
-        ) : templates.length === 0 ? (
-          <p className="muted" style={{ padding: '12px 0' }}>No templates found</p>
-        ) : (
-          <ul className="tpl-list">
-            {templates.map((t) => (
-              <li
-                key={t.id}
-                className={`tpl-list-item${selected === t.id ? ' tpl-list-item--active' : ''}`}
-                onClick={() => handleSelect(t.id, t.name)}
-              >
-                <span className="tpl-list-name">{t.name}</span>
-                <span className="muted" style={{ fontSize: 11 }}>v{t.version}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
       {/* Right panel — editor */}
-      <div className="tpl-editor-main card">
+      <div className="tpl-editor-main card" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         {!showEditor ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '48px 24px', textAlign: 'center' }}>
             <div style={{ width: 56, height: 56, borderRadius: 14, background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
@@ -468,7 +411,7 @@ export function TemplateEditor({
         ) : loadError ? (
           <p className="error">{loadError}</p>
         ) : (
-          <>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div className="tpl-editor-toolbar">
               <h3>
                 {isAiDraft ? (
@@ -552,7 +495,7 @@ export function TemplateEditor({
               </div>
               {composerError && <p className="error" style={{ fontSize: 12, marginTop: 6, paddingLeft: 2 }}>{composerError}</p>}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

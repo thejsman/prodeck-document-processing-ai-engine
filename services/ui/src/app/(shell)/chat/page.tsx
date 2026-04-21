@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowUp, Plus } from 'lucide-react';
+import { ArrowUp, Download, Pencil, Plus, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
@@ -11,8 +11,15 @@ import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
 import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
-import { NamespacePanel } from '@/components/chat/NamespacePanel';
+import { NamespacePanel, parseMicrositeInfo } from '@/components/chat/NamespacePanel';
 import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
+import { MemoryEditor } from '@/components/MemoryEditor';
+import { ConfigEditor } from '@/components/ConfigEditor';
+import { ProposalForm } from '@/components/ProposalForm';
+import { fetchMicrositeContent, type ProposalDocument, type Presentation } from '@/lib/api';
+import type { LayoutAST } from '@/types/presentation';
+import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
+import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { startExecutionTransport } from '@/core/execution/execution-transport';
@@ -85,10 +92,24 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  const [fileRefreshTick, setFileRefreshTick] = useState(0);
   const [traceOpen, setTraceOpen] = useState(false);
   const [insights, setInsights] = useState<string[]>([]);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [isGeneratingFromModal, setIsGeneratingFromModal] = useState(false);
+  const [generatedDoc, setGeneratedDoc] = useState<ProposalDocument | null>(null);
+
+  const [viewMicrosite, setViewMicrosite] = useState<Presentation | null>(null);
+  const [viewMicrositeAST, setViewMicrositeAST] = useState<LayoutAST | null>(null);
+  const [viewMicrositeLoading, setViewMicrositeLoading] = useState(false);
+  const [editingMicrosite, setEditingMicrosite] = useState(false);
+  const micrositeRef = useRef<MicrositeHandle>(null);
 
   const chatSessionIdRef = useRef<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -171,6 +192,16 @@ export default function ChatPage() {
       .catch(() => { /* insights unavailable — leave as-is */ });
   }, [apiKey]);
 
+  useEffect(() => {
+    if (!viewMicrosite || !apiKey) return;
+    setViewMicrositeAST(null);
+    setViewMicrositeLoading(true);
+    fetchMicrositeContent(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId)
+      .then(({ ast }) => setViewMicrositeAST(ast as LayoutAST))
+      .catch(() => {})
+      .finally(() => setViewMicrositeLoading(false));
+  }, [viewMicrosite, apiKey]);
+
   // Load persisted chat history and initial insights on mount (or namespace change)
   useEffect(() => {
     const ns = namespace || 'default';
@@ -187,6 +218,7 @@ export default function ChatPage() {
     // and insights don't linger while the new namespace's data loads.
     setMessages([]);
     setInsights([]);
+    setGeneratedDoc(null);
     reset();
     setDisplayed('');
     revealedLenRef.current = 0;
@@ -226,6 +258,18 @@ export default function ChatPage() {
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, namespace, fetchInsights, error, updateExecution]);
+
+  // Close overflow menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showMenu]);
 
   // Typewriter: gradually reveal chunks so tokens appear one by one
   // even when the OS pipe delivers them in bulk batches.
@@ -337,15 +381,97 @@ export default function ChatPage() {
   }
 
   function handleSuggestion(text: string) {
+    if (text === 'Generate a proposal from my documents') {
+      setShowGenerateModal(true);
+      return;
+    }
     setInput(text);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
-  const hasContent = messages.length > 0 || !!chunks || sections.length > 0;
+  const hasContent = messages.length > 0 || !!chunks || sections.length > 0 || !!generatedDoc || isGeneratingFromModal;
+
+  // Derive proposal URL from generated document metadata (same logic as ProposalPage.currentFileName + NamespacePanel href)
+  const generatedProposalHref = (() => {
+    if (!generatedDoc) return null;
+    const m = generatedDoc.metadata as Record<string, unknown>;
+    const outputFile = (m.output_file ?? m.output_path) as string | undefined;
+    if (!outputFile) return '/proposal';
+    const parts = outputFile.replace(/\\/g, '/').split('/');
+    const fileName = parts.pop();
+    if (!fileName) return '/proposal';
+    const proposalsIdx = parts.lastIndexOf('proposals');
+    const ns = namespace || '';
+    const artifactNs =
+      proposalsIdx > 0 && parts[proposalsIdx - 1] && parts[proposalsIdx - 1] !== 'namespaces'
+        ? parts[proposalsIdx - 1]
+        : ns;
+    return artifactNs
+      ? `/proposal?artifact=${encodeURIComponent(fileName)}&namespace=${encodeURIComponent(artifactNs)}&from=chat`
+      : `/proposal?artifact=${encodeURIComponent(fileName)}&from=chat`;
+  })();
 
   // True once any proposal-specific signal arrives during a stream.
   // Used to switch from thinking dots → progress bar without overlap.
   const isProposalStream = sections.length > 0 || toolEvents.length > 0 || hadPhaseRef.current;
+
+  if (viewMicrosite) {
+    const { name } = parseMicrositeInfo(viewMicrosite.proposalId);
+    const dismiss = () => { setViewMicrosite(null); setViewMicrositeAST(null); setEditingMicrosite(false); };
+
+    if (editingMicrosite && viewMicrositeAST) {
+      return (
+        <MicrositeEditor
+          ast={viewMicrositeAST}
+          namespace={viewMicrosite.namespace}
+          proposalId={viewMicrosite.proposalId}
+          onClose={() => setEditingMicrosite(false)}
+          onExport={(editedAst) => { setViewMicrositeAST(editedAst); setEditingMicrosite(false); }}
+        />
+      );
+    }
+
+    return (
+      <div className="chat-v2">
+        <header className="chat-v2-header">
+          <div className="chat-v2-header-left">
+            <span className="chat-v2-ns">{name}</span>
+          </div>
+          <div className="chat-v2-header-right">
+            {viewMicrositeAST && (
+              <>
+                <button className="chat-v2-clear-btn" onClick={() => micrositeRef.current?.downloadPdf()} aria-label="Download PDF">
+                  <Icon icon={Download} size="md" />
+                </button>
+                <button className="chat-v2-clear-btn" onClick={() => setEditingMicrosite(true)} aria-label="Edit microsite">
+                  <Icon icon={Pencil} size="md" />
+                </button>
+              </>
+            )}
+            <button className="chat-v2-clear-btn" onClick={dismiss} aria-label="Close microsite">
+              <Icon icon={X} size="md" />
+            </button>
+          </div>
+        </header>
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {viewMicrositeLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
+              Loading…
+            </div>
+          )}
+          {!viewMicrositeLoading && viewMicrositeAST && (
+            <Microsite
+              ref={micrositeRef}
+              ast={viewMicrositeAST}
+              mode="embedded"
+              namespace={viewMicrosite.namespace}
+              proposalId={viewMicrosite.proposalId}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-v2">
@@ -439,6 +565,39 @@ export default function ChatPage() {
                     </div>
                   </div>
                 ))}
+
+                {/* ── Modal-triggered generation: loading + done card ── */}
+                {isGeneratingFromModal && (
+                  <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
+                    <div className="chat-v2-avatar">AI</div>
+                    <div className="chat-v2-bubble chat-v2-bubble--sections">
+                      <div className="chat-gen-progress">
+                        <span className="chat-gen-progress__spinner" aria-hidden="true" />
+                        <div className="chat-gen-progress__body">
+                          <span className="chat-gen-progress__label">Generating proposal…</span>
+                          <span className="chat-gen-progress__hint">Track progress in Active Tasks →</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {generatedDoc && !isGeneratingFromModal && (
+                  <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
+                    <div className="chat-v2-avatar">AI</div>
+                    <div className="chat-v2-bubble chat-v2-bubble--sections">
+                      <div className="proposal-done-footer">
+                        <div className="proposal-done-actions">
+                          <a
+                            href={generatedProposalHref ?? '/proposal'}
+                            className="proposal-done-link proposal-done-link--primary"
+                          >
+                            Open in editor ↗
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* ── Proposal generation: progress bar + sections + done card ── */}
                 {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool))) && (
@@ -595,30 +754,61 @@ export default function ChatPage() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Upload drawer (above composer) */}
+          {/* Upload modal */}
           {showUpload && (
-            <div className="chat-v2-upload-wrap">
-              <ChatUploadDrawer
-                namespace={namespace}
-                onClose={() => {
-                  setShowUpload(false);
-                  textareaRef.current?.focus();
-                }}
-              />
-            </div>
+            <ChatUploadDrawer
+              namespace={namespace}
+              onUploaded={() => setFileRefreshTick(t => t + 1)}
+              onClose={() => {
+                setShowUpload(false);
+                textareaRef.current?.focus();
+              }}
+            />
           )}
 
           {/* Input composer */}
           <div className="chat-v2-composer-wrap">
             <div className="chat-v2-composer">
-              <button
-                type="button"
-                className={`chat-v2-attach-btn${showUpload ? ' active' : ''}`}
-                onClick={() => setShowUpload((v) => !v)}
-                aria-label="Attach files"
-              >
-                <Icon icon={Plus} size="md" />
-              </button>
+              <div ref={menuRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className={`chat-v2-attach-btn${showMenu ? ' active' : ''}`}
+                  onClick={() => setShowMenu((v) => !v)}
+                  aria-label="More options"
+                >
+                  <Icon icon={Plus} size="md" />
+                </button>
+                {showMenu && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 'calc(100% + 8px)',
+                    left: 0,
+                    background: 'var(--panel)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+                    overflow: 'hidden',
+                    minWidth: 160,
+                    zIndex: 200,
+                  }}>
+                    {[
+                      { label: 'Ingest', action: () => { setShowUpload(true); setShowMenu(false); } },
+                      { label: 'Memory', action: () => { setShowMemoryModal(true); setShowMenu(false); } },
+                      { label: 'Configuration', action: () => { setShowConfigModal(true); setShowMenu(false); } },
+                    ].map(item => (
+                      <button
+                        key={item.label}
+                        onClick={item.action}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text)', transition: 'background 0.1s' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <textarea
                 ref={textareaRef}
                 className="chat-v2-input"
@@ -642,12 +832,11 @@ export default function ChatPage() {
                 )}
               </button>
             </div>
-            <p className="chat-v2-composer-hint">↵ send &nbsp;·&nbsp; ⇧↵ newline</p>
           </div>
         </div>
 
         {/* Namespace panel */}
-        <NamespacePanel namespace={namespace} />
+        <NamespacePanel namespace={namespace} onMicrositeClick={setViewMicrosite} fileRefreshTick={fileRefreshTick} />
 
         {/* Execution trace panel — only rendered when open */}
         {traceOpen && chatSessionIdRef.current && (
@@ -658,6 +847,74 @@ export default function ChatPage() {
           />
         )}
       </div>
+
+      {/* Generate Proposal modal */}
+      {showGenerateModal && (
+        <div className="ai-editor-overlay" onClick={() => { if (!isGeneratingFromModal) setShowGenerateModal(false); }}>
+          <div className="ai-editor-modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+            <div className="ai-editor-header">
+              <h3>Generate Proposal</h3>
+              <button
+                onClick={() => setShowGenerateModal(false)}
+                disabled={isGeneratingFromModal}
+                style={{ background: 'none', border: 'none', cursor: isGeneratingFromModal ? 'not-allowed' : 'pointer', padding: 4, display: 'flex', alignItems: 'center', color: 'var(--muted)' }}
+                aria-label="Close"
+              >
+                <Icon icon={X} size="md" />
+              </button>
+            </div>
+            <div style={{ padding: '0 20px 20px', overflowY: 'auto', maxHeight: 'calc(80vh - 60px)' }}>
+              <ProposalForm
+                onGenerate={(doc) => { setGeneratedDoc(doc); setShowGenerateModal(false); }}
+                isGenerating={isGeneratingFromModal}
+                setIsGenerating={setIsGeneratingFromModal}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Memory modal */}
+      {showMemoryModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onClick={e => { if (e.target === e.currentTarget) setShowMemoryModal(false); }}
+        >
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: 'min(900px, 92vw)', height: 'min(680px, 90vh)', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Memory</p>
+                <button onClick={() => setShowMemoryModal(false)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 14, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+            </div>
+            <div style={{ height: 1, background: 'var(--border)', flexShrink: 0 }} />
+            <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+              <MemoryEditor />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Configuration modal */}
+      {showConfigModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onClick={e => { if (e.target === e.currentTarget) setShowConfigModal(false); }}
+        >
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: 'min(900px, 92vw)', height: 'min(680px, 90vh)', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Configuration</p>
+                <button onClick={() => setShowConfigModal(false)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 14, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+              </div>
+            </div>
+            <div style={{ height: 1, background: 'var(--border)', flexShrink: 0 }} />
+            <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+              <ConfigEditor />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
