@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { X, ChevronDown, Check } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Icon } from '@/components/ui/Icon';
 import type {
   ProposalDocument,
   ProposalFile,
@@ -28,7 +31,16 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { ProposalForm } from './ProposalForm';
-import { ProposalWorkspace } from './ProposalWorkspace';
+import { ProposalWorkspace, STATUS_LABELS } from './ProposalWorkspace';
+
+const STATUS_ORDER: ProposalStatus[] = ['draft', 'under_review', 'approved', 'finalized'];
+
+const STATUS_COLORS: Record<ProposalStatus, string> = {
+  draft: 'var(--muted)',
+  under_review: '#f59e0b',
+  approved: '#22c55e',
+  finalized: '#3b82f6',
+};
 import { VersionHistory } from './VersionHistory';
 import { DiffViewer } from './DiffViewer';
 import { ProposalAIEditor } from './ProposalAIEditor';
@@ -39,6 +51,8 @@ export function ProposalPage() {
   const searchParams = useSearchParams();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
+  const router = useRouter();
+  const fromChat = searchParams.get('from') === 'chat';
   const [currentDocument, setCurrentDocument] =
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -52,6 +66,40 @@ export function ProposalPage() {
 
   // Workflow state
   const [meta, setMeta] = useState<ProposalMeta | null>(null);
+  const proposalName = (currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined
+    ?? searchParams.get('artifact')
+    ?? 'Proposals';
+  const currentStatus = meta?.status ?? 'draft';
+  const totalSections = useMemo(() => {
+    if (!currentDocument) return 0;
+    const retried = ((currentDocument.metadata as Record<string, unknown>).retried_sections as string[]) ?? [];
+    return parseProposalSections(currentDocument.content, retried).sections.length;
+  }, [currentDocument]);
+
+  // Status selector dropdown
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusMenuPos, setStatusMenuPos] = useState({ top: 0, right: 0 });
+  const statusBtnRef = useRef<HTMLButtonElement | null>(null);
+  const statusDropRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!statusOpen) return;
+    function handle(e: MouseEvent) {
+      if (statusDropRef.current && !statusDropRef.current.contains(e.target as Node)) {
+        setStatusOpen(false);
+      }
+    }
+    window.document.addEventListener('mousedown', handle);
+    return () => window.document.removeEventListener('mousedown', handle);
+  }, [statusOpen]);
+
+  function openStatusMenu() {
+    if (statusOpen) { setStatusOpen(false); return; }
+    const rect = statusBtnRef.current?.getBoundingClientRect();
+    if (rect) setStatusMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setStatusOpen(true);
+  }
+
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<SectionDiff[]>([]);
   const [workflowError, setWorkflowError] = useState('');
@@ -338,6 +386,35 @@ export function ProposalPage() {
     }
   }
 
+  function handleGenerateMicrosite() {
+    if (!currentDocument) return;
+    const fileName = currentFileName();
+    const ns = fileName?.includes('::') ? fileName.split('::')[0] : '';
+    const m = currentDocument.metadata as Record<string, unknown>;
+    const proposalFile: ProposalFile = {
+      fileName: fileName ?? '',
+      client: proposalName ?? '',
+      version: (m.version as number | null) ?? null,
+      createdAt: (m.created_at as string | undefined) ?? new Date().toISOString(),
+      sizeBytes: 0,
+      status: currentStatus,
+      lockedSections: meta?.lockedSections ?? [],
+    };
+    try {
+      sessionStorage.setItem('ms_wizard_state', JSON.stringify({
+        step: 'brand',
+        wasGenerating: false,
+        progress: [],
+        streamingSections: [],
+        error: null,
+        selectedNamespace: ns,
+        selectedProposal: proposalFile,
+      }));
+      if (ns) localStorage.setItem('ms_namespace', ns);
+    } catch { /* ignore */ }
+    router.push('/presentation');
+  }
+
   async function handleSelectHistory(file: ProposalFile) {
     setWorkflowError('');
     setRegenError('');
@@ -427,40 +504,156 @@ export function ProposalPage() {
 
   return (
     <>
-      <div className="page-header">
-        <h1>Proposal Generator</h1>
-      </div>
+      <div className="chat-v2">
+        <header className="chat-v2-header">
+          <div className="chat-v2-header-left">
+            <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
+            {currentDocument && (
+              <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+            )}
+          </div>
+          <div className="chat-v2-header-right">
+            {/* Status selector */}
+            <button
+              ref={statusBtnRef}
+              onClick={openStatusMenu}
+              disabled={!currentDocument}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                height: 30, padding: '0 10px',
+                background: 'var(--panel-soft)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                fontSize: 13, fontWeight: 500,
+                cursor: currentDocument ? 'pointer' : 'not-allowed',
+                color: 'var(--text)',
+                opacity: currentDocument ? 1 : 0.4,
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[currentStatus], flexShrink: 0 }} />
+              {STATUS_LABELS[currentStatus]}
+              <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
+            </button>
 
-      <div className="two-col">
-        <div className="col-left">
-          <ProposalForm
-            onGenerate={handleGenerate}
-            isGenerating={isGenerating}
-            setIsGenerating={setIsGenerating}
-          />
-          <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
-        </div>
+            {/* Generate Microsite */}
+            <button
+              style={{
+                height: 30,
+                padding: '0 12px',
+                whiteSpace: 'nowrap',
+                background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
+                color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
+                border: 'none',
+                borderRadius: 'var(--radius)',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
+                flexShrink: 0,
+                opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
+              }}
+              disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
+              onClick={handleGenerateMicrosite}
+            >
+              Generate Microsite
+            </button>
 
-        <div className="col-right">
-          {(regenError || workflowError) && (
-            <p className="error">{regenError || workflowError}</p>
+            <button
+              className="chat-v2-panel-toggle"
+              onClick={() => router.back()}
+              title="Close"
+              aria-label="Close"
+            >
+              <Icon icon={X} size="sm" />
+            </button>
+          </div>
+        </header>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {fromChat ? (
+            <div className="page-container">
+              {(regenError || workflowError) && (
+                <p className="error">{regenError || workflowError}</p>
+              )}
+              <ProposalWorkspace
+                document={currentDocument}
+                isGenerating={isGenerating}
+                regeneratingSection={regeneratingSection}
+                meta={meta}
+                onRegenerateAll={handleRegenerateAll}
+                onRegenerateSection={handleRegenerateSection}
+                onImproveWithAI={handleOpenAIEditor}
+                onToggleLock={handleToggleLock}
+                onShowDiff={handleShowDiff}
+                onSaveSection={handleSaveSection}
+                isSaving={isSaving}
+              />
+            </div>
+          ) : (
+            <div className="two-col">
+              <div className="col-left">
+                <ProposalForm
+                  onGenerate={handleGenerate}
+                  isGenerating={isGenerating}
+                  setIsGenerating={setIsGenerating}
+                />
+                <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
+              </div>
+              <div className="col-right">
+                {(regenError || workflowError) && (
+                  <p className="error">{regenError || workflowError}</p>
+                )}
+                <ProposalWorkspace
+                  document={currentDocument}
+                  isGenerating={isGenerating}
+                  regeneratingSection={regeneratingSection}
+                  meta={meta}
+                  onRegenerateAll={handleRegenerateAll}
+                  onRegenerateSection={handleRegenerateSection}
+                  onImproveWithAI={handleOpenAIEditor}
+                  onToggleLock={handleToggleLock}
+                  onShowDiff={handleShowDiff}
+                  onSaveSection={handleSaveSection}
+                  isSaving={isSaving}
+                />
+              </div>
+            </div>
           )}
-          <ProposalWorkspace
-            document={currentDocument}
-            isGenerating={isGenerating}
-            regeneratingSection={regeneratingSection}
-            meta={meta}
-            onRegenerateAll={handleRegenerateAll}
-            onRegenerateSection={handleRegenerateSection}
-            onImproveWithAI={handleOpenAIEditor}
-            onToggleLock={handleToggleLock}
-            onSetStatus={handleSetStatus}
-            onShowDiff={handleShowDiff}
-            onSaveSection={handleSaveSection}
-            isSaving={isSaving}
-          />
         </div>
       </div>
+
+      {/* Status dropdown (portalled) */}
+      {statusOpen && createPortal(
+        <div
+          ref={statusDropRef}
+          className="card"
+          style={{ position: 'fixed', top: statusMenuPos.top, right: statusMenuPos.right, minWidth: 170, padding: '4px 0', zIndex: 99999 }}
+        >
+          {STATUS_ORDER.map((s) => {
+            const isCurrent = s === currentStatus;
+            return (
+              <button
+                key={s}
+                className="btn btn-sm"
+                style={{
+                  width: '100%', textAlign: 'left', borderRadius: 0, border: 'none',
+                  justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, gap: 8,
+                  opacity: isCurrent ? 0.5 : 1,
+                  cursor: isCurrent ? 'default' : 'pointer',
+                }}
+                disabled={isCurrent}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { handleSetStatus(s); setStatusOpen(false); }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[s], flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>{STATUS_LABELS[s]}</span>
+                {isCurrent && <Icon icon={Check} size="sm" style={{ color: 'var(--primary)', flexShrink: 0 }} />}
+              </button>
+            );
+          })}
+        </div>,
+        window.document.body,
+      )}
 
       {showDiff && (
         <DiffViewer diffs={diffData} onClose={() => setShowDiff(false)} />

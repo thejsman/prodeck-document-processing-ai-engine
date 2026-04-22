@@ -1,27 +1,17 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, PanelRight, LayoutGrid, ArrowUp, Download, Pencil, Plus, X } from 'lucide-react';
+import { ArrowUp, Download, Pencil, Plus, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { useSSE, type ProposalSection } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
-import { ChatContextPanel } from '@/components/chat/ChatContextPanel';
+import { NamespacePanel, parseMicrositeInfo } from '@/components/chat/NamespacePanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
 import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
-
-function parseMicrositeInfo(proposalId: string): { name: string; version: number | null } {
-  const raw = proposalId.includes('::') ? proposalId.split('::').slice(1).join('::') : proposalId;
-  const withoutExt = raw.replace(/\.[^.]+$/, '');
-  const vMatch = withoutExt.match(/_v(\d+)$/);
-  const name = vMatch ? withoutExt.slice(0, -vMatch[0].length) : withoutExt;
-  const version = vMatch ? parseInt(vMatch[1], 10) : null;
-  return { name, version };
-}
 import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
@@ -98,12 +88,11 @@ function getOrCreateSessionId(namespace: string): string {
 export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
-  const router = useRouter();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
-  const [contextOpen, setContextOpen] = useState(true);
+  const [fileRefreshTick, setFileRefreshTick] = useState(0);
   const [traceOpen, setTraceOpen] = useState(false);
   const [insights, setInsights] = useState<string[]>([]);
   const [showMenu, setShowMenu] = useState(false);
@@ -490,25 +479,9 @@ export default function ChatPage() {
       <header className="chat-v2-header">
         <div className="chat-v2-header-left">
           <span className="chat-v2-ns">{namespace || 'default'}</span>
-          <span className="chat-v2-status">
-            <span className="chat-v2-status-dot" />
-            Connected
-          </span>
         </div>
 
         <div className="chat-v2-header-right">
-          <button className="chat-v2-action-btn" onClick={() => setShowUpload((v) => !v)}>
-            <Icon icon={Upload} size="sm" />
-            <span>Upload</span>
-          </button>
-          <button className="chat-v2-action-btn" onClick={() => router.push('/proposal')}>
-            <Icon icon={PanelRight} size="sm" />
-            <span>Proposal</span>
-          </button>
-          <button className="chat-v2-action-btn" onClick={() => router.push('/presentation')}>
-            <Icon icon={LayoutGrid} size="sm" />
-            <span>Microsite</span>
-          </button>
           {hasContent && (
             <button className="chat-v2-clear-btn" onClick={handleClear} disabled={isStreaming}>
               Clear
@@ -521,13 +494,7 @@ export default function ChatPage() {
           >
             ⚡
           </button>
-          <button
-            className={`chat-v2-panel-toggle${contextOpen ? ' active' : ''}`}
-            onClick={() => setContextOpen((v) => !v)}
-            title={contextOpen ? 'Hide panel' : 'Show context panel'}
-          >
-            <Icon icon={PanelRight} size="md" />
-          </button>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -791,7 +758,7 @@ export default function ChatPage() {
           {showUpload && (
             <ChatUploadDrawer
               namespace={namespace}
-              onUploaded={() => {}}
+              onUploaded={() => setFileRefreshTick(t => t + 1)}
               onClose={() => {
                 setShowUpload(false);
                 textareaRef.current?.focus();
@@ -868,8 +835,8 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Context panel */}
-        {contextOpen && <ChatContextPanel namespace={namespace} insights={insights} />}
+        {/* Namespace panel */}
+        <NamespacePanel namespace={namespace} onMicrositeClick={setViewMicrosite} fileRefreshTick={fileRefreshTick} />
 
         {/* Execution trace panel — only rendered when open */}
         {traceOpen && chatSessionIdRef.current && (

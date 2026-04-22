@@ -1484,26 +1484,9 @@ Section source content: ${effectiveBody || '(derive from brief above)'}${fallbac
 Transform into a Deliverables section.
 
 CARD COUNT RULE (mandatory):
-- IF source has 6 or fewer deliverables: extract each individually. One item per deliverable. Use exact names.
-- IF source has 7 or more deliverables: GROUP related deliverables by service area into MAX 6 grouped cards. Never render more than 6 cards — it overwhelms the reader.
-
-GROUPING ALGORITHM (when count > 6):
-Step 1 — Infer category from each deliverable title:
-  "report / audit / summary / status" → category: "Reporting"
-  "plan / strategy / roadmap / proposal" → category: "Strategy"
-  "template / agenda / log / record" → category: "Operations"
-  "training / coaching / curriculum / workshop / seminar" → category: "Coaching"
-  "marketing / campaign / social / media / brochure" → category: "Marketing"
-  "design / mock-up / rendering / visual" → category: "Design"
-  "CRM / integration / tool / system / software" → category: "Technology"
-  "succession / transition / handover / planning" → category: "Succession"
-  anything else → category: "General"
-Step 2 — Each unique category becomes ONE grouped card:
-  - "name": descriptive group title (e.g. "Coaching Package", "Marketing Package")
-  - "detail": 2-3 sentences summarising what the group collectively delivers. Mention each individual deliverable by name.
-  - "tag": short badge like "3 deliverables" stating how many items are grouped (fill with count)
-Step 3 — If grouping yields 7+ categories, merge the smallest two until ≤ 6 remain.
-Step 4 — Every source deliverable must map to exactly one card — no item may be dropped.
+- Extract EVERY deliverable individually. One card per deliverable. Use exact names from the source.
+- Do NOT group, merge, or collapse deliverables. If the source has 10 items, output 10 cards.
+- Maximum 12 cards total — if source has more than 12, keep the 12 most specific/concrete ones.
 
 CRITICAL FIDELITY RULES:
 1. All individual deliverable names from the source must appear somewhere in the grouped detail text.
