@@ -817,15 +817,22 @@ body {
 }
 
 .sidebar-link--active {
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 400;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 500;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.1);
 }
 
 .sidebar-link--active:hover {
-  background: var(--primary-soft);
-  color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+  font-weight: 500;
   transform: none;
+}
+
+.sidebar-link--active .sidebar-icon {
+  color: #fff;
+  opacity: 0.9;
 }
 
 .sidebar-icon {
@@ -6228,4 +6235,289 @@ body {
 .chat-gen-progress__hint {
   font-size: 11px;
   color: var(--muted, #9ca3af);
+}
+
+/* ── Generate Proposal Modal ──────────────────────────────────── */
+
+.generate-proposal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.generate-proposal-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.generate-proposal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.generate-proposal-header h3 {
+  font-size: 16px;
+  font-weight: 400;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.generate-proposal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.generate-proposal-body > form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.generate-proposal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* ── Proposal card browser grid ──────────────────────────────── */
+
+.proposal-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 20px;
+  align-content: start;
+}
+
+.proposal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  cursor: default;
+}
+
+.proposal-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  transform: translateY(-1px);
+}
+
+.proposal-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.proposal-card-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.proposal-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.proposal-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.proposal-card-ns {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.proposal-card-date {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proposal-card-view-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.proposal-card-view-btn:hover {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+/* ── Proposal view transitions ───────────────────────────────── */
+
+@keyframes proposal-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.proposal-view-fadein {
+  animation: proposal-fadein 0.18s ease both;
+}
+
+/* Skeleton loader — shown while fetching the document */
+@keyframes proposal-skeleton-shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+
+.proposal-doc-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.proposal-doc-skeleton-header,
+.proposal-doc-skeleton-section {
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--panel-soft) 0%,
+    color-mix(in srgb, var(--border) 60%, var(--panel-soft)) 40%,
+    var(--panel-soft) 80%
+  );
+  background-size: 1200px 100%;
+  animation: proposal-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.proposal-doc-skeleton-header {
+  height: 80px;
+  width: 100%;
+}
+
+.proposal-doc-skeleton-section {
+  height: 120px;
+  width: 100%;
+}
+
+/* ── Generating / pending card state ─────────────────────────── */
+
+@keyframes proposal-card-border-pulse {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  50% {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+  }
+}
+
+@keyframes proposal-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}
+
+.proposal-card--generating {
+  background: color-mix(in srgb, var(--primary) 4%, var(--panel));
+  animation: proposal-card-border-pulse 2s ease-in-out infinite;
+  cursor: default;
+}
+
+.proposal-card--generating:hover {
+  transform: none;
+}
+
+.proposal-card--gen-failed {
+  background: color-mix(in srgb, var(--danger) 5%, var(--panel));
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  animation: none;
+  box-shadow: none;
+}
+
+.proposal-card--gen-failed:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+/* Animated bouncing dots */
+.proposal-card-gen-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.proposal-card-gen-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: block;
+  animation: proposal-dot-bounce 1.2s ease-in-out infinite;
+}
+
+.proposal-card-gen-dots span:nth-child(2) { animation-delay: 0.2s; }
+.proposal-card-gen-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* Spinner for the footer */
+.proposal-card-gen-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
 }

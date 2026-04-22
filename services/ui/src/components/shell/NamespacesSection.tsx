@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useNamespace } from '@/lib/namespace-context';
 import { useAuth } from '@/lib/auth-context';
 import { deleteNamespace, renameNamespace } from '@/lib/api';
@@ -22,6 +22,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
   const { apiKey } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
 
   const [nsLabelHovered, setNsLabelHovered] = useState(false);
@@ -186,7 +187,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
 
         {/* Namespace list */}
         {expanded && namespaces.map((ns) => {
-          const isActive = ns === activeNamespace;
+          const isActive = ns === activeNamespace && !!pathname?.startsWith('/chat');
           // Only show hover state on this item when no menu is open, or this item owns the open menu
           const isHovered = hoveredNs === ns && (menuNs === null || menuNs === ns);
           const isMenuOpen = menuNs === ns;
