@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
@@ -30,7 +30,7 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { ProposalForm } from './ProposalForm';
-import { ProposalWorkspace } from './ProposalWorkspace';
+import { ProposalWorkspace, STATUS_LABELS } from './ProposalWorkspace';
 import { VersionHistory } from './VersionHistory';
 import { DiffViewer } from './DiffViewer';
 import { ProposalAIEditor } from './ProposalAIEditor';
@@ -60,6 +60,11 @@ export function ProposalPage() {
     ?? searchParams.get('artifact')
     ?? 'Proposals';
   const currentStatus = meta?.status ?? 'draft';
+  const totalSections = useMemo(() => {
+    if (!currentDocument) return 0;
+    const retried = ((currentDocument.metadata as Record<string, unknown>).retried_sections as string[]) ?? [];
+    return parseProposalSections(currentDocument.content, retried).sections.length;
+  }, [currentDocument]);
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<SectionDiff[]>([]);
   const [workflowError, setWorkflowError] = useState('');
@@ -468,6 +473,14 @@ export function ProposalPage() {
         <header className="chat-v2-header">
           <div className="chat-v2-header-left">
             <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
+            {currentDocument && (
+              <>
+                <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+                <span className={`badge badge--${currentStatus.replace('_', '-')}`}>
+                  {STATUS_LABELS[currentStatus]}
+                </span>
+              </>
+            )}
           </div>
           <div className="chat-v2-header-right">
             <button

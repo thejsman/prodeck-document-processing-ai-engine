@@ -1079,51 +1079,6 @@ body {
   color: var(--color-error);
 }
 
-/* ── Workspace Overflow Menu ──────────────────────────────────── */
-
-.workspace-overflow-wrap {
-  position: relative;
-}
-
-.workspace-overflow-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  min-width: 160px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-  padding: 4px 0;
-  overflow: hidden;
-}
-
-.workspace-overflow-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--color-text);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.workspace-overflow-item:hover {
-  background: var(--panel-soft);
-  color: var(--primary);
-}
-
-.workspace-overflow-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
-}
-
 /* ── Workspace Sections ───────────────────────────────────────── */
 
 .workspace-sections {

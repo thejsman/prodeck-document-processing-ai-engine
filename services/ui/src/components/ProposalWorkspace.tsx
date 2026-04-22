@@ -1,23 +1,23 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { MoreHorizontal } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import type { ProposalDocument, ProposalMeta, ProposalStatus } from '@/lib/api';
 import {
   parseProposalSections,
-  reassembleMarkdown,
   downloadMarkdown,
   type ParsedProposal,
 } from '@/lib/proposal-utils';
 import { SectionCard } from './SectionCard';
 
 // ---------------------------------------------------------------------------
-// Status helpers
+// Status helpers (exported so ProposalPage can reuse)
 // ---------------------------------------------------------------------------
 
-const STATUS_LABELS: Record<ProposalStatus, string> = {
+export const STATUS_LABELS: Record<ProposalStatus, string> = {
   draft: 'Draft',
   under_review: 'Under Review',
   approved: 'Approved',
@@ -68,22 +68,31 @@ export function ProposalWorkspace({
   onSaveSection,
   isSaving,
 }: Props) {
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
-    new Set(),
-  );
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [overflowOpen, setOverflowOpen] = useState(false);
-  const overflowRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const overflowBtnRef = useRef<HTMLButtonElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!overflowOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+    function handle(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOverflowOpen(false);
       }
     }
-    window.document.addEventListener('mousedown', handleClickOutside);
-    return () => window.document.removeEventListener('mousedown', handleClickOutside);
+    window.document.addEventListener('mousedown', handle);
+    return () => window.document.removeEventListener('mousedown', handle);
   }, [overflowOpen]);
+
+  function openOverflow() {
+    if (overflowOpen) { setOverflowOpen(false); return; }
+    const rect = overflowBtnRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+    setOverflowOpen(true);
+  }
 
   const parsed: ParsedProposal | null = useMemo(() => {
     if (!document) return null;
@@ -97,18 +106,13 @@ export function ProposalWorkspace({
   function toggleSection(title: string) {
     setCollapsedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(title)) {
-        next.delete(title);
-      } else {
-        next.add(title);
-      }
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
       return next;
     });
   }
 
-  function expandAll() {
-    setCollapsedSections(new Set());
-  }
+  function expandAll() { setCollapsedSections(new Set()); }
 
   function collapseAll() {
     if (!parsed) return;
@@ -126,9 +130,7 @@ export function ProposalWorkspace({
     return (
       <div className="card">
         <div className="placeholder">
-          <p className="muted">
-            Configure your proposal on the left and click Generate
-          </p>
+          <p className="muted">Configure your proposal on the left and click Generate</p>
         </div>
       </div>
     );
@@ -151,48 +153,42 @@ export function ProposalWorkspace({
 
   if (!parsed || !document) return null;
 
-  const m = document.metadata as Record<
-    string,
-    string | number | string[] | undefined
-  >;
+  const m = document.metadata as Record<string, string | number | string[] | undefined>;
   const failedCount = ((m.retried_sections as string[]) ?? []).length;
-  const totalSections = parsed.sections.length;
   const lockedCount = meta?.lockedSections.length ?? 0;
   const currentStatus = meta?.status ?? 'draft';
   const transitions = STATUS_TRANSITIONS[currentStatus];
+  const allCollapsed = parsed.sections.length > 0 && collapsedSections.size === parsed.sections.length;
+
+  const menuItemStyle: React.CSSProperties = {
+    width: '100%',
+    textAlign: 'left',
+    borderRadius: 0,
+    border: 'none',
+    justifyContent: 'flex-start',
+    padding: '8px 14px',
+    fontSize: 14,
+  };
 
   return (
     <div className="workspace">
       {/* ── Toolbar ───────────────────────────────────── */}
       <div className="workspace-toolbar">
         <div className="workspace-toolbar-left">
-          <span className="workspace-stat">
-            {totalSections} section{totalSections !== 1 ? 's' : ''}
-          </span>
           {failedCount > 0 && (
-            <span className="workspace-stat workspace-stat--error">
-              {failedCount} failed
-            </span>
+            <span className="workspace-stat workspace-stat--error">{failedCount} failed</span>
           )}
           {lockedCount > 0 && (
-            <span className="workspace-stat">
-              {lockedCount} locked
-            </span>
+            <span className="workspace-stat">{lockedCount} locked</span>
           )}
           {m.retrieval_mode ? (
-            <span className="badge">
-              {String(m.retrieval_mode).toUpperCase()}
-            </span>
+            <span className="badge">{String(m.retrieval_mode).toUpperCase()}</span>
           ) : null}
           {m.pricing_mode ? (
             <span className="badge">Pricing: {String(m.pricing_mode)}</span>
           ) : null}
-          <span className={`badge badge--${currentStatus.replace('_', '-')}`}>
-            {STATUS_LABELS[currentStatus]}
-          </span>
         </div>
         <div className="workspace-toolbar-right">
-          {/* Status transition buttons */}
           {transitions.length > 0 && (
             <div className="status-controls">
               {transitions.map((next) => (
@@ -207,58 +203,14 @@ export function ProposalWorkspace({
               ))}
             </div>
           )}
-          <div className="workspace-overflow-wrap" ref={overflowRef}>
-            <button
-              className="btn btn-sm"
-              onClick={() => setOverflowOpen((o) => !o)}
-              aria-label="More options"
-              title="More options"
-            >
-              <Icon icon={MoreHorizontal} size="sm" />
-            </button>
-            {overflowOpen && (
-              <div className="workspace-overflow-menu">
-                <button
-                  className="workspace-overflow-item"
-                  onClick={() => { expandAll(); setOverflowOpen(false); }}
-                >
-                  Expand All
-                </button>
-                <button
-                  className="workspace-overflow-item"
-                  onClick={() => { collapseAll(); setOverflowOpen(false); }}
-                >
-                  Collapse All
-                </button>
-                <div className="workspace-overflow-divider" />
-                <button
-                  className="workspace-overflow-item"
-                  onClick={() => { onShowDiff(); setOverflowOpen(false); }}
-                >
-                  Compare Versions
-                </button>
-                <button
-                  className="workspace-overflow-item"
-                  onClick={() => { handleDownload(); setOverflowOpen(false); }}
-                >
-                  Download .md
-                </button>
-              </div>
-            )}
-          </div>
           <button
-            className="btn btn-sm btn-primary"
-            onClick={onRegenerateAll}
-            disabled={isGenerating || isFinalized}
-            style={{ width: 'auto' }}
+            ref={overflowBtnRef}
+            className="btn btn-sm"
+            onClick={openOverflow}
+            aria-label="More options"
+            title="More options"
           >
-            {isGenerating && regeneratingSection === null ? (
-              <>
-                <span className="spinner" /> Regenerating...
-              </>
-            ) : (
-              'Regenerate All'
-            )}
+            <Icon icon={MoreHorizontal} size="sm" />
           </button>
         </div>
       </div>
@@ -284,8 +236,7 @@ export function ProposalWorkspace({
             expanded={!collapsedSections.has(section.title)}
             isRegenerating={
               isGenerating &&
-              (regeneratingSection === null ||
-                regeneratingSection === section.title)
+              (regeneratingSection === null || regeneratingSection === section.title)
             }
             isFinalized={isFinalized}
             isSaving={isSaving}
@@ -300,27 +251,57 @@ export function ProposalWorkspace({
 
       {/* ── Metadata Bar ─────────────────────────────── */}
       <div className="metadata-bar">
-        {m.client ? (
-          <span>
-            Client: <strong>{String(m.client)}</strong>
-          </span>
-        ) : null}
-        {m.version != null ? (
-          <span>
-            Version: <strong>v{String(m.version)}</strong>
-          </span>
-        ) : null}
-        {m.template ? (
-          <span>
-            Template: <strong>{String(m.template)}</strong>
-          </span>
-        ) : null}
-        {m.source_documents != null ? (
-          <span>
-            Sources: <strong>{String(m.source_documents)}</strong>
-          </span>
-        ) : null}
+        {m.client ? <span>Client: <strong>{String(m.client)}</strong></span> : null}
+        {m.version != null ? <span>Version: <strong>v{String(m.version)}</strong></span> : null}
+        {m.template ? <span>Template: <strong>{String(m.template)}</strong></span> : null}
+        {m.source_documents != null ? <span>Sources: <strong>{String(m.source_documents)}</strong></span> : null}
       </div>
+
+      {/* ── Overflow Menu (portalled) ─────────────────── */}
+      {overflowOpen && createPortal(
+        <div
+          ref={dropdownRef}
+          className="card"
+          style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, minWidth: 160, padding: '4px 0', zIndex: 99999 }}
+        >
+          <button
+            className="btn btn-sm"
+            style={menuItemStyle}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { allCollapsed ? expandAll() : collapseAll(); setOverflowOpen(false); }}
+          >
+            {allCollapsed ? 'Expand All' : 'Collapse All'}
+          </button>
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+          <button
+            className="btn btn-sm"
+            style={menuItemStyle}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { onShowDiff(); setOverflowOpen(false); }}
+          >
+            Compare Versions
+          </button>
+          <button
+            className="btn btn-sm"
+            style={menuItemStyle}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { handleDownload(); setOverflowOpen(false); }}
+          >
+            Download .md
+          </button>
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+          <button
+            className="btn btn-sm"
+            style={menuItemStyle}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { onRegenerateAll(); setOverflowOpen(false); }}
+            disabled={isGenerating || isFinalized}
+          >
+            {isGenerating && regeneratingSection === null ? 'Regenerating…' : 'Regenerate All'}
+          </button>
+        </div>,
+        window.document.body,
+      )}
     </div>
   );
 }
