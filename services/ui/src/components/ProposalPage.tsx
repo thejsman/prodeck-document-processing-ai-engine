@@ -42,10 +42,6 @@ export function ProposalPage() {
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const router = useRouter();
-  const proposalName = (currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined
-    ?? searchParams.get('artifact')
-    ?? 'Proposals';
-  const currentStatus = meta?.status ?? 'draft';
   const [currentDocument, setCurrentDocument] =
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -59,6 +55,10 @@ export function ProposalPage() {
 
   // Workflow state
   const [meta, setMeta] = useState<ProposalMeta | null>(null);
+  const proposalName = (currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined
+    ?? searchParams.get('artifact')
+    ?? 'Proposals';
+  const currentStatus = meta?.status ?? 'draft';
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<SectionDiff[]>([]);
   const [workflowError, setWorkflowError] = useState('');
