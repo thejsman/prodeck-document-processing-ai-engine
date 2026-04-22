@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useEditContext } from "./EditContext";
 import type { LayoutAST } from "../../../types/presentation";
 
