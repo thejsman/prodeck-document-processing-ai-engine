@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutAST } from '../../../types/presentation';
 
@@ -32,12 +32,23 @@ interface Props {
 
 export function ColorPaletteEditor({ tokens, onClose }: Props) {
   const ctx = useEditContext();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [localTokens, setLocalTokens] = useState<Record<string, string>>({
     accent:  (ctx?.ast.customTokens?.accent  ?? tokens.accent)  as string,
     bg:      (ctx?.ast.customTokens?.bg      ?? tokens.bg)      as string,
     surface: (ctx?.ast.customTokens?.surface ?? tokens.surface) as string,
     text:    (ctx?.ast.customTokens?.text    ?? tokens.text)    as string,
   });
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [onClose]);
 
   if (!ctx) return null;
 
@@ -73,6 +84,7 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
 
   return (
     <div
+      ref={panelRef}
       style={{
         position: 'absolute',
         top: '100%',

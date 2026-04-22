@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutAST } from '../../../types/presentation';
 
@@ -115,7 +115,18 @@ interface Props {
 
 export function TypographyPicker({ onClose }: Props) {
   const ctx = useEditContext();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [applied, setApplied] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [onClose]);
 
   if (!ctx) return null;
 
@@ -144,6 +155,7 @@ export function TypographyPicker({ onClose }: Props) {
 
   return (
     <div
+      ref={panelRef}
       style={{
         position: 'absolute',
         top: '100%',
