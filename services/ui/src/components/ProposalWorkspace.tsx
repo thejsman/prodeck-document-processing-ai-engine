@@ -24,13 +24,6 @@ export const STATUS_LABELS: Record<ProposalStatus, string> = {
   finalized: 'Finalized',
 };
 
-const STATUS_TRANSITIONS: Record<ProposalStatus, ProposalStatus[]> = {
-  draft: ['under_review'],
-  under_review: ['approved', 'draft'],
-  approved: ['finalized', 'under_review'],
-  finalized: [],
-};
-
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -44,7 +37,6 @@ interface Props {
   onRegenerateSection: (sectionTitle: string) => void;
   onImproveWithAI: (sectionTitle: string) => void;
   onToggleLock: (sectionTitle: string) => void;
-  onSetStatus: (status: ProposalStatus) => void;
   onShowDiff: () => void;
   onSaveSection: (sectionTitle: string, newContent: string) => Promise<void>;
   isSaving: boolean;
@@ -63,7 +55,6 @@ export function ProposalWorkspace({
   onRegenerateSection,
   onImproveWithAI,
   onToggleLock,
-  onSetStatus,
   onShowDiff,
   onSaveSection,
   isSaving,
@@ -156,8 +147,6 @@ export function ProposalWorkspace({
   const m = document.metadata as Record<string, string | number | string[] | undefined>;
   const failedCount = ((m.retried_sections as string[]) ?? []).length;
   const lockedCount = meta?.lockedSections.length ?? 0;
-  const currentStatus = meta?.status ?? 'draft';
-  const transitions = STATUS_TRANSITIONS[currentStatus];
   const allCollapsed = parsed.sections.length > 0 && collapsedSections.size === parsed.sections.length;
 
   const menuItemStyle: React.CSSProperties = {
@@ -189,20 +178,6 @@ export function ProposalWorkspace({
           ) : null}
         </div>
         <div className="workspace-toolbar-right">
-          {transitions.length > 0 && (
-            <div className="status-controls">
-              {transitions.map((next) => (
-                <button
-                  key={next}
-                  className="btn btn-sm"
-                  onClick={() => onSetStatus(next)}
-                  disabled={isGenerating}
-                >
-                  {STATUS_LABELS[next]}
-                </button>
-              ))}
-            </div>
-          )}
           <button
             ref={overflowBtnRef}
             className="btn btn-sm"

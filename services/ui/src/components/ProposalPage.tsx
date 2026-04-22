@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X } from 'lucide-react';
+import { X, ChevronDown, Check } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
 import type {
   ProposalDocument,
@@ -31,6 +32,15 @@ import { useAuth } from '@/lib/auth-context';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { ProposalForm } from './ProposalForm';
 import { ProposalWorkspace, STATUS_LABELS } from './ProposalWorkspace';
+
+const STATUS_ORDER: ProposalStatus[] = ['draft', 'under_review', 'approved', 'finalized'];
+
+const STATUS_COLORS: Record<ProposalStatus, string> = {
+  draft: 'var(--muted)',
+  under_review: '#f59e0b',
+  approved: '#22c55e',
+  finalized: '#3b82f6',
+};
 import { VersionHistory } from './VersionHistory';
 import { DiffViewer } from './DiffViewer';
 import { ProposalAIEditor } from './ProposalAIEditor';
@@ -65,6 +75,31 @@ export function ProposalPage() {
     const retried = ((currentDocument.metadata as Record<string, unknown>).retried_sections as string[]) ?? [];
     return parseProposalSections(currentDocument.content, retried).sections.length;
   }, [currentDocument]);
+
+  // Status selector dropdown
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusMenuPos, setStatusMenuPos] = useState({ top: 0, right: 0 });
+  const statusBtnRef = useRef<HTMLButtonElement | null>(null);
+  const statusDropRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!statusOpen) return;
+    function handle(e: MouseEvent) {
+      if (statusDropRef.current && !statusDropRef.current.contains(e.target as Node)) {
+        setStatusOpen(false);
+      }
+    }
+    window.document.addEventListener('mousedown', handle);
+    return () => window.document.removeEventListener('mousedown', handle);
+  }, [statusOpen]);
+
+  function openStatusMenu() {
+    if (statusOpen) { setStatusOpen(false); return; }
+    const rect = statusBtnRef.current?.getBoundingClientRect();
+    if (rect) setStatusMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setStatusOpen(true);
+  }
+
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<SectionDiff[]>([]);
   const [workflowError, setWorkflowError] = useState('');
@@ -474,15 +509,34 @@ export function ProposalPage() {
           <div className="chat-v2-header-left">
             <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
             {currentDocument && (
-              <>
-                <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
-                <span className={`badge badge--${currentStatus.replace('_', '-')}`}>
-                  {STATUS_LABELS[currentStatus]}
-                </span>
-              </>
+              <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
             )}
           </div>
           <div className="chat-v2-header-right">
+            {/* Status selector */}
+            <button
+              ref={statusBtnRef}
+              onClick={openStatusMenu}
+              disabled={!currentDocument}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                height: 30, padding: '0 10px',
+                background: 'var(--panel-soft)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                fontSize: 13, fontWeight: 500,
+                cursor: currentDocument ? 'pointer' : 'not-allowed',
+                color: 'var(--text)',
+                opacity: currentDocument ? 1 : 0.4,
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[currentStatus], flexShrink: 0 }} />
+              {STATUS_LABELS[currentStatus]}
+              <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
+            </button>
+
+            {/* Generate Microsite */}
             <button
               style={{
                 height: 30,
@@ -503,6 +557,7 @@ export function ProposalPage() {
             >
               Generate Microsite
             </button>
+
             <button
               className="chat-v2-panel-toggle"
               onClick={() => router.back()}
@@ -529,7 +584,6 @@ export function ProposalPage() {
                 onRegenerateSection={handleRegenerateSection}
                 onImproveWithAI={handleOpenAIEditor}
                 onToggleLock={handleToggleLock}
-                onSetStatus={handleSetStatus}
                 onShowDiff={handleShowDiff}
                 onSaveSection={handleSaveSection}
                 isSaving={isSaving}
@@ -558,7 +612,6 @@ export function ProposalPage() {
                   onRegenerateSection={handleRegenerateSection}
                   onImproveWithAI={handleOpenAIEditor}
                   onToggleLock={handleToggleLock}
-                  onSetStatus={handleSetStatus}
                   onShowDiff={handleShowDiff}
                   onSaveSection={handleSaveSection}
                   isSaving={isSaving}
@@ -568,6 +621,39 @@ export function ProposalPage() {
           )}
         </div>
       </div>
+
+      {/* Status dropdown (portalled) */}
+      {statusOpen && createPortal(
+        <div
+          ref={statusDropRef}
+          className="card"
+          style={{ position: 'fixed', top: statusMenuPos.top, right: statusMenuPos.right, minWidth: 170, padding: '4px 0', zIndex: 99999 }}
+        >
+          {STATUS_ORDER.map((s) => {
+            const isCurrent = s === currentStatus;
+            return (
+              <button
+                key={s}
+                className="btn btn-sm"
+                style={{
+                  width: '100%', textAlign: 'left', borderRadius: 0, border: 'none',
+                  justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, gap: 8,
+                  opacity: isCurrent ? 0.5 : 1,
+                  cursor: isCurrent ? 'default' : 'pointer',
+                }}
+                disabled={isCurrent}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { handleSetStatus(s); setStatusOpen(false); }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[s], flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>{STATUS_LABELS[s]}</span>
+                {isCurrent && <Icon icon={Check} size="sm" style={{ color: 'var(--primary)', flexShrink: 0 }} />}
+              </button>
+            );
+          })}
+        </div>,
+        window.document.body,
+      )}
 
       {showDiff && (
         <DiffViewer diffs={diffData} onClose={() => setShowDiff(false)} />
