@@ -29,7 +29,7 @@ export function AITemplateBuilder({ onYamlGenerated }: Props) {
       setGenerating(false);
     }
   };
-
+//test commit
   return (
     <div className="ai-builder card">
       <div className="ai-builder-header">
