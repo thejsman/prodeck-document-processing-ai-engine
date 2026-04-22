@@ -42,6 +42,7 @@ export function ProposalPage() {
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const router = useRouter();
+  const fromChat = searchParams.get('from') === 'chat';
   const [currentDocument, setCurrentDocument] =
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -501,17 +502,8 @@ export function ProposalPage() {
         </header>
 
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          <div className="two-col">
-            <div className="col-left">
-              <ProposalForm
-                onGenerate={handleGenerate}
-                isGenerating={isGenerating}
-                setIsGenerating={setIsGenerating}
-              />
-              <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
-            </div>
-
-            <div className="col-right">
+          {fromChat ? (
+            <>
               {(regenError || workflowError) && (
                 <p className="error">{regenError || workflowError}</p>
               )}
@@ -529,8 +521,38 @@ export function ProposalPage() {
                 onSaveSection={handleSaveSection}
                 isSaving={isSaving}
               />
+            </>
+          ) : (
+            <div className="two-col">
+              <div className="col-left">
+                <ProposalForm
+                  onGenerate={handleGenerate}
+                  isGenerating={isGenerating}
+                  setIsGenerating={setIsGenerating}
+                />
+                <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
+              </div>
+              <div className="col-right">
+                {(regenError || workflowError) && (
+                  <p className="error">{regenError || workflowError}</p>
+                )}
+                <ProposalWorkspace
+                  document={currentDocument}
+                  isGenerating={isGenerating}
+                  regeneratingSection={regeneratingSection}
+                  meta={meta}
+                  onRegenerateAll={handleRegenerateAll}
+                  onRegenerateSection={handleRegenerateSection}
+                  onImproveWithAI={handleOpenAIEditor}
+                  onToggleLock={handleToggleLock}
+                  onSetStatus={handleSetStatus}
+                  onShowDiff={handleShowDiff}
+                  onSaveSection={handleSaveSection}
+                  isSaving={isSaving}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
