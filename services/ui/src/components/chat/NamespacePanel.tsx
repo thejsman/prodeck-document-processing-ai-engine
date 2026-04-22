@@ -93,9 +93,9 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   const router = useRouter();
 
   // Read from persisted store — survives page reloads
-  const panelData = useNamespacePanelStore(s => s.byNamespace[namespace]);
-  const setProposals = useNamespacePanelStore(s => s.setProposals);
-  const setMicrosites = useNamespacePanelStore(s => s.setMicrosites);
+  const panelData = useNamespacePanelStore((s: { byNamespace: Record<string, { proposals: import('@/lib/api').ProposalFile[]; microsites: import('@/lib/api').Presentation[] }> }) => s.byNamespace[namespace]);
+  const setProposals = useNamespacePanelStore((s: { setProposals: (ns: string, p: import('@/lib/api').ProposalFile[]) => void }) => s.setProposals);
+  const setMicrosites = useNamespacePanelStore((s: { setMicrosites: (ns: string, m: import('@/lib/api').Presentation[]) => void }) => s.setMicrosites);
 
   const proposals = [...(panelData?.proposals ?? [])]
     .sort((a, b) => (parseMicrositeInfo(b.fileName).version ?? -1) - (parseMicrositeInfo(a.fileName).version ?? -1));
