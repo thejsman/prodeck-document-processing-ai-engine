@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowUp, Download, Pencil, Plus, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowUp, Brain, Download, Eraser, Pencil, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
@@ -99,6 +100,7 @@ export default function ChatPage() {
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isGeneratingFromModal, setIsGeneratingFromModal] = useState(false);
   const [generatedDoc, setGeneratedDoc] = useState<ProposalDocument | null>(null);
 
@@ -482,11 +484,6 @@ export default function ChatPage() {
         </div>
 
         <div className="chat-v2-header-right">
-          {hasContent && (
-            <button className="chat-v2-clear-btn" onClick={handleClear} disabled={isStreaming}>
-              Clear
-            </button>
-          )}
           <button
             className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
             onClick={() => setTraceOpen((v) => !v)}
@@ -792,20 +789,32 @@ export default function ChatPage() {
                     zIndex: 200,
                   }}>
                     {[
-                      { label: 'Ingest', action: () => { setShowUpload(true); setShowMenu(false); } },
-                      { label: 'Memory', action: () => { setShowMemoryModal(true); setShowMenu(false); } },
-                      { label: 'Configuration', action: () => { setShowConfigModal(true); setShowMenu(false); } },
+                      { label: 'Ingest', icon: Upload, action: () => { setShowUpload(true); setShowMenu(false); } },
+                      { label: 'Memory', icon: Brain, action: () => { setShowMemoryModal(true); setShowMenu(false); } },
+                      { label: 'Configuration', icon: SlidersHorizontal, action: () => { setShowConfigModal(true); setShowMenu(false); } },
                     ].map(item => (
                       <button
                         key={item.label}
                         onClick={item.action}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text)', transition: 'background 0.1s' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text)', transition: 'background 0.1s' }}
                         onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
                         onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                       >
+                        <Icon icon={item.icon} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
                         {item.label}
                       </button>
                     ))}
+                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                    <button
+                      onClick={() => { if (hasContent && !isStreaming) { setShowClearConfirm(true); setShowMenu(false); } }}
+                      disabled={!hasContent || isStreaming}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: hasContent && !isStreaming ? 'pointer' : 'not-allowed', fontSize: 13, color: hasContent ? 'var(--danger)' : 'var(--muted)', transition: 'background 0.1s', opacity: !hasContent || isStreaming ? 0.4 : 1 }}
+                      onMouseEnter={e => { if (hasContent && !isStreaming) e.currentTarget.style.background = 'var(--panel-soft)'; }}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                    >
+                      <Icon icon={Eraser} size="sm" style={{ flexShrink: 0 }} />
+                      Clear Chat
+                    </button>
                   </div>
                 )}
               </div>
@@ -847,6 +856,37 @@ export default function ChatPage() {
           />
         )}
       </div>
+
+      {/* Clear Chat confirmation dialog */}
+      {showClearConfirm && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onMouseDown={e => { if (e.target === e.currentTarget) setShowClearConfirm(false); }}
+        >
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+            <div style={{ padding: '20px 24px 0' }}>
+              <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.5 }}>Clear chat</p>
+            </div>
+            <div style={{ height: 1, background: 'var(--border)' }} />
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+                Clear all messages in the <strong>"{namespace || 'default'}"</strong> session? This action cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: 'pointer' }}
+                >Cancel</button>
+                <button
+                  onClick={() => { handleClear(); setShowClearConfirm(false); }}
+                  style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: 'pointer' }}
+                >Clear Chat</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Generate Proposal modal */}
       {showGenerateModal && (

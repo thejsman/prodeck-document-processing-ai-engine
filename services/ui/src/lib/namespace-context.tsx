@@ -50,7 +50,7 @@ export function NamespaceProvider({ children }: { children: ReactNode }) {
   }, [loadNamespaces]);
 
   const addNamespace = useCallback((ns: string) => {
-    setNamespaces((prev) => prev.includes(ns) ? prev : [...prev, ns].sort());
+    setNamespaces((prev) => prev.includes(ns) ? prev : [ns, ...prev]);
   }, []);
 
   return (

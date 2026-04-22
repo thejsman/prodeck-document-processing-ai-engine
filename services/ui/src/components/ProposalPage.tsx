@@ -826,10 +826,19 @@ export function ProposalPage() {
             <>
               <div className="chat-v2-header-left">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
                     {currentDocument && (
-                      <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+                      <>
+                        <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                        <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+                      </>
+                    )}
+                    {searchParams.get('namespace') && (
+                      <>
+                        <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                        <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>{searchParams.get('namespace')}</span>
+                      </>
                     )}
                   </div>
                   {currentDocument && (() => {
@@ -1029,27 +1038,39 @@ export function ProposalPage() {
                   return (
                     <div key={p.fileName} className="proposal-card">
                       <div className="proposal-card-header">
-                        <span className="proposal-card-name">{p.client}</span>
-                        {p.status && statusBadgeClass(p.status) && (
-                          <span
-                            className={statusBadgeClass(p.status)!}
-                            style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}
-                          >
-                            {statusLabel(p.status)}
-                          </span>
-                        )}
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <span className="proposal-card-name">{p.client}</span>
+                          {dateLabel && (
+                            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexShrink: 0 }}>
+                          {p.status && statusBadgeClass(p.status) && (
+                            <span
+                              className={statusBadgeClass(p.status)!}
+                              style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}
+                            >
+                              {statusLabel(p.status)}
+                            </span>
+                          )}
+                          {p.version != null && (
+                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: '1px 5px', borderRadius: 4, background: 'var(--primary-soft)', color: 'var(--primary)', border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)' }}>
+                              v{p.version}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="proposal-card-footer">
-                        <div className="proposal-card-meta">
-                          {ns && <span className="proposal-card-ns">{ns}</span>}
-                          {ns && <span style={{ color: 'var(--border)' }}>·</span>}
-                          <span className="proposal-card-date">{dateLabel}</span>
-                        </div>
+                        {ns ? (
+                          <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
+                            Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ns}</span>
+                          </span>
+                        ) : <span />}
                         <button
-                          className="proposal-card-view-btn"
+                          className="chat-v2-clear-btn"
                           onClick={() => router.push(href)}
                         >
-                          View →
+                          View
                         </button>
                       </div>
                     </div>

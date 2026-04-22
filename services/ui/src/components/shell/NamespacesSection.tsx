@@ -103,12 +103,10 @@ export function NamespacesSection({ onMobileClose }: Props) {
     setDeleting(true);
     try {
       await deleteNamespace(apiKey, confirmNs);
+      if (activeNamespace === confirmNs) setNamespace('');
       await refresh();
       toast.success(`Deleted namespace "${confirmNs}"`);
-      if (activeNamespace === confirmNs) {
-        setNamespace('');
-        router.push('/');
-      }
+      router.push('/');
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -290,7 +288,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
             <div style={{ height: 1, background: 'var(--border)' }} />
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5, letterSpacing: '0em' }}>
-                Are you sure you want to delete <strong>"{confirmNs}"</strong>? This will permanently remove all files, proposals, and data in this namespace.
+                Permanently delete <strong>"{confirmNs}"</strong>? All ingested files, proposals, and microsites in this namespace will be removed and cannot be recovered.
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button

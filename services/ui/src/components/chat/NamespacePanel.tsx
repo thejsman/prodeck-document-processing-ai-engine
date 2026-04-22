@@ -80,6 +80,9 @@ function Section({ label, loading, children }: SectionProps) {
   );
 }
 
+const newestFirst = (files: IngestionFile[]) =>
+  [...files].sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
 // ── Panel ─────────────────────────────────────────────────────────
 
 interface Props {
@@ -98,9 +101,13 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   const setMicrosites = useNamespacePanelStore((s: { setMicrosites: (ns: string, m: import('@/lib/api').Presentation[]) => void }) => s.setMicrosites);
 
   const proposals = [...(panelData?.proposals ?? [])]
-    .sort((a, b) => (parseMicrositeInfo(b.fileName).version ?? -1) - (parseMicrositeInfo(a.fileName).version ?? -1));
+    .sort((a, b) => (b.version ?? -1) - (a.version ?? -1));
   const microsites = [...(panelData?.microsites ?? [])]
-    .sort((a, b) => (parseMicrositeInfo(b.proposalId).version ?? -1) - (parseMicrositeInfo(a.proposalId).version ?? -1));
+    .sort((a, b) => {
+      const vDiff = (parseMicrositeInfo(b.proposalId).version ?? -1) - (parseMicrositeInfo(a.proposalId).version ?? -1);
+      if (vDiff !== 0) return vDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   // Ingested files stay local — no cross-session caching needed
   const [files, setFiles] = useState<IngestionFile[]>([]);
@@ -182,7 +189,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
     if (!namespace || !apiKey) return;
     setLoadingFiles(true);
     fetchKnowledgeFiles(apiKey, namespace)
-      .then(setFiles)
+      .then(f => setFiles(newestFirst(f)))
       .catch(() => setFiles([]))
       .finally(() => setLoadingFiles(false));
   // fileRefreshTick intentionally triggers a re-fetch after upload
@@ -196,7 +203,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
     const timer = setInterval(async () => {
       try {
         const fetched = await fetchKnowledgeFiles(apiKey, namespace);
-        setFiles(fetched);
+        setFiles(newestFirst(fetched));
       } catch { /* ignore */ }
     }, 3000);
     return () => clearInterval(timer);
@@ -310,7 +317,6 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
               const href = fileParts.length
                 ? `/proposal?artifact=${encodeURIComponent(file)}&namespace=${encodeURIComponent(ns)}&from=chat`
                 : `/proposal?artifact=${encodeURIComponent(file)}&from=chat`;
-              const { name: pName, version: pVersion } = parseMicrositeInfo(p.fileName);
               const badgeClass = statusBadgeClass(p.status);
               return (
               <div
@@ -320,16 +326,16 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                 style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', padding: '0 12px' }}
               >
                 <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                  {pName}
+                  {p.client}
                 </span>
                 {badgeClass && (
                   <span className={badgeClass} style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}>
                     {statusLabel(p.status)}
                   </span>
                 )}
-                {pVersion != null && (
+                {p.version != null && (
                   <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: '1px 5px', borderRadius: 4, background: 'var(--primary-soft)', color: 'var(--primary)', border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)' }}>
-                    v{pVersion}
+                    v{p.version}
                   </span>
                 )}
               </div>
