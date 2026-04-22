@@ -243,11 +243,24 @@ function EditorCanvas({
   const hasCssOverride = !!(
     activeAst.brand?.extractedCssVariables && Object.keys(activeAst.brand.extractedCssVariables).length > 0
   );
-  const tokens = resolveTokens(
+  let tokens = resolveTokens(
     activeAst.plugin,
     hasCssOverride ? '' : (activeAst.brand?.primaryColor ?? ''),
     mergedTokens as Parameters<typeof resolveTokens>[2],
   );
+  // Mirror what Microsite.tsx does: apply CSS variable overrides so the canvas
+  // background matches the section backgrounds rendered inside the Microsite component.
+  if (hasCssOverride) {
+    const vars = activeAst.brand!.extractedCssVariables!;
+    tokens = {
+      ...tokens,
+      accent:  (vars['--ms-accent']   ?? vars['--ms-hero-accent'] ?? tokens.accent)  as string,
+      bg:      (vars['--ms-bg']        ?? tokens.bg)                                  as string,
+      surface: (vars['--ms-bg2']       ?? vars['--ms-surface']    ?? tokens.surface)  as string,
+      text:    (vars['--ms-text']      ?? tokens.text)                                as string,
+      dark:    vars['--ms-is-dark'] !== undefined ? vars['--ms-is-dark'] === '1' : tokens.dark,
+    };
+  }
 
   return (
     <div
@@ -620,11 +633,24 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
   const hasCssOverride = !!(ctx.ast.brand?.extractedCssVariables && Object.keys(ctx.ast.brand.extractedCssVariables).length > 0);
   const mergedTokens = ctx.ast.customTokens ? { ...(ctx.ast.customDesignSystem ?? {}), ...ctx.ast.customTokens } : undefined;
-  const resolvedTokens = resolveTokens(
+  let resolvedTokens = resolveTokens(
     ctx.ast.plugin,
     hasCssOverride ? '' : (ctx.ast.brand?.primaryColor ?? ''),
     mergedTokens as Parameters<typeof resolveTokens>[2],
   );
+  // Apply CSS variable overrides so the Color Palette panel shows the same colors
+  // that the Microsite preview renders (Microsite.tsx applies these independently).
+  if (hasCssOverride) {
+    const vars = ctx.ast.brand!.extractedCssVariables!;
+    resolvedTokens = {
+      ...resolvedTokens,
+      accent:  (vars['--ms-accent']   ?? vars['--ms-hero-accent'] ?? resolvedTokens.accent)  as string,
+      bg:      (vars['--ms-bg']        ?? resolvedTokens.bg)                                  as string,
+      surface: (vars['--ms-bg2']       ?? vars['--ms-surface']    ?? resolvedTokens.surface)  as string,
+      text:    (vars['--ms-text']      ?? resolvedTokens.text)                                as string,
+      dark:    vars['--ms-is-dark'] !== undefined ? vars['--ms-is-dark'] === '1' : resolvedTokens.dark,
+    };
+  }
 
   const currentTheme = THEME_REGISTRY.find((t) => t.id === ctx.ast.plugin);
 

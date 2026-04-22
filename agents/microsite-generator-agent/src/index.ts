@@ -377,27 +377,28 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
 ${styleHint}
 SECTION ARCHITECTURE (NON-NEGOTIABLE):
 
-REQUIRED sections — always include all 7, in this order:
+REQUIRED sections — always include all 8, in this order:
   1. hero       (first — always)
-  2. challenge  (the client's specific problem)
-  3. approach   (your solution / methodology)
-  4. deliverables (what the client receives)
-  5. timeline   (phases and durations)
-  6. pricing    (investment and payment schedule)
-  7. nextsteps  (last — always, the conversion closer)
+  2. overview   (second — always: project summary with "This Proposal Covers" scope items)
+  3. challenge  (the client's specific problem)
+  4. approach   (your solution / methodology)
+  5. deliverables (what the client receives)
+  6. timeline   (phases and durations)
+  7. pricing    (investment and payment schedule)
+  8. nextsteps  (last — always, the conversion closer)
 
 OPTIONAL sections — include ONLY if the proposal contains rich, distinct content for each:
-  8. whyus        (must be placed between timeline and pricing when included)
-  9. testimonials (include ONLY when the proposal source contains actual named client quotes, reviews, or feedback — place after whyus. If no real quotes exist, omit entirely)
-  10-15. metrics, benefits, stats, team, faq, casestudy, comparison — add ONLY when the proposal has substantial, unique content for them. Never invent or pad.
+  9. whyus        (must be placed between timeline and pricing when included)
+  10. testimonials (include ONLY when the proposal source contains actual named client quotes, reviews, or feedback — place after whyus. If no real quotes exist, omit entirely)
+  11-16. metrics, benefits, stats, team, faq, casestudy, comparison — add ONLY when the proposal has substantial, unique content for them. Never invent or pad.
 
-SECTION COUNT: Minimum 8 sections (all 7 required + at least whyus when eligible). Maximum 15 sections. If user instructions specify a count, follow exactly within this range.
+SECTION COUNT: Minimum 8 sections (all 8 required). Maximum 10 sections. When BOTH testimonials AND whyus exist, prefer merging testimonials into whyus as a sub-block rather than a standalone section — this saves a slot for higher-value content. If user instructions specify a count, follow exactly within this range.
 
 DO NOT include approval sections under any circumstances.
 
 CONSOLIDATION RULES — map ALL proposal content into canonical sections above:
 - "Objectives", "Goals", "Project Objectives", "Benefits", "Value Proposition" → fold into hero body or challenge section
-- "Introduction", "Overview", "Executive Summary", "Context", "Background" → fold into hero body
+- "Introduction", "Executive Summary", "Context", "Background", "Project Summary", "Overview" → map to overview section (never fold into hero body)
 - "Our Approach", "Methodology", "Proposed Solution", "Solution Overview" → approach
 - "Scope of Work", "Tasks", "Workstreams", "Activities", "Key Actions" → fold into deliverables
 - "Assumptions", "Limitations", "Exclusions", "Boundaries" → fold into pricing as footnote text
@@ -425,6 +426,7 @@ Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 Format (add/remove optional rows as needed — testimonials row is REQUIRED when source contains a testimonials/client feedback heading):
 [
   { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
+  { "type": "overview", "sourceHeading": "Project Summary", "rationale": "Project summary with scope items", "aiGenerated": false },
   { "type": "challenge", "sourceHeading": "The Problem", "rationale": "Client challenge section", "aiGenerated": false },
   { "type": "approach", "sourceHeading": "Proposed Solution", "rationale": "Solution methodology", "aiGenerated": false },
   { "type": "deliverables", "sourceHeading": "Scope of Work", "rationale": "Tangible outputs", "aiGenerated": false },
@@ -1429,16 +1431,32 @@ Transform into a Hero section. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Challenge section. CRITICAL FIDELITY RULES:
+Transform into a Challenge section.
+
+CONTENT SOURCING HIERARCHY (apply in priority order):
+TIER 1 (use first): The proposal's "Understanding of Requirements" or "Client Needs and Challenges" section. Look for: numbered client needs, "you mentioned that", "there is a pressing need for", "you indicated a need for". Extract 2-4 specific named pains.
+TIER 2 (if Tier 1 absent): Meeting transcripts, call summaries, or direct client quotes. Look for: "it once took me", specific complaints, named tools that are slow/broken, before/after comparisons. The "before" state is always more compelling.
+TIER 3 (if Tier 1+2 absent): Executive Summary or Project Objectives section. Flag with lower confidence.
+TIER 4 (AVOID unless Tier 1-3 yield nothing): Risk sections, Action Item tracking, Scope of Work operational tasks — these describe process mechanics, not client pain.
+
+QUALITY FILTER — run each candidate pain through this before writing:
+PASS: client would recognise this as their specific situation; names a concrete symptom (time wasted, money lost, relationship at risk); answers "what goes wrong if nothing changes?"
+FAIL (do not use): "team accountability needs improvement", "communication challenges", "processes can be streamlined" — any statement that applies to every business in every industry.
+
+HEADLINE PATTERN: "[The specific thing that costs them] is [the consequence they're trying to avoid]"
+BAD: "Ensure Team Accountability to Enhance Project Progression"
+GOOD: "Proposals That Take Days and ROI You Can't Measure Are Costing You Growth"
+
+CRITICAL FIDELITY RULES:
 1. Use specific metrics, pain points, and language from the source — do not generalize (e.g. preserve "month-end close takes 9 business days" not "slow processes").
 2. The "body" must name the exact problems described in the source, with any numbers present.
-3. The "pullquote" must be drawn from an actual statement in the source, not invented.
+3. The "pullquote" must be a near-verbatim lift from the proposal source or the most visceral statement of the core tension — NOT an invented generalisation.
 Return:
 {
   "eyebrow": "4-8 words",
-  "headline": "8-12 words, name the specific tension from source",
+  "headline": "8-12 words, name the specific client tension — not an internal process goal",
   "body": "3-5 sentences using specific details and metrics from the source — include all key pain points",
-  "pullquote": "sharpest insight drawn from source content, 10-18 words",
+  "pullquote": "sharpest insight drawn from source content (Tier 1 or 2 preferred), 10-18 words",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
@@ -1463,15 +1481,39 @@ Transform into an Approach section with pillars. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Deliverables section. CRITICAL FIDELITY RULES:
-1. Extract EVERY named deliverable from the source content individually — do NOT merge multiple deliverables into one item.
-2. Use the EXACT deliverable name from the source as the "name" field — do not paraphrase or generalize.
-3. If source has 10 deliverables, output 10 items. If 22, output 22. Do not compress.
+Transform into a Deliverables section.
+
+CARD COUNT RULE (mandatory):
+- IF source has 6 or fewer deliverables: extract each individually. One item per deliverable. Use exact names.
+- IF source has 7 or more deliverables: GROUP related deliverables by service area into MAX 6 grouped cards. Never render more than 6 cards — it overwhelms the reader.
+
+GROUPING ALGORITHM (when count > 6):
+Step 1 — Infer category from each deliverable title:
+  "report / audit / summary / status" → category: "Reporting"
+  "plan / strategy / roadmap / proposal" → category: "Strategy"
+  "template / agenda / log / record" → category: "Operations"
+  "training / coaching / curriculum / workshop / seminar" → category: "Coaching"
+  "marketing / campaign / social / media / brochure" → category: "Marketing"
+  "design / mock-up / rendering / visual" → category: "Design"
+  "CRM / integration / tool / system / software" → category: "Technology"
+  "succession / transition / handover / planning" → category: "Succession"
+  anything else → category: "General"
+Step 2 — Each unique category becomes ONE grouped card:
+  - "name": descriptive group title (e.g. "Coaching Package", "Marketing Package")
+  - "detail": 2-3 sentences summarising what the group collectively delivers. Mention each individual deliverable by name.
+  - "tag": short badge like "3 deliverables" stating how many items are grouped (fill with count)
+Step 3 — If grouping yields 7+ categories, merge the smallest two until ≤ 6 remain.
+Step 4 — Every source deliverable must map to exactly one card — no item may be dropped.
+
+CRITICAL FIDELITY RULES:
+1. All individual deliverable names from the source must appear somewhere in the grouped detail text.
+2. Do NOT fabricate deliverables or invent service names.
+3. For grouped cards, the "name" field is the package/group title — not a single deliverable name.
 Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "EXACT deliverable name from source", "detail": "2-3 sentences covering what this deliverable includes, the methodology, and the expected outcome"}],
+  "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "deliverable name or group title", "detail": "2-3 sentences covering what this includes", "tag": "optional — category badge e.g. '3 deliverables' when grouped, omit when individual"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
@@ -1485,11 +1527,14 @@ Transform into a Timeline section. CRITICAL FIDELITY RULES:
 1. Copy EVERY phase name EXACTLY as written in the source — do NOT rename, rephrase, or reword. If source says "Data Platform Assessment" output must say "Data Platform Assessment", never "Understanding Needs".
 2. Use the EXACT duration stated in the source (e.g. "Weeks 1–6" or "6 weeks") — do not recalculate or round.
 3. Extract ALL phases present in the source — do not merge or drop any.
+4. PHASE COUNT ACCURACY (mandatory): After writing the phases array, count the items. The subheadline MUST state this EXACT count in words (e.g. "five structured phases" not "four"). If they disagree, update the subheadline to match the actual count.
+5. Add a "summary" array with 2-3 engagement stats: total duration, phase count, and key deliverable or milestone count. Numbers only — derive from source.
 Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "subheadline": "1-2 sentences",
+  "subheadline": "1-2 sentences — must state the EXACT number of phases matching phases[] array length",
+  "summary": [{"number": "e.g. 14", "label": "Weeks Total"}, {"number": "e.g. 5", "label": "Phases"}, {"number": "e.g. 12", "label": "Key Deliverables"}],
   "phases": [{"label": "Phase N or label from source", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, deliverables, and goals of this phase from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
@@ -1568,12 +1613,23 @@ Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Why Us section. Return:
+Transform into a Why Us section.
+
+STAT DEDUPLICATION RULE (mandatory — prevents scoring penalty):
+1. Identify all financial figures in the proposal's pricing section: total investment, line-item amounts, milestone amounts, monthly fees.
+2. NEVER use any of those figures in Why Us stat cards. If a stat would repeat a financial total already in pricing (e.g. "$78,000 Total Project Value"), replace it.
+3. Use NON-FINANCIAL stats instead. Priority order for replacements:
+   PRIORITY 1 — Process efficiency: time saved ("Proposals in 3 hrs"), response improvements, volume metrics
+   PRIORITY 2 — Team capability: specialist count ("5 Specialist Roles"), service areas covered, sectors served, years of experience
+   PRIORITY 3 — Client outcomes: deliverable package count, phase count, timeline duration (if not in pricing)
+   PRIORITY 4 — Scope metrics: number of deliverable packages, number of structured phases
+4. Why Us must have at least 2 stat cards. If all financials are in pricing and no non-financial stats exist, use team headcount or deliverable count.
+Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "body": "3-5 sentences — explain why this company is uniquely qualified, using specific expertise and track record from the source",
-  "stats": [{"number": "from content", "label": "2-4 words", "context": "2 sentences explaining the significance"}],
+  "stats": [{"number": "non-financial metric from source — NEVER a dollar/€/£ total already in pricing", "label": "2-4 words", "context": "2 sentences explaining the significance"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
@@ -2457,7 +2513,8 @@ ROW TYPES — use these exact patterns:
     problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query" }`,
     stats: `FIDELITY: Only use numbers, percentages, or figures that appear VERBATIM in the source. NEVER invent metrics. If fewer than 3 real metrics exist, output only what exists.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "exact figure from source — ONLY if it appears in the proposal", "label": "2-4 words", "context": "1 sentence using language from source"}] }`,
-    overview: `{ "eyebrow": "4-8 words e.g. 'Executive Summary'", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "3-5 sentences summarising the engagement, context, and key facts", "highlights": [{ "icon": "string", "label": "2-4 words", "value": "concise fact or stat" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    overview: `This is the "Project Summary" section — a two-column layout: left has the headline + body, right shows "This Proposal Covers" scope items. Extract the main deliverables/scope areas from the proposal as highlights (4-7 items). Each highlight: "value" = the scope item name (5-10 words, title case), "label" = a one-line subtitle describing it (6-12 words). The headline should be bold and punchy (e.g. multi-line: "One company.\\nTwo powerful divisions.\\nOne clear website."). Body should be 2-3 short paragraphs explaining the project context and what makes this engagement different.
+{ "eyebrow": "2-4 words e.g. 'Project Summary'", "headline": "punchy 8-16 words (can use \\n for line breaks)", "subheadline": "", "body": "2-3 paragraphs separated by \\n\\n", "highlights": [{ "value": "Scope item name", "label": "Brief one-line description" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     metrics: `{ "eyebrow": "4-8 words e.g. 'Performance at Scale'", "headline": "8-12 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "stats": [{ "number": "specific metric e.g. '99.9%' or '3× faster'", "label": "2-4 words", "context": "1 short sentence" }], "strategies": ["3-5 scaling strategies, 5-10 words each, start with a verb"] }`,
     security: `{ "eyebrow": "4-8 words e.g. 'Built for Compliance'", "headline": "8-12 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "items": [{ "iconHint": "identity|digital|strategy|research", "name": "2-5 words, the security control", "description": "2-3 sentences, what it protects and why it matters" }] }`,
     techstack: `{ "eyebrow": "4-8 words e.g. 'Built on Modern Foundations'", "headline": "8-12 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "categories": [{ "iconHint": "identity|digital|content|strategy|research|launch|document|website", "name": "1-3 words e.g. 'Frontend'", "items": ["2-5 technology names in this category"] }] }`,
@@ -2550,6 +2607,17 @@ function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
     presentTypes.add('hero' as SectionType);
   }
 
+  // Ensure overview is always the second section
+  if (!presentTypes.has('overview' as SectionType)) {
+    additions.push({
+      type: 'overview' as SectionType,
+      sourceHeading: null,
+      rationale: 'Project summary with scope items — always required',
+      aiGenerated: true,
+    });
+    presentTypes.add('overview' as SectionType);
+  }
+
   // Ensure nextsteps exists
   if (!presentTypes.has('nextsteps' as SectionType)) {
     additions.push({
@@ -2561,23 +2629,26 @@ function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
     presentTypes.add('nextsteps' as SectionType);
   }
 
-  // Do NOT pad with fabricated sections — only hero/nextsteps are enforced.
-  // Every content section must come from the proposal source headings.
+  // Do NOT pad with fabricated sections — only hero/overview/nextsteps are enforced.
+  // Every other content section must come from the proposal source headings.
 
   if (additions.length === 0) return plan;
 
-  // Remove any stray approval sections, then insert additions before nextsteps
+  // Remove any stray approval sections
   const filtered = plan.filter(s => s.type !== 'approval');
-  const nextstepsIdx = filtered.findIndex(s => s.type === 'nextsteps');
 
-  if (nextstepsIdx >= 0) {
-    return [
-      ...filtered.slice(0, nextstepsIdx),
-      ...additions,
-      ...filtered.slice(nextstepsIdx),
-    ];
-  }
-  return [...filtered, ...additions];
+  // Build the final order: hero first, overview second, rest in original order, nextsteps last
+  const heroSections = filtered.filter(s => s.type === 'hero');
+  const overviewSections = filtered.filter(s => s.type === 'overview');
+  const nextstepsSections = filtered.filter(s => s.type === 'nextsteps');
+  const middle = filtered.filter(s => s.type !== 'hero' && s.type !== 'overview' && s.type !== 'nextsteps');
+
+  // Fill in missing required sections from additions
+  const heroFinal = heroSections.length > 0 ? heroSections : additions.filter(a => a.type === 'hero');
+  const overviewFinal = overviewSections.length > 0 ? overviewSections : additions.filter(a => a.type === 'overview');
+  const nextstepsFinal = nextstepsSections.length > 0 ? nextstepsSections : additions.filter(a => a.type === 'nextsteps');
+
+  return [...heroFinal, ...overviewFinal, ...middle, ...nextstepsFinal];
 }
 
 // Preferred substitute types when a duplicate is found, in priority order
@@ -3086,7 +3157,7 @@ export class MicrositeGeneratorAgent implements Agent {
       }
 
       const MIN_SECTIONS = 8;
-      const MAX_SECTIONS = 15;
+      const MAX_SECTIONS = 10;
 
       // Always strip approval sections — they are never generated
       if (sectionPlan) {
@@ -3303,12 +3374,12 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Hard cap: never generate more than 8 sections (6 required + nextsteps + optional whyus)
-      const MAX_SECTIONS_EXEC = 15;
+      // Hard cap: never generate more than 10 sections regardless of planning result
+      const MAX_SECTIONS_EXEC = 10;
       if (resolvedSections.length > MAX_SECTIONS_EXEC) {
         const originalCount = resolvedSections.length;
         // Preserve nextsteps at tail; keep whyus if present; prioritise required sections
-        const requiredOrder: SectionType[] = ['hero','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps'];
+        const requiredOrder: SectionType[] = ['hero','overview','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps'];
         const tail = resolvedSections.filter(s => s.type === 'nextsteps');
         const body = resolvedSections.filter(s => s.type !== 'nextsteps');
         // Sort body by required order, putting unrecognised types last

@@ -174,6 +174,7 @@ function renderSection(
   brief?: LayoutAST['brief'],
   namespace?: string,
   proposalId?: string,
+  meta?: LayoutAST['meta'],
 ) {
   // Root-relative paths (/presentation-images/...) are served by the API.
   // Rewrite them through the Next.js /api proxy so they work in the UI.
@@ -199,6 +200,7 @@ function renderSection(
           behavior={heroRaw.behavior as { hasParallax?: boolean; animation?: string } | undefined}
           imageOverlay={section.imageOverlay}
           sectionId={sid}
+          meta={meta ? { client: meta.client, author: meta.author, date: meta.date } : undefined}
         />
       );
       break;
@@ -495,6 +497,7 @@ function SectionWithOverlay({
   onSectionAiAction,
   namespace,
   proposalId,
+  meta,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -508,9 +511,10 @@ function SectionWithOverlay({
   onSectionAiAction?: (sectionId: string, instruction: string) => void;
   namespace?: string;
   proposalId?: string;
+  meta?: LayoutAST['meta'];
 }) {
   const editCtx = useEditContext();
-  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId);
+  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId, meta);
   // Apply per-section background override using scoped CSS to beat inline styles
   const sel = `[data-section-id="${section.id}"] section,[data-section-id="${section.id}"] > div > section`;
   const hasBgColor = !!section.bgColor;
@@ -625,7 +629,8 @@ const StableSectionWithOverlay = React.memo(SectionWithOverlay, (prev, next) => 
     prev.brief === next.brief &&
     prev.behavior === next.behavior &&
     prev.isStreaming === next.isStreaming &&
-    prev.onSectionAiAction === next.onSectionAiAction
+    prev.onSectionAiAction === next.onSectionAiAction &&
+    prev.meta === next.meta
   );
 });
 
@@ -1055,6 +1060,16 @@ ${el.innerHTML}
     }
   };
 
+  // Allow NextStepsSection's "Download this proposal" CTA to trigger PDF download
+  // without prop-drilling through the memoized section tree.
+  const downloadPdfRef = useRef(downloadPdf);
+  useEffect(() => { downloadPdfRef.current = downloadPdf; });
+  useEffect(() => {
+    const handler = () => downloadPdfRef.current();
+    window.addEventListener('microsite:download-pdf', handler);
+    return () => window.removeEventListener('microsite:download-pdf', handler);
+  }, []);
+
   // Build effects context values from AST
   const effectsContextValue = useMemo(
     () => ({
@@ -1221,6 +1236,7 @@ ${el.innerHTML}
                         onSectionAiAction={onSectionAiAction}
                         namespace={namespace}
                         proposalId={proposalId ?? ast.proposalId}
+                        meta={ast.meta}
                       />
                     )}
                   </TypewriterSection>

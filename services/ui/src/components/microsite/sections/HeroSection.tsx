@@ -45,6 +45,8 @@ interface Props {
   imageOverlay?: ImageOverlay;
   /** Section id — provided by MicrositeEditor to enable element-level click-to-edit */
   sectionId?: string;
+  /** Proposal metadata for the bottom metadata bar (Prepared For / Prepared By / Date) */
+  meta?: { client?: string; author?: string; date?: string };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -93,6 +95,7 @@ export function HeroSection({
   ui,
   behavior,
   imageOverlay,
+  meta,
 }: Props) {
   // Typewriter context — present only during active streaming animation
   const twCtx = useContext(TypewriterStateContext);
@@ -290,6 +293,54 @@ export function HeroSection({
     </R>
   );
 
+  // Metadata bar — Prepared For / Prepared By / Date
+  const metaItems = [
+    meta?.client ? { label: 'Prepared For', value: meta.client } : null,
+    meta?.author ? { label: 'Prepared By', value: meta.author } : null,
+    meta?.date   ? { label: 'Date',         value: meta.date   } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
+
+  const metadataBar = metaItems.length > 0 && (
+    <div
+      style={{
+        borderTop: `1px solid ${hasBgImage ? 'rgba(255,255,255,0.15)' : tokens.border}`,
+        paddingTop: 20,
+        marginTop: 32,
+        display: 'flex',
+        gap: 'clamp(1.5rem, 4vw, 3rem)',
+        flexWrap: 'wrap',
+      }}
+    >
+      {metaItems.map(({ label, value }) => (
+        <div key={label}>
+          <div
+            style={{
+              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+              fontSize: '0.6rem',
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase' as const,
+              color: hasBgImage ? heroTextSubtle : tokens.textSubtle,
+              marginBottom: 4,
+            }}
+          >
+            {label}
+          </div>
+          <div
+            style={{
+              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              color: hasBgImage ? 'rgba(255,255,255,0.88)' : tokens.text,
+            }}
+          >
+            {value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   // Glassmorphic side card — used by split/asymmetric when bg image is present
   const glassCard = (
     <Reveal delay={100} variant="fadeIn">
@@ -420,6 +471,7 @@ export function HeroSection({
               {subBody}
               {outcomePills}
               {ctaRow}
+              {metadataBar}
             </div>
             <div style={{ order: imgLeft ? 1 : 2 }}>{glassCard}</div>
           </div>
@@ -480,6 +532,7 @@ export function HeroSection({
               {subBody}
               {outcomePills}
               {ctaRow}
+              {metadataBar}
             </div>
             <div>{glassCard}</div>
           </div>
@@ -580,6 +633,7 @@ export function HeroSection({
           )}
           {outcomePills}
           {ctaRow}
+          {metadataBar}
         </div>
       </section>
     );
@@ -691,6 +745,7 @@ export function HeroSection({
           <R delay={320} style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             {ctaRow}
           </R>
+          {metadataBar}
         </div>
         <style>{`@media(max-width:768px){.ms-cg-grid{grid-template-columns:1fr!important}}`}</style>
       </section>
@@ -748,6 +803,7 @@ export function HeroSection({
           )}
           {outcomePills}
           {ctaRow}
+          {metadataBar}
         </div>
       </section>
     );
@@ -778,6 +834,7 @@ export function HeroSection({
             {ctaRow}
           </div>
         </div>
+        {metadataBar}
       </div>
     </section>
   );
