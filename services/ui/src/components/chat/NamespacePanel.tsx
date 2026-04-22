@@ -281,7 +281,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                   key={m.proposalId}
                   className="sidebar-link"
                   onClick={() => onMicrositeClick?.(m)}
-                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 12px 2px', background: '#151c2e', padding: '0 12px' }}
+                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', padding: '0 12px' }}
                 >
                   <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                     {name}
@@ -317,7 +317,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                 key={p.fileName}
                 className="sidebar-link"
                 onClick={() => router.push(href)}
-                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 12px 2px', background: '#151c2e', padding: '0 12px' }}
+                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', padding: '0 12px' }}
               >
                 <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                   {pName}
@@ -363,7 +363,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                       height: 32,
                       minWidth: 0,
                       margin: '0 12px 2px',
-                      background: isActive ? 'color-mix(in srgb, var(--primary) 12%, #151c2e)' : '#151c2e',
+                      background: isActive ? 'color-mix(in srgb, var(--primary) 12%, var(--panel-soft))' : 'var(--panel-soft)',
                       paddingLeft: 12,
                       paddingRight: isHovered || isMenuOpen ? 36 : 12,
                       transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease, transform 0.2s ease',
@@ -455,7 +455,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
               <button
                 onClick={() => setConfirmFile(null)}
                 disabled={deleting}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: '#151c2e', color: 'var(--text)', fontSize: 14, cursor: deleting ? 'not-allowed' : 'pointer' }}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deleting ? 'not-allowed' : 'pointer' }}
               >Cancel</button>
               <button
                 onClick={handleDeleteConfirmed}
