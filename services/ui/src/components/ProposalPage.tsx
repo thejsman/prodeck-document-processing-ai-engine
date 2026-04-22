@@ -464,7 +464,7 @@ export function ProposalPage() {
 
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      <div className="chat-v2">
         <header className="chat-v2-header">
           <div className="chat-v2-header-left">
             <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
@@ -503,7 +503,7 @@ export function ProposalPage() {
 
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {fromChat ? (
-            <>
+            <div className="page-container">
               {(regenError || workflowError) && (
                 <p className="error">{regenError || workflowError}</p>
               )}
@@ -521,7 +521,7 @@ export function ProposalPage() {
                 onSaveSection={handleSaveSection}
                 isSaving={isSaving}
               />
-            </>
+            </div>
           ) : (
             <div className="two-col">
               <div className="col-left">
