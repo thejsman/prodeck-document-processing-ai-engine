@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutAST } from '../../../types/presentation';
 
@@ -32,12 +32,27 @@ interface Props {
 
 export function ColorPaletteEditor({ tokens, onClose }: Props) {
   const ctx = useEditContext();
+
+  const effectiveAccent  = (ctx?.ast.customTokens?.accent  ?? tokens.accent)  as string;
+  const effectiveBg      = (ctx?.ast.customTokens?.bg      ?? tokens.bg)      as string;
+  const effectiveSurface = (ctx?.ast.customTokens?.surface ?? tokens.surface) as string;
+  const effectiveText    = (ctx?.ast.customTokens?.text    ?? tokens.text)    as string;
+
   const [localTokens, setLocalTokens] = useState<Record<string, string>>({
-    accent:  (ctx?.ast.customTokens?.accent  ?? tokens.accent)  as string,
-    bg:      (ctx?.ast.customTokens?.bg      ?? tokens.bg)      as string,
-    surface: (ctx?.ast.customTokens?.surface ?? tokens.surface) as string,
-    text:    (ctx?.ast.customTokens?.text    ?? tokens.text)    as string,
+    accent: effectiveAccent, bg: effectiveBg, surface: effectiveSurface, text: effectiveText,
   });
+
+  // Sync localTokens whenever the resolved tokens change (e.g. on editor first-open
+  // when extractedCssVariables are applied, or after theme/plugin switch).
+  useEffect(() => {
+    setLocalTokens({
+      accent:  (ctx?.ast.customTokens?.accent  ?? tokens.accent)  as string,
+      bg:      (ctx?.ast.customTokens?.bg      ?? tokens.bg)      as string,
+      surface: (ctx?.ast.customTokens?.surface ?? tokens.surface) as string,
+      text:    (ctx?.ast.customTokens?.text    ?? tokens.text)    as string,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokens.accent, tokens.bg, tokens.surface, tokens.text, ctx?.ast.customTokens]);
 
   if (!ctx) return null;
 

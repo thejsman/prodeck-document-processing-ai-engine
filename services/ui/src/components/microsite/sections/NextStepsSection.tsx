@@ -34,6 +34,10 @@ export function NextStepsSection({ content, tokens, sectionId, sections: _sectio
   const primaryLabel = resolveCtaLabel(content.ctaPrimary, 'Schedule a Call →');
   const secondaryLabel = resolveCtaLabel(content.ctaSecondary, 'Download This Proposal →');
 
+  const handleSecondaryClick = secondaryLabel.toLowerCase().includes('download')
+    ? () => window.dispatchEvent(new CustomEvent('microsite:download-pdf'))
+    : undefined;
+
   return (
     <section
       id={sectionId ?? 'nextsteps'}
@@ -165,7 +169,7 @@ export function NextStepsSection({ content, tokens, sectionId, sections: _sectio
           <CTAButton tokens={tokens}>
             {primaryLabel}
           </CTAButton>
-          <CTAButton tokens={tokens} variant="secondary">
+          <CTAButton tokens={tokens} variant="secondary" onClick={handleSecondaryClick}>
             {secondaryLabel}
           </CTAButton>
         </Reveal>

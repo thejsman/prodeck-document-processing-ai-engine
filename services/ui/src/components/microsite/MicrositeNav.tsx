@@ -22,7 +22,7 @@ function getScrollContainer(id?: string): HTMLElement {
 export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Props) {
   // Stable filtered list — memoized so IntersectionObserver doesn't reconnect on every streaming update
   const navLinks = useMemo(
-    () => sections.filter((s) => s.sectionType !== 'approval' && (s.sectionType as string) !== 'chart'),
+    () => sections.filter((s) => s.sectionType !== 'approval' && (s.sectionType as string) !== 'chart' && s.sectionType !== 'hero'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sections.map((s) => s.id).join(',')],
   );
