@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type {
   ProposalDocument,
   ProposalFile,
@@ -39,6 +41,11 @@ export function ProposalPage() {
   const searchParams = useSearchParams();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
+  const router = useRouter();
+  const proposalName = (currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined
+    ?? searchParams.get('artifact')
+    ?? 'Proposals';
+  const currentStatus = meta?.status ?? 'draft';
   const [currentDocument, setCurrentDocument] =
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -338,6 +345,35 @@ export function ProposalPage() {
     }
   }
 
+  function handleGenerateMicrosite() {
+    if (!currentDocument) return;
+    const fileName = currentFileName();
+    const ns = fileName?.includes('::') ? fileName.split('::')[0] : '';
+    const m = currentDocument.metadata as Record<string, unknown>;
+    const proposalFile: ProposalFile = {
+      fileName: fileName ?? '',
+      client: proposalName ?? '',
+      version: (m.version as number | null) ?? null,
+      createdAt: (m.created_at as string | undefined) ?? new Date().toISOString(),
+      sizeBytes: 0,
+      status: currentStatus,
+      lockedSections: meta?.lockedSections ?? [],
+    };
+    try {
+      sessionStorage.setItem('ms_wizard_state', JSON.stringify({
+        step: 'brand',
+        wasGenerating: false,
+        progress: [],
+        streamingSections: [],
+        error: null,
+        selectedNamespace: ns,
+        selectedProposal: proposalFile,
+      }));
+      if (ns) localStorage.setItem('ms_namespace', ns);
+    } catch { /* ignore */ }
+    router.push('/presentation');
+  }
+
   async function handleSelectHistory(file: ProposalFile) {
     setWorkflowError('');
     setRegenError('');
@@ -427,38 +463,74 @@ export function ProposalPage() {
 
   return (
     <>
-      <div className="page-header">
-        <h1>Proposal Generator</h1>
-      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+        <header className="chat-v2-header">
+          <div className="chat-v2-header-left">
+            <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
+          </div>
+          <div className="chat-v2-header-right">
+            <button
+              style={{
+                height: 30,
+                padding: '0 12px',
+                whiteSpace: 'nowrap',
+                background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
+                color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
+                border: 'none',
+                borderRadius: 'var(--radius)',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
+                flexShrink: 0,
+                opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
+              }}
+              disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
+              onClick={handleGenerateMicrosite}
+            >
+              Generate Microsite
+            </button>
+            <button
+              className="chat-v2-panel-toggle"
+              onClick={() => router.back()}
+              title="Close"
+              aria-label="Close"
+            >
+              <Icon icon={X} size="sm" />
+            </button>
+          </div>
+        </header>
 
-      <div className="two-col">
-        <div className="col-left">
-          <ProposalForm
-            onGenerate={handleGenerate}
-            isGenerating={isGenerating}
-            setIsGenerating={setIsGenerating}
-          />
-          <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
-        </div>
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="two-col">
+            <div className="col-left">
+              <ProposalForm
+                onGenerate={handleGenerate}
+                isGenerating={isGenerating}
+                setIsGenerating={setIsGenerating}
+              />
+              <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
+            </div>
 
-        <div className="col-right">
-          {(regenError || workflowError) && (
-            <p className="error">{regenError || workflowError}</p>
-          )}
-          <ProposalWorkspace
-            document={currentDocument}
-            isGenerating={isGenerating}
-            regeneratingSection={regeneratingSection}
-            meta={meta}
-            onRegenerateAll={handleRegenerateAll}
-            onRegenerateSection={handleRegenerateSection}
-            onImproveWithAI={handleOpenAIEditor}
-            onToggleLock={handleToggleLock}
-            onSetStatus={handleSetStatus}
-            onShowDiff={handleShowDiff}
-            onSaveSection={handleSaveSection}
-            isSaving={isSaving}
-          />
+            <div className="col-right">
+              {(regenError || workflowError) && (
+                <p className="error">{regenError || workflowError}</p>
+              )}
+              <ProposalWorkspace
+                document={currentDocument}
+                isGenerating={isGenerating}
+                regeneratingSection={regeneratingSection}
+                meta={meta}
+                onRegenerateAll={handleRegenerateAll}
+                onRegenerateSection={handleRegenerateSection}
+                onImproveWithAI={handleOpenAIEditor}
+                onToggleLock={handleToggleLock}
+                onSetStatus={handleSetStatus}
+                onShowDiff={handleShowDiff}
+                onSaveSection={handleSaveSection}
+                isSaving={isSaving}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
