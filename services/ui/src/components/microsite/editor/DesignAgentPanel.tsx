@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, LoaderCircle, ArrowRight } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '../../../lib/auth-context';
 import { designEditMicrosite } from '../../../lib/api';
@@ -9,7 +9,7 @@ import type { LayoutAST } from '../../../types/presentation';
 
 // ── Quick suggestion chips ─────────────────────────────────────────────────
 
-const QUICK_CHIPS = [
+const DESIGN_CHIPS = [
   { icon: '🌑', text: 'Darker & dramatic' },
   { icon: '💎', text: 'Luxury — deep dark, gold accent' },
   { icon: '🪟', text: 'Glassmorphic' },
@@ -18,14 +18,32 @@ const QUICK_CHIPS = [
   { icon: '🎮', text: 'Playful & rounded' },
   { icon: '⬛', text: 'Brutalist — stark, high contrast' },
   { icon: '🌿', text: 'Warm earthy tones' },
-  { icon: '🎵', text: 'Generate color harmony' },
   { icon: '✨', text: 'Add animations & motion' },
   { icon: '〰', text: 'Add wavy section dividers' },
   { icon: '✦', text: 'Add floating orbs decoration' },
-  { icon: 'Aa', text: 'Bold monumental typography' },
-  { icon: 'Aa', text: 'Change font to Poppins' },
-  { icon: 'Aa', text: 'Change font to Montserrat' },
   { icon: '✋', text: 'Add hover lift effects' },
+];
+
+const CONTENT_CHIPS_SECTION = [
+  { icon: '✎', label: 'Rewrite', text: 'Rewrite this section with improved copy' },
+  { icon: '✂', label: 'Shorten', text: 'Make this section more concise — 3 bullet points max' },
+  { icon: '↕', label: 'Expand', text: 'Expand this section with more detail and supporting evidence' },
+  { icon: '💼', label: 'C-Suite tone', text: 'Rewrite this section for a C-suite executive audience — strategic, concise, outcome-focused' },
+  { icon: '🔥', label: 'More urgent', text: 'Rewrite this section to feel more urgent and compelling' },
+  { icon: '📊', label: 'Add stats', text: 'Enhance this section by adding relevant statistics, percentages, or data points' },
+  { icon: '◈', label: 'Restyle', text: 'Restyle this section — make it more visually striking' },
+  { icon: '🌍', label: 'Simplify', text: 'Rewrite this section in plain, simple language anyone can understand' },
+];
+
+const CONTENT_CHIPS_DECK = [
+  { icon: '✎', label: 'Rewrite all', text: 'Rewrite all section copy to be more compelling and polished' },
+  { icon: '✂', label: 'Shorten all', text: 'Make every section more concise — trim to essentials' },
+  { icon: '💼', label: 'C-Suite tone', text: 'Rewrite all copy for a C-suite executive audience — strategic, concise, outcome-focused' },
+  { icon: '🏢', label: 'CTO audience', text: 'Rewrite all copy for a technical CTO audience' },
+  { icon: '🔥', label: 'More urgent', text: 'Rewrite all sections to feel more urgent and action-oriented' },
+  { icon: '🤝', label: 'Warmer tone', text: 'Make the full proposal tone warmer and more conversational' },
+  { icon: '📊', label: 'Add stats', text: 'Enhance sections by adding relevant statistics and data points throughout' },
+  { icon: '🌍', label: 'Simplify', text: 'Rewrite the entire deck in plain, simple language anyone can understand' },
 ];
 
 // ── Panel ─────────────────────────────────────────────────────────────────
@@ -36,9 +54,11 @@ interface Props {
   proposalId: string;
   targetSectionId?: string;
   initialInstruction?: string;
+  initialTab?: 'design' | 'content';
   onApply: (newAst: LayoutAST) => void;
   onClose: () => void;
   onPreview?: (previewAst: LayoutAST | null) => void;
+  onRunningChange?: (running: boolean) => void;
 }
 
 type Step = 'idle' | 'running' | 'done';
@@ -65,11 +85,14 @@ export function DesignAgentPanel({
   proposalId,
   targetSectionId,
   initialInstruction,
+  initialTab,
   onApply,
   onClose,
   onPreview,
+  onRunningChange,
 }: Props) {
   const { apiKey } = useAuth();
+  const [activeTab, setActiveTab] = useState<'design' | 'content'>(initialTab ?? 'design');
   const [instruction, setInstruction] = useState(initialInstruction ?? '');
   const [step, setStep] = useState<Step>('idle');
   const [error, setError] = useState('');
@@ -97,6 +120,7 @@ export function DesignAgentPanel({
     setResult(null);
     onPreview?.(null);
     setStep('running');
+    onRunningChange?.(true);
 
     try {
       const apiResult = await designEditMicrosite(apiKey, namespace, proposalId, {
@@ -129,11 +153,13 @@ export function DesignAgentPanel({
       });
 
       onPreview?.(newAst);
+      onRunningChange?.(false);
       setStep('done');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[DesignAI] Error:', err);
       setError(msg);
+      onRunningChange?.(false);
       setStep('idle');
     }
   }
@@ -161,6 +187,56 @@ export function DesignAgentPanel({
   const changedTokens = result
     ? Object.keys(result.tokensAfter).filter(k => result.tokensAfter[k] !== result.tokensBefore[k])
     : [];
+
+  // When preview is ready, collapse to a bottom bar so the canvas is fully visible
+  if (step === 'done' && result) {
+    return (
+      <div style={{
+        position: 'fixed',
+        bottom: 24,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 10100,
+        background: '#0f172a',
+        border: '1px solid rgba(99,102,241,0.35)',
+        borderRadius: 16,
+        boxShadow: '0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(99,102,241,0.2)',
+        padding: '12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        minWidth: 460,
+        maxWidth: 640,
+      }}>
+        <span style={{ fontSize: 16 }}>✦</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#818cf8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {result.summary || 'Design updated'}
+          </div>
+          <div style={{ fontSize: 10, color: '#475569', marginTop: 1 }}>
+            Previewing changes — scroll to review
+          </div>
+        </div>
+        <button onClick={handleRevert} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+          ✕ Revert
+        </button>
+        <button
+          onClick={() => { setResult(null); onPreview?.(null); setStep('idle'); }}
+          style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.10)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#818cf8', whiteSpace: 'nowrap' }}
+        >
+          ↺ Refine
+        </button>
+        <button
+          onClick={handleApply}
+          disabled={result.changed.length === 0}
+          style={{ padding: '7px 18px', borderRadius: 8, border: 'none', background: result.changed.length === 0 ? '#334155' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: result.changed.length === 0 ? '#475569' : '#fff', fontSize: 12, fontWeight: 700, cursor: result.changed.length === 0 ? 'not-allowed' : 'pointer', boxShadow: result.changed.length === 0 ? 'none' : '0 2px 8px rgba(99,102,241,0.4)', whiteSpace: 'nowrap' }}
+        >
+          ✓ Apply
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -237,9 +313,12 @@ export function DesignAgentPanel({
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={targetSectionId
-              ? 'Describe the change — e.g. "Rewrite the headline to be more urgent"'
-              : 'Describe the look — e.g. "Make it darker with a gold accent and luxury feel"'
+            placeholder={
+              targetSectionId
+                ? 'Describe the change — e.g. "Rewrite the headline to be more urgent"'
+                : activeTab === 'content'
+                  ? 'Describe the copy change — e.g. "Rewrite everything for a technical CTO"'
+                  : 'Describe the look — e.g. "Make it darker with a gold accent and luxury feel"'
             }
             rows={3}
             style={{
@@ -266,14 +345,56 @@ export function DesignAgentPanel({
           </div>
         </div>
 
-        {/* Quick chips */}
+        {/* Tab switcher + chips */}
         {step === 'idle' && !result && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Quick suggestions
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+              {(['design', 'content'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  style={{
+                    flex: 1,
+                    padding: '6px 0',
+                    borderRadius: 7,
+                    border: '1px solid',
+                    borderColor: activeTab === tab ? '#6366f1' : 'rgba(255,255,255,0.08)',
+                    background: activeTab === tab ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.03)',
+                    color: activeTab === tab ? '#818cf8' : '#64748b',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    transition: 'all 0.12s',
+                  }}
+                >
+                  {tab === 'design' ? '🎨 Design' : '✍️ Content'}
+                </button>
+              ))}
             </div>
+
+            {/* Scope badge — only for content tab */}
+            {activeTab === 'content' && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '5px 10px', borderRadius: 7, marginBottom: 6,
+                background: targetSectionId ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${targetSectionId ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.08)'}`,
+              }}>
+                <span style={{ fontSize: 11 }}>{targetSectionId ? '📍' : '🌐'}</span>
+                <span style={{ fontSize: 11, color: targetSectionId ? '#818cf8' : '#64748b', fontWeight: 600 }}>
+                  {targetSectionId
+                    ? `Section: ${ast.sections.find(s => s.id === targetSectionId)?.heading || ast.sections.find(s => s.id === targetSectionId)?.sectionType || 'selected section'}`
+                    : 'Entire deck — all sections'}
+                </span>
+              </div>
+            )}
+
+            {/* Chips */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {QUICK_CHIPS.map((chip) => (
+              {(activeTab === 'design' ? DESIGN_CHIPS : targetSectionId ? CONTENT_CHIPS_SECTION : CONTENT_CHIPS_DECK).map((chip) => (
                 <button
                   key={chip.text}
                   onClick={() => {
@@ -294,11 +415,13 @@ export function DesignAgentPanel({
                     alignItems: 'center',
                     gap: 4,
                     transition: 'all 0.12s',
-                    whiteSpace: 'nowrap',
+                    whiteSpace: activeTab === 'design' ? 'nowrap' : 'normal',
+                    textAlign: 'left',
+                    lineHeight: 1.4,
                   }}
                 >
-                  <span>{chip.icon}</span>
-                  {chip.text}
+                  <span style={{ flexShrink: 0 }}>{chip.icon}</span>
+                  {'label' in chip ? (chip as { label: string }).label : chip.text}
                 </button>
               ))}
             </div>

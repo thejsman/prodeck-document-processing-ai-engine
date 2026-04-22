@@ -91,6 +91,28 @@ function parseExplicitCount(ci: string): number | null {
   return m ? parseInt(m[1], 10) : null;
 }
 
+// ── Industry classification & section whitelist (Rule 2) ─────────────────────
+
+type IndustryClass = 'TECHNICAL' | 'SERVICES' | 'TRADES' | 'HEALTHCARE' | 'FINANCE';
+
+function classifyIndustry(clientIndustry: string): IndustryClass {
+  const i = clientIndustry.toLowerCase();
+  if (/software|saas|engineering|devops|cybersec|it\b|cloud|fintech|tech/i.test(i)) return 'TECHNICAL';
+  if (/health|medical|dental|pharma|wellness|therapy/i.test(i)) return 'HEALTHCARE';
+  if (/account|insur|legal|banking|invest|financ/i.test(i)) return 'FINANCE';
+  if (/landscap|construct|hvac|plumb|clean|maintenance|renovation|trade/i.test(i)) return 'TRADES';
+  if (/market|consult|design|pr\b|advertis|branding|media|agency/i.test(i)) return 'SERVICES';
+  return 'SERVICES'; // safe default for unknown industries
+}
+
+const INDUSTRY_STRIPPED_SECTIONS: Record<IndustryClass, SectionType[]> = {
+  TECHNICAL:  [],
+  SERVICES:   ['techstack', 'testing'],
+  TRADES:     ['techstack', 'testing', 'security'],
+  HEALTHCARE: ['techstack', 'testing'],
+  FINANCE:    ['techstack', 'testing'],
+};
+
 function classifySection(heading: string): SectionType {
   const h = heading.toLowerCase();
   if (/executive\s*summary|overview/.test(h)) return 'overview';
@@ -351,50 +373,68 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
     ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 800)}\n`
     : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 800)}\n` : '');
   const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
-  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Read this proposal markdown and design the optimal section sequence for a high-impact presentation microsite.
+  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Design a curated, high-impact presentation microsite from this proposal. Quality beats quantity — 8 excellent sections outperform 18 mediocre ones every time.
 ${styleHint}
-RULES (NON-NEGOTIABLE — these cannot be overridden by style or visual instructions):
-- Output a JSON array covering ALL sections found in the proposal. Minimum 7 sections, no upper limit.
-- ALWAYS include: hero (first), nextsteps (second-to-last), approval (last).
-- Map EVERY source heading in the proposal to a section — do NOT skip, compress, or merge any heading that has content. Losing proposal content is a critical failure.
-- CRITICAL: Each source heading becomes its OWN separate plan entry. NEVER combine two source headings into one plan entry.
-- TYPE SELECTION RULE: Pick the most semantically accurate type for each heading. You are NOT limited to the predefined list — if a heading doesn't fit a predefined type well, OR would duplicate a type already used, invent a concise descriptive type name (lowercase, hyphenated, 2-4 words e.g. "risk-profile", "risk-communication", "market-context", "compliance-overview", "platform-overview"). Custom types render as rich generic sections — use them freely.
-- PREDEFINED TYPES (use when they fit precisely): hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, faq, team, casestudy, comparison, metrics, security, techstack, testing, generic.
-- SHALLOW TYPE WARNING — NEVER use these types for content-heavy proposal sections: "showcase" is for portfolio/visual galleries only — NEVER use it for "Proposed Solution", "Technical Approach", "Methodology", or any section with detailed written content. "benefits" is for short value-prop bullet lists only. "stats" requires real numeric data in the source. If a section has detailed written content (paragraphs, lists of steps, objectives, or strategies), use "approach", "deliverables", "generic", or a custom type instead.
-- DUPLICATE TYPE RULE: If you already assigned type "challenge" to one heading and another heading is also challenge-like, give the second one a custom descriptive type like "risk-communication" or "risk-pricing" — do NOT reuse the same predefined type OR force it into an unrelated predefined type (never use "showcase" for a risk section, never use "benefits" for a risk section).
-- AI-GENERATED SECTIONS RULE: Only add AI-generated sections (aiGenerated: true) if the proposal has fewer than 5 source headings AND a critical section type is completely absent (e.g. no pricing at all, no timeline at all). NEVER add AI-generated sections just to reach a minimum count. Every section must earn its place with real proposal content. Do NOT fabricate sections for "testimonials", "whyus", "stats", "benefits", or "team" unless the proposal explicitly contains that content.
-- CONTENT-FIRST: never compress, merge, or drop unique proposal sections. Never invent content not present in the proposal.
+SECTION ARCHITECTURE (NON-NEGOTIABLE):
 
-HEADING → TYPE MAPPING EXAMPLES:
-- "Executive Summary", "About This Proposal" → hero
-- "Introduction", "Context", "Background", "About This Engagement" → overview
-- "The Problem", "Pain Points", "The Challenge", "Context" → challenge
-- "Our Approach", "Methodology", "Proposed Solution", "Technical Approach", "Solution Overview" → approach
-- "Scope of Work", "Deliverables", "What You Get" → deliverables
-- "Timeline", "Phases", "Roadmap", "Milestones" → timeline
-- "Investment", "Pricing", "Budget", "Budget Estimate", "Cost", "Financial Summary" → pricing
-- "Why Us", "Our Credentials", "About Us" → whyus
-- "Benefits", "Value", "ROI", "The Upside" → benefits
-- "Testimonials", "Client Stories", "Reviews" → testimonials
-- "Project Objectives", "Objectives", "Goals", "Key Goals" → project-objectives (custom)
-- "Conclusion", "Summary", "Closing" → nextsteps
-- "Next Steps", "Getting Started", "What Happens Next" → nextsteps
-- "FAQ", "Common Questions" → faq
-- "Our Team", "Key People" → team
-- "Risk: Google Business Profile" → risk-profile (custom — fits no predefined type precisely)
-- "Risk: Communication and Implementation" → risk-communication (custom)
-- "Risk: Pricing and Budgeting" → risk-pricing (custom)
-- "Market Overview", "Industry Context" → market-overview (custom)
-- "Governance", "Compliance Framework" → compliance-overview (custom)
+REQUIRED sections — always include all 8, in this order:
+  1. hero       (first — always)
+  2. overview   (second — always: project summary with "This Proposal Covers" scope items)
+  3. challenge  (the client's specific problem)
+  4. approach   (your solution / methodology)
+  5. deliverables (what the client receives)
+  6. timeline   (phases and durations)
+  7. pricing    (investment and payment schedule)
+  8. nextsteps  (last — always, the conversion closer)
+
+OPTIONAL sections — include ONLY if the proposal contains rich, distinct content for each:
+  9. whyus        (must be placed between timeline and pricing when included)
+  10. testimonials (include ONLY when the proposal source contains actual named client quotes, reviews, or feedback — place after whyus. If no real quotes exist, omit entirely)
+  11-16. metrics, benefits, stats, team, faq, casestudy, comparison — add ONLY when the proposal has substantial, unique content for them. Never invent or pad.
+
+SECTION COUNT: Minimum 8 sections (all 8 required). Maximum 10 sections. When BOTH testimonials AND whyus exist, prefer merging testimonials into whyus as a sub-block rather than a standalone section — this saves a slot for higher-value content. If user instructions specify a count, follow exactly within this range.
+
+DO NOT include approval sections under any circumstances.
+
+CONSOLIDATION RULES — map ALL proposal content into canonical sections above:
+- "Objectives", "Goals", "Project Objectives", "Benefits", "Value Proposition" → fold into hero body or challenge section
+- "Introduction", "Executive Summary", "Context", "Background", "Project Summary", "Overview" → map to overview section (never fold into hero body)
+- "Our Approach", "Methodology", "Proposed Solution", "Solution Overview" → approach
+- "Scope of Work", "Tasks", "Workstreams", "Activities", "Key Actions" → fold into deliverables
+- "Assumptions", "Limitations", "Exclusions", "Boundaries" → fold into pricing as footnote text
+- "Risk", "Risk Management", "Compliance", "Security", "Governance" → fold into deliverables detail or pricing footnote
+- "Why Us", "Credentials", "About Us", "Our Team", "Case Studies" → whyus (only if included)
+- "Testimonials", "Client Feedback", "Client Testimonials", "Reviews", "What Clients Say" → MUST map to a separate { "type": "testimonials" } entry in the plan — do NOT fold into whyus, do NOT omit if the source heading exists
+- "FAQ", "Common Questions" → omit unless substantial; if included, add as a "faq" section
+- "Stats", "Metrics" → fold into whyus or challenge unless they deserve a standalone "stats" section
+- "Conclusion", "Summary", "Closing", "Next Steps", "Getting Started" → nextsteps
+
+CONTENT FIDELITY — when consolidating:
+- Do NOT invent facts, numbers, or names
+- Each source heading's content becomes part of the target section's rawBody
+- Use the sourceHeading field to record where content came from for the Pass 2 agent
+- NEVER lose pricing data — it MUST appear in the pricing section regardless of which source heading it was under
+
+AI-GENERATED SECTIONS: Only add aiGenerated: true if a REQUIRED section type has ZERO content anywhere in the proposal (e.g. truly no timeline info). Maximum 1 AI-generated section per run. NEVER fabricate content.
+
+EMPTY SECTION GUARD: Do NOT include whyus unless the proposal contains a specific named past client, a concrete measurable outcome, or a unique methodology name. Generic claims ("experienced team", "data-driven") do not qualify.
+
+DIAGRAM RULE: When outputting a diagram hint, match diagram type to section — approach/pillars → steps-flow; timeline → gantt or steps-flow; pricing → donut-chart or no diagram; whyus/metrics → stats-grid or bar-chart; challenge → user-journey. NEVER assign system-architecture or frontend/backend graphs to non-technical proposal sections (marketing, landscaping, consulting, HR, etc.).
 ${styleHintBlock}
 Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
-Format:
+Format (add/remove optional rows as needed — testimonials row is REQUIRED when source contains a testimonials/client feedback heading):
 [
   { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
-  { "type": "risk-profile", "sourceHeading": "Risk: Google Business Profile", "rationale": "Custom type — risk content specific to GBP", "aiGenerated": false },
-  { "type": "risk-communication", "sourceHeading": "Risk: Communication and Implementation", "rationale": "Custom type — second risk section, distinct from first", "aiGenerated": false },
-  { "type": "stats", "sourceHeading": null, "rationale": "Metrics scattered across proposal — consolidate", "aiGenerated": true }
+  { "type": "overview", "sourceHeading": "Project Summary", "rationale": "Project summary with scope items", "aiGenerated": false },
+  { "type": "challenge", "sourceHeading": "The Problem", "rationale": "Client challenge section", "aiGenerated": false },
+  { "type": "approach", "sourceHeading": "Proposed Solution", "rationale": "Solution methodology", "aiGenerated": false },
+  { "type": "deliverables", "sourceHeading": "Scope of Work", "rationale": "Tangible outputs", "aiGenerated": false },
+  { "type": "timeline", "sourceHeading": "Implementation Plan", "rationale": "Phases and durations", "aiGenerated": false },
+  { "type": "whyus", "sourceHeading": "Qualifications", "rationale": "Credentials and differentiators", "aiGenerated": false },
+  { "type": "testimonials", "sourceHeading": "Client Testimonials", "rationale": "Real client quotes — MUST include when source heading exists", "aiGenerated": false },
+  { "type": "pricing", "sourceHeading": "Investment", "rationale": "Pricing table", "aiGenerated": false },
+  { "type": "nextsteps", "sourceHeading": "Next Steps", "rationale": "Conversion closer", "aiGenerated": false }
 ]
 
 PROPOSAL:
@@ -413,7 +453,7 @@ You are a section plan editor. Reshape the plan below to satisfy the USER COMMAN
 CURRENT PLAN:
 ${JSON.stringify(plan, null, 2)}
 
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, generic
 
 RULES:
 - Return ONLY a valid JSON array — same format as CURRENT PLAN
@@ -435,7 +475,7 @@ Parse the following user instruction into a structured command JSON.
 
 CURRENT PLUGIN: "${currentPlugin}"
 VALID PLUGINS: obsidian, ivory, cobalt, sage
-VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, approval, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, generic
+VALID SECTION TYPES: hero, challenge, approach, deliverables, timeline, pricing, whyus, nextsteps, testimonials, showcase, benefits, problem, stats, metrics, security, techstack, testing, faq, team, comparison, casestudy, generic
 VALID LAYOUT VARIANTS: split, editorial, asymmetric, card-grid, minimal, centered, type-forward
 
 USER INSTRUCTION:
@@ -1325,7 +1365,8 @@ export function buildSectionPrompt(
     ? `⚡⚡⚡ SECTION INSTRUCTION — HIGHEST PRIORITY — APPLY BEFORE ALL OTHER RULES ⚡⚡⚡\n${activeInstruction}\n⚡⚡⚡ END SECTION INSTRUCTION ⚡⚡⚡\n\n`
     : '';
 
-  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity} CREATIVE ANGLE FOR THIS GENERATION: ${angle} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+  const ctaRule = ' CTA LABEL RULE (non-negotiable): ctaPrimary and ctaSecondary must be human-readable action phrases (e.g. "Schedule a Meeting", "Get Started Today"). NEVER use a section type name (hero, nextsteps, whyus), an anchor (#hero, #section-1), "undefined", "null", an empty string, or any unresolved template variable as a button label. If no valid label can be determined, set the field to "" to hide the button.';
+  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity}${ctaRule} CREATIVE ANGLE FOR THIS GENERATION: ${angle} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
   // Always pass the full proposal — never truncate. The section source content is primary;
@@ -1390,16 +1431,32 @@ Transform into a Hero section. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Challenge section. CRITICAL FIDELITY RULES:
+Transform into a Challenge section.
+
+CONTENT SOURCING HIERARCHY (apply in priority order):
+TIER 1 (use first): The proposal's "Understanding of Requirements" or "Client Needs and Challenges" section. Look for: numbered client needs, "you mentioned that", "there is a pressing need for", "you indicated a need for". Extract 2-4 specific named pains.
+TIER 2 (if Tier 1 absent): Meeting transcripts, call summaries, or direct client quotes. Look for: "it once took me", specific complaints, named tools that are slow/broken, before/after comparisons. The "before" state is always more compelling.
+TIER 3 (if Tier 1+2 absent): Executive Summary or Project Objectives section. Flag with lower confidence.
+TIER 4 (AVOID unless Tier 1-3 yield nothing): Risk sections, Action Item tracking, Scope of Work operational tasks — these describe process mechanics, not client pain.
+
+QUALITY FILTER — run each candidate pain through this before writing:
+PASS: client would recognise this as their specific situation; names a concrete symptom (time wasted, money lost, relationship at risk); answers "what goes wrong if nothing changes?"
+FAIL (do not use): "team accountability needs improvement", "communication challenges", "processes can be streamlined" — any statement that applies to every business in every industry.
+
+HEADLINE PATTERN: "[The specific thing that costs them] is [the consequence they're trying to avoid]"
+BAD: "Ensure Team Accountability to Enhance Project Progression"
+GOOD: "Proposals That Take Days and ROI You Can't Measure Are Costing You Growth"
+
+CRITICAL FIDELITY RULES:
 1. Use specific metrics, pain points, and language from the source — do not generalize (e.g. preserve "month-end close takes 9 business days" not "slow processes").
 2. The "body" must name the exact problems described in the source, with any numbers present.
-3. The "pullquote" must be drawn from an actual statement in the source, not invented.
+3. The "pullquote" must be a near-verbatim lift from the proposal source or the most visceral statement of the core tension — NOT an invented generalisation.
 Return:
 {
   "eyebrow": "4-8 words",
-  "headline": "8-12 words, name the specific tension from source",
+  "headline": "8-12 words, name the specific client tension — not an internal process goal",
   "body": "3-5 sentences using specific details and metrics from the source — include all key pain points",
-  "pullquote": "sharpest insight drawn from source content, 10-18 words",
+  "pullquote": "sharpest insight drawn from source content (Tier 1 or 2 preferred), 10-18 words",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
@@ -1424,15 +1481,39 @@ Transform into an Approach section with pillars. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Deliverables section. CRITICAL FIDELITY RULES:
-1. Extract EVERY named deliverable from the source content individually — do NOT merge multiple deliverables into one item.
-2. Use the EXACT deliverable name from the source as the "name" field — do not paraphrase or generalize.
-3. If source has 10 deliverables, output 10 items. If 22, output 22. Do not compress.
+Transform into a Deliverables section.
+
+CARD COUNT RULE (mandatory):
+- IF source has 6 or fewer deliverables: extract each individually. One item per deliverable. Use exact names.
+- IF source has 7 or more deliverables: GROUP related deliverables by service area into MAX 6 grouped cards. Never render more than 6 cards — it overwhelms the reader.
+
+GROUPING ALGORITHM (when count > 6):
+Step 1 — Infer category from each deliverable title:
+  "report / audit / summary / status" → category: "Reporting"
+  "plan / strategy / roadmap / proposal" → category: "Strategy"
+  "template / agenda / log / record" → category: "Operations"
+  "training / coaching / curriculum / workshop / seminar" → category: "Coaching"
+  "marketing / campaign / social / media / brochure" → category: "Marketing"
+  "design / mock-up / rendering / visual" → category: "Design"
+  "CRM / integration / tool / system / software" → category: "Technology"
+  "succession / transition / handover / planning" → category: "Succession"
+  anything else → category: "General"
+Step 2 — Each unique category becomes ONE grouped card:
+  - "name": descriptive group title (e.g. "Coaching Package", "Marketing Package")
+  - "detail": 2-3 sentences summarising what the group collectively delivers. Mention each individual deliverable by name.
+  - "tag": short badge like "3 deliverables" stating how many items are grouped (fill with count)
+Step 3 — If grouping yields 7+ categories, merge the smallest two until ≤ 6 remain.
+Step 4 — Every source deliverable must map to exactly one card — no item may be dropped.
+
+CRITICAL FIDELITY RULES:
+1. All individual deliverable names from the source must appear somewhere in the grouped detail text.
+2. Do NOT fabricate deliverables or invent service names.
+3. For grouped cards, the "name" field is the package/group title — not a single deliverable name.
 Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "EXACT deliverable name from source", "detail": "2-3 sentences covering what this deliverable includes, the methodology, and the expected outcome"}],
+  "items": [{"iconHint": "identity|document|website|content|photo|campaign|strategy", "name": "deliverable name or group title", "detail": "2-3 sentences covering what this includes", "tag": "optional — category badge e.g. '3 deliverables' when grouped, omit when individual"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
@@ -1446,11 +1527,14 @@ Transform into a Timeline section. CRITICAL FIDELITY RULES:
 1. Copy EVERY phase name EXACTLY as written in the source — do NOT rename, rephrase, or reword. If source says "Data Platform Assessment" output must say "Data Platform Assessment", never "Understanding Needs".
 2. Use the EXACT duration stated in the source (e.g. "Weeks 1–6" or "6 weeks") — do not recalculate or round.
 3. Extract ALL phases present in the source — do not merge or drop any.
+4. PHASE COUNT ACCURACY (mandatory): After writing the phases array, count the items. The subheadline MUST state this EXACT count in words (e.g. "five structured phases" not "four"). If they disagree, update the subheadline to match the actual count.
+5. Add a "summary" array with 2-3 engagement stats: total duration, phase count, and key deliverable or milestone count. Numbers only — derive from source.
 Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
-  "subheadline": "1-2 sentences",
+  "subheadline": "1-2 sentences — must state the EXACT number of phases matching phases[] array length",
+  "summary": [{"number": "e.g. 14", "label": "Weeks Total"}, {"number": "e.g. 5", "label": "Phases"}, {"number": "e.g. 12", "label": "Key Deliverables"}],
   "phases": [{"label": "Phase N or label from source", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, deliverables, and goals of this phase from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
@@ -1463,6 +1547,8 @@ Section source content: ${effectiveBody || '(derive from brief above)'}${fallbac
 
 Transform into a Pricing section. SCAN THE FULL PROPOSAL AND FULL SOURCE CONTENT for ALL pricing data.
 
+RENDERER RULE (non-negotiable — Rule 3): The rows array MUST render as a 2-column TABLE (label | amount). NEVER render as a checklist, bullet list, or checkmark grid. Every row MUST have a real dollar amount in column 2 — if the source has no specific amount for a row, leave column 2 as an empty string "" rather than using a placeholder like "$X,XXX". Do NOT fabricate amounts.
+
 MANDATORY EXTRACTION RULES:
 1. Search EVERY section of the proposal for: prices, costs, fees, rates, packages, tiers, totals, budgets, estimates, invoices, retainers, milestones, payment terms, hourly rates, monthly fees, project totals.
 2. Extract EVERY line item verbatim — use exact figures (e.g. "$45,000", "€2,400/mo", "£180/hr"). Do NOT paraphrase, round, or abbreviate.
@@ -1474,10 +1560,15 @@ MANDATORY EXTRACTION RULES:
 8. ONLY set rows to [] if the proposal contains ZERO price mentions anywhere. If ANY price exists, include it.
 9. NEVER fabricate prices, estimates, or placeholder amounts.
 
+PAYMENT SCHEDULE MATH RULE (critical — prevents $66,000 bug):
+Payment milestone amounts MUST be computed from the MONTHLY or PER-ENGAGEMENT total, NEVER from the annual projection.
+Example: if monthly total = $11,000 → Upon Signing = 50% of $11,000 = $5,500 ✓ NOT 50% of ($11,000 × 12) = $66,000 ✗
+If the proposal only states an annual figure, divide by contract duration in months to get the monthly/per-period base before computing milestones.
+
 PAYMENT SCHEDULE (REQUIRED — market standard):
 After listing all deliverable rows, add a BLANK SEPARATOR ROW ["", ""] then add 2–4 payment milestone rows.
 - If the proposal explicitly states payment terms, extract them verbatim as milestone rows.
-- If no explicit schedule, derive a standard 3-step schedule from the total:
+- If no explicit schedule, derive a standard 3-step schedule from the MONTHLY OR ENGAGEMENT total (never annual):
   Step 1: "Upon Signing" — 50% of total (or stated deposit)
   Step 2: "Upon Delivery" — 25% of total (or mid-project milestone amount)
   Step 3: "Upon Launch / Completion" — remaining 25% (or final balance)
@@ -1522,12 +1613,23 @@ Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Why Us section. Return:
+Transform into a Why Us section.
+
+STAT DEDUPLICATION RULE (mandatory — prevents scoring penalty):
+1. Identify all financial figures in the proposal's pricing section: total investment, line-item amounts, milestone amounts, monthly fees.
+2. NEVER use any of those figures in Why Us stat cards. If a stat would repeat a financial total already in pricing (e.g. "$78,000 Total Project Value"), replace it.
+3. Use NON-FINANCIAL stats instead. Priority order for replacements:
+   PRIORITY 1 — Process efficiency: time saved ("Proposals in 3 hrs"), response improvements, volume metrics
+   PRIORITY 2 — Team capability: specialist count ("5 Specialist Roles"), service areas covered, sectors served, years of experience
+   PRIORITY 3 — Client outcomes: deliverable package count, phase count, timeline duration (if not in pricing)
+   PRIORITY 4 — Scope metrics: number of deliverable packages, number of structured phases
+4. Why Us must have at least 2 stat cards. If all financials are in pricing and no non-financial stats exist, use team headcount or deliverable count.
+Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "body": "3-5 sentences — explain why this company is uniquely qualified, using specific expertise and track record from the source",
-  "stats": [{"number": "from content", "label": "2-4 words", "context": "2 sentences explaining the significance"}],
+  "stats": [{"number": "non-financial metric from source — NEVER a dollar/€/£ total already in pricing", "label": "2-4 words", "context": "2 sentences explaining the significance"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,
@@ -1537,13 +1639,28 @@ Transform into a Why Us section. Return:
 Brief: ${brief}
 Section source content: ${effectiveBody || '(derive from brief above)'}${fallbackContext}
 
-Transform into a Next Steps section. Return:
+Transform into a Next Steps section — the required conversion closer. This replaces the approval form. Tone: confident and warm, like a handshake, not a form. The client has read the full proposal — make it easy for them to take one clear action.
+
+RULES:
+- steps: exactly 3–4 numbered action steps. Each step has stepNumber ("01", "02", "03"...), title (max 5 words, bold intent), and description (1 sentence, concrete and specific).
+- ctaPrimary: a direct contact action — e.g. "Schedule a Call", "Email Us to Begin", "Get in Touch". NEVER a section name.
+- ctaSecondary: a low-friction secondary — e.g. "Download This Proposal", "Share This Proposal". NEVER a section name.
+- Do NOT include form fields, signature requests, or "Approve Proposal" language — that belongs to a separate approval feature.
+- urgencyNote: optional 1-sentence note about timing (e.g. "We can begin within 2 weeks of sign-off.") — null if none in source.
+
+Return:
 {
-  "eyebrow": "4-8 words",
-  "headline": "8-12 words",
-  "body": "3-5 sentences — outline the specific next steps from the source, what happens after approval, key contacts, and timeline",
-  "ctaPrimary": "3-5 words — empty string if constraints say no CTA",
-  "ctaSecondary": "3-4 words — empty string if constraints say no CTA",
+  "eyebrow": "4-8 words e.g. 'How to Move Forward'",
+  "headline": "8-12 words e.g. 'Let\\'s Turn This Proposal Into Your Next Win'",
+  "body": "1-2 sentences framing the simplicity of next steps — max 30 words",
+  "steps": [
+    { "stepNumber": "01", "title": "Review this proposal", "description": "Take as much time as you need — we are here to answer any questions." },
+    { "stepNumber": "02", "title": "Reach out to begin", "description": "Email or call us directly to confirm you are ready to proceed." },
+    { "stepNumber": "03", "title": "Kick-off call within 48 hours", "description": "We will schedule your onboarding call and share the full project brief." },
+    { "stepNumber": "04", "title": "Work begins", "description": "Your engagement starts on the agreed date with a full team briefing." }
+  ],
+  "ctaPrimary": "3-5 words action phrase — empty string if constraints say no CTA",
+  "ctaSecondary": "3-4 words action phrase — empty string if constraints say no CTA",
   "urgencyNote": "string or null",
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
@@ -1691,18 +1808,26 @@ Transform into a Metrics section — a standalone performance KPIs row with scal
     security: `${system}
 
 Brief: ${brief}
-Section source content: ${effectiveBody || '(No source content — derive 3-4 security controls from the brief and industry context)'}${fallbackContext}
+Section source content: ${effectiveBody || '(No source content — derive 3-4 risk/security items from the brief and industry context)'}${fallbackContext}
 
-Transform into a Security section. Return:
+Transform into a Security / Risk section. Generate 3–4 items.
+
+RISK CONTENT RULES (non-negotiable):
+1. Derive risks from the CLIENT'S ACTUAL SITUATION: their stated challenge, their industry's operational risks, and the specific scope/deliverables proposed.
+2. Only include GDPR, CCPA, HIPAA, FTC, SOC2 compliance risks if the client industry is Healthcare, Finance, Legal, or Banking. For all other industries (marketing, trades, landscaping, consulting, etc.) — do NOT include generic regulatory compliance boilerplate.
+3. Each item must have a NAMED, SPECIFIC risk title — not "Risk 1" or "Data Security". Name the actual risk (e.g. "Brand Dilution During Scale", "Seasonal Demand Volatility", "Campaign Attribution Gap").
+4. Each description must be 1 sentence explaining WHY this is a risk for this specific client, and 1 sentence on the mitigation.
+
+Return:
 {
-  "eyebrow": "4-8 words e.g. 'Built for Compliance'",
+  "eyebrow": "4-8 words e.g. 'Risk & Mitigation'",
   "headline": "8-12 words",
   "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content",
   "items": [
     {
       "iconHint": "identity|digital|strategy|research",
-      "name": "2-5 words, the security control",
-      "description": "2-3 sentences, what it protects, how it works, and why it matters for this engagement"
+      "name": "Specific named risk title, 3-6 words",
+      "description": "1 sentence on the risk + 1 sentence on mitigation — grounded in this client's industry and scope"
     }
   ],
   ${meta}
@@ -2288,7 +2413,7 @@ TYPE MAPPING (choose closest match for each section name):
 
 MANDATORY RULES:
 - Output a JSON array covering ALL sections found in the proposal. Minimum 7 sections, no upper limit.
-- ALWAYS include: hero (first), nextsteps (second-to-last), approval (last).
+- ALWAYS include: hero (first), nextsteps (last).
 - Map EVERY source heading in the proposal to a section — do NOT skip, compress, or merge any heading that has content. Losing proposal content is a critical failure.
 - ONLY include optional section types if the proposal contains relevant content for them. Do NOT invent sections with no basis in the proposal.
 - If after mapping all proposal headings the total is below 7, add the most relevant optional types derived from the proposal brief (set aiGenerated: true) until you reach 7.
@@ -2376,7 +2501,7 @@ function buildOverrideSectionPrompt(
 ROW TYPES — use these exact patterns:
 1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment"] — use descriptive text, NOT generic "Service / Deliverable"
 2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "price or empty string"] — deliverables that are part of the scope
-3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"], ["~50% Milestone", "$X,XXX", "Design complete, dev underway"], ["Completion / Launch", "$X,XXX", "Final delivery + handoff"] — 3 columns when it's a milestone
+3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"] — replace $X,XXX with the EXACT amount from the proposal. If no specific amount is stated, use empty string "" — NEVER use $X,XXX as a literal value in output.
 { "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["Exact deliverable from proposal", ""], ["...more deliverables..."], ["Upon Signing", "$X,XXX", "Work begins immediately"]], "totalLabel": "exact total e.g. '$100,000'", "footnote": "payment timing note if any", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
@@ -2388,7 +2513,8 @@ ROW TYPES — use these exact patterns:
     problem: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "body": "2-3 sentences", "painPoints": ["3-5 items 6-12 words each"], "imageQuery": "Unsplash query" }`,
     stats: `FIDELITY: Only use numbers, percentages, or figures that appear VERBATIM in the source. NEVER invent metrics. If fewer than 3 real metrics exist, output only what exists.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "stats": [{"number": "exact figure from source — ONLY if it appears in the proposal", "label": "2-4 words", "context": "1 sentence using language from source"}] }`,
-    overview: `{ "eyebrow": "4-8 words e.g. 'Executive Summary'", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "3-5 sentences summarising the engagement, context, and key facts", "highlights": [{ "icon": "string", "label": "2-4 words", "value": "concise fact or stat" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    overview: `This is the "Project Summary" section — a two-column layout: left has the headline + body, right shows "This Proposal Covers" scope items. Extract the main deliverables/scope areas from the proposal as highlights (4-7 items). Each highlight: "value" = the scope item name (5-10 words, title case), "label" = a one-line subtitle describing it (6-12 words). The headline should be bold and punchy (e.g. multi-line: "One company.\\nTwo powerful divisions.\\nOne clear website."). Body should be 2-3 short paragraphs explaining the project context and what makes this engagement different.
+{ "eyebrow": "2-4 words e.g. 'Project Summary'", "headline": "punchy 8-16 words (can use \\n for line breaks)", "subheadline": "", "body": "2-3 paragraphs separated by \\n\\n", "highlights": [{ "value": "Scope item name", "label": "Brief one-line description" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     metrics: `{ "eyebrow": "4-8 words e.g. 'Performance at Scale'", "headline": "8-12 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "stats": [{ "number": "specific metric e.g. '99.9%' or '3× faster'", "label": "2-4 words", "context": "1 short sentence" }], "strategies": ["3-5 scaling strategies, 5-10 words each, start with a verb"] }`,
     security: `{ "eyebrow": "4-8 words e.g. 'Built for Compliance'", "headline": "8-12 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "items": [{ "iconHint": "identity|digital|strategy|research", "name": "2-5 words, the security control", "description": "2-3 sentences, what it protects and why it matters" }] }`,
     techstack: `{ "eyebrow": "4-8 words e.g. 'Built on Modern Foundations'", "headline": "8-12 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "categories": [{ "iconHint": "identity|digital|content|strategy|research|launch|document|website", "name": "1-3 words e.g. 'Frontend'", "items": ["2-5 technology names in this category"] }] }`,
@@ -2463,7 +2589,7 @@ Generate microsite copy following the design specification strictly:`;
 }
 
 // ── Required section enforcement ─────────────────────────────────────────────
-// hero, nextsteps, approval are always enforced.
+// hero and nextsteps are always enforced.
 // Content sections come exclusively from proposal source headings — no padding.
 
 function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
@@ -2481,6 +2607,17 @@ function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
     presentTypes.add('hero' as SectionType);
   }
 
+  // Ensure overview is always the second section
+  if (!presentTypes.has('overview' as SectionType)) {
+    additions.push({
+      type: 'overview' as SectionType,
+      sourceHeading: null,
+      rationale: 'Project summary with scope items — always required',
+      aiGenerated: true,
+    });
+    presentTypes.add('overview' as SectionType);
+  }
+
   // Ensure nextsteps exists
   if (!presentTypes.has('nextsteps' as SectionType)) {
     additions.push({
@@ -2492,39 +2629,26 @@ function ensureRequiredSections(plan: SectionPlan[]): SectionPlan[] {
     presentTypes.add('nextsteps' as SectionType);
   }
 
-  // Do NOT pad with fabricated sections — only hero/nextsteps/approval are enforced.
-  // Every content section must come from the proposal source headings.
+  // Do NOT pad with fabricated sections — only hero/overview/nextsteps are enforced.
+  // Every other content section must come from the proposal source headings.
 
-  // approval is always injected last — never skip it
-  const hasApproval = presentTypes.has('approval' as SectionType);
+  if (additions.length === 0) return plan;
 
-  if (additions.length === 0 && hasApproval) return plan;
+  // Remove any stray approval sections
+  const filtered = plan.filter(s => s.type !== 'approval');
 
-  // Insert non-approval additions before nextsteps; append approval at the very end
-  const nextstepsIdx = plan.findIndex(s => s.type === 'nextsteps');
-  const nonApprovalAdditions = additions.filter(a => a.type !== 'approval');
+  // Build the final order: hero first, overview second, rest in original order, nextsteps last
+  const heroSections = filtered.filter(s => s.type === 'hero');
+  const overviewSections = filtered.filter(s => s.type === 'overview');
+  const nextstepsSections = filtered.filter(s => s.type === 'nextsteps');
+  const middle = filtered.filter(s => s.type !== 'hero' && s.type !== 'overview' && s.type !== 'nextsteps');
 
-  let result: SectionPlan[];
-  if (nextstepsIdx >= 0) {
-    result = [
-      ...plan.slice(0, nextstepsIdx),
-      ...nonApprovalAdditions,
-      ...plan.slice(nextstepsIdx),
-    ];
-  } else {
-    result = [...plan, ...nonApprovalAdditions];
-  }
+  // Fill in missing required sections from additions
+  const heroFinal = heroSections.length > 0 ? heroSections : additions.filter(a => a.type === 'hero');
+  const overviewFinal = overviewSections.length > 0 ? overviewSections : additions.filter(a => a.type === 'overview');
+  const nextstepsFinal = nextstepsSections.length > 0 ? nextstepsSections : additions.filter(a => a.type === 'nextsteps');
 
-  // Remove any existing approval entry then re-append it at the very end
-  result = result.filter(s => s.type !== 'approval');
-  result.push({
-    type: 'approval' as SectionType,
-    sourceHeading: null,
-    rationale: 'Proposal sign-off — always last',
-    aiGenerated: true,
-  });
-
-  return result;
+  return [...heroFinal, ...overviewFinal, ...middle, ...nextstepsFinal];
 }
 
 // Preferred substitute types when a duplicate is found, in priority order
@@ -2740,7 +2864,7 @@ export class MicrositeGeneratorAgent implements Agent {
         'Omit decorative sub-labels and long captions. ' +
         'CRITICAL diagram rule: ONLY include a diagram in a section when that section contains ONLY body text with NO card grid, NO stat grid, and NO list items. If a section already has cards, stats, pillars, features, benefits, or any item array, set diagram to empty string — do NOT add a diagram to that section. Diagrams stacked below card grids make sections too tall for a single PDF slide.'
       : '';
-    const customInstructions = (rawInstructions || 'Generate a COMPREHENSIVE multi-section microsite that covers EVERY piece of content from the source document — do not skip, summarize, or omit any topic. There is NO section count limit — include as many sections as the content requires, even if that means 20, 25, or 30+ sections. Every heading, sub-heading, feature, deliverable, phase, benefit, requirement, and detail from the source must appear as its own fully developed section or as detailed content within a section. For each section, extract ALL relevant details, facts, figures, deliverables, timelines, and descriptions from the source. Map all source headings to the most specific section type available (techstack, security, testing, metrics, approach, timeline, deliverables, pricing, casestudy, benefits, stats, etc.). Use diagrams in approach, timeline, security, techstack, and testing sections. NEVER produce thin or sparse sections — if the source document covers a topic in depth, the microsite section must reflect that depth fully. This is a long-scroll website — length is a feature, not a problem.') + pdfConstraints;
+    const customInstructions = (rawInstructions || '') + pdfConstraints;
     if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
     const isFullOverride = fullDesignPrompt.trim().length > 3;
@@ -3032,13 +3156,45 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
+      const MIN_SECTIONS = 8;
+      const MAX_SECTIONS = 10;
+
+      // Always strip approval sections — they are never generated
+      if (sectionPlan) {
+        sectionPlan = sectionPlan.filter(s => s.type !== 'approval');
+      }
+
+      // Deterministic testimonials injection — don't rely on LLM to include it.
+      // If the source proposal contains a testimonials/client feedback heading AND
+      // the plan doesn't already have a testimonials section, inject one before nextsteps.
+      if (sectionPlan) {
+        const hasTestimonialsInPlan = sectionPlan.some(s => s.type === 'testimonials');
+        if (!hasTestimonialsInPlan) {
+          const testimonialsHeading = sourceSections.find(s =>
+            /testimonial|client\s*feedback|client\s*said|what.*say|reviews?\b/i.test(s.name)
+          );
+          if (testimonialsHeading) {
+            const nextstepsIdx = sectionPlan.findIndex(s => s.type === 'nextsteps');
+            const insertAt = nextstepsIdx >= 0 ? nextstepsIdx : sectionPlan.length;
+            sectionPlan.splice(insertAt, 0, {
+              type: 'testimonials',
+              sourceHeading: testimonialsHeading.name,
+              rationale: 'Client testimonials found in source — injected deterministically',
+              aiGenerated: false,
+            });
+            console.log(`[microsite-agent] Injected testimonials section from source heading: "${testimonialsHeading.name}"`);
+          }
+        }
+      }
+
       // Apply section limit request (from detectSectionLimitRequest) after ensureRequiredSections
       if (sectionLimitRequest.hasLimit && sectionPlan) {
         if (sectionLimitRequest.limitType === 'count' && sectionLimitRequest.requestedCount) {
-          const count = sectionLimitRequest.requestedCount;
+          // Clamp the user-requested count within the allowed range
+          const count = Math.min(MAX_SECTIONS, Math.max(MIN_SECTIONS, sectionLimitRequest.requestedCount));
           const hero = sectionPlan.filter(s => s.type === 'hero');
-          const last = sectionPlan.filter(s => s.type === 'nextsteps' || s.type === 'approval');
-          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps' && s.type !== 'approval');
+          const last = sectionPlan.filter(s => s.type === 'nextsteps');
+          const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
           const trimmed = [
             ...hero,
             ...middle.slice(0, Math.max(0, count - hero.length - last.length)),
@@ -3061,15 +3217,17 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Always ensure approval is the very last section — unconditional, survives all plan trimming
-      if (sectionPlan) {
-        sectionPlan = sectionPlan.filter(s => s.type !== 'approval');
-        sectionPlan.push({
-          type: 'approval' as SectionType,
-          sourceHeading: null,
-          rationale: 'Proposal sign-off — always last',
-          aiGenerated: true,
-        });
+      // Hard cap: never exceed MAX_SECTIONS regardless of LLM output
+      if (sectionPlan && sectionPlan.length > MAX_SECTIONS) {
+        const hero = sectionPlan.filter(s => s.type === 'hero');
+        const last = sectionPlan.filter(s => s.type === 'nextsteps');
+        const middle = sectionPlan.filter(s => s.type !== 'hero' && s.type !== 'nextsteps');
+        sectionPlan = [
+          ...hero,
+          ...middle.slice(0, MAX_SECTIONS - hero.length - last.length),
+          ...last,
+        ];
+        console.log('[microsite-agent] Capped to MAX', MAX_SECTIONS, 'sections');
       }
 
       // Parse brief
@@ -3200,20 +3358,48 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Hard cap: never generate more than 40 sections regardless of planning result or fallback
-      const MAX_SECTIONS = 40;
-      if (resolvedSections.length > MAX_SECTIONS) {
+      // Industry-based section stripping (Rule 2): remove techstack/testing/security for non-technical clients
+      const clientIndustry = (brief?.clientIndustry as string | undefined) ?? '';
+      if (clientIndustry) {
+        const industryClass = classifyIndustry(clientIndustry);
+        const stripped = INDUSTRY_STRIPPED_SECTIONS[industryClass];
+        if (stripped.length > 0) {
+          const before = resolvedSections.length;
+          const strippedSet = new Set<string>(stripped);
+          resolvedSections.splice(0, resolvedSections.length, ...resolvedSections.filter(s => !strippedSet.has(s.type)));
+          const after = resolvedSections.length;
+          if (before !== after) {
+            console.log(`[microsite-agent] Industry stripping (${industryClass}): removed ${before - after} section(s) — ${stripped.join(', ')}`);
+          }
+        }
+      }
+
+      // Hard cap: never generate more than 10 sections regardless of planning result
+      const MAX_SECTIONS_EXEC = 10;
+      if (resolvedSections.length > MAX_SECTIONS_EXEC) {
         const originalCount = resolvedSections.length;
-        resolvedSections.splice(MAX_SECTIONS);
-        console.log(`[microsite-agent] Section count capped at ${MAX_SECTIONS} (was ${originalCount})`);
+        // Preserve nextsteps at tail; keep whyus if present; prioritise required sections
+        const requiredOrder: SectionType[] = ['hero','overview','challenge','approach','deliverables','timeline','pricing','whyus','nextsteps'];
+        const tail = resolvedSections.filter(s => s.type === 'nextsteps');
+        const body = resolvedSections.filter(s => s.type !== 'nextsteps');
+        // Sort body by required order, putting unrecognised types last
+        body.sort((a, b) => {
+          const ai = requiredOrder.indexOf(a.type as SectionType);
+          const bi = requiredOrder.indexOf(b.type as SectionType);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+        const budget = MAX_SECTIONS_EXEC - tail.length;
+        resolvedSections.length = 0;
+        resolvedSections.push(...body.slice(0, budget), ...tail);
+        console.log(`[microsite-agent] Section count capped at ${MAX_SECTIONS_EXEC} (was ${originalCount})`);
       }
       // Also honour any explicit user count (if lower than the cap)
-      // Always preserve nextsteps and approval at the end — they are structural, not content sections
+      // Always preserve nextsteps at the end — it is a structural section, not content
       if (customInstructions) {
         const explicitCount = parseExplicitCount(customInstructions);
-        if (explicitCount && explicitCount > 0 && explicitCount < MAX_SECTIONS && resolvedSections.length > explicitCount) {
-          const tail = resolvedSections.filter(s => s.type === 'nextsteps' || s.type === 'approval');
-          const body = resolvedSections.filter(s => s.type !== 'nextsteps' && s.type !== 'approval');
+        if (explicitCount && explicitCount > 0 && explicitCount < MAX_SECTIONS_EXEC && resolvedSections.length > explicitCount) {
+          const tail = resolvedSections.filter(s => s.type === 'nextsteps');
+          const body = resolvedSections.filter(s => s.type !== 'nextsteps');
           const trimCount = Math.max(0, explicitCount - tail.length);
           resolvedSections.length = 0;
           resolvedSections.push(...body.slice(0, trimCount), ...tail);

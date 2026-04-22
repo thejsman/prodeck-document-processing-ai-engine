@@ -99,6 +99,31 @@ export function TimelineSection({ content, tokens, index }: Props) {
           </Reveal>
         )}
 
+        {/* Summary stats bar */}
+        {(content.summary ?? []).length > 0 && (
+          <Reveal delay={160}>
+            <div style={{
+              display: 'flex', gap: 'clamp(24px,4vw,48px)',
+              justifyContent: 'center', marginBottom: 52, flexWrap: 'wrap',
+            }}>
+              {(content.summary ?? []).map((s, i) => (
+                <div key={i} style={{ textAlign: 'center' }}>
+                  <div style={{
+                    fontSize: 'clamp(2rem,4vw,2.8rem)', fontWeight: 800,
+                    color: tokens.accent, lineHeight: 1,
+                    fontFamily: `'${tokens.heroFont}', sans-serif`,
+                  }}>{s.number}</div>
+                  <div style={{
+                    fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.1em',
+                    textTransform: 'uppercase' as const, color: tokens.textMuted, marginTop: 6,
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        )}
+
         {/* Phase cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           {phases.map((phase, pi) => {

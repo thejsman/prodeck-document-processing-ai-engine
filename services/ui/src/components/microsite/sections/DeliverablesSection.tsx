@@ -179,6 +179,18 @@ export function DeliverablesSection({ content, tokens }: Props) {
                       </span>
                     </div>
 
+                    {item.tag && (
+                      <span style={{
+                        fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.1em',
+                        textTransform: 'uppercase' as const, color: tokens.accent,
+                        background: `rgba(${tokens.accentRgb ?? '99,179,237'},0.12)`,
+                        borderRadius: 4, padding: '2px 8px', alignSelf: 'flex-start' as const,
+                        display: 'inline-block',
+                      }}>
+                        {item.tag}
+                      </span>
+                    )}
+
                     <InlineEditable field={`items.${ii}.name`} label="Name" value={item.name ?? ''}>
                       <h4 style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,

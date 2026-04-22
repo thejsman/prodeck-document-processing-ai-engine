@@ -20,8 +20,6 @@ export function Topbar({ onMenuClick }: Props) {
   const health = useHealth(30000);
   const isPresentation = pathname?.startsWith('/microsite') || pathname?.startsWith('/presentation');
 
-  if (pathname?.startsWith('/chat') || pathname?.startsWith('/proposal')) return null;
-
   return (
     <header className="topbar">
       <div className="topbar-left">

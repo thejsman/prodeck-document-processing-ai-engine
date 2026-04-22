@@ -188,6 +188,7 @@ export interface DeliverableItem {
   iconHint: string;
   name: string;
   detail: string;
+  tag?: string;
 }
 
 export interface DeliverablesContent {
@@ -214,6 +215,7 @@ export interface TimelineContent {
   phases: TimelinePhase[];
   imageQuery: string;
   diagram?: string;
+  summary?: Array<{ number: string; label: string }>;
 }
 
 export interface PricingContent {
@@ -242,10 +244,17 @@ export interface WhyUsContent {
   diagram?: string;
 }
 
+export interface NextStep {
+  stepNumber: string;
+  title: string;
+  description: string;
+}
+
 export interface NextStepsContent {
   eyebrow: string;
   headline: string;
   body: string;
+  steps?: NextStep[];
   ctaPrimary: string;
   ctaSecondary: string;
   urgencyNote: string | null;

@@ -229,16 +229,18 @@ function BackgroundPanel({ section, onClose }: { section: LayoutSection; onClose
               fontSize: 11,
               cursor: 'pointer',
               borderBottom: tab === t ? '2px solid #6366f1' : '2px solid transparent',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
             }}
           >
             {t === 'image' ? (
-              <>
-                <Icon icon={Image} size="sm" /> Image
-              </>
+              <><Icon icon={Image} size="sm" />Image</>
+            ) : t === 'upload' ? (
+              <><Icon icon={Image} size="sm" />Upload</>
             ) : (
-              <>
-                <Icon icon={Palette} size="sm" /> Color
-              </>
+              <><Icon icon={Palette} size="sm" />Color</>
             )}
           </button>
         ))}

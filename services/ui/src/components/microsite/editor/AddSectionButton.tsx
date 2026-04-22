@@ -324,17 +324,47 @@ interface Props {
   afterIndex: number;
 }
 
+// ── Section style variants ────────────────────────────────────────────────────
+
+interface SectionVariant {
+  id: string;
+  label: string;
+  desc: string;
+  patch: (base: Record<string, unknown>) => Record<string, unknown>;
+}
+
+const SECTION_VARIANTS: Record<string, SectionVariant[]> = {
+  hero: [
+    { id: 'standard', label: 'Standard', desc: 'Headline + subhead + CTA', patch: c => c },
+    { id: 'minimal', label: 'Minimal', desc: 'Headline only', patch: c => ({ ...c, subheadline: '', ctaPrimary: '', ctaSecondary: '' }) },
+    { id: 'bold', label: 'Bold', desc: 'Large headline, strong CTA', patch: c => ({ ...c, eyebrow: 'INTRODUCING', subheadline: 'The solution your team has been waiting for. Built for scale, designed for impact.', ctaPrimary: 'Get Started Today →' }) },
+  ],
+  benefits: [
+    { id: 'standard', label: 'Standard', desc: '3 benefit cards', patch: c => c },
+    { id: 'compact', label: 'Compact', desc: '3 items, shorter copy', patch: c => ({ ...c, items: (c.items as { title: string; description: string; iconHint: string }[]).map(i => ({ ...i, description: '' })) }) },
+    { id: 'expanded', label: 'Expanded', desc: '6 benefit cards', patch: c => ({ ...c, items: [...(c.items as unknown[]), ...[{ title: 'Benefit Four', description: 'Description of this benefit.', iconHint: 'target' }, { title: 'Benefit Five', description: 'Description of this benefit.', iconHint: 'chart' }, { title: 'Benefit Six', description: 'Description of this benefit.', iconHint: 'gem' }]] }) },
+  ],
+  testimonials: [
+    { id: 'standard', label: 'Standard', desc: '1 quote', patch: c => c },
+    { id: 'multi', label: 'Multi', desc: '3 quotes', patch: c => ({ ...c, items: [...(c.items as unknown[]), { quote: 'An outstanding experience that delivered beyond our expectations.', name: 'Mark Chen', title: 'CTO', company: 'TechFlow' }, { quote: 'The results speak for themselves — highly recommended.', name: 'Sarah Williams', title: 'VP Operations', company: 'Nexus Group' }] }) },
+  ],
+  pricing: [
+    { id: 'standard', label: 'Standard', desc: 'Simple table', patch: c => c },
+    { id: 'detailed', label: 'Detailed', desc: 'Multi-line breakdown', patch: c => ({ ...c, rows: [['Discovery & Strategy', '2-week research and planning phase', '$4,500'], ['Design & Development', 'Full build including responsive design', '$12,000'], ['Testing & QA', 'Cross-browser testing and bug fixes', '$2,000'], ['Launch Support', '2-week post-launch monitoring', '$1,500']], totalLabel: 'Total Project Investment' }) },
+  ],
+};
+
 export function AddSectionButton({ afterIndex }: Props) {
   const ctx = useEditContext();
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [query, setQuery] = useState('');
+  const [pendingType, setPendingType] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) { setQuery(''); return; }
-    // Auto-focus search when panel opens
+    if (!open) { setQuery(''); setPendingType(null); return; }
     setTimeout(() => searchRef.current?.focus(), 50);
     function handleClick(e: MouseEvent) {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
@@ -347,21 +377,32 @@ export function AddSectionButton({ afterIndex }: Props) {
 
   if (!ctx) return null;
 
-  function handleAdd(sectionType: string) {
+  function commitAdd(sectionType: string, variantPatch?: (base: Record<string, unknown>) => Record<string, unknown>) {
     if (!ctx) return;
     const id = `section-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const meta = ALL_TYPES.find(t => t.id === sectionType);
+    const baseContent = getDefaultContent(sectionType);
+    const content = variantPatch ? variantPatch(baseContent) : baseContent;
     const newSection: LayoutAST['sections'][number] = {
       id,
       heading: meta?.label ?? 'New Section',
       sectionType: sectionType as LayoutAST['sections'][number]['sectionType'],
-      content: getDefaultContent(sectionType) as unknown as LayoutAST['sections'][number]['content'],
+      content: content as unknown as LayoutAST['sections'][number]['content'],
       image: { source: 'gradient', query: sectionType, url: null, fallback: 'gradient-mesh' },
       editable: true,
       version: 1,
     };
     ctx.addSection(afterIndex, newSection);
     setOpen(false);
+  }
+
+  function handleAdd(sectionType: string) {
+    const variants = SECTION_VARIANTS[sectionType];
+    if (variants && variants.length > 1) {
+      setPendingType(sectionType);
+    } else {
+      commitAdd(sectionType);
+    }
   }
 
   const lq = query.toLowerCase();
@@ -400,8 +441,48 @@ export function AddSectionButton({ afterIndex }: Props) {
         }}
       >+</button>
 
+      {/* Variant picker — shown after a type is selected */}
+      {open && pendingType && (() => {
+        const variants = SECTION_VARIANTS[pendingType] ?? [];
+        const typeMeta = ALL_TYPES.find(t => t.id === pendingType);
+        return (
+          <div style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 30001, background: '#fff', borderRadius: 14,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.18)', border: '1px solid #e2e8f0',
+            padding: '14px', width: 360, fontFamily: 'system-ui',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <button onClick={() => setPendingType(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>←</button>
+              <div>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{typeMeta?.icon} {typeMeta?.label} — Choose a style</p>
+                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Pick a starting template</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {variants.map(v => (
+                <button
+                  key={v.id}
+                  onClick={() => commitAdd(pendingType, v.patch)}
+                  style={{
+                    padding: '10px 14px', borderRadius: 9, border: '1px solid #e2e8f0',
+                    background: '#f8fafc', cursor: 'pointer', textAlign: 'left',
+                    transition: 'all 0.12s',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#eff0ff'; (e.currentTarget as HTMLElement).style.borderColor = ACCENT; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{v.label}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>{v.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Section type picker panel */}
-      {open && (
+      {open && !pendingType && (
         <div style={{
           position: 'absolute',
           top: 'calc(100% + 6px)',
@@ -482,3 +563,4 @@ export function AddSectionButton({ afterIndex }: Props) {
     </div>
   );
 }
+

@@ -16,13 +16,6 @@ interface Props {
   sectionId?: string;
 }
 
-function Check({ color }: { color: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
-      <path d="M2.5 7L5.5 10L11.5 4" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function isPaymentRow(label: string) {
   return /upon|signing|milestone|complet|launch|deposit|50%|phase\s*\d/i.test(label);
@@ -37,9 +30,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
   const paymentRows = dataRows.filter((r) => r.length >= 2 && isPaymentRow(r[0] ?? ''));
   const deliverableRows = dataRows.filter((r) => !isPaymentRow(r[0] ?? ''));
 
-  const mid = Math.ceil(deliverableRows.length / 2);
-  const colA = deliverableRows.slice(0, mid);
-  const colB = deliverableRows.slice(mid);
+  const isTotalRow = (label: string) => /total/i.test(label);
+  const isAnnualRow = (label: string) => /annual/i.test(label);
 
   const totalLabel = content.totalLabel?.trim();
 
@@ -246,78 +238,65 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                     <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(14px,2.5vw,20px)' }} />
                   )}
 
-                  {/* 2-col checklist */}
+                  {/* 2-column pricing table — Rule 3: NEVER render as checklist */}
                   {deliverableRows.length > 0 && (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: colB.length > 0 ? '1fr 1fr' : '1fr',
-                        gap: '8px 28px',
-                      }}
+                    <table
+                      data-component="pricing-line-items"
+                      style={{ width: '100%', borderCollapse: 'collapse' }}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {colA.map((row, ri) => (
-                          <InlineArrayItem
-                            key={ri}
-                            arrayPath="rows"
-                            index={ri + (isGenericHeader ? 1 : 0)}
-                            total={rows.length}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                              <Check color={tokens.accent} />
-                              <InlineEditable
-                                field={`rows.${ri + (isGenericHeader ? 1 : 0)}.0`}
-                                label="Item"
-                                value={row[0] ?? ''}
-                              >
-                                <span
-                                  style={{
-                                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                                    fontSize: '0.825rem',
-                                    color: tokens.textMuted,
-                                    lineHeight: 1.5,
-                                  }}
-                                >
-                                  {row[0]}
-                                </span>
-                              </InlineEditable>
-                            </div>
-                          </InlineArrayItem>
-                        ))}
-                      </div>
-                      {colB.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {colB.map((row, ri) => (
+                      <tbody>
+                        {deliverableRows.map((row, ri) => {
+                          const globalIdx = dataRows.indexOf(row) + (isGenericHeader ? 1 : 0);
+                          const label = row[0] ?? '';
+                          const amount = row[1] ?? '';
+                          const isTotal = isTotalRow(label);
+                          const isAnnual = isAnnualRow(label);
+                          return (
                             <InlineArrayItem
                               key={ri}
                               arrayPath="rows"
-                              index={mid + ri + (isGenericHeader ? 1 : 0)}
+                              index={globalIdx}
                               total={rows.length}
+                              as="tr"
                             >
-                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                                <Check color={tokens.accent} />
-                                <InlineEditable
-                                  field={`rows.${mid + ri + (isGenericHeader ? 1 : 0)}.0`}
-                                  label="Item"
-                                  value={row[0] ?? ''}
-                                >
-                                  <span
-                                    style={{
+                              <tr
+                                style={{
+                                  borderBottom: isAnnual ? 'none' : `1px solid ${tokens.border}`,
+                                  background: isTotal ? `rgba(${accentRgb},0.05)` : 'transparent',
+                                  borderTop: isTotal ? `2px solid ${tokens.accent}` : undefined,
+                                }}
+                              >
+                                <td style={{ padding: '10px 0', textAlign: 'left' }}>
+                                  <InlineEditable field={`rows.${globalIdx}.0`} label="Service" value={label}>
+                                    <span style={{
                                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                                      fontSize: '0.825rem',
-                                      color: tokens.textMuted,
-                                      lineHeight: 1.5,
-                                    }}
-                                  >
-                                    {row[0]}
-                                  </span>
-                                </InlineEditable>
-                              </div>
+                                      fontSize: isTotal ? '0.875rem' : '0.825rem',
+                                      fontWeight: isTotal ? 700 : 400,
+                                      color: isAnnual ? tokens.textSubtle : tokens.textMuted,
+                                    }}>
+                                      {label}
+                                    </span>
+                                  </InlineEditable>
+                                </td>
+                                <td style={{ padding: '10px 0', textAlign: 'right', width: '35%' }}>
+                                  <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={amount}>
+                                    <span style={{
+                                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                      fontSize: isTotal ? '0.9rem' : '0.825rem',
+                                      fontWeight: isTotal ? 700 : 500,
+                                      color: isTotal ? tokens.accent : (isAnnual ? tokens.textSubtle : tokens.text),
+                                      fontVariantNumeric: 'tabular-nums',
+                                    }}>
+                                      {amount}
+                                    </span>
+                                  </InlineEditable>
+                                </td>
+                              </tr>
                             </InlineArrayItem>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   )}
                 </div>
 

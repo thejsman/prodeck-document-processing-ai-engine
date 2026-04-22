@@ -583,6 +583,15 @@ export async function fetchMicrositeContent(
   return { ast: data.ast ?? null, savedAt: data.savedAt ?? null };
 }
 
+export async function saveMicrositeAst(apiKey: string, namespace: string, proposalId: string, ast: unknown): Promise<void> {
+  const res = await fetch(`/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`, {
+    method: 'PUT',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ast }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
 export interface MicrositeHistoryServerEntry {
   namespace: string;
   savedAt: string;

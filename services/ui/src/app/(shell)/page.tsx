@@ -19,6 +19,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 export default function DashboardPage() {
   const { apiKey } = useAuth();
   const { namespaces, isLoading: nsLoading } = useNamespace();
+
   const execStats = useExecutionStats();
   const proposalStats = useProposalStats(apiKey);
   const templateCount = useTemplateCount(apiKey);
