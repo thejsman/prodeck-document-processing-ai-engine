@@ -5,7 +5,14 @@ import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { fetchNamespaceConfig, saveNamespaceConfig } from '@/lib/api';
 
-export function ConfigEditor() {
+const SUPPORTED_FIELDS = ['defaultTemplate', 'tone', 'chunkStrategy', 'pricingDefaults', 'llm'];
+
+interface Props {
+  /** Hide the namespace selector (for modal use where namespace is already in context) */
+  hideSelector?: boolean;
+}
+
+export function ConfigEditor({ hideSelector = false }: Props) {
   const { apiKey } = useAuth();
   const { namespace, namespaces, isLoading: nsLoading } = useNamespace();
 
@@ -18,7 +25,6 @@ export function ConfigEditor() {
   const [parseError, setParseError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Sync with global namespace context
   useEffect(() => {
     if (namespace) setSelectedNs(namespace);
   }, [namespace]);
@@ -42,17 +48,11 @@ export function ConfigEditor() {
   }, [apiKey]);
 
   useEffect(() => {
-    if (selectedNs) {
-      loadConfig(selectedNs);
-    }
+    if (selectedNs) loadConfig(selectedNs);
   }, [selectedNs, loadConfig]);
 
-  // Live JSON validation
   useEffect(() => {
-    if (!editorValue.trim()) {
-      setParseError('');
-      return;
-    }
+    if (!editorValue.trim()) { setParseError(''); return; }
     try {
       JSON.parse(editorValue);
       setParseError('');
@@ -63,7 +63,6 @@ export function ConfigEditor() {
 
   const handleSave = async () => {
     if (!apiKey || !selectedNs) return;
-
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(editorValue);
@@ -71,12 +70,10 @@ export function ConfigEditor() {
       setParseError('Cannot save — JSON is invalid');
       return;
     }
-
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       setParseError('Config must be a JSON object, not an array or primitive');
       return;
     }
-
     setSaving(true);
     setError('');
     setSuccess('');
@@ -96,12 +93,9 @@ export function ConfigEditor() {
 
   const handleFormat = () => {
     try {
-      const parsed = JSON.parse(editorValue);
-      setEditorValue(JSON.stringify(parsed, null, 2));
+      setEditorValue(JSON.stringify(JSON.parse(editorValue), null, 2));
       setParseError('');
-    } catch {
-      // parseError already set by the effect
-    }
+    } catch { /* parseError already set */ }
   };
 
   const handleReset = () => {
@@ -115,48 +109,115 @@ export function ConfigEditor() {
   const canSave = isDirty && !parseError && !saving && !!selectedNs;
 
   if (nsLoading) {
-    return (
-      <div className="card">
-        <p className="loading">Loading namespaces…</p>
-      </div>
-    );
+    return <p style={{ color: 'var(--muted)', fontSize: 14 }}>Loading namespaces…</p>;
   }
 
   if (!namespaces.length) {
     return (
-      <div className="card">
-        <div className="placeholder">
-          <p className="muted">No namespaces found. Ingest documents to create one.</p>
-        </div>
-      </div>
+      <p style={{ color: 'var(--muted)', fontSize: 14 }}>
+        No namespaces found. Ingest documents to create one.
+      </p>
     );
   }
 
   return (
-    <div className="memory-editor">
-      <div className="card">
-        <div className="memory-editor-toolbar">
-          <div className="form-group" style={{ marginBottom: 0, flex: 1, maxWidth: 280 }}>
-            <label htmlFor="config-ns">Project</label>
-            <select
-              id="config-ns"
-              className="select"
-              value={selectedNs}
-              onChange={(e) => setSelectedNs(e.target.value)}
-            >
-              <option value="">Select namespace…</option>
-              {namespaces.map((ns) => (
-                <option key={ns} value={ns}>{ns}</option>
-              ))}
-            </select>
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          <div className="memory-editor-actions">
+      {/* Namespace selector — hidden in modal context */}
+      {!hideSelector && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label htmlFor="config-ns" style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+            Project
+          </label>
+          <select
+            id="config-ns"
+            className="select"
+            value={selectedNs}
+            onChange={(e) => setSelectedNs(e.target.value)}
+            style={{ flex: 1, maxWidth: 280 }}
+          >
+            <option value="">Select namespace…</option>
+            {namespaces.map((ns) => (
+              <option key={ns} value={ns}>{ns}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Loading / no-namespace placeholder */}
+      {!selectedNs ? (
+        <p style={{ color: 'var(--muted)', fontSize: 14, margin: 0 }}>
+          Select a namespace to edit its configuration.
+        </p>
+      ) : loading ? (
+        <p style={{ color: 'var(--muted)', fontSize: 14, margin: 0 }}>Loading…</p>
+      ) : (
+        <>
+          {/* Status strip */}
+          {(parseError || error || success || isDirty) && (
+            <div style={{ fontSize: 12, minHeight: 18 }}>
+              {parseError && <span style={{ color: 'var(--danger)' }}>{parseError}</span>}
+              {!parseError && error && <span style={{ color: 'var(--danger)' }}>{error}</span>}
+              {!parseError && !error && success && <span style={{ color: 'var(--success)' }}>{success}</span>}
+              {!parseError && !error && !success && isDirty && (
+                <span style={{ color: 'var(--warning)' }}>Unsaved changes</span>
+              )}
+            </div>
+          )}
+
+          {/* Code editor textarea */}
+          <textarea
+            value={editorValue}
+            onChange={(e) => setEditorValue(e.target.value)}
+            spellCheck={false}
+            placeholder="{}"
+            style={{
+              width: '100%',
+              minHeight: 240,
+              background: 'var(--bg)',
+              border: `1px solid ${parseError ? 'var(--danger)' : 'var(--border)'}`,
+              borderRadius: 8,
+              color: 'var(--text)',
+              fontFamily: '"SF Mono", "Fira Code", ui-monospace, Consolas, monospace',
+              fontSize: 13,
+              lineHeight: 1.65,
+              padding: '14px 16px',
+              resize: 'vertical',
+              outline: 'none',
+              transition: 'border-color 0.15s',
+              boxSizing: 'border-box',
+            }}
+            onFocus={e => { if (!parseError) e.currentTarget.style.borderColor = 'var(--primary)'; }}
+            onBlur={e => { e.currentTarget.style.borderColor = parseError ? 'var(--danger)' : 'var(--border)'; }}
+          />
+
+          {/* Supported fields hint */}
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, lineHeight: 1.6 }}>
+            Supported fields:{' '}
+            {SUPPORTED_FIELDS.map((f, i) => (
+              <span key={f}>
+                <code style={{
+                  fontFamily: '"SF Mono", "Fira Code", ui-monospace, monospace',
+                  fontSize: 12,
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: 'var(--panel-soft)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                }}>
+                  {f}
+                </code>
+                {i < SUPPORTED_FIELDS.length - 1 ? ', ' : ''}
+              </span>
+            ))}
+          </p>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               className="btn btn-sm"
               onClick={handleFormat}
               disabled={!!parseError || !editorValue.trim()}
-              title="Format JSON"
             >
               Format
             </button>
@@ -171,47 +232,12 @@ export function ConfigEditor() {
               className="btn btn-sm btn-primary"
               onClick={handleSave}
               disabled={!canSave}
-              style={{ width: 'auto' }}
+              style={{ marginLeft: 'auto', width: 'auto', minWidth: 72 }}
             >
               {saving ? <><span className="spinner" /> Saving…</> : 'Save'}
             </button>
           </div>
-        </div>
-      </div>
-
-      {!selectedNs ? (
-        <div className="card">
-          <div className="placeholder">
-            <p className="muted">Select a namespace to edit its configuration</p>
-          </div>
-        </div>
-      ) : loading ? (
-        <div className="card">
-          <p className="loading">Loading configuration…</p>
-        </div>
-      ) : (
-        <div className="card memory-editor-card">
-          <div className="memory-editor-status-bar">
-            {parseError && <span className="memory-editor-parse-error">{parseError}</span>}
-            {!parseError && isDirty && <span className="memory-editor-dirty">Unsaved changes</span>}
-            {!parseError && !isDirty && !success && <span className="muted">No changes</span>}
-            {success && <span className="memory-editor-success">{success}</span>}
-            {error && <span className="memory-editor-error">{error}</span>}
-          </div>
-          <textarea
-            className={`memory-editor-textarea ${parseError ? 'memory-editor-textarea--error' : ''}`}
-            value={editorValue}
-            onChange={(e) => setEditorValue(e.target.value)}
-            spellCheck={false}
-            placeholder="{}"
-          />
-          <div className="memory-editor-hint">
-            <p className="muted">
-              Supported fields: <code>defaultTemplate</code>, <code>tone</code>,{' '}
-              <code>chunkStrategy</code>, <code>pricingDefaults</code>, <code>llm</code>
-            </p>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

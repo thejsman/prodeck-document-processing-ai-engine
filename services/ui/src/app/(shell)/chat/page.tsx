@@ -913,16 +913,29 @@ export default function ChatPage() {
           style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={e => { if (e.target === e.currentTarget) setShowMemoryModal(false); }}
         >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: 'min(900px, 92vw)', height: 'min(680px, 90vh)', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Memory</p>
-                <button onClick={() => setShowMemoryModal(false)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 14, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: 'min(580px, 92vw)', maxHeight: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ padding: '22px 24px 18px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                <div>
+                  <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px', lineHeight: 1.4 }}>Namespace Memory</p>
+                  <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+                    Namespace memory lets you store structured context that persists across sessions. Paste or write JSON below to define it.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowMemoryModal(false)}
+                  style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', marginTop: 2 }}
+                  aria-label="Close"
+                >
+                  <Icon icon={X} size="md" />
+                </button>
               </div>
             </div>
             <div style={{ height: 1, background: 'var(--border)', flexShrink: 0 }} />
-            <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-              <MemoryEditor />
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 24px' }}>
+              <MemoryEditor hideSelector />
             </div>
           </div>
         </div>
@@ -934,16 +947,29 @@ export default function ChatPage() {
           style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={e => { if (e.target === e.currentTarget) setShowConfigModal(false); }}
         >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: 'min(900px, 92vw)', height: 'min(680px, 90vh)', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Configuration</p>
-                <button onClick={() => setShowConfigModal(false)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 14, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: 'min(580px, 92vw)', maxHeight: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ padding: '22px 24px 18px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                <div>
+                  <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px', lineHeight: 1.4 }}>Namespace Configuration</p>
+                  <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+                    Configuration controls pipeline behavior for this namespace. Edit the JSON below to define defaults.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowConfigModal(false)}
+                  style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', marginTop: 2 }}
+                  aria-label="Close"
+                >
+                  <Icon icon={X} size="md" />
+                </button>
               </div>
             </div>
             <div style={{ height: 1, background: 'var(--border)', flexShrink: 0 }} />
-            <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-              <ConfigEditor />
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 24px' }}>
+              <ConfigEditor hideSelector />
             </div>
           </div>
         </div>
