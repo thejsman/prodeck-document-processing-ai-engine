@@ -1547,7 +1547,7 @@ Section source content: ${effectiveBody || '(derive from brief above)'}${fallbac
 
 Transform into a Pricing section. SCAN THE FULL PROPOSAL AND FULL SOURCE CONTENT for ALL pricing data.
 
-RENDERER RULE (non-negotiable — Rule 3): The rows array MUST render as a 2-column TABLE (label | amount). NEVER render as a checklist, bullet list, or checkmark grid. Every row MUST have a visible dollar amount in column 2. Do NOT omit or hide amounts.
+RENDERER RULE (non-negotiable — Rule 3): The rows array MUST render as a 2-column TABLE (label | amount). NEVER render as a checklist, bullet list, or checkmark grid. Every row MUST have a real dollar amount in column 2 — if the source has no specific amount for a row, leave column 2 as an empty string "" rather than using a placeholder like "$X,XXX". Do NOT fabricate amounts.
 
 MANDATORY EXTRACTION RULES:
 1. Search EVERY section of the proposal for: prices, costs, fees, rates, packages, tiers, totals, budgets, estimates, invoices, retainers, milestones, payment terms, hourly rates, monthly fees, project totals.
@@ -2501,7 +2501,7 @@ function buildOverrideSectionPrompt(
 ROW TYPES — use these exact patterns:
 1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment"] — use descriptive text, NOT generic "Service / Deliverable"
 2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "price or empty string"] — deliverables that are part of the scope
-3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"], ["~50% Milestone", "$X,XXX", "Design complete, dev underway"], ["Completion / Launch", "$X,XXX", "Final delivery + handoff"] — 3 columns when it's a milestone
+3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"] — replace $X,XXX with the EXACT amount from the proposal. If no specific amount is stated, use empty string "" — NEVER use $X,XXX as a literal value in output.
 { "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["Exact deliverable from proposal", ""], ["...more deliverables..."], ["Upon Signing", "$X,XXX", "Work begins immediately"]], "totalLabel": "exact total e.g. '$100,000'", "footnote": "payment timing note if any", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
