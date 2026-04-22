@@ -57,6 +57,7 @@ export function ProposalPage() {
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedNamespace, setSelectedNamespace] = useState('');
   const [lastRequest, setLastRequest] =
     useState<GenerateProposalRequest | null>(null);
   const [regeneratingSection, setRegeneratingSection] = useState<string | null>(
@@ -596,8 +597,13 @@ export function ProposalPage() {
                   onGenerate={handleGenerate}
                   isGenerating={isGenerating}
                   setIsGenerating={setIsGenerating}
+                  onNamespaceChange={setSelectedNamespace}
                 />
-                <VersionHistory refreshKey={refreshKey} onSelect={handleSelectHistory} />
+                <VersionHistory
+                  refreshKey={refreshKey}
+                  onSelect={handleSelectHistory}
+                  namespace={selectedNamespace}
+                />
               </div>
               <div className="col-right">
                 {(regenError || workflowError) && (

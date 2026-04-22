@@ -15,12 +15,14 @@ interface Props {
   onGenerate: (doc: ProposalDocument, request: GenerateProposalRequest) => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
+  onNamespaceChange?: (ns: string) => void;
 }
 
 export function ProposalForm({
   onGenerate,
   isGenerating,
   setIsGenerating,
+  onNamespaceChange,
 }: Props) {
   const { apiKey } = useAuth();
   const addExecution = useExecutionStore((s) => s.addExecution);
@@ -133,7 +135,10 @@ export function ProposalForm({
         </div>
       </div>
 
-      <NamespaceSelector value={namespace} onChange={setNamespace} />
+      <NamespaceSelector
+        value={namespace}
+        onChange={(ns) => { setNamespace(ns); onNamespaceChange?.(ns); }}
+      />
 
       <TemplateSelector value={template} onChange={setTemplate} namespace={namespace} />
 
