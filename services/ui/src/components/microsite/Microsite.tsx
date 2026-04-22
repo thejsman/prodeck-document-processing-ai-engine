@@ -1183,7 +1183,7 @@ ${el.innerHTML}
         <MicrositeNav
           tokens={tokens}
           brand={ast.brand}
-          sections={ast.sections ?? []}
+          sections={visibleSections}
           scrollContainerId={isEmbedded ? EMBEDDED_SCROLL_CONTAINER_ID : SCROLL_CONTAINER_ID}
         />
 
