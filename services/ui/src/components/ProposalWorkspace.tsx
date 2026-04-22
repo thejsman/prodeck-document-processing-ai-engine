@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { MoreHorizontal } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import type { ProposalDocument, ProposalMeta, ProposalStatus } from '@/lib/api';
 import {
   parseProposalSections,
@@ -69,6 +71,19 @@ export function ProposalWorkspace({
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
   );
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    }
+    window.document.addEventListener('mousedown', handleClickOutside);
+    return () => window.document.removeEventListener('mousedown', handleClickOutside);
+  }, [overflowOpen]);
 
   const parsed: ParsedProposal | null = useMemo(() => {
     if (!document) return null;
@@ -192,34 +207,45 @@ export function ProposalWorkspace({
               ))}
             </div>
           )}
-          <button
-            className="btn btn-sm"
-            onClick={expandAll}
-            disabled={isGenerating}
-          >
-            Expand All
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={collapseAll}
-            disabled={isGenerating}
-          >
-            Collapse All
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={onShowDiff}
-            disabled={isGenerating}
-          >
-            Compare Versions
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={handleDownload}
-            disabled={isGenerating}
-          >
-            Download .md
-          </button>
+          <div className="workspace-overflow-wrap" ref={overflowRef}>
+            <button
+              className="btn btn-sm"
+              onClick={() => setOverflowOpen((o) => !o)}
+              aria-label="More options"
+              title="More options"
+            >
+              <Icon icon={MoreHorizontal} size="sm" />
+            </button>
+            {overflowOpen && (
+              <div className="workspace-overflow-menu">
+                <button
+                  className="workspace-overflow-item"
+                  onClick={() => { expandAll(); setOverflowOpen(false); }}
+                >
+                  Expand All
+                </button>
+                <button
+                  className="workspace-overflow-item"
+                  onClick={() => { collapseAll(); setOverflowOpen(false); }}
+                >
+                  Collapse All
+                </button>
+                <div className="workspace-overflow-divider" />
+                <button
+                  className="workspace-overflow-item"
+                  onClick={() => { onShowDiff(); setOverflowOpen(false); }}
+                >
+                  Compare Versions
+                </button>
+                <button
+                  className="workspace-overflow-item"
+                  onClick={() => { handleDownload(); setOverflowOpen(false); }}
+                >
+                  Download .md
+                </button>
+              </div>
+            )}
+          </div>
           <button
             className="btn btn-sm btn-primary"
             onClick={onRegenerateAll}
