@@ -1356,6 +1356,9 @@ ${el.innerHTML}
                     fontWeight: 400,
                     cursor: 'pointer',
                     boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   <Icon icon={ArrowLeft} size="sm" /> Back
@@ -1376,6 +1379,9 @@ ${el.innerHTML}
                     fontWeight: 400,
                     cursor: 'pointer',
                     boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   <Icon icon={RefreshCw} size="sm" /> Regenerate
@@ -1396,6 +1402,9 @@ ${el.innerHTML}
                     fontWeight: 400,
                     cursor: 'pointer',
                     boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}
                 >
                   <Icon icon={Pencil} size="sm" /> Edit
@@ -1421,6 +1430,10 @@ ${el.innerHTML}
                         minWidth: 148,
                         opacity: downloadingPdf ? 0.75 : 1,
                         boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
                       }}
                     >
                       {downloadingPdf ? `${pdfProgress}% — ${pdfProgressMsg}` : '↓ Download PDF'}
