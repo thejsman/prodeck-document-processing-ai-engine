@@ -21,9 +21,10 @@ interface ItemProps {
   children: React.ReactNode;
   /** Override the wrapper element — use "tr" when the child is a <tr> inside a table */
   as?: 'div' | 'tr';
+  style?: React.CSSProperties;
 }
 
-export function InlineArrayItem({ arrayPath, index, total, children, as: Tag = 'div' }: ItemProps) {
+export function InlineArrayItem({ arrayPath, index, total, children, as: Tag = 'div', style }: ItemProps) {
   const ctx = useEditContext();
   const sectionId = useSectionId();
   const [hovered, setHovered] = useState(false);
@@ -99,7 +100,7 @@ export function InlineArrayItem({ arrayPath, index, total, children, as: Tag = '
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative' }}
+      style={{ position: 'relative', ...style }}
     >
       {children}
       {controls}

@@ -13,16 +13,22 @@ import { TemplateSelector } from './TemplateSelector';
 
 interface Props {
   onGenerate: (doc: ProposalDocument, request: GenerateProposalRequest) => void;
+  onGenerateStart?: (request: GenerateProposalRequest) => void;
+  onGenerateFail?: (error: string) => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
   onNamespaceChange?: (ns: string) => void;
+  modalMode?: boolean;
 }
 
 export function ProposalForm({
   onGenerate,
+  onGenerateStart,
+  onGenerateFail,
   isGenerating,
   setIsGenerating,
   onNamespaceChange,
+  modalMode = false,
 }: Props) {
   const { apiKey } = useAuth();
   const addExecution = useExecutionStore((s) => s.addExecution);
@@ -92,6 +98,7 @@ export function ProposalForm({
     };
 
     const execId = crypto.randomUUID();
+    onGenerateStart?.(request);
     setIsGenerating(true);
     addExecution({ id: execId, type: 'proposal', status: 'running', title: client.trim() });
     try {
@@ -99,16 +106,22 @@ export function ProposalForm({
       updateExecution(execId, { status: 'completed' });
       onGenerate(doc, request);
     } catch (err) {
-      setError((err as Error).message);
-      updateExecution(execId, { status: 'failed', errorMessage: (err as Error).message });
+      const msg = (err as Error).message;
+      setError(msg);
+      onGenerateFail?.(msg);
+      updateExecution(execId, { status: 'failed', errorMessage: msg });
     } finally {
       setIsGenerating(false);
     }
   }
 
   return (
-    <form className="card" onSubmit={handleSubmit}>
-      <h2>Generate Proposal</h2>
+    <form
+      id={modalMode ? 'generate-proposal-form' : undefined}
+      className={modalMode ? undefined : 'card'}
+      onSubmit={handleSubmit}
+    >
+      {!modalMode && <h2>Generate Proposal</h2>}
 
       <div className="form-row">
         <div className="form-group">
@@ -198,15 +211,11 @@ export function ProposalForm({
 
       {error && <p className="error">{error}</p>}
 
-      <button type="submit" className="btn btn-primary" disabled={isGenerating}>
-        {isGenerating ? (
-          <>
-            <span className="spinner" /> Generating...
-          </>
-        ) : (
-          'Generate Proposal'
-        )}
-      </button>
+      {!modalMode && (
+        <button type="submit" className="btn btn-primary" disabled={isGenerating}>
+          {isGenerating ? <><span className="spinner" /> Generating...</> : 'Generate Proposal'}
+        </button>
+      )}
     </form>
   );
 }

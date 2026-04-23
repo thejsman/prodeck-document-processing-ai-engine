@@ -20,7 +20,6 @@ export function ChatEmptyState({ namespace, onSuggestion, insights }: Props) {
 
   return (
     <div className="chat-empty-state">
-      <div className="chat-empty-icon">⌥</div>
       <h2 className="chat-empty-title">How can I help you today?</h2>
       <p className="chat-empty-sub">
         Ask questions about the <strong>{namespace || 'default'}</strong> namespace

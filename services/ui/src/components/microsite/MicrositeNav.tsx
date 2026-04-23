@@ -207,6 +207,10 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
   const navFontSize = 11;
   const navGap = 20;
 
+  // If there are more than 11 nav items, always force hamburger mode
+  const forceHamburger = navLinks.length > 11;
+  const useHamburger = isMobileLayout || forceHamburger;
+
   // How many links fit in available space (logo ~200px, padding 48px, "More" btn ~64px)
   const LOGO_RESERVED = 220;
   const MORE_BTN_W = 70;
@@ -269,14 +273,14 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
             <img
               src={brand.logoUrl}
               alt={brand.companyName}
-              style={{ height: 28, objectFit: 'contain', maxWidth: isMobileLayout ? 100 : 160 }}
+              style={{ height: 28, objectFit: 'contain', maxWidth: useHamburger ? 100 : 160 }}
             />
           ) : (
             <span
               style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontWeight: 700,
-                fontSize: isMobileLayout ? 13 : 16,
+                fontSize: useHamburger ? 13 : 16,
                 color: navLogoColor,
                 letterSpacing: tokens.labelTracking,
                 textTransform: 'uppercase',
@@ -290,8 +294,8 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
           )}
         </div>
 
-        {/* Desktop nav links — hidden when container is narrow */}
-        {!isMobileLayout && (
+        {/* Desktop nav links — hidden when container is narrow or sections > 11 */}
+        {!useHamburger && (
           <div style={{ display: 'flex', alignItems: 'center', gap: navGap, flexShrink: 0, position: 'relative' }}>
             {visibleLinks.map((s) => {
               const isActive = activeId === s.id;
@@ -427,8 +431,8 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
           </div>
         )}
 
-        {/* Hamburger button — shown when container is narrow */}
-        {isMobileLayout && (
+        {/* Hamburger button — shown when container is narrow or sections > 11 */}
+        {useHamburger && (
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             style={{
@@ -462,63 +466,103 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
         )}
       </nav>
 
-      {/* Mobile bottom-sheet menu — anchored relative to the nav's scroll container */}
-      {mobileOpen && isMobileLayout && (
-        <div
-          style={{
-            position: 'sticky',
-            top: 66,
-            left: 0,
-            right: 0,
-            zIndex: 499,
-            background: `${tokens.bg}f5`,
-            backdropFilter: 'blur(20px)',
-            borderBottom: `1px solid ${tokens.border}`,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-          onClick={() => setMobileOpen(false)}
-        >
+      {/* Hamburger menu — full-width dropdown panel */}
+      {mobileOpen && useHamburger && (
+        <>
+          {/* Click-away backdrop */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 498 }}
+            onClick={() => setMobileOpen(false)}
+          />
           <div
             style={{
-              padding: '8px 12px 12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2,
+              position: 'sticky',
+              top: 66,
+              left: 0,
+              right: 0,
+              zIndex: 499,
+              background: tokens.dark
+                ? `color-mix(in srgb, ${tokens.bg} 92%, transparent)`
+                : `color-mix(in srgb, ${tokens.bg} 96%, transparent)`,
+              backdropFilter: 'blur(24px)',
+              borderBottom: `1px solid ${tokens.border}`,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
             }}
-            onClick={(e) => e.stopPropagation()}
           >
-            {navLinks.map((s) => {
-              const isActive = activeId === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => scrollTo(s.id)}
-                  style={{
-                    background: isActive ? `${tokens.accent}14` : 'none',
-                    border: 'none',
-                    borderLeft: isActive ? `2px solid ${tokens.accent}` : '2px solid transparent',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    padding: '10px 12px',
-                    borderRadius: '0 6px 6px 0',
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                    fontSize: 11,
-                    fontWeight: isActive ? 700 : 600,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase' as const,
-                    color: isActive ? tokens.accent : navInactiveColor,
-                    minHeight: 44,
-                    transition: 'color 0.15s, background 0.15s',
-                    width: '100%',
-                  }}
-                >
-                  {navLabel(s)}
-                </button>
-              );
-            })}
+            {/* Grid layout for sections */}
+            <div
+              style={{
+                padding: '12px 16px 16px',
+                display: 'grid',
+                gridTemplateColumns: navLinks.length > 11
+                  ? 'repeat(3, 1fr)'
+                  : 'repeat(2, 1fr)',
+                gap: 6,
+              }}
+            >
+              {navLinks.map((s, idx) => {
+                const isActive = activeId === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => scrollTo(s.id)}
+                    style={{
+                      background: isActive
+                        ? `${tokens.accent}18`
+                        : tokens.dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                      border: `1px solid ${isActive ? tokens.accent + '50' : tokens.border}`,
+                      borderRadius: 10,
+                      cursor: 'pointer',
+                      textAlign: 'center' as const,
+                      padding: '10px 8px',
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontSize: 10,
+                      fontWeight: isActive ? 700 : 600,
+                      letterSpacing: '0.07em',
+                      textTransform: 'uppercase' as const,
+                      color: isActive ? tokens.accent : navInactiveColor,
+                      transition: 'color 0.15s, background 0.15s, border-color 0.15s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      minHeight: 40,
+                      lineHeight: 1.3,
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {isActive && (
+                      <span style={{
+                        position: 'absolute',
+                        top: 0, left: 0, right: 0,
+                        height: 2,
+                        background: tokens.gradientText ?? tokens.accent,
+                        borderRadius: '10px 10px 0 0',
+                      }} />
+                    )}
+                    <span style={{
+                      display: 'inline-block',
+                      width: 18, height: 18,
+                      borderRadius: 6,
+                      background: isActive ? `${tokens.accent}20` : tokens.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                      flexShrink: 0,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: isActive ? tokens.accent : navInactiveColor,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {idx + 1}
+                    </span>
+                    {navLabel(s)}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </>
   );

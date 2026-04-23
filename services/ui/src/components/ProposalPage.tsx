@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X, ChevronDown, Check } from 'lucide-react';
+import { X, ChevronDown, Check, MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
 import type {
@@ -15,6 +15,7 @@ import type {
 } from '@/lib/api';
 import {
   generateProposal,
+  fetchProposals,
   fetchProposalMeta,
   fetchProposalContent,
   saveProposalContent,
@@ -27,9 +28,12 @@ import {
 import {
   parseProposalSections,
   reassembleMarkdown,
+  downloadMarkdown,
 } from '@/lib/proposal-utils';
 import { useAuth } from '@/lib/auth-context';
+import { useNamespace } from '@/lib/namespace-context';
 import { useExecutionStore } from '@/core/execution/execution-store';
+import { useProposalGenerationStore } from '@/core/proposal-generation-store';
 import { ProposalForm } from './ProposalForm';
 import { ProposalWorkspace, STATUS_LABELS } from './ProposalWorkspace';
 
@@ -41,18 +45,207 @@ const STATUS_COLORS: Record<ProposalStatus, string> = {
   approved: '#22c55e',
   finalized: '#3b82f6',
 };
-import { VersionHistory } from './VersionHistory';
 import { DiffViewer } from './DiffViewer';
 import { ProposalAIEditor } from './ProposalAIEditor';
 import { ProposalSectionPreview } from './ProposalSectionPreview';
 
+// ── Shared status tag helpers ─────────────────────────────────────
+
+function statusBadgeClass(status: ProposalStatus | null): string | null {
+  switch (status) {
+    case 'approved': return 'badge--approved';
+    case 'finalized': return 'badge--finalized';
+    case 'under_review': return 'badge--under-review';
+    case 'draft': return 'badge--draft';
+    default: return null;
+  }
+}
+
+function statusLabel(status: ProposalStatus | null): string | null {
+  if (!status) return null;
+  return status.replace('_', ' ').toUpperCase();
+}
+
+// ── Version panel — matches NamespacePanel proposal item style ────
+
+function ProposalVersionPanel({
+  refreshKey,
+  onSelect,
+}: {
+  refreshKey: number;
+  onSelect?: (file: ProposalFile) => void;
+}) {
+  const { apiKey } = useAuth();
+  const [proposals, setProposals] = useState<ProposalFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(true);
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchProposals(apiKey)
+      .then((p) => { if (!cancelled) setProposals(p); })
+      .catch(() => { if (!cancelled) setProposals([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [apiKey, refreshKey]);
+
+  return (
+    <aside className="chat-ctx-panel">
+      <div style={{ borderBottom: '1px solid var(--border)' }}>
+        <div
+          className="sidebar-link"
+          role="button"
+          onClick={() => setOpen((v) => !v)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={{ cursor: 'pointer', borderRadius: 0, paddingLeft: 12 }}
+        >
+          <span className="sidebar-label" style={{ flex: 1, opacity: 0.5, fontSize: 13 }}>
+            Proposals
+          </span>
+          <Icon
+            icon={ChevronDown}
+            size="sm"
+            style={{
+              flexShrink: 0,
+              opacity: hovered ? 0.7 : 0.35,
+              transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'opacity 0.15s, transform 0.15s ease',
+            }}
+          />
+        </div>
+
+        {open && (
+          loading ? (
+            <div style={{ padding: '2px 8px 8px' }}>
+              <span className="sidebar-label" style={{ opacity: 0.45, fontSize: 13 }}>Loading…</span>
+            </div>
+          ) : proposals.length === 0 ? (
+            <div style={{ padding: '2px 8px 4px 12px' }}>
+              <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No proposals yet</span>
+            </div>
+          ) : (
+            <div style={{ padding: '2px 0 4px' }}>
+              {proposals.map((p) => {
+                const bc = statusBadgeClass(p.status);
+                return (
+                  <div
+                    key={p.fileName}
+                    className="sidebar-link"
+                    onClick={() => onSelect?.(p)}
+                    style={{
+                      cursor: onSelect ? 'pointer' : 'default',
+                      height: 32,
+                      minWidth: 0,
+                      margin: '0 12px 2px',
+                      background: 'var(--panel-soft)',
+                      padding: '0 12px',
+                    }}
+                  >
+                    <span
+                      className="sidebar-label"
+                      style={{
+                        color: 'var(--text)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 13,
+                      }}
+                    >
+                      {p.client}
+                    </span>
+                    {bc && (
+                      <span
+                        className={bc}
+                        style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}
+                      >
+                        {statusLabel(p.status)}
+                      </span>
+                    )}
+                    {p.version != null && (
+                      <span style={{
+                        flexShrink: 0,
+                        fontSize: 10,
+                        fontWeight: 500,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        background: 'var(--primary-soft)',
+                        color: 'var(--primary)',
+                        border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)',
+                      }}>
+                        v{p.version}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function nsFromFileName(fileName: string): string {
+  return fileName.includes('::') ? fileName.split('::')[0] : '';
+}
+
+function proposalHref(p: ProposalFile): string {
+  const [ns, ...rest] = p.fileName.split('::');
+  const file = rest.join('::') || ns;
+  return rest.length
+    ? `/proposal?artifact=${encodeURIComponent(file)}&namespace=${encodeURIComponent(ns)}&from=chat`
+    : `/proposal?artifact=${encodeURIComponent(file)}&from=chat`;
+}
+
+function formatCreatedAt(isoString: string): string {
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '';
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const datePart = date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+  const timePart = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${datePart}, ${timePart}`;
+}
+
 export function ProposalPage() {
   const { apiKey } = useAuth();
+  const { namespaces } = useNamespace();
   const searchParams = useSearchParams();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const router = useRouter();
   const fromChat = searchParams.get('from') === 'chat';
+
+  const pending = useProposalGenerationStore((s) => s.pending);
+  const startPending = useProposalGenerationStore((s) => s.start);
+  const finishPending = useProposalGenerationStore((s) => s.finish);
+  const failPending = useProposalGenerationStore((s) => s.fail);
+  const clearPending = useProposalGenerationStore((s) => s.clear);
+
+  // ── Browser view state (non-fromChat only) ────────────────────────
+  const [allProposals, setAllProposals] = useState<ProposalFile[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseNs, setBrowseNs] = useState('');
+  const [nsDropOpen, setNsDropOpen] = useState(false);
+  const [nsDropPos, setNsDropPos] = useState({ top: 0, right: 0 });
+  const nsBtnRef = useRef<HTMLButtonElement | null>(null);
+  const nsDropRef = useRef<HTMLDivElement | null>(null);
   const [currentDocument, setCurrentDocument] =
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -76,6 +269,62 @@ export function ProposalPage() {
     const retried = ((currentDocument.metadata as Record<string, unknown>).retried_sections as string[]) ?? [];
     return parseProposalSections(currentDocument.content, retried).sections.length;
   }, [currentDocument]);
+
+  const nsCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    allProposals.forEach((p) => {
+      const ns = nsFromFileName(p.fileName);
+      if (ns) counts[ns] = (counts[ns] ?? 0) + 1;
+    });
+    return counts;
+  }, [allProposals]);
+
+  const filteredProposals = useMemo(() => {
+    const list = browseNs
+      ? allProposals.filter((p) => p.fileName.startsWith(`${browseNs}::`))
+      : allProposals;
+    return [...list].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [allProposals, browseNs]);
+
+  useEffect(() => {
+    if (fromChat) return;
+    setBrowseLoading(true);
+    fetchProposals(apiKey)
+      .then(setAllProposals)
+      .catch(() => setAllProposals([]))
+      .finally(() => setBrowseLoading(false));
+  }, [apiKey, fromChat, refreshKey]);
+
+  // When proposals list refreshes, clear the pending card if the proposal landed
+  useEffect(() => {
+    if (fromChat || !pending || pending.status !== 'generating') return;
+    const found = allProposals.some(
+      (p) =>
+        p.client.toLowerCase() === pending.client.toLowerCase() &&
+        (!pending.namespace || p.fileName.startsWith(`${pending.namespace}::`)),
+    );
+    if (found) finishPending();
+  }, [allProposals, pending, fromChat, finishPending]);
+
+  useEffect(() => {
+    if (!nsDropOpen) return;
+    function handle(e: MouseEvent) {
+      if (nsDropRef.current && !nsDropRef.current.contains(e.target as Node)) {
+        setNsDropOpen(false);
+      }
+    }
+    window.document.addEventListener('mousedown', handle);
+    return () => window.document.removeEventListener('mousedown', handle);
+  }, [nsDropOpen]);
+
+  function openNsDropdown() {
+    if (nsDropOpen) { setNsDropOpen(false); return; }
+    const rect = nsBtnRef.current?.getBoundingClientRect();
+    if (rect) setNsDropPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setNsDropOpen(true);
+  }
 
   // Status selector dropdown
   const [statusOpen, setStatusOpen] = useState(false);
@@ -101,10 +350,73 @@ export function ProposalPage() {
     setStatusOpen(true);
   }
 
+  // Overflow menu
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [overflowMenuPos, setOverflowMenuPos] = useState({ top: 0, right: 0 });
+  const overflowBtnRef = useRef<HTMLButtonElement | null>(null);
+  const overflowDropRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    function handle(e: MouseEvent) {
+      if (overflowDropRef.current && !overflowDropRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    }
+    window.document.addEventListener('mousedown', handle);
+    return () => window.document.removeEventListener('mousedown', handle);
+  }, [overflowOpen]);
+
+  function openOverflow() {
+    if (overflowOpen) { setOverflowOpen(false); return; }
+    const rect = overflowBtnRef.current?.getBoundingClientRect();
+    if (rect) setOverflowMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setOverflowOpen(true);
+  }
+
+  // Collapsed sections (lifted from ProposalWorkspace)
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const allCollapsed = totalSections > 0 && collapsedSections.size === totalSections;
+
+  function expandAll() { setCollapsedSections(new Set()); }
+
+  function collapseAll() {
+    if (!currentDocument) return;
+    const retried = ((currentDocument.metadata as Record<string, unknown>).retried_sections as string[]) ?? [];
+    const { sections } = parseProposalSections(currentDocument.content, retried);
+    setCollapsedSections(new Set(sections.map((s) => s.title)));
+  }
+
+  function toggleSection(title: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  }
+
+  function handleDownload() {
+    if (!currentDocument) return;
+    const client = ((currentDocument.metadata as Record<string, unknown>).client as string) ?? 'proposal';
+    downloadMarkdown(currentDocument.content, client);
+  }
+
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<SectionDiff[]>([]);
   const [workflowError, setWorkflowError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [isLoadingDocument, setIsLoadingDocument] = useState(false);
+
+  useEffect(() => {
+    if (!showGenerateModal || isGenerating) return;
+    function handle(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowGenerateModal(false);
+    }
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [showGenerateModal, isGenerating]);
 
   // AI rewrite state
   const [aiEditingSection, setAiEditingSection] = useState<string | null>(null);
@@ -120,15 +432,18 @@ export function ProposalPage() {
     const artifact = searchParams.get('artifact');
     if (!artifact || !apiKey) return;
     const ns = searchParams.get('namespace');
-    // The API resolves namespace-prefixed filenames via "ns::file.md" format
     const fileKey = ns ? `${ns}::${artifact}` : artifact;
+    setIsLoadingDocument(true);
+    setCurrentDocument(null);
+    setMeta(null);
     fetchProposalContent(apiKey, fileKey)
       .then((doc) => {
         setCurrentDocument(doc);
         return fetchProposalMeta(apiKey, fileKey).catch(() => null);
       })
       .then((m) => { if (m) setMeta(m); })
-      .catch(() => { /* silently ignore — user can load manually */ });
+      .catch(() => {})
+      .finally(() => setIsLoadingDocument(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey, searchParams]);
 
@@ -507,105 +822,139 @@ export function ProposalPage() {
     <>
       <div className="chat-v2">
         <header className="chat-v2-header">
-          <div className="chat-v2-header-left">
-            <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
-            {currentDocument && (
-              <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
-            )}
-          </div>
-          <div className="chat-v2-header-right">
-            {/* Status selector */}
-            <button
-              ref={statusBtnRef}
-              onClick={openStatusMenu}
-              disabled={!currentDocument}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                height: 30, padding: '0 10px',
-                background: 'var(--panel-soft)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                fontSize: 13, fontWeight: 500,
-                cursor: currentDocument ? 'pointer' : 'not-allowed',
-                color: 'var(--text)',
-                opacity: currentDocument ? 1 : 0.4,
-                flexShrink: 0,
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[currentStatus], flexShrink: 0 }} />
-              {STATUS_LABELS[currentStatus]}
-              <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
-            </button>
-
-            {/* Generate Microsite */}
-            <button
-              style={{
-                height: 30,
-                padding: '0 12px',
-                whiteSpace: 'nowrap',
-                background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
-                color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
-                border: 'none',
-                borderRadius: 'var(--radius)',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
-                flexShrink: 0,
-                opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
-              }}
-              disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
-              onClick={handleGenerateMicrosite}
-            >
-              Generate Microsite
-            </button>
-
-            <button
-              className="chat-v2-panel-toggle"
-              onClick={() => router.back()}
-              title="Close"
-              aria-label="Close"
-            >
-              <Icon icon={X} size="sm" />
-            </button>
-          </div>
+          {fromChat ? (
+            /* ── Workspace header ── */
+            <>
+              <div className="chat-v2-header-left">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
+                    {currentDocument && (
+                      <>
+                        <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                        <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+                      </>
+                    )}
+                    {searchParams.get('namespace') && (
+                      <>
+                        <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                        <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>{searchParams.get('namespace')}</span>
+                      </>
+                    )}
+                  </div>
+                  {currentDocument && (() => {
+                    const raw = meta?.createdAt ?? currentDocument.createdAt;
+                    const label = raw ? formatCreatedAt(raw) : null;
+                    return label ? (
+                      <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+              <div className="chat-v2-header-right">
+                <button
+                  style={{
+                    height: 30, padding: '0 12px', whiteSpace: 'nowrap',
+                    background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
+                    color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
+                    border: 'none', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
+                    cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
+                    flexShrink: 0, opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
+                  }}
+                  disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
+                  onClick={handleGenerateMicrosite}
+                >
+                  Generate Microsite
+                </button>
+                <button
+                  ref={statusBtnRef}
+                  onClick={openStatusMenu}
+                  disabled={!currentDocument}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    height: 30, padding: '0 10px',
+                    background: 'var(--panel-soft)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
+                    cursor: currentDocument ? 'pointer' : 'not-allowed',
+                    color: 'var(--text)', opacity: currentDocument ? 1 : 0.4, flexShrink: 0,
+                  }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[currentStatus], flexShrink: 0 }} />
+                  {STATUS_LABELS[currentStatus]}
+                  <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
+                </button>
+                <button ref={overflowBtnRef} className="chat-v2-panel-toggle" onClick={openOverflow} title="More options" aria-label="More options">
+                  <Icon icon={MoreHorizontal} size="sm" />
+                </button>
+                <button className="chat-v2-panel-toggle" onClick={() => router.back()} title="Close" aria-label="Close">
+                  <Icon icon={X} size="sm" />
+                </button>
+              </div>
+            </>
+          ) : (
+            /* ── Browser header ── */
+            <>
+              <div className="chat-v2-header-left">
+                <span className="chat-v2-ns" style={{ lineHeight: 1 }}>Proposals</span>
+              </div>
+              <div className="chat-v2-header-right">
+                {/* Namespace filter */}
+                <button
+                  ref={nsBtnRef}
+                  onClick={openNsDropdown}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    height: 30, padding: '0 10px',
+                    background: 'var(--panel-soft)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
+                    cursor: 'pointer', color: 'var(--text)', flexShrink: 0,
+                  }}
+                >
+                  {browseNs
+                    ? `${browseNs} (${nsCounts[browseNs] ?? 0})`
+                    : `All (${allProposals.length})`
+                  }
+                  <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
+                </button>
+                {/* Generate Proposal — primary action */}
+                <button
+                  onClick={() => setShowGenerateModal(true)}
+                  disabled={isGenerating || pending?.status === 'generating'}
+                  style={{
+                    height: 30, padding: '0 14px',
+                    background: 'var(--primary)', color: '#fff',
+                    border: 'none', borderRadius: 'var(--radius)',
+                    fontSize: 13, fontWeight: 500,
+                    cursor: isGenerating || pending?.status === 'generating' ? 'not-allowed' : 'pointer',
+                    opacity: isGenerating || pending?.status === 'generating' ? 0.55 : 1,
+                    flexShrink: 0, whiteSpace: 'nowrap',
+                  }}
+                >
+                  + Generate Proposal
+                </button>
+                {/* Close */}
+                <button className="chat-v2-panel-toggle" onClick={() => router.back()} title="Close" aria-label="Close">
+                  <Icon icon={X} size="sm" />
+                </button>
+              </div>
+            </>
+          )}
         </header>
 
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {fromChat ? (
-            <div className="page-container">
-              {(regenError || workflowError) && (
-                <p className="error">{regenError || workflowError}</p>
-              )}
-              <ProposalWorkspace
-                document={currentDocument}
-                isGenerating={isGenerating}
-                regeneratingSection={regeneratingSection}
-                meta={meta}
-                onRegenerateAll={handleRegenerateAll}
-                onRegenerateSection={handleRegenerateSection}
-                onImproveWithAI={handleOpenAIEditor}
-                onToggleLock={handleToggleLock}
-                onShowDiff={handleShowDiff}
-                onSaveSection={handleSaveSection}
-                isSaving={isSaving}
-              />
-            </div>
-          ) : (
-            <div className="two-col">
-              <div className="col-left">
-                <ProposalForm
-                  onGenerate={handleGenerate}
-                  isGenerating={isGenerating}
-                  setIsGenerating={setIsGenerating}
-                  onNamespaceChange={setSelectedNamespace}
-                />
-                <VersionHistory
-                  refreshKey={refreshKey}
-                  onSelect={handleSelectHistory}
-                  namespace={selectedNamespace}
-                />
+        {fromChat ? (
+          /* ── Workspace body ── */
+          <div key={searchParams.get('artifact') ?? 'workspace'} className="proposal-view-fadein" style={{ flex: 1, overflowY: 'auto' }}>
+            {isLoadingDocument ? (
+              <div className="page-container">
+                <div className="proposal-doc-skeleton">
+                  <div className="proposal-doc-skeleton-header" />
+                  <div className="proposal-doc-skeleton-section" />
+                  <div className="proposal-doc-skeleton-section" />
+                  <div className="proposal-doc-skeleton-section" style={{ width: '70%' }} />
+                </div>
               </div>
-              <div className="col-right">
+            ) : (
+              <div className="page-container">
                 {(regenError || workflowError) && (
                   <p className="error">{regenError || workflowError}</p>
                 )}
@@ -621,12 +970,270 @@ export function ProposalPage() {
                   onShowDiff={handleShowDiff}
                   onSaveSection={handleSaveSection}
                   isSaving={isSaving}
+                  collapsedSections={collapsedSections}
+                  onToggleSection={toggleSection}
                 />
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        ) : (
+          /* ── Browser body: proposal card grid ── */
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {browseLoading && !pending ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
+                Loading…
+              </div>
+            ) : filteredProposals.length === 0 && !pending ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--muted)' }}>
+                <span style={{ fontSize: 14 }}>No proposals yet</span>
+                <span style={{ fontSize: 12, opacity: 0.6 }}>Tap "Generate Proposal" to create one</span>
+              </div>
+            ) : (
+              <div className="proposal-cards-grid">
+                {/* Pending / generating card — always first */}
+                {pending && (!browseNs || !pending.namespace || browseNs === pending.namespace) && (
+                  <div className={`proposal-card proposal-card--generating${pending.status === 'failed' ? ' proposal-card--gen-failed' : ''}`}>
+                    <div className="proposal-card-header">
+                      <span className="proposal-card-name">{pending.client}</span>
+                      {pending.status === 'failed' ? (
+                        <button
+                          onClick={clearPending}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                          aria-label="Dismiss"
+                        >
+                          <Icon icon={X} size="sm" />
+                        </button>
+                      ) : (
+                        <span className="proposal-card-gen-dots">
+                          <span /><span /><span />
+                        </span>
+                      )}
+                    </div>
+                    <div className="proposal-card-footer">
+                      <div className="proposal-card-meta">
+                        {pending.namespace && (
+                          <span className="proposal-card-ns">{pending.namespace}</span>
+                        )}
+                        {pending.namespace && <span style={{ color: 'var(--border)' }}>·</span>}
+                        {pending.status === 'failed' ? (
+                          <span style={{ fontSize: 12, color: 'var(--danger)' }}>
+                            {pending.error ?? 'Generation failed'}
+                          </span>
+                        ) : (
+                          <span className="proposal-card-date" style={{ color: 'var(--primary)', fontWeight: 500 }}>
+                            Building proposal…
+                          </span>
+                        )}
+                      </div>
+                      {pending.status !== 'failed' && (
+                        <span className="proposal-card-gen-spinner" />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {filteredProposals.map((p) => {
+                  const ns = nsFromFileName(p.fileName);
+                  const dateLabel = formatCreatedAt(p.createdAt);
+                  const href = proposalHref(p);
+                  return (
+                    <div key={p.fileName} className="proposal-card">
+                      <div className="proposal-card-header">
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <span className="proposal-card-name">{p.client}</span>
+                          {dateLabel && (
+                            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexShrink: 0 }}>
+                          {p.status && statusBadgeClass(p.status) && (
+                            <span
+                              className={statusBadgeClass(p.status)!}
+                              style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}
+                            >
+                              {statusLabel(p.status)}
+                            </span>
+                          )}
+                          {p.version != null && (
+                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: '1px 5px', borderRadius: 4, background: 'var(--primary-soft)', color: 'var(--primary)', border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)' }}>
+                              v{p.version}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="proposal-card-footer">
+                        {ns ? (
+                          <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
+                            Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ns}</span>
+                          </span>
+                        ) : <span />}
+                        <button
+                          className="chat-v2-clear-btn"
+                          onClick={() => router.push(href)}
+                        >
+                          View
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Namespace dropdown (portalled, browser mode only) */}
+      {nsDropOpen && createPortal(
+        <div
+          ref={nsDropRef}
+          className="card"
+          style={{ position: 'fixed', top: nsDropPos.top, right: nsDropPos.right, minWidth: 180, padding: '4px 0', zIndex: 99999 }}
+        >
+          <button
+            className="btn btn-sm"
+            style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, gap: 8 }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { setBrowseNs(''); setNsDropOpen(false); }}
+          >
+            <span style={{ flex: 1 }}>All</span>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{allProposals.length}</span>
+            {!browseNs && <Icon icon={Check} size="sm" style={{ color: 'var(--primary)', flexShrink: 0 }} />}
+          </button>
+          {namespaces.length > 0 && <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />}
+          {namespaces.map((ns) => (
+            <button
+              key={ns}
+              className="btn btn-sm"
+              style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, gap: 8 }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setBrowseNs(ns); setNsDropOpen(false); }}
+            >
+              <span style={{ flex: 1 }}>{ns}</span>
+              <span style={{ color: 'var(--muted)', fontSize: 12 }}>{nsCounts[ns] ?? 0}</span>
+              {browseNs === ns && <Icon icon={Check} size="sm" style={{ color: 'var(--primary)', flexShrink: 0 }} />}
+            </button>
+          ))}
+        </div>,
+        window.document.body,
+      )}
+
+      {/* Overflow menu (portalled) */}
+      {overflowOpen && createPortal(
+        <div
+          ref={overflowDropRef}
+          className="card"
+          style={{ position: 'fixed', top: overflowMenuPos.top, right: overflowMenuPos.right, minWidth: 180, padding: '4px 0', zIndex: 99999 }}
+        >
+          <button
+            className="btn btn-sm"
+            style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { setShowGenerateModal(true); setOverflowOpen(false); }}
+            disabled={isGenerating}
+          >
+            Generate Proposal
+          </button>
+          {fromChat && (
+            <>
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+              <button
+                className="btn btn-sm"
+                style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { allCollapsed ? expandAll() : collapseAll(); setOverflowOpen(false); }}
+              >
+                {allCollapsed ? 'Expand All' : 'Collapse All'}
+              </button>
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+              <button
+                className="btn btn-sm"
+                style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { handleShowDiff(); setOverflowOpen(false); }}
+              >
+                Compare Versions
+              </button>
+              <button
+                className="btn btn-sm"
+                style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { handleDownload(); setOverflowOpen(false); }}
+              >
+                Download .md
+              </button>
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+              <button
+                className="btn btn-sm"
+                style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { handleRegenerateAll(); setOverflowOpen(false); }}
+                disabled={isGenerating || meta?.status === 'finalized'}
+              >
+                {isGenerating ? 'Regenerating…' : 'Regenerate All'}
+              </button>
+            </>
+          )}
+        </div>,
+        window.document.body,
+      )}
+
+      {/* Generate Proposal modal (portalled) */}
+      {showGenerateModal && createPortal(
+        <div
+          className="generate-proposal-overlay"
+          onClick={() => { if (!isGenerating) setShowGenerateModal(false); }}
+        >
+          <div className="generate-proposal-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="generate-proposal-header">
+              <h3>Generate Proposal</h3>
+              <button
+                className="chat-v2-panel-toggle"
+                onClick={() => setShowGenerateModal(false)}
+                disabled={isGenerating}
+                aria-label="Close"
+              >
+                <Icon icon={X} size="sm" />
+              </button>
+            </div>
+            <div className="generate-proposal-body">
+              <ProposalForm
+                modalMode
+                onGenerateStart={(req) => {
+                  startPending(req.client, req.namespace ?? '');
+                  if (req.namespace) setBrowseNs(req.namespace);
+                  setShowGenerateModal(false);
+                }}
+                onGenerate={(doc, req) => { handleGenerate(doc, req); }}
+                onGenerateFail={(err) => { failPending(err); }}
+                isGenerating={isGenerating}
+                setIsGenerating={setIsGenerating}
+              />
+            </div>
+            <div className="generate-proposal-footer">
+              <button
+                className="btn btn-sm"
+                onClick={() => setShowGenerateModal(false)}
+                disabled={isGenerating}
+              >
+                Cancel
+              </button>
+              <button
+                form="generate-proposal-form"
+                type="submit"
+                className="btn btn-sm btn-primary"
+                disabled={isGenerating}
+              >
+                {isGenerating
+                  ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Generating...</>
+                  : 'Generate Proposal'
+                }
+              </button>
+            </div>
+          </div>
+        </div>,
+        window.document.body,
+      )}
 
       {/* Status dropdown (portalled) */}
       {statusOpen && createPortal(

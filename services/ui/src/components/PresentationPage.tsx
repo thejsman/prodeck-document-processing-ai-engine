@@ -1579,18 +1579,19 @@ export function PresentationPage() {
                                   >
                                     {p.client || p.fileName}
                                   </span>
-                                  <span
-                                    className="badge"
-                                    style={{
-                                      background: "#16a34a18",
-                                      color: "var(--color-success)",
-                                      border: "none",
-                                      fontSize: 11,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    approved
-                                  </span>
+                                  {p.status && (
+                                    <span
+                                      className={
+                                        p.status === "approved" ? "badge--approved" :
+                                        p.status === "finalized" ? "badge--finalized" :
+                                        p.status === "under_review" ? "badge--under-review" :
+                                        "badge--draft"
+                                      }
+                                      style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: "transparent", border: "none" }}
+                                    >
+                                      {p.status.replace("_", " ").toUpperCase()}
+                                    </span>
+                                  )}
                                 </div>
                                 <p
                                   className="muted"
@@ -2875,52 +2876,6 @@ export function PresentationPage() {
                     gap: 8,
                   }}
                 >
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      cursor: "pointer",
-                      fontSize: 13,
-                      color: pdfFriendly
-                        ? "var(--color-primary)"
-                        : "var(--color-text-muted)",
-                      userSelect: "none",
-                    }}
-                  >
-                    <div
-                      onClick={() => setPdfFriendly((v) => !v)}
-                      style={{
-                        width: 36,
-                        height: 20,
-                        borderRadius: 10,
-                        background: pdfFriendly
-                          ? "var(--color-primary)"
-                          : "var(--color-border)",
-                        position: "relative",
-                        transition: "background 0.2s",
-                        flexShrink: 0,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: 3,
-                          left: pdfFriendly ? 19 : 3,
-                          width: 14,
-                          height: 14,
-                          borderRadius: "50%",
-                          background: "#fff",
-                          transition: "left 0.2s",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-                        }}
-                      />
-                    </div>
-                    <span onClick={() => setPdfFriendly((v) => !v)}>
-                      PDF Friendly
-                    </span>
-                  </label>
                   <button
                     className="btn btn-primary"
                     onClick={() => {
