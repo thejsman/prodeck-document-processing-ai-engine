@@ -41,7 +41,7 @@ export function NamespaceSelector({ value, onChange }: Props) {
 
   return (
     <div className="form-group">
-      <label>Project (for RAG context)</label>
+      <label>Namespace</label>
       {loading ? (
         <p className="loading">Loading projects...</p>
       ) : error ? (

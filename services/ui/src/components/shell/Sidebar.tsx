@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { NamespacesSection } from './NamespacesSection';
 import { Globe, FileText, MoreVertical } from 'lucide-react';
@@ -11,7 +11,7 @@ import { Icon } from '@/components/ui/Icon';
 const OVERFLOW_ITEMS = [
   { href: '/proposal/templates', label: 'Templates' },
   { href: '/chat',               label: 'Chat' },
-  { href: '/',                   label: 'Dashboard' },
+  { href: '/dashboard',          label: 'Dashboard' },
 ];
 
 interface SidebarProps {
@@ -22,6 +22,7 @@ interface SidebarProps {
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const { clearApiKey } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -83,15 +84,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
           }}>
             {OVERFLOW_ITEMS.map(item => (
-              <Link
+              <button
                 key={item.href}
-                href={item.href}
                 className="sidebar-link"
-                style={{ borderRadius: 0, height: 36, paddingLeft: 12 }}
-                onClick={() => { setMenuOpen(false); onMobileClose(); }}
+                style={{ borderRadius: 0, height: 36, paddingLeft: 12, width: '100%', border: 'none', background: 'none', cursor: 'pointer' }}
+                onClick={() => { setMenuOpen(false); onMobileClose(); router.push(item.href); }}
               >
                 <span className="sidebar-label" style={{ fontSize: 13 }}>{item.label}</span>
-              </Link>
+              </button>
             ))}
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
             <button

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useNamespace } from '@/lib/namespace-context';
 import { useAuth } from '@/lib/auth-context';
 import { deleteNamespace, renameNamespace } from '@/lib/api';
@@ -22,6 +22,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
   const { apiKey } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const [expanded, setExpanded] = useState(true);
 
   const [nsLabelHovered, setNsLabelHovered] = useState(false);
@@ -102,12 +103,10 @@ export function NamespacesSection({ onMobileClose }: Props) {
     setDeleting(true);
     try {
       await deleteNamespace(apiKey, confirmNs);
+      if (activeNamespace === confirmNs) setNamespace('');
       await refresh();
       toast.success(`Deleted namespace "${confirmNs}"`);
-      if (activeNamespace === confirmNs) {
-        setNamespace('');
-        router.push('/');
-      }
+      router.push('/');
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -186,7 +185,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
 
         {/* Namespace list */}
         {expanded && namespaces.map((ns) => {
-          const isActive = ns === activeNamespace;
+          const isActive = ns === activeNamespace && !!pathname?.startsWith('/chat');
           // Only show hover state on this item when no menu is open, or this item owns the open menu
           const isHovered = hoveredNs === ns && (menuNs === null || menuNs === ns);
           const isMenuOpen = menuNs === ns;
@@ -289,7 +288,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
             <div style={{ height: 1, background: 'var(--border)' }} />
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5, letterSpacing: '0em' }}>
-                Are you sure you want to delete <strong>"{confirmNs}"</strong>? This will permanently remove all files, proposals, and data in this namespace.
+                Permanently delete <strong>"{confirmNs}"</strong>? All ingested files, proposals, and microsites in this namespace will be removed and cannot be recovered.
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button

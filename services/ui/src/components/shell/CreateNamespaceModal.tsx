@@ -14,7 +14,7 @@ interface Props {
 
 export function CreateNamespaceModal({ onClose }: Props) {
   const { apiKey } = useAuth();
-  const { setNamespace, refresh, addNamespace } = useNamespace();
+  const { setNamespace, addNamespace } = useNamespace();
   const router = useRouter();
 
   const [name, setName] = useState('');
@@ -35,9 +35,8 @@ export function CreateNamespaceModal({ onClose }: Props) {
       const ns = await createNamespace(apiKey, name.trim());
       addNamespace(ns);
       setNamespace(ns);
-      router.push('/proposal');
       onClose();
-      refresh();
+      router.push('/chat');
     } catch (err) {
       setNameError((err as Error).message);
     } finally {

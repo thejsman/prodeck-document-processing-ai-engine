@@ -1,101 +1,96 @@
 'use client';
 
-import { useAuth } from '@/lib/auth-context';
-import { useNamespace } from '@/lib/namespace-context';
-import {
-  useExecutionStats,
-  useProposalStats,
-  useTemplateCount,
-  useKnowledgeStats,
-  useRecentActivity,
-} from '@/lib/use-dashboard-stats';
-import { StatCard } from '@/components/dashboard/StatCard';
-import { ActivityTimeline } from '@/components/dashboard/ActivityTimeline';
-import { QuickActions } from '@/components/dashboard/QuickActions';
-import { KnowledgeStats } from '@/components/dashboard/KnowledgeStats';
-import { PageContainer } from '@/components/layout/PageContainer';
-import { PageHeader } from '@/components/layout/PageHeader';
+import { useState } from 'react';
+import { LayoutGrid } from 'lucide-react';
+import { CreateNamespaceModal } from '@/components/shell/CreateNamespaceModal';
 
-export default function DashboardPage() {
-  const { apiKey } = useAuth();
-  const { namespaces, isLoading: nsLoading } = useNamespace();
-
-  const execStats = useExecutionStats();
-  const proposalStats = useProposalStats(apiKey);
-  const templateCount = useTemplateCount(apiKey);
-  const knowledgeStats = useKnowledgeStats(apiKey);
-  const { items: activityItems, loading: activityLoading } = useRecentActivity(apiKey);
+export default function WelcomePage() {
+  const [showCreate, setShowCreate] = useState(false);
 
   return (
-    <PageContainer>
-      <PageHeader title="Dashboard" subtitle="AI document processing overview" />
-
-      {/* Stat cards */}
-      <div className="dash-stat-grid">
-        <StatCard
-          icon="⚡"
-          label="Active Executions"
-          value={execStats.activeExecutions}
-          trend="Live"
-          accent="blue"
-          loading={execStats.loading}
-        />
-        <StatCard
-          icon="⬆"
-          label="Ingestion Jobs"
-          value={execStats.ingestionJobs}
-          accent="green"
-          loading={execStats.loading}
-        />
-        <StatCard
-          icon="◧"
-          label="Proposals this week"
-          value={proposalStats.last7Days}
-          trend={`${proposalStats.total} total`}
-          accent="purple"
-          loading={proposalStats.loading}
-        />
-        <StatCard
-          icon="☰"
-          label="Templates"
-          value={templateCount.count}
-          accent="orange"
-          loading={templateCount.loading}
-        />
-      </div>
-
-      {/* Main content area */}
-      <div className="dash-main-grid">
-        {/* Left column */}
-        <div className="dash-col-main">
-          <ActivityTimeline items={activityItems} loading={activityLoading} />
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 24px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          textAlign: 'center',
+          maxWidth: 520,
+        }}
+      >
+        {/* Icon */}
+        <div
+          style={{
+            width: 80,
+            height: 80,
+            borderRadius: 20,
+            background: 'linear-gradient(145deg, #6366f1 0%, #5b8cff 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 28,
+            boxShadow: '0 8px 32px rgba(91, 140, 255, 0.2)',
+          }}
+        >
+          <LayoutGrid size={34} color="#fff" strokeWidth={1.5} />
         </div>
 
-        {/* Right column */}
-        <div className="dash-col-side">
-          <QuickActions />
-          <KnowledgeStats stats={knowledgeStats} />
+        {/* Heading */}
+        <h1
+          style={{
+            fontSize: 22,
+            fontWeight: 600,
+            color: 'var(--text)',
+            margin: '0 0 16px',
+            lineHeight: 1.3,
+            letterSpacing: '-0.02em',
+          }}
+        >
+          Stack the deck.
+        </h1>
 
-          {/* Namespace summary */}
-          <div className="dash-ns-card card">
-            <h3 className="dash-ns-title">Projects</h3>
-            {nsLoading ? (
-              <span className="muted">Loading…</span>
-            ) : namespaces.length === 0 ? (
-              <span className="muted">No namespaces configured</span>
-            ) : (
-              <ul className="dash-ns-list">
-                {namespaces.map((ns) => (
-                  <li key={ns} className="dash-ns-item">
-                    <span className="dash-ns-dot" />
-                    {ns}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+        {/* Subtitle */}
+        <p
+          style={{
+            fontSize: 14,
+            fontWeight: 400,
+            color: 'var(--muted)',
+            lineHeight: 1.75,
+            margin: '0 0 32px',
+            maxWidth: 440,
+          }}
+        >
+          Create a namespace to get started. Each one is an isolated workspace where you can ingest documents, generate proposals, and chat with your knowledge base.
+        </p>
+
+        {/* CTA */}
+        <button
+          onClick={() => setShowCreate(true)}
+          style={{
+            padding: '9px 20px',
+            borderRadius: 8,
+            border: 'none',
+            background: 'var(--primary)',
+            color: '#fff',
+            fontSize: 14,
+            fontWeight: 400,
+            cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+        >
+          Create namespace
+        </button>
       </div>
-    </PageContainer>
+
+      {showCreate && <CreateNamespaceModal onClose={() => setShowCreate(false)} />}
+    </div>
   );
 }

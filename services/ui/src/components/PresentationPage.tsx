@@ -1579,18 +1579,19 @@ export function PresentationPage() {
                                   >
                                     {p.client || p.fileName}
                                   </span>
-                                  <span
-                                    className="badge"
-                                    style={{
-                                      background: "#16a34a18",
-                                      color: "var(--color-success)",
-                                      border: "none",
-                                      fontSize: 11,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    approved
-                                  </span>
+                                  {p.status && (
+                                    <span
+                                      className={
+                                        p.status === "approved" ? "badge--approved" :
+                                        p.status === "finalized" ? "badge--finalized" :
+                                        p.status === "under_review" ? "badge--under-review" :
+                                        "badge--draft"
+                                      }
+                                      style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: "transparent", border: "none" }}
+                                    >
+                                      {p.status.replace("_", " ").toUpperCase()}
+                                    </span>
+                                  )}
                                 </div>
                                 <p
                                   className="muted"
