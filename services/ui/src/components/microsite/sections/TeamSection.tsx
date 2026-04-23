@@ -95,6 +95,7 @@ export function TeamSection({ content, tokens }: Props) {
             display: 'grid',
             gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
             gap: 'clamp(1rem, 2.5vw, 2rem)',
+            alignItems: 'stretch',
           }}
         >
           {members.map((member, i) => {
@@ -102,8 +103,8 @@ export function TeamSection({ content, tokens }: Props) {
             const avatarBg = `hsl(${hue}, 60%, 35%)`;
 
             return (
-              <Reveal key={i} delay={160 + i * 80}>
-                <InlineArrayItem arrayPath="members" index={i} total={members.length}>
+              <Reveal key={i} delay={160 + i * 80} style={variant !== 'list' ? { height: '100%' } : undefined}>
+                <InlineArrayItem arrayPath="members" index={i} total={members.length} style={variant !== 'list' ? { height: '100%' } : undefined}>
                   {variant === 'list' ? (
                     <div style={{
                       display: 'flex', alignItems: 'flex-start', gap: 20,
@@ -177,6 +178,7 @@ export function TeamSection({ content, tokens }: Props) {
                       textAlign: 'center',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
                       overflow: 'hidden',
+                      height: '100%',
                     }}>
                       {/* Top gradient stripe */}
                       <div style={{
