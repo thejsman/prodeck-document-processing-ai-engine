@@ -562,10 +562,10 @@ ${markdown}
 
 Return exactly this JSON — every field must use REAL data extracted from the proposal, not invented placeholders:
 {
-  "clientName": "exact client/company name from proposal",
+  "clientName": "the company RECEIVING this proposal — who it was written FOR (e.g. 'Keyline', 'Acme Corp')",
   "clientIndustry": "specific industry (e.g. 'Healthcare SaaS', 'Retail Banking', not just 'Technology')",
   "clientChallenge": "copy the single most specific pain point near-verbatim from the proposal — include exact metrics if stated (e.g. 'month-end close takes 9 business days vs. 5-day target'). Never generalize or paraphrase into vague language.",
-  "proposingCompany": "exact proposing company name — use brand name if provided above",
+  "proposingCompany": "the company WRITING and SENDING this proposal — the vendor or agency presenting the solution. This is NOT the client. Look for 'Prepared by', 'From:', author signatures, or footer text. If genuinely not found, return empty string.",
   "proposingStrength": "single most impressive credential with specifics (years, %, named clients if mentioned)",
   "engagementSummary": "2 sentences — what is being built/delivered and what outcome it achieves. Include tech stack or methodology names if present.",
   "keyOutcomes": ["3-5 outcomes EXACTLY as stated in the proposal — include verbatim numbers, percentages, timeframes. If a metric is not explicitly in the proposal, describe the outcome qualitatively. NEVER invent a percentage, multiplier, or improvement figure that does not appear in the source text."],
@@ -2433,10 +2433,10 @@ RULES:
 - industryKeywords — 3-5 keywords for professional stock image searches that match the client's actual industry.
 
 {
-  "clientName": "string — extract from proposal",
+  "clientName": "string — the company RECEIVING this proposal (written FOR this company)",
   "clientIndustry": "string — extract from proposal",
   "clientChallenge": "1 concise sentence extracted from proposal",
-  "proposingCompany": "string — extract from proposal",
+  "proposingCompany": "string — the company WRITING this proposal (the vendor/agency). Look for 'Prepared by', author signatures, or footer. Return empty string if not found — do NOT use the client name.",
   "proposingStrength": "most impressive credential mentioned in the proposal, 1 sentence",
   "engagementSummary": "2 sentences summarising the engagement scope from the proposal",
   "keyOutcomes": ["max 4 concrete outcomes stated in the proposal"],
@@ -3558,7 +3558,9 @@ export class MicrositeGeneratorAgent implements Agent {
         // Assemble Layout AST
         // proposingCompany = left side of footer (who is presenting)
         // clientName = right side of footer (prepared for)
-        const resolvedCompany = (brief.proposingCompany as string) || (metaBrand.companyName as string | undefined) || '';
+        // Prefer user-supplied brand name over LLM-extracted proposingCompany — the LLM
+        // can confuse the client name (who the proposal is for) with the proposing company.
+        const resolvedCompany = (metaBrand.companyName as string | undefined) || (brief.proposingCompany as string) || '';
         const extractedMeta = this.extractMeta(proposalMarkdown);
         // Enrich meta.client with brief.clientName when extractMeta couldn't find it from the title
         if (!extractedMeta.client && brief.clientName) {
