@@ -28,6 +28,7 @@ export interface IngestionResult {
   knowledgeEntriesCreated: number;
   preprocessingStats: IngestionStats;
   validationErrors: string[];
+  warnings: string[];
   durationMs: number;
 }
 
@@ -70,6 +71,7 @@ export async function processDocument(
   faissIndexFn?: FaissIndexFn,
 ): Promise<IngestionResult> {
   const startTime = Date.now();
+  const warnings: string[] = [];
 
   // Step 1: Detect document type (deterministic)
   const detection = detectDocumentType(fileName, content);
@@ -80,7 +82,12 @@ export async function processDocument(
   // Step 3: Validate preprocessing output (deterministic — warn, never block)
   const ppValidation = validatePreprocessedDocument(preprocessed);
   if (!ppValidation.valid) {
-    console.warn(`[IngestOrchestrator] Preprocessing validation failed for ${fileName}:`, ppValidation.errors);
+    const msg = `Preprocessing validation failed: ${ppValidation.errors.join('; ')}`;
+    console.warn(`[IngestOrchestrator] ${fileName}: ${msg}`);
+    warnings.push(msg);
+  }
+  if (preprocessed.sections.length === 0) {
+    warnings.push('Preprocessing produced 0 sections — fallback content used; LLM may have failed or returned invalid JSON');
   }
   // Use validated (defaults-filled) doc if available, otherwise keep what preprocessDocument returned
   const cleanDoc = ppValidation.document
@@ -98,13 +105,18 @@ export async function processDocument(
   const extraction = await extractRequirementsFromPreprocessed(cleanDoc, detection.type, llmFn);
 
   // Step 5: Extract knowledge entries from cleaned content (LLM)
-  const knowledge = await extractKnowledge(cleanDoc, detection.type, fileName, llmFn);
+  const { entries: knowledge, warnings: knowledgeWarnings } = await extractKnowledge(cleanDoc, detection.type, fileName, llmFn);
+  warnings.push(...knowledgeWarnings);
 
   // Step 6: Validate extraction outputs (deterministic)
-  const { validFields, validKnowledge, errors } = validateExtractionResults(
+  const { validFields, validKnowledge, validMeetingSummary, errors } = validateExtractionResults(
     extraction.fields,
     knowledge,
+    extraction.meetingSummary,
   );
+  if (errors.length > 0) {
+    warnings.push(...errors.map((e) => `Validation: ${e}`));
+  }
 
   // Step 7: Merge into namespace context (deterministic)
   await contextService.mergeRequirements(namespace, validFields, {
@@ -114,8 +126,15 @@ export async function processDocument(
     fieldsExtracted: Object.keys(validFields) as RequirementKey[],
     knowledgeEntriesCreated: validKnowledge.length,
     preprocessConfidence: detection.confidence,
+    warnings: warnings.length > 0 ? [...warnings] : undefined,
   });
   await contextService.mergeKnowledge(namespace, validKnowledge);
+  if (validMeetingSummary) {
+    await contextService.mergeMeetingSummary(namespace, {
+      ...validMeetingSummary,
+      sourceFile: fileName,
+    });
+  }
 
   // Step 8: FAISS indexing (existing — injected, not reimplemented)
   if (faissIndexFn) {
@@ -140,6 +159,7 @@ export async function processDocument(
       actionItemsFound: cleanDoc.actionItems.length,
     },
     validationErrors: errors,
+    warnings,
     durationMs: Date.now() - startTime,
   };
 }

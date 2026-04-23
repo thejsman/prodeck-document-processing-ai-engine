@@ -7,6 +7,11 @@ import type {
   RequirementKey,
   ContextSource,
   ExtractionResult,
+  MeetingSummary,
+  AgendaItem,
+  ClientPriority,
+  AgencyDeliverable,
+  BusinessMetric,
 } from './context.types.js';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +57,125 @@ export function mergeArrayField<T>(
     source: incoming.source === 'user' ? 'user' : existing.source,
     updatedAt: incoming.updatedAt,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Meeting summary merge helpers
+// ---------------------------------------------------------------------------
+
+function mergeAgenda(existing: AgendaItem[] = [], incoming: AgendaItem[] = []): AgendaItem[] {
+  const byTitle = new Map<string, AgendaItem>();
+  for (const item of existing) byTitle.set(item.title.trim().toLowerCase(), item);
+  for (const item of incoming) {
+    const key = item.title.trim().toLowerCase();
+    const prev = byTitle.get(key);
+    if (prev) {
+      byTitle.set(key, {
+        title: item.title,
+        keyTakeaways: [...new Set([...prev.keyTakeaways, ...item.keyTakeaways])],
+      });
+    } else {
+      byTitle.set(key, item);
+    }
+  }
+  return [...byTitle.values()];
+}
+
+function mergeClientPriorities(
+  existing: ClientPriority[] = [],
+  incoming: ClientPriority[] = [],
+): ClientPriority[] {
+  const byTitle = new Map<string, ClientPriority>();
+  for (const p of existing) byTitle.set(p.title.trim().toLowerCase(), p);
+  for (const p of incoming) {
+    const key = p.title.trim().toLowerCase();
+    const prev = byTitle.get(key);
+    if (prev) {
+      byTitle.set(key, {
+        rank: p.rank,
+        title: p.title,
+        bullets: [...new Set([...prev.bullets, ...p.bullets])],
+      });
+    } else {
+      byTitle.set(key, p);
+    }
+  }
+  return [...byTitle.values()].sort((a, b) => a.rank - b.rank);
+}
+
+function mergeDeliverables(
+  existing: AgencyDeliverable[] = [],
+  incoming: AgencyDeliverable[] = [],
+): AgencyDeliverable[] {
+  const byKey = new Map<string, AgencyDeliverable>();
+  for (const d of existing) byKey.set(d.deliverable.trim().toLowerCase(), d);
+  for (const d of incoming) byKey.set(d.deliverable.trim().toLowerCase(), d);
+  return [...byKey.values()];
+}
+
+function mergeBusinessMetrics(
+  existing: BusinessMetric[] = [],
+  incoming: BusinessMetric[] = [],
+): BusinessMetric[] {
+  const byKey = new Map<string, BusinessMetric>();
+  for (const m of existing) byKey.set(`${m.metric}::${m.value}`.toLowerCase(), m);
+  for (const m of incoming) byKey.set(`${m.metric}::${m.value}`.toLowerCase(), m);
+  return [...byKey.values()];
+}
+
+function mergeStringSet(existing: string[] = [], incoming: string[] = []): string[] {
+  return [...new Set([...existing, ...incoming])];
+}
+
+export function mergeMeetingSummaries(
+  existing: MeetingSummary | undefined,
+  incoming: MeetingSummary,
+): MeetingSummary {
+  if (!existing) return incoming;
+
+  const merged: MeetingSummary = {
+    updatedAt: incoming.updatedAt,
+    sourceFile: incoming.sourceFile ?? existing.sourceFile,
+  };
+
+  // Scalar blocks — incoming wins if present, otherwise keep existing
+  merged.clientOrganization = incoming.clientOrganization ?? existing.clientOrganization;
+  merged.agencyOrganization = incoming.agencyOrganization ?? existing.agencyOrganization;
+  merged.engagementModel = incoming.engagementModel ?? existing.engagementModel;
+
+  // Array blocks — union by key
+  const agenda = mergeAgenda(existing.agenda, incoming.agenda);
+  if (agenda.length) merged.agenda = agenda;
+
+  const priorities = mergeClientPriorities(existing.clientPriorities, incoming.clientPriorities);
+  if (priorities.length) merged.clientPriorities = priorities;
+
+  const deliverables = mergeDeliverables(existing.agencyDeliverables, incoming.agencyDeliverables);
+  if (deliverables.length) merged.agencyDeliverables = deliverables;
+
+  const metrics = mergeBusinessMetrics(existing.businessMetrics, incoming.businessMetrics);
+  if (metrics.length) merged.businessMetrics = metrics;
+
+  // MoSCoW — union per bucket
+  if (existing.requirementsByPriority || incoming.requirementsByPriority) {
+    const must = mergeStringSet(
+      existing.requirementsByPriority?.must,
+      incoming.requirementsByPriority?.must,
+    );
+    const should = mergeStringSet(
+      existing.requirementsByPriority?.should,
+      incoming.requirementsByPriority?.should,
+    );
+    const could = mergeStringSet(
+      existing.requirementsByPriority?.could,
+      incoming.requirementsByPriority?.could,
+    );
+    if (must.length || should.length || could.length) {
+      merged.requirementsByPriority = { must, should, could };
+    }
+  }
+
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +237,18 @@ export class ContextService {
     current.version += 1;
     current.updatedAt = new Date().toISOString();
 
+    await this.save(namespace, current);
+    return current;
+  }
+
+  async mergeMeetingSummary(
+    namespace: string,
+    incoming: MeetingSummary,
+  ): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    current.meetingSummary = mergeMeetingSummaries(current.meetingSummary, incoming);
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
     await this.save(namespace, current);
     return current;
   }

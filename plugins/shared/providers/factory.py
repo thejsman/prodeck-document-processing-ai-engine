@@ -45,9 +45,9 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
     if name == "openai":
         from .openai_provider import OpenAIProvider
 
-        generation_model = os.environ.get("OPENAI_GENERATION_MODEL", "gpt-4o-mini")
+        generation_model = os.environ.get("OPENAI_GENERATION_MODEL", "gpt-5.2")
         embedding_model = os.environ.get(
-            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-large"
         )
         return OpenAIProvider(
             generation_model=generation_model,
