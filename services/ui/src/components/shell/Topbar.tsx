@@ -22,7 +22,11 @@ export function Topbar({ onMenuClick }: Props) {
   const isPresentation =
     pathname?.startsWith("/microsite") || pathname?.startsWith("/presentation");
 
-  if (pathname?.startsWith("/chat") || pathname?.startsWith("/proposal"))
+  if (
+    pathname === "/" ||
+    pathname?.startsWith("/chat") ||
+    pathname?.startsWith("/proposal")
+  )
     return null;
 
   return (
