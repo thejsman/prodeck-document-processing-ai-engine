@@ -2876,52 +2876,6 @@ export function PresentationPage() {
                     gap: 8,
                   }}
                 >
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      cursor: "pointer",
-                      fontSize: 13,
-                      color: pdfFriendly
-                        ? "var(--color-primary)"
-                        : "var(--color-text-muted)",
-                      userSelect: "none",
-                    }}
-                  >
-                    <div
-                      onClick={() => setPdfFriendly((v) => !v)}
-                      style={{
-                        width: 36,
-                        height: 20,
-                        borderRadius: 10,
-                        background: pdfFriendly
-                          ? "var(--color-primary)"
-                          : "var(--color-border)",
-                        position: "relative",
-                        transition: "background 0.2s",
-                        flexShrink: 0,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: 3,
-                          left: pdfFriendly ? 19 : 3,
-                          width: 14,
-                          height: 14,
-                          borderRadius: "50%",
-                          background: "#fff",
-                          transition: "left 0.2s",
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-                        }}
-                      />
-                    </div>
-                    <span onClick={() => setPdfFriendly((v) => !v)}>
-                      PDF Friendly
-                    </span>
-                  </label>
                   <button
                     className="btn btn-primary"
                     onClick={() => {
