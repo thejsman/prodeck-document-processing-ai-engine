@@ -426,7 +426,7 @@ PROMOTED sections — include whenever the proposal contains this content (do NO
 
 OPTIONAL sections — include ONLY if the proposal contains rich, distinct content for each:
   • whyus        (must be placed between timeline and pricing when included)
-  • testimonials — REQUIRED when proposal contains a heading "Testimonials", "References", "Client Feedback", or "Reviews" with named quotes. Place after whyus. DO NOT omit.
+  • testimonials — ONLY include when the proposal contains actual named quotes with attribution (e.g. "— John Smith, CEO"). If the heading exists but has NO real quotes, do NOT include this section in the plan. An empty testimonials section is worse than no section.
   • whyus       — REQUIRED when proposal has a "Company Overview", "About Us", or "Why Us" heading with substantive content. Place between timeline and pricing.
   • metrics, benefits, stats, faq, comparison — add ONLY when the proposal has substantial unique content. Never invent or pad.
 
@@ -448,6 +448,10 @@ CONSOLIDATION RULES — map ALL proposal content into canonical sections above:
 - "FAQ", "Common Questions" → omit unless substantial; if included, add as a "faq" section
 - "Stats", "Metrics" → fold into whyus or challenge unless they deserve a standalone "stats" section
 - "Conclusion", "Summary", "Closing", "Next Steps", "Getting Started" → nextsteps
+- "Guest Experience", "Revenue Strategy", "Attractions", "Growth Strategy", "Marketing Strategy", "Digital Strategy", "SEO Strategy" → map to "benefits" section (or "generic" if benefits already used)
+- "Operational Support", "Post-Launch", "Training", "Onboarding", "Support Plan", "Maintenance", "Post-Launch Services", "Staff Training", "SOPs" → map to "generic" section — NEVER drop this content
+- "Included vs Excluded", "Scope Boundaries", "Assumptions", "Out of Scope" → fold into deliverables as a note or pricing footnote
+- Any proposal section NOT matching any rule above → MUST map to a "generic" section — NEVER silently drop content
 
 CONTENT FIDELITY — when consolidating:
 - Do NOT invent facts, numbers, or names
@@ -1530,6 +1534,13 @@ CARD COUNT RULE (mandatory):
 - Do NOT group, merge, or collapse deliverables. If the source has 10 items, output 10 cards.
 - Maximum 12 cards total — if source has more than 12, keep the 12 most specific/concrete ones.
 
+DEDUPLICATION RULE (critical — prevents duplicate cards):
+- Each deliverable must appear EXACTLY ONCE. Do NOT output the same item at both a summary level and a sub-item level.
+- If the proposal lists deliverables in a summary list AND again as sub-bullets under those items, use only the most specific sub-items — never the parent AND the child.
+- Before finalising the items array, scan for overlap: if any item's name is substantially contained within another item's name or detail, remove the more generic/duplicate one.
+- Example of BAD output: ["Content Package", "Video edit of retrofit", "Client testimonial video", "20-30 HD photos"] — "Content Package" duplicates the three sub-items below it.
+- Example of GOOD output: ["Video edit of retrofit", "Client testimonial video", "20-30 HD photos"] — specific items only, no parent wrapper.
+
 CRITICAL FIDELITY RULES:
 1. All individual deliverable names from the source must appear somewhere in the grouped detail text.
 2. Do NOT fabricate deliverables or invent service names.
@@ -2525,7 +2536,8 @@ function buildOverrideSectionPrompt(
     approach: `Extract ALL approach/methodology details from source. Include every step, pillar, or strategy mentioned.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall approach", "pillars": [{"iconHint": "string", "name": "2-4 words — exact name from source", "description": "3-4 sentences: what this involves, how it works, and what it achieves"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     deliverables: `FIDELITY: Extract EVERY named deliverable from source individually. Use the EXACT deliverable name from source — do NOT paraphrase. If source has 10 deliverables, output 10 items.
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+DEDUPLICATION RULE (critical): Each deliverable must appear ONCE. Do NOT list the same deliverable at both a summary level AND a detail level. If the proposal lists deliverables in a summary bullet AND again with sub-bullets, use the most specific version only — never both. Before outputting, check: does any item's name substantially overlap with another? If yes, keep only the more specific/detailed one and remove the broader duplicate.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source — unique, not duplicated", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
@@ -2559,7 +2571,8 @@ PLACEHOLDER RULE: NEVER output "$X,XXX", "$0", or any invented percentage as a v
     casestudy: `{ "eyebrow": "4-8 words e.g. 'Case Study'", "headline": "8-14 words, the transformation story headline", "challenge": "3-5 sentences describing the client's core problem, context, and consequences", "solution": "3-5 sentences describing the approach, methodology, and what made it different", "outcome": "3-5 sentences describing measurable results and lasting impact", "metrics": [{ "value": "specific metric e.g. '3×' or '94%'", "label": "2-4 words, what was achieved" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     comparison: `{ "eyebrow": "4-8 words e.g. 'Why Choose Us'", "headline": "8-12 words", "subheadline": "1-2 sentences or null", "usLabel": "2-4 words, our name/label", "themLabel": "2-4 words, competitor label e.g. 'Others'", "rows": [{ "feature": "3-6 words, the capability being compared", "us": "Short value or '✓'", "them": "'✗' or a weaker value" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     generic: `Extract ALL details from this section's source content. Include every named item, point, or fact as a separate highlight.
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "3-5 sentences covering the full context from the source", "highlights": [{ "title": "2-6 words — exact name/point from source", "subtitle": "2-3 sentences explaining what this means and why it matters" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+HEADING RULE: eyebrow MUST be the actual section heading from the proposal (e.g. "Operational Support & Training", "Guest Experience Strategy") — never use a generic label like "Overview" or "Key Points". headline MUST summarise the core message of that specific section in 8-12 words.
+{ "eyebrow": "EXACT section heading from proposal e.g. 'Operational Support & Training'", "headline": "8-12 words — the core message of this specific section", "body": "3-5 sentences covering the full context from the source", "highlights": [{ "title": "2-6 words — exact name/point from source", "subtitle": "2-3 sentences explaining what this means and why it matters" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
   };
 
   // Custom/unknown types get the generic schema but with heading-aware instruction
