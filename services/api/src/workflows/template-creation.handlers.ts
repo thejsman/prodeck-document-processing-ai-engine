@@ -16,6 +16,7 @@
  */
 
 import path from 'node:path';
+import yaml from 'js-yaml';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
@@ -106,28 +107,17 @@ interface TemplateDraft {
  * template format expected by @ai-engine/plugin-proposal-generator.
  */
 function buildTemplateYaml(draft: TemplateDraft, version = '1.0'): string {
-  const lines: string[] = [
-    `name: ${draft.name}`,
-    `version: "${version}"`,
-    `description: >`,
-    `  ${yamlLiteral(draft.description)}`,
-    ``,
-    `sections:`,
-  ];
-
-  for (const section of draft.sections) {
-    lines.push(`  - title: ${section.title}`);
-    lines.push(`    query: >-`);
-    for (const line of yamlLiteral(section.query).split('\n')) {
-      lines.push(`      ${line}`);
-    }
-    lines.push(`    instruction: >-`);
-    for (const line of yamlLiteral(section.instruction).split('\n')) {
-      lines.push(`      ${line}`);
-    }
-  }
-
-  return lines.join('\n') + '\n';
+  const doc = {
+    name: draft.name,
+    version,
+    description: draft.description.trim(),
+    sections: draft.sections.map((s) => ({
+      title: s.title,
+      query: s.query.trim(),
+      instruction: s.instruction.trim(),
+    })),
+  };
+  return yaml.dump(doc, { lineWidth: 120, quotingType: '"', forceQuotes: false });
 }
 
 // ---------------------------------------------------------------------------
