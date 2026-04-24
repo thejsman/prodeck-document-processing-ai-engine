@@ -57,7 +57,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
             color: tokens.accent, display: 'block',
             marginBottom: 'clamp(0.75rem, 1.5vw, 1rem)',
           }}>
-            {content.eyebrow || 'Timeline'}
+            {content.eyebrow}
           </span>
         </Reveal>
 

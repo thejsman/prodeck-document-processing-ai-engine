@@ -42,7 +42,7 @@ export function ApproachSection({ content, tokens }: Props) {
       <div style={{ position: "relative", zIndex: 5, maxWidth: 960, margin: "0 auto" }}>
         <Reveal>
           <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: tokens.accent, display: 'block', marginBottom: 'clamp(1rem, 2vw, 1.5rem)' }}>
-            {content.eyebrow || 'Approach'}
+            {content.eyebrow}
           </span>
         </Reveal>
 

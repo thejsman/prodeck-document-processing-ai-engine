@@ -60,7 +60,7 @@ export function OverviewSection({ content, tokens }: Props) {
             <div style={{ width: 24, height: 2, background: tokens.accent, borderRadius: 2 }} />
             <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
               <Label tokens={tokens} style={{ letterSpacing: '0.12em' }}>
-                {content.eyebrow || 'Project Summary'}
+                {content.eyebrow}
               </Label>
             </InlineEditable>
           </div>

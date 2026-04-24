@@ -76,7 +76,7 @@ function VariantBento({ content, tokens, listItems, imageUrl }: { content: Gener
         marginBottom: 'clamp(2.5rem, 5vw, 4rem)',
       }}>
         <div>
-          <Reveal><Eyebrow text={content.eyebrow || 'Overview'} tokens={tokens} /></Reveal>
+          <Reveal><Eyebrow text={content.eyebrow} tokens={tokens} /></Reveal>
           <Reveal delay={60}><SectionHeadline text={content.headline ?? ''} tokens={tokens} /></Reveal>
         </div>
         {content.body && (
@@ -161,7 +161,7 @@ function VariantEditorial({ content, tokens, listItems }: { content: GenericCont
     <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
       {/* Centered header */}
       <div style={{ textAlign: 'center', maxWidth: 740, margin: '0 auto', marginBottom: 'clamp(3rem, 6vw, 5rem)' }}>
-        <Reveal><Eyebrow text={content.eyebrow || 'Key Points'} tokens={tokens} /></Reveal>
+        <Reveal><Eyebrow text={content.eyebrow} tokens={tokens} /></Reveal>
         <Reveal delay={60}><SectionHeadline text={content.headline ?? ''} tokens={tokens} align="center" /></Reveal>
         {content.body && (
           <Reveal delay={100}>
@@ -226,7 +226,7 @@ function VariantIconCards({ content, tokens, listItems, imageUrl }: { content: G
         marginBottom: 'clamp(2.5rem, 5vw, 4rem)',
       }}>
         <div style={{ maxWidth: 600 }}>
-          <Reveal><Eyebrow text={content.eyebrow || 'Highlights'} tokens={tokens} /></Reveal>
+          <Reveal><Eyebrow text={content.eyebrow} tokens={tokens} /></Reveal>
           <Reveal delay={60}><SectionHeadline text={content.headline ?? ''} tokens={tokens} /></Reveal>
           {content.body && (
             <Reveal delay={100}>
@@ -319,7 +319,7 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
           }}>
             <div style={{ position: 'absolute', bottom: -44, right: -44, width: 190, height: 190, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
             <div style={{ position: 'absolute', top: -22, left: -22, width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
-            <Eyebrow text={content.eyebrow || 'Overview'} tokens={tokens} light />
+            <Eyebrow text={content.eyebrow} tokens={tokens} light />
             <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
               <h2 style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
@@ -406,7 +406,7 @@ function VariantSplit({ content, tokens, listItems, imageUrl }: { content: Gener
       <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '1fr 1fr' : '1fr', gap: 'clamp(2.5rem, 6vw, 6rem)', alignItems: 'center' }}>
         {/* Text + items */}
         <div>
-          <Reveal><Eyebrow text={content.eyebrow || 'Overview'} tokens={tokens} /></Reveal>
+          <Reveal><Eyebrow text={content.eyebrow} tokens={tokens} /></Reveal>
           <Reveal delay={60}><SectionHeadline text={content.headline ?? ''} tokens={tokens} /></Reveal>
           {content.body && (
             <Reveal delay={120}>
@@ -467,7 +467,7 @@ function VariantTimelineSteps({ content, tokens, listItems }: { content: Generic
     <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto', marginBottom: 'clamp(3rem, 6vw, 5rem)' }}>
-        <Reveal><Eyebrow text={content.eyebrow || 'Process'} tokens={tokens} /></Reveal>
+        <Reveal><Eyebrow text={content.eyebrow} tokens={tokens} /></Reveal>
         <Reveal delay={60}><SectionHeadline text={content.headline ?? ''} tokens={tokens} align="center" /></Reveal>
         {content.body && (
           <Reveal delay={100}>
@@ -551,7 +551,7 @@ function VariantTimelineSteps({ content, tokens, listItems }: { content: Generic
 function VariantCentered({ content, tokens }: { content: GenericContent; tokens: PluginTokens }) {
   return (
     <div style={{ position: 'relative', zIndex: 5, maxWidth: 820, margin: '0 auto', textAlign: 'center' as const }}>
-      <Reveal><Eyebrow text={content.eyebrow || 'Overview'} tokens={tokens} /></Reveal>
+      <Reveal><Eyebrow text={content.eyebrow} tokens={tokens} /></Reveal>
       <Reveal delay={60}><SectionHeadline text={content.headline ?? ''} tokens={tokens} align="center" /></Reveal>
       {content.body && (
         <Reveal delay={100}>

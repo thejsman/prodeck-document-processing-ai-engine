@@ -1529,22 +1529,28 @@ Section source content: ${effectiveBody || '(derive from brief above)'}${fallbac
 
 Transform into a Deliverables section.
 
+SOURCE SCANNING RULE (mandatory — do this first):
+- Scan ALL of the following sections for deliverable content: "Deliverables", "Scope of Work", "Proposed Solution", "What We Offer", "Services", "Budget Estimate", "Inclusions", "What You Get".
+- Any named service, output, package, phase result, or tangible item the client receives counts as a deliverable — extract ALL of them.
+- Minimum target: 4 cards. If the source only names 3 items, look harder — budget line items, phase outputs, service components, and content packages all count.
+
 CARD COUNT RULE (mandatory):
 - Extract EVERY deliverable individually. One card per deliverable. Use exact names from the source.
-- Do NOT group, merge, or collapse deliverables. If the source has 10 items, output 10 cards.
+- Do NOT group, merge, or collapse distinct deliverables. If the source has 6 items, output 6 cards.
 - Maximum 12 cards total — if source has more than 12, keep the 12 most specific/concrete ones.
+- MINIMUM 4 cards — if fewer than 4 named deliverables exist, group closely related items into thematic packages (e.g. "Content Production Package") and describe all sub-items in the detail field.
 
 DEDUPLICATION RULE (critical — prevents duplicate cards):
 - Each deliverable must appear EXACTLY ONCE. Do NOT output the same item at both a summary level and a sub-item level.
-- If the proposal lists deliverables in a summary list AND again as sub-bullets under those items, use only the most specific sub-items — never the parent AND the child.
-- Before finalising the items array, scan for overlap: if any item's name is substantially contained within another item's name or detail, remove the more generic/duplicate one.
-- Example of BAD output: ["Content Package", "Video edit of retrofit", "Client testimonial video", "20-30 HD photos"] — "Content Package" duplicates the three sub-items below it.
-- Example of GOOD output: ["Video edit of retrofit", "Client testimonial video", "20-30 HD photos"] — specific items only, no parent wrapper.
+- If the proposal lists deliverables in a summary list AND again as sub-bullets, use only the most specific sub-items — never the parent AND the child.
+- Before finalising, scan for overlap: if any item's name is substantially contained within another item's name or detail, remove the more generic/duplicate one.
+- Example of BAD output: ["Content Package", "Video edit of retrofit", "Client testimonial video", "20-30 HD photos"] — "Content Package" duplicates the three sub-items.
+- Example of GOOD output: ["Video edit of retrofit", "Client testimonial video", "20-30 HD photos", "SEO & Website Strategy"] — specific items only, no parent wrapper, plus additional deliverable from scope.
 
 CRITICAL FIDELITY RULES:
-1. All individual deliverable names from the source must appear somewhere in the grouped detail text.
-2. Do NOT fabricate deliverables or invent service names.
-3. For grouped cards, the "name" field is the package/group title — not a single deliverable name.
+1. All individual deliverable names from the source must appear somewhere in the output.
+2. Do NOT fabricate deliverables or invent service names not present in the source.
+3. For grouped/package cards, the "name" field is the package title — describe all sub-items in "detail".
 Return:
 {
   "eyebrow": "4-8 words",
@@ -2535,9 +2541,10 @@ function buildOverrideSectionPrompt(
 { "eyebrow": "4-8 words", "headline": "8-12 words", "body": "3-5 sentences describing the full context and stakes", "pullquote": "10-18 words sharpest insight", "highlights": [{ "title": "exact name of this risk/mitigation from source (3-6 words)", "subtitle": "2-3 sentences: what it means, its impact, and the specific action or resolution" }], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     approach: `Extract ALL approach/methodology details from source. Include every step, pillar, or strategy mentioned.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall approach", "pillars": [{"iconHint": "string", "name": "2-4 words — exact name from source", "description": "3-4 sentences: what this involves, how it works, and what it achieves"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
-    deliverables: `FIDELITY: Extract EVERY named deliverable from source individually. Use the EXACT deliverable name from source — do NOT paraphrase. If source has 10 deliverables, output 10 items.
-DEDUPLICATION RULE (critical): Each deliverable must appear ONCE. Do NOT list the same deliverable at both a summary level AND a detail level. If the proposal lists deliverables in a summary bullet AND again with sub-bullets, use the most specific version only — never both. Before outputting, check: does any item's name substantially overlap with another? If yes, keep only the more specific/detailed one and remove the broader duplicate.
-{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source — unique, not duplicated", "detail": "1 sentence using activities listed in source"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
+    deliverables: `SOURCE SCANNING: Before writing cards, scan ALL sections — "Deliverables", "Scope of Work", "Proposed Solution", "Services", "What You Get", "Budget Estimate", "Inclusions" — for any named service, output, package, or tangible item the client receives. MINIMUM 4 cards. If fewer than 4 named items exist, group closely related items into thematic packages and describe sub-items in the detail field.
+FIDELITY: Extract EVERY named deliverable from source individually. Use the EXACT deliverable name from source — do NOT paraphrase.
+DEDUPLICATION RULE (critical): Each deliverable must appear ONCE. Do NOT list the same deliverable at both a summary level AND a detail level. Use the most specific sub-items only — never a parent wrapper AND its children together.
+{ "eyebrow": "4-8 words", "headline": "8-12 words", "items": [{"iconHint": "string", "name": "EXACT deliverable name from source — unique, not duplicated", "detail": "2-3 sentences covering what this includes and why it matters"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.

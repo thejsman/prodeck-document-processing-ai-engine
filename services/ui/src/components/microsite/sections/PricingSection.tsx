@@ -121,7 +121,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               letterSpacing: '0.14em', textTransform: 'uppercase' as const,
               color: tokens.accent, display: 'block', marginBottom: 12,
             }}>
-              {content.eyebrow || 'Investment'}
+              {content.eyebrow}
             </span>
             <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
               <h2 style={{
