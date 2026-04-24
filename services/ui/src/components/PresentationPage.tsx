@@ -2834,24 +2834,26 @@ export function PresentationPage() {
                 marginTop: 20,
               }}
             >
-              <button
-                className="btn"
-                onClick={() => {
-                  const prev: Record<StepId, StepId | null> = {
-                    upload: null,
-                    brand: "upload",
-                    plugin: "brand",
-                    generate: "plugin",
-                    preview: "plugin",
-                  };
-                  const p = prev[step];
-                  if (p) setStep(p);
-                }}
-                disabled={step === "upload"}
-                style={{ minWidth: 96 }}
-              >
-                ← Back
-              </button>
+              {step !== "upload" && (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    const prev: Record<StepId, StepId | null> = {
+                      upload: null,
+                      brand: "upload",
+                      plugin: "brand",
+                      generate: "plugin",
+                      preview: "plugin",
+                    };
+                    const p = prev[step];
+                    if (p) setStep(p);
+                  }}
+                  style={{ minWidth: 96 }}
+                >
+                  ← Back
+                </button>
+              )}
+              {step === "upload" && <span />}
 
               <span className="muted">
                 Step {stepIdx + 1} of {STEPS.length}
