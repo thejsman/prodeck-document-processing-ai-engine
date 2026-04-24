@@ -276,6 +276,22 @@ const _persistentPool: PythonBridgePool | null =
       )
     : null;
 
+// ---------------------------------------------------------------------------
+// LLM call logging
+// ---------------------------------------------------------------------------
+
+let _llmCallCounter = 0;
+
+function logLLMPrompt(callId: number, prompt: string): void {
+  const preview = prompt.length > 300 ? prompt.slice(0, 300) + '…' : prompt;
+  console.log(`[LLM →] #${callId} prompt (${prompt.length} chars)\n${preview}`);
+}
+
+function logLLMResponse(callId: number, result: string, durationMs: number): void {
+  const preview = result.length > 300 ? result.slice(0, 300) + '…' : result;
+  console.log(`[LLM ←] #${callId} response (${result.length} chars, ${durationMs}ms)\n${preview}`);
+}
+
 /**
  * Call the generic LLM bridge with a prompt, returns the raw LLM response.
  * Used as the planner's GenerateFn.
@@ -285,64 +301,73 @@ const _persistentPool: PythonBridgePool | null =
  * When the env var is absent or false, falls back to the original one-shot
  * spawn behaviour so there is no regression risk.
  */
-export const llmGenerateFn: GenerateFn = (prompt: string): Promise<string> => {
+export const llmGenerateFn: GenerateFn = async (prompt: string): Promise<string> => {
   // Strip lone Unicode surrogates (U+D800–U+DFFF) before sending to the Python bridge.
   // They appear when the source document contains invalid UTF-8 bytes decoded by Node as
   // surrogate pairs.  Python's UTF-8 encoder rejects them, causing every LLM call to fail.
   const safePrompt = prompt.replace(/[\uD800-\uDFFF]/g, '');
 
+  const callId = ++_llmCallCounter;
+  const t0 = Date.now();
+  logLLMPrompt(callId, safePrompt);
+
+  let result: string;
+
   if (_persistentPool) {
-    return _persistentPool.generate(safePrompt);
-  }
+    result = await _persistentPool.generate(safePrompt);
+  } else {
+    result = await new Promise<string>((resolve, reject) => {
+      const child = spawn(PYTHON_BIN, [LLM_BRIDGE_SCRIPT], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(PYTHON_BIN, [LLM_BRIDGE_SCRIPT], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+      let stdout = '';
+      let stderr = '';
 
-    let stdout = '';
-    let stderr = '';
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
+      child.on('error', (err) => {
+        reject(new Error(`Failed to spawn llm_bridge: ${err.message}`));
+      });
 
-    child.on('error', (err) => {
-      reject(new Error(`Failed to spawn llm_bridge: ${err.message}`));
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0) {
-        let message = `llm_bridge exited with code ${code}`;
-        if (stderr) {
-          try {
-            const parsed = JSON.parse(stderr) as { error?: string };
-            message = parsed.error ?? message;
-          } catch {
-            message = stderr.trim() || message;
+      child.on('close', (code) => {
+        if (code !== 0) {
+          let message = `llm_bridge exited with code ${code}`;
+          if (stderr) {
+            try {
+              const parsed = JSON.parse(stderr) as { error?: string };
+              message = parsed.error ?? message;
+            } catch {
+              message = stderr.trim() || message;
+            }
           }
-        }
-        reject(new Error(message));
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout) as { result?: string; error?: string };
-        if (parsed.error) {
-          reject(new Error(parsed.error));
+          reject(new Error(message));
           return;
         }
-        resolve(parsed.result ?? '');
-      } catch {
-        reject(new Error('llm_bridge returned invalid JSON'));
-      }
-    });
+        try {
+          const parsed = JSON.parse(stdout) as { result?: string; error?: string };
+          if (parsed.error) {
+            reject(new Error(parsed.error));
+            return;
+          }
+          resolve(parsed.result ?? '');
+        } catch {
+          reject(new Error('llm_bridge returned invalid JSON'));
+        }
+      });
 
-    child.stdin.write(JSON.stringify({ prompt: safePrompt }));
-    child.stdin.end();
-  });
+      child.stdin.write(JSON.stringify({ prompt: safePrompt }));
+      child.stdin.end();
+    });
+  }
+
+  logLLMResponse(callId, result, Date.now() - t0);
+  return result;
 };
 
 /**

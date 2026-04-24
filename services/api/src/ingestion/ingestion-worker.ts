@@ -188,7 +188,10 @@ export async function processJob(
         for (const f of filesToProcess) {
           try {
             const content = await readFile(path.join(uploadsDir, f), 'utf-8');
+            console.log(`[IngestV2] starting pipeline — ${namespace}/${f} (${content.length} chars)`);
+            const v2t0 = Date.now();
             const v2Result = await processDocument(namespace, f, content, llmGenerateFn, contextService);
+            console.log(`[IngestV2] finished pipeline — ${namespace}/${f} | type=${v2Result.documentType} fields=${v2Result.fieldsExtracted.length} knowledge=${v2Result.knowledgeEntriesCreated} duration=${v2Result.durationMs}ms total=${Date.now() - v2t0}ms`);
 
             await updateFileStatus(workdir, namespace, f, 'extracted');
 
