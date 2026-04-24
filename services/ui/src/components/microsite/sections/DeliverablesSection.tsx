@@ -57,7 +57,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                   letterSpacing: '0.18em', textTransform: 'uppercase' as const,
                   color: tokens.accent, display: 'block', marginBottom: 16,
                 }}>
-                  {content.eyebrow || 'Deliverables'}
+                  {content.eyebrow}
                 </span>
               </InlineEditable>
               <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
@@ -90,7 +90,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                   letterSpacing: '0.14em', textTransform: 'uppercase' as const,
                   color: tokens.textSubtle,
                 }}>
-                  Deliverables
+                  {content.eyebrow}
                 </div>
               </div>
             )}
