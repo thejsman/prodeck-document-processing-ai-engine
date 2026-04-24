@@ -195,27 +195,23 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
 
           return (
             <div key={entry.id} className="proposal-card" style={{ gap: 10 }}>
-              {/* Header: name */}
               <div className="proposal-card-header">
-                <span className="proposal-card-name">{companyName}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span className="proposal-card-name">{companyName}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
+                    {formatDate(entry.savedAt)}
+                  </span>
+                  <span style={{
+                    display: 'inline-block', background: `${accent}18`, color: accent,
+                    borderRadius: 100, fontSize: 10, fontWeight: 600,
+                    padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4,
+                    textTransform: 'uppercase' as const, marginTop: 4,
+                  }}>
+                    {pluginName}
+                  </span>
+                </div>
               </div>
 
-              {/* Theme badge + date · sections */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <span style={{
-                  display: 'inline-block', background: `${accent}18`, color: accent,
-                  borderRadius: 100, fontSize: 10, fontWeight: 600,
-                  padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4,
-                  textTransform: 'uppercase' as const, alignSelf: 'flex-start',
-                }}>
-                  {pluginName}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {formatDate(entry.savedAt)} · {sectionCount} section{sectionCount !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Footer: namespace + preview */}
               <div className="proposal-card-footer">
                 <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
                   Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{entry.namespace}</span>

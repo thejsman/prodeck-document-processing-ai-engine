@@ -1028,19 +1028,12 @@ export function ProposalPage() {
                           {dateLabel && (
                             <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
                           )}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexShrink: 0 }}>
                           {p.status && statusBadgeClass(p.status) && (
                             <span
                               className={statusBadgeClass(p.status)!}
-                              style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}
+                              style={{ display: 'inline-block', marginTop: 4, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none', padding: 0 }}
                             >
                               {statusLabel(p.status)}
-                            </span>
-                          )}
-                          {p.version != null && (
-                            <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                              v{p.version}
                             </span>
                           )}
                         </div>

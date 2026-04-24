@@ -1430,7 +1430,7 @@ export function PresentationPage() {
                 <div>
                   {/* Namespace */}
                   <div className="form-group">
-                    <label>Project</label>
+                    <label>Namespace</label>
                     {lockedFromProposal ? (
                       <div
                         style={{
@@ -1499,36 +1499,41 @@ export function PresentationPage() {
                     </label>
 
                     {lockedFromProposal && selectedProposal && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem" }}>
-                        <div
-                          style={{
-                            padding: "12px 14px",
-                            borderRadius: "var(--radius)",
-                            border: "1px solid var(--color-primary)",
-                            background: "var(--color-primary-muted, rgba(99,102,241,0.15))",
-                            boxShadow: "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                            <span style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)" }}>
-                              {selectedProposal.client || selectedProposal.fileName}
-                            </span>
-                            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)", flexShrink: 0 }}>
-                              <Check size={12} strokeWidth={2.5} /> Selected
+                      <div className="proposal-card" style={{ borderColor: "var(--primary)" }}>
+                        <div className="proposal-card-header">
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <span className="proposal-card-name">{selectedProposal.client || selectedProposal.fileName}</span>
+                            {selectedProposal.createdAt && (
+                              <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.4 }}>
+                                {new Date(selectedProposal.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                              </span>
+                            )}
+                            <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2, lineHeight: 1.4, wordBreak: "break-all" }}>
+                              {selectedProposal.fileName.includes("::") ? selectedProposal.fileName.split("::")[1] : selectedProposal.fileName}
                             </span>
                           </div>
-                          <p className="muted" style={{ fontSize: 11, marginBottom: 0, wordBreak: "break-all" }}>
-                            {selectedProposal.fileName.includes("::") ? selectedProposal.fileName.split("::")[1] : selectedProposal.fileName}
-                          </p>
-                          {loadingContent && (
-                            <p className="loading" style={{ marginTop: 4 }}>Loading content…</p>
-                          )}
-                          {!loadingContent && mdContent && (
-                            <p style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)", marginTop: 4 }}>
-                              <Check size={12} strokeWidth={2.5} /> Ready
-                            </p>
+                          {selectedProposal.status && (
+                            <span
+                              className={
+                                selectedProposal.status === "approved" ? "badge--approved" :
+                                selectedProposal.status === "finalized" ? "badge--finalized" :
+                                selectedProposal.status === "under_review" ? "badge--under-review" :
+                                "badge--draft"
+                              }
+                              style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: "transparent", border: "none" }}
+                            >
+                              {selectedProposal.status.replace("_", " ").toUpperCase()}
+                            </span>
                           )}
                         </div>
+                        {loadingContent && (
+                          <p className="loading">Loading content…</p>
+                        )}
+                        {!loadingContent && mdContent && (
+                          <p style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)" }}>
+                            <Check size={12} strokeWidth={2.5} /> Ready
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -1592,45 +1597,27 @@ export function PresentationPage() {
                             return (
                               <button
                                 key={p.fileName}
+                                className="proposal-card"
                                 onClick={() => selectProposal(p)}
                                 style={{
                                   textAlign: "left",
-                                  padding: "12px 14px",
-                                  borderRadius: "var(--radius)",
                                   cursor: "pointer",
-                                  border: `1px solid ${isSelected ? "var(--color-primary)" : "var(--color-border)"}`,
-                                  background: isSelected
-                                    ? "var(--color-primary-muted, rgba(99,102,241,0.15))"
-                                    : "var(--color-surface)",
-                                  boxShadow: isSelected
-                                    ? "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))"
-                                    : "var(--shadow)",
-                                  transition: "border-color 0.15s",
+                                  width: "100%",
+                                  ...(isSelected ? { borderColor: "var(--primary)" } : {}),
                                 }}
                               >
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: 8,
-                                    marginBottom: 4,
-                                  }}
-                                >
-                                  <span
-                                    style={{
-                                      fontWeight: 600,
-                                      fontSize: 13,
-                                      color: "var(--color-text)",
-                                      display: "-webkit-box",
-                                      WebkitLineClamp: 2,
-                                      WebkitBoxOrient: "vertical",
-                                      overflow: "hidden",
-                                      minWidth: 0,
-                                    } as React.CSSProperties}
-                                  >
-                                    {p.client || p.fileName}
-                                  </span>
+                                <div className="proposal-card-header">
+                                  <div style={{ minWidth: 0, flex: 1 }}>
+                                    <span className="proposal-card-name">{p.client || p.fileName}</span>
+                                    {p.createdAt && (
+                                      <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.4 }}>
+                                        {new Date(p.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                                      </span>
+                                    )}
+                                    <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2, lineHeight: 1.4, wordBreak: "break-all" }}>
+                                      {p.fileName.includes("::") ? p.fileName.split("::")[1] : p.fileName}
+                                    </span>
+                                  </div>
                                   {p.status && (
                                     <span
                                       className={
@@ -1645,42 +1632,12 @@ export function PresentationPage() {
                                     </span>
                                   )}
                                 </div>
-                                <p
-                                  className="muted"
-                                  style={{
-                                    fontSize: 11,
-                                    marginBottom: 0,
-                                    display: "-webkit-box",
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: "vertical",
-                                    overflow: "hidden",
-                                    wordBreak: "break-all",
-                                  } as React.CSSProperties}
-                                >
-                                  {p.fileName}
-                                </p>
-                                {p.createdAt && (
-                                  <p className="muted" style={{ fontSize: 11 }}>
-                                    {new Date(p.createdAt).toLocaleDateString()}
-                                  </p>
-                                )}
                                 {isSelected && loadingContent && (
-                                  <p
-                                    className="loading"
-                                    style={{ marginTop: 4 }}
-                                  >
-                                    Loading content…
-                                  </p>
+                                  <p className="loading">Loading content…</p>
                                 )}
                                 {isSelected && !loadingContent && mdContent && (
-                                  <p
-                                    style={{
-                                      fontSize: 11,
-                                      color: "var(--color-success)",
-                                      marginTop: 4,
-                                    }}
-                                  >
-                                    ✓ Loaded
+                                  <p style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)" }}>
+                                    <Check size={12} strokeWidth={2.5} /> Ready
                                   </p>
                                 )}
                               </button>
