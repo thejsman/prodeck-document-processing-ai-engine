@@ -28,6 +28,7 @@ import { GenerateMermaidTool } from '@ai-engine/tool-generate-mermaid';
 import { SaveAssetTool } from '@ai-engine/tool-save-asset';
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from './provider-policy.js';
 import { appendEpisodicEntry } from './memory-util.js';
+import { buildPicsumUrl } from './image-routes.js';
 
 import { env } from 'node:process';
 
@@ -409,13 +410,26 @@ export function registerAgentRoutes(
             }),
           );
 
-          // Optionally resolve hero Unsplash image
-          const hero = ast.sections.find((s) => s.sectionType === 'hero' && s.image.source === 'unsplash');
+          // Resolve and persist hero image — Unsplash when key is set, Picsum otherwise
+          const hero = ast.sections.find((s) => s.sectionType === 'hero');
           if (hero) {
-            const query = (hero.content.imageQuery as string | undefined) || hero.image.query;
+            const query = (hero.content.imageQuery as string | undefined) || hero.image?.query;
             if (query) {
-              const imageUrl = await fetchUnsplashImageUrl(query);
-              if (imageUrl) hero.image.url = imageUrl;
+              const remoteUrl = (await fetchUnsplashImageUrl(query)) ?? buildPicsumUrl(query);
+              try {
+                const hash = createHash('sha1').update(remoteUrl).digest('hex').slice(0, 8);
+                const filename = `hero-${hash}.jpg`;
+                const destPath = path.join(imagesDir, filename);
+                const imgRes = await fetch(remoteUrl, { signal: AbortSignal.timeout(15000) });
+                if (imgRes.ok) {
+                  await fsWriteFile(destPath, Buffer.from(await imgRes.arrayBuffer()));
+                  hero.image.url = `/presentation-images/${namespace}/${filename}`;
+                } else {
+                  hero.image.url = remoteUrl;
+                }
+              } catch {
+                hero.image.url = remoteUrl;
+              }
             }
           }
           // Always persist the AST so page-reloads can restore the latest generation

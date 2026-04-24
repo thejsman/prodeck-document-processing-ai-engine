@@ -39,6 +39,7 @@ import {
   buildDallePrompt,
   resolveImageSource,
   downloadImageToFile,
+  buildPicsumUrl,
 } from '../image-routes.js';
 
 /**
@@ -912,6 +913,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
               const remoteUrl = await generateDalle3Image(prompt);
               if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+            } else if (chosenSource === 'picsum') {
+              sec.image.url = await saveImagePersistently(buildPicsumUrl(query), namespace, secId, workdir);
             } else {
               const remoteUrl = await fetchUnsplashImageUrl(query);
               if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
@@ -1117,6 +1120,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               if (chosenSource === 'dalle') {
                 const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
                 remoteUrl = await generateDalle3Image(prompt);
+              } else if (chosenSource === 'picsum') {
+                remoteUrl = buildPicsumUrl(query);
               } else {
                 remoteUrl = await fetchUnsplashImageUrl(query);
               }
