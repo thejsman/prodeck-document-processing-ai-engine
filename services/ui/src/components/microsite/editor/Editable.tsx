@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { ReactNode } from 'react';
+import React, { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditContext, type EditSelection } from './EditContext';
 
@@ -941,8 +940,23 @@ export function Editable({
         </>
       )}
 
-      {/* Children contain the raw markup string — Typography's RichChild renders it */}
-      {children}
+      {/* Render children — if value has markup (colors/bold/italic), inject parsed markup into the child element */}
+      {(!editing && value !== undefined && hasMarkup(value))
+        ? (() => {
+            try {
+              const child = React.Children.only(children);
+              if (React.isValidElement(child)) {
+                return React.cloneElement(
+                  child as React.ReactElement<{ children: ReactNode }>,
+                  {},
+                  parseMarkup(value),
+                );
+              }
+            } catch { /* multiple children — fall through */ }
+            return children;
+          })()
+        : children
+      }
     </div>
   );
 }
