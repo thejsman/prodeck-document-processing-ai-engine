@@ -25,13 +25,80 @@ export interface StructuredRequirements {
   customFields: Record<string, RequirementField<string>>;
 }
 
+// ---------------------------------------------------------------------------
+// Meeting summary — structured output for meeting transcripts only
+// ---------------------------------------------------------------------------
+
+export interface AgendaItem {
+  title: string;
+  keyTakeaways: string[];
+}
+
+export interface ClientPriority {
+  rank: number;
+  title: string;
+  bullets: string[];
+}
+
+export interface AgencyDeliverable {
+  owner: string;
+  deliverable: string;
+  deadline?: string;
+}
+
+export interface BusinessMetric {
+  metric: string;
+  value: string;
+  context: string;
+}
+
+export interface ClientOrganization {
+  name: string;
+  industry?: string;
+  roles: string[];
+}
+
+export interface AgencyOrganization {
+  name: string;
+  services?: string[];
+}
+
+export interface EngagementModel {
+  approach: string;
+  phases: string[];
+  pricingStructure?: string;
+}
+
+export interface RequirementsByPriority {
+  must: string[];
+  should: string[];
+  could: string[];
+}
+
+export interface MeetingSummary {
+  clientOrganization?: ClientOrganization;
+  agencyOrganization?: AgencyOrganization;
+  agenda?: AgendaItem[];
+  clientPriorities?: ClientPriority[];
+  requirementsByPriority?: RequirementsByPriority;
+  agencyDeliverables?: AgencyDeliverable[];
+  engagementModel?: EngagementModel;
+  businessMetrics?: BusinessMetric[];
+  updatedAt: string;
+  sourceFile?: string;
+}
+
 export type KnowledgeCategory =
   | 'problem'
   | 'opportunity'
   | 'decision'
   | 'constraint'
   | 'preference'
-  | 'context';
+  | 'context'
+  | 'priority'
+  | 'requirement'
+  | 'metric'
+  | 'action_item';
 
 export interface KnowledgeEntry {
   id: string;
@@ -64,12 +131,14 @@ export interface ContextSource {
   fieldsExtracted: RequirementKey[];
   knowledgeEntriesCreated: number;
   preprocessConfidence: number;
+  warnings?: string[];
 }
 
 export interface NamespaceContext {
   namespace: string;
   requirements: StructuredRequirements;
   knowledge: KnowledgeEntry[];
+  meetingSummary?: MeetingSummary;
   sources: ContextSource[];
   version: number;
   updatedAt: string;
@@ -78,5 +147,6 @@ export interface NamespaceContext {
 export interface ExtractionResult {
   fields: Partial<Record<RequirementKey, RequirementField<unknown>>>;
   knowledge: KnowledgeEntry[];
+  meetingSummary?: MeetingSummary;
   raw: string;
 }

@@ -13,8 +13,8 @@ export const SectionSchema = z.object({
   keyFacts: z.array(z.string().max(500)).max(20).default([]),
   decisions: z.array(z.string().max(500)).max(10).default([]),
   openQuestions: z.array(z.string().max(500)).max(10).default([]),
-  sentiment: z.enum(['positive', 'neutral', 'concern']).default('neutral'),
-  relevantQuotes: z.array(z.string().max(200)).max(3).default([]),
+  sentiment: z.enum(['positive', 'neutral', 'concern', 'mixed']).default('neutral'),
+  relevantQuotes: z.array(z.string().max(200)).max(10).default([]),
 });
 
 export const ActionItemSchema = z.object({

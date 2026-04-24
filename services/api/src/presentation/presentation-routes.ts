@@ -39,6 +39,7 @@ import {
   buildDallePrompt,
   resolveImageSource,
   downloadImageToFile,
+  buildPicsumUrl,
 } from '../image-routes.js';
 
 /**
@@ -670,34 +671,81 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const presentations = await listPresentations(workdir, namespace);
+
+    // Also surface chat-generated microsites (Layout AST saved by save-asset or tool-handlers).
+    // These never create a presentation record in workdir/presentations/, so they would otherwise
+    // be invisible to the namespace panel. We synthesize a minimal entry from the AST.
+    const existingIds = new Set(presentations.map((p) => p.proposalId));
+    const astCandidates = [
+      path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json'),
+      path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
+    ];
+    for (const astPath of astCandidates) {
+      try {
+        const raw = await readFile(astPath, 'utf-8');
+        const ast = JSON.parse(raw) as { proposalId?: string; meta?: { title?: string }; generatedAt?: string };
+        const proposalId = ast.proposalId ?? namespace;
+        if (!existingIds.has(proposalId)) {
+          const fileStat = await stat(astPath);
+          presentations.push({
+            namespace,
+            proposalId,
+            fileName: '',
+            config: { theme: 'light', accentColor: '#2563eb', hiddenSections: [], showPricing: true },
+            sections: [],
+            createdAt: ast.generatedAt ?? fileStat.mtime.toISOString(),
+            updatedAt: fileStat.mtime.toISOString(),
+          });
+          existingIds.add(proposalId);
+        }
+      } catch { /* no AST at this path — skip */ }
+    }
+
     return reply.send({ presentations });
   });
 
   // GET /presentations/history — all saved microsite ASTs across every namespace
   app.get('/presentations/history', async (req: FastifyRequest, reply: FastifyReply) => {
     const assetsDir = path.join(workdir, 'assets', 'presentations');
-    let namespaceDirs: string[];
-    try {
-      namespaceDirs = await readdir(assetsDir);
-    } catch {
-      return reply.send({ entries: [] });
-    }
+    const namespacesDir = path.join(workdir, 'data', 'namespaces');
 
-    const entries: Array<{ namespace: string; savedAt: string; ast: unknown }> = [];
+    const entriesMap = new Map<string, { namespace: string; savedAt: string; ast: unknown }>();
+
+    // Primary path: workdir/assets/presentations/<ns>/site-ast.json  (UI builder writes here)
+    let primaryDirs: string[] = [];
+    try { primaryDirs = await readdir(assetsDir); } catch { /* directory may not exist yet */ }
     await Promise.all(
-      namespaceDirs.map(async (ns) => {
+      primaryDirs.map(async (ns) => {
         try {
           const astPath = path.join(assetsDir, ns, 'site-ast.json');
           const raw = await readFile(astPath, 'utf-8');
           const ast = JSON.parse(raw);
           const fileStat = await stat(astPath);
-          entries.push({ namespace: ns, savedAt: fileStat.mtime.toISOString(), ast });
-        } catch {
-          // namespace has no saved AST — skip
-        }
+          entriesMap.set(ns, { namespace: ns, savedAt: fileStat.mtime.toISOString(), ast });
+        } catch { /* skip */ }
       }),
     );
 
+    // Fallback path: workdir/data/namespaces/<ns>/assets/presentations/<ns>/site-ast.json
+    // (save-asset tool writes here; chat-generated microsites land here)
+    let fallbackDirs: string[] = [];
+    try { fallbackDirs = await readdir(namespacesDir); } catch { /* directory may not exist */ }
+    await Promise.all(
+      fallbackDirs.map(async (ns) => {
+        if (entriesMap.has(ns)) return; // primary path already has this namespace
+        try {
+          const astPath = path.join(namespacesDir, ns, 'assets', 'presentations', ns, 'site-ast.json');
+          const raw = await readFile(astPath, 'utf-8');
+          const ast = JSON.parse(raw);
+          const fileStat = await stat(astPath);
+          entriesMap.set(ns, { namespace: ns, savedAt: fileStat.mtime.toISOString(), ast });
+        } catch { /* namespace has no saved AST — skip */ }
+      }),
+    );
+
+    if (entriesMap.size === 0) return reply.send({ entries: [] });
+
+    const entries = [...entriesMap.values()];
     // Sort newest first
     entries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
     return reply.send({ entries });
@@ -912,6 +960,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
               const remoteUrl = await generateDalle3Image(prompt);
               if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+            } else if (chosenSource === 'picsum') {
+              sec.image.url = await saveImagePersistently(buildPicsumUrl(query), namespace, secId, workdir);
             } else {
               const remoteUrl = await fetchUnsplashImageUrl(query);
               if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
@@ -1117,6 +1167,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               if (chosenSource === 'dalle') {
                 const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
                 remoteUrl = await generateDalle3Image(prompt);
+              } else if (chosenSource === 'picsum') {
+                remoteUrl = buildPicsumUrl(query);
               } else {
                 remoteUrl = await fetchUnsplashImageUrl(query);
               }
@@ -1146,23 +1198,25 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
 
   // GET /presentations/:namespace/:proposalId/microsite
   // Returns the previously generated site AST (null if not yet generated).
-  // The microsite-generator-agent saves to assets/presentations/<namespace>/site-ast.json
+  // Checks primary path first, then fallback path used by the chat pipeline's save-asset tool.
   app.get('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    try {
-      const raw = await readFile(astPath, 'utf-8');
-      const fileStat = await stat(astPath);
-      return reply.send({ ast: JSON.parse(raw), savedAt: fileStat.mtime.toISOString() });
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return reply.send({ ast: null, savedAt: null });
+    const primaryPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    const fallbackPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
+
+    for (const astPath of [primaryPath, fallbackPath]) {
+      try {
+        const raw = await readFile(astPath, 'utf-8');
+        const fileStat = await stat(astPath);
+        return reply.send({ ast: JSON.parse(raw), savedAt: fileStat.mtime.toISOString() });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
-      throw err;
     }
+    return reply.send({ ast: null, savedAt: null });
   });
 
   // PUT /presentations/:namespace/:proposalId/microsite
@@ -1178,13 +1232,6 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
     await mkdir(path.dirname(astPath), { recursive: true });
     await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
-
-    // Mirror to data/namespaces path if it exists
-    const dataAstPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
-    try {
-      await mkdir(path.dirname(dataAstPath), { recursive: true });
-      await writeFile(dataAstPath, JSON.stringify(body.ast, null, 2), 'utf-8');
-    } catch { /* best-effort mirror */ }
 
     return reply.send({ ok: true, proposalId });
   });

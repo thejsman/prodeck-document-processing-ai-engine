@@ -20,7 +20,7 @@ interface DalleResponse {
 
 // ── Source routing rules ──────────────────────────────────────────────────
 
-type ImageSource = 'unsplash' | 'dalle' | 'gradient';
+type ImageSource = 'unsplash' | 'dalle' | 'picsum' | 'gradient';
 
 /**
  * Determine the best image source for a section type.
@@ -35,7 +35,14 @@ export function resolveImageSource(
   if (sectionType !== 'hero' && sectionType !== 'showcase') return 'gradient';
   if (hasDalleKey) return 'dalle';
   if (hasUnsplashKey) return 'unsplash';
-  return 'gradient';
+  return 'picsum';
+}
+
+// ── Picsum helper (no API key, deterministic by seed) ────────────────────
+
+export function buildPicsumUrl(query: string): string {
+  const seed = query.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  return `https://picsum.photos/seed/${seed || 'landscape'}/1920/1080`;
 }
 
 // ── Unsplash helper ───────────────────────────────────────────────────────
@@ -254,6 +261,10 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
           const prompt = buildDallePrompt(sec.sectionType, sec.imageQuery, sec.accentColor);
           const url = await generateDalle3Image(prompt);
           return { id: sec.id, url, source: 'dalle' as const };
+        }
+
+        if (source === 'picsum') {
+          return { id: sec.id, url: buildPicsumUrl(sec.imageQuery), source: 'picsum' as const };
         }
 
         // unsplash

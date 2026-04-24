@@ -21,7 +21,7 @@ export interface DocumentSection {
   keyFacts: string[];
   decisions: string[];
   openQuestions: string[];
-  sentiment: 'positive' | 'neutral' | 'concern';
+  sentiment: 'positive' | 'neutral' | 'concern' | 'mixed';
   relevantQuotes: string[];
 }
 
@@ -231,16 +231,26 @@ export async function preprocessDocument(
 
   if (rawLength <= WINDOW_SIZE_WORDS) {
     let validatedDoc: ReturnType<typeof validatePreprocessedDocument>['document'] | undefined;
+    let preprocessRaw = '';
 
     try {
-      const raw = await llmFn(promptFn(content));
-      const candidate = safeParseJSON<unknown>(raw);
+      preprocessRaw = await llmFn(promptFn(content));
+      const candidate = safeParseJSON<unknown>(preprocessRaw);
       const validation = validatePreprocessedDocument(candidate);
       if (validation.valid) {
         validatedDoc = validation.document;
+      } else {
+        console.warn(
+          `[Preprocessor] ${_fileName}: LLM response failed schema validation — using fallback.`,
+          `Errors: ${validation.errors.join('; ')}`,
+          `Raw (first 300): ${preprocessRaw.slice(0, 300)}`,
+        );
       }
-    } catch {
-      // LLM call failed — fall through to fallback
+    } catch (err) {
+      console.warn(
+        `[Preprocessor] ${_fileName}: LLM call failed — using fallback. Error: ${err instanceof Error ? err.message : String(err)}`,
+        preprocessRaw ? `Raw (first 300): ${preprocessRaw.slice(0, 300)}` : '(no response)',
+      );
     }
 
     if (!validatedDoc) {

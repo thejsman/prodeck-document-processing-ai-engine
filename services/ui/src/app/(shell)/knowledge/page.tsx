@@ -9,7 +9,7 @@ import { useNamespace } from '@/lib/namespace-context';
 // Types
 // ---------------------------------------------------------------------------
 
-type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'failed';
+type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extracting' | 'extracted' | 'failed';
 
 interface KBFile {
   fileName: string;
@@ -34,7 +34,9 @@ function formatDate(iso: string): string {
 }
 
 const STATUS_BADGE: Record<IngestionStatus, string> = {
-  indexed:    'badge--ok',
+  indexed:    'badge--running',
+  extracting: 'badge--running',
+  extracted:  'badge--ok',
   processing: 'badge--running',
   uploaded:   'badge--editing',
   failed:     'badge--error',
@@ -42,6 +44,8 @@ const STATUS_BADGE: Record<IngestionStatus, string> = {
 
 const STATUS_LABEL: Record<IngestionStatus, string> = {
   indexed:    'Indexed',
+  extracting: 'Extracting',
+  extracted:  'Extracted',
   processing: 'Processing',
   uploaded:   'Pending',
   failed:     'Failed',
@@ -91,7 +95,7 @@ export default function KnowledgePage() {
   // Auto-poll while any file is still being processed
   useEffect(() => {
     const hasPending = files.some(
-      (f) => f.status === 'processing' || f.status === 'uploaded',
+      (f) => f.status === 'processing' || f.status === 'uploaded' || f.status === 'extracting',
     );
     if (!hasPending) return;
     const interval = setInterval(fetchFiles, 3_000);
@@ -243,7 +247,7 @@ export default function KnowledgePage() {
                   <td>
                     <span className={`badge ${STATUS_BADGE[file.status]}`}>
                       {STATUS_LABEL[file.status]}
-                      {(file.status === 'processing' || file.status === 'uploaded') && (
+                      {(file.status === 'processing' || file.status === 'uploaded' || file.status === 'extracting') && (
                         <span className="kb-spinner" />
                       )}
                     </span>

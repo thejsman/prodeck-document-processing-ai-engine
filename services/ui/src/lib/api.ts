@@ -311,7 +311,7 @@ export async function deleteNamespaceFile(apiKey: string, namespace: string, fil
 // Knowledge / Async Ingestion
 // ---------------------------------------------------------------------------
 
-export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'failed';
+export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extracting' | 'extracted' | 'failed';
 
 export interface IngestionFile {
   fileName: string;

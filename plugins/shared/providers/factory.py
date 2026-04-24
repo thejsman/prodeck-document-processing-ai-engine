@@ -36,18 +36,20 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         generation_model = os.environ.get("OLLAMA_GENERATION_MODEL", "mistral")
         embedding_model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        timeout = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
         return OllamaProvider(
             base_url=base_url,
             generation_model=generation_model,
             embedding_model=embedding_model,
+            timeout=timeout,
         )
 
     if name == "openai":
         from .openai_provider import OpenAIProvider
 
-        generation_model = os.environ.get("OPENAI_GENERATION_MODEL", "gpt-4o-mini")
+        generation_model = os.environ.get("OPENAI_GENERATION_MODEL", "gpt-5.2")
         embedding_model = os.environ.get(
-            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-large"
         )
         return OpenAIProvider(
             generation_model=generation_model,

@@ -30,7 +30,7 @@ function isAcceptedFile(file: File): boolean {
 }
 
 function hasActiveJobs(files: IngestionFile[]): boolean {
-  return files.some((f) => f.status === 'uploaded' || f.status === 'processing');
+  return files.some((f) => f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting');
 }
 
 function StatusBadge({ status }: { status: IngestionStatus }) {
@@ -40,6 +40,16 @@ function StatusBadge({ status }: { status: IngestionStatus }) {
         <span className="spinner" style={{ width: 10, height: 10 }} /> Processing
       </span>
     );
+  }
+  if (status === 'extracting') {
+    return (
+      <span className="ingestion-badge ingestion-badge--processing">
+        <span className="spinner" style={{ width: 10, height: 10 }} /> Extracting
+      </span>
+    );
+  }
+  if (status === 'extracted') {
+    return <span className="ingestion-badge ingestion-badge--indexed">Extracted</span>;
   }
   if (status === 'indexed') {
     return <span className="ingestion-badge ingestion-badge--indexed">Indexed</span>;
