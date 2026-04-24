@@ -138,16 +138,162 @@ const MERMAID_SCRIPT = path.resolve(
 
 // Generic LLM bridge — used by the planner's GenerateFn
 const LLM_BRIDGE_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'llm_bridge.py');
+const LLM_BRIDGE_SERVER_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'llm_bridge_server.py');
+
+// ---------------------------------------------------------------------------
+// Persistent Python bridge pool (opt-in via LLM_BRIDGE_PERSISTENT=true)
+// ---------------------------------------------------------------------------
+
+type PendingReq = {
+  prompt: string;
+  resolve: (result: string) => void;
+  reject: (err: Error) => void;
+};
+
+class PythonWorker {
+  private lineBuffer = '';
+  private inflight: (PendingReq & { id: string }) | null = null;
+  private proc: ReturnType<typeof spawn>;
+
+  constructor(
+    private readonly scriptPath: string,
+    private readonly pythonBin: string,
+    private readonly onFree: () => void,
+  ) {
+    this.proc = this.start();
+  }
+
+  private start(): ReturnType<typeof spawn> {
+    const proc = spawn(this.pythonBin, [this.scriptPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    proc.stdout!.on('data', (chunk: Buffer) => {
+      this.lineBuffer += chunk.toString();
+      let idx: number;
+      while ((idx = this.lineBuffer.indexOf('\n')) !== -1) {
+        const line = this.lineBuffer.slice(0, idx).trim();
+        this.lineBuffer = this.lineBuffer.slice(idx + 1);
+        if (line) this.handleLine(line);
+      }
+    });
+
+    proc.stderr!.on('data', (chunk: Buffer) => {
+      console.error('[LLMBridgeServer]', chunk.toString().trim());
+    });
+
+    proc.on('close', () => {
+      if (this.inflight) {
+        this.inflight.reject(new Error('LLM bridge worker exited unexpectedly'));
+        this.inflight = null;
+      }
+    });
+
+    proc.on('error', (err) => {
+      if (this.inflight) {
+        this.inflight.reject(new Error(`LLM bridge worker error: ${err.message}`));
+        this.inflight = null;
+      }
+    });
+
+    return proc;
+  }
+
+  private handleLine(line: string): void {
+    const req = this.inflight;
+    this.inflight = null;
+    if (!req) return;
+
+    try {
+      const parsed = JSON.parse(line) as { id?: string; result?: string; error?: string };
+      if (parsed.error) {
+        req.reject(new Error(parsed.error));
+      } else {
+        req.resolve(parsed.result ?? '');
+      }
+    } catch {
+      req.reject(new Error(`LLM bridge worker returned invalid JSON: ${line.slice(0, 120)}`));
+    }
+
+    this.onFree();
+  }
+
+  get isFree(): boolean {
+    return this.inflight === null;
+  }
+
+  send(id: string, req: PendingReq): void {
+    this.inflight = { ...req, id };
+    this.proc.stdin!.write(JSON.stringify({ id, prompt: req.prompt }) + '\n');
+  }
+
+  close(): void {
+    try { this.proc.stdin!.end(); } catch { /* ignore */ }
+  }
+}
+
+class PythonBridgePool {
+  private readonly workers: PythonWorker[];
+  private readonly queue: PendingReq[] = [];
+
+  constructor(scriptPath: string, pythonBin: string, poolSize: number) {
+    this.workers = Array.from(
+      { length: poolSize },
+      () => new PythonWorker(scriptPath, pythonBin, () => this.drain()),
+    );
+    console.log(`[LLMBridgePool] Persistent pool started (${poolSize} workers, script: ${scriptPath})`);
+  }
+
+  private drain(): void {
+    if (this.queue.length === 0) return;
+    const free = this.workers.find((w) => w.isFree);
+    if (!free) return;
+    const next = this.queue.shift()!;
+    free.send(crypto.randomUUID(), next);
+  }
+
+  generate(prompt: string): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const req: PendingReq = { prompt, resolve, reject };
+      const free = this.workers.find((w) => w.isFree);
+      if (free) {
+        free.send(crypto.randomUUID(), req);
+      } else {
+        this.queue.push(req);
+      }
+    });
+  }
+
+  shutdown(): void {
+    for (const w of this.workers) w.close();
+  }
+}
+
+const _persistentPool: PythonBridgePool | null =
+  env.LLM_BRIDGE_PERSISTENT === 'true'
+    ? new PythonBridgePool(
+        LLM_BRIDGE_SERVER_SCRIPT,
+        PYTHON_BIN,
+        Math.max(1, parseInt(env.LLM_BRIDGE_POOL_SIZE ?? '2', 10)),
+      )
+    : null;
 
 /**
  * Call the generic LLM bridge with a prompt, returns the raw LLM response.
  * Used as the planner's GenerateFn.
+ *
+ * When LLM_BRIDGE_PERSISTENT=true, requests are dispatched to a persistent
+ * pool of Python workers (eliminating ~500ms–1s spawn overhead per call).
+ * When the env var is absent or false, falls back to the original one-shot
+ * spawn behaviour so there is no regression risk.
  */
 export const llmGenerateFn: GenerateFn = (prompt: string): Promise<string> => {
   // Strip lone Unicode surrogates (U+D800–U+DFFF) before sending to the Python bridge.
   // They appear when the source document contains invalid UTF-8 bytes decoded by Node as
   // surrogate pairs.  Python's UTF-8 encoder rejects them, causing every LLM call to fail.
   const safePrompt = prompt.replace(/[\uD800-\uDFFF]/g, '');
+
+  if (_persistentPool) {
+    return _persistentPool.generate(safePrompt);
+  }
 
   return new Promise((resolve, reject) => {
     const child = spawn(PYTHON_BIN, [LLM_BRIDGE_SCRIPT], {
