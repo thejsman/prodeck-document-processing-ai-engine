@@ -6,6 +6,7 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: ChallengeContent;
@@ -18,174 +19,180 @@ interface Props {
 export function ChallengeSection({ content, tokens, imageUrl }: Props) {
   const accentRgb = tokens.accentRgb ?? '99,179,237';
   const highlights = content.highlights ?? [];
+  const hasRightCol = imageUrl || highlights.length > 0;
 
   return (
     <section
       id="challenge"
       style={{
         position: 'relative',
-        padding: 'clamp(5rem, 10vw, 8rem) 2rem',
+        padding: 'clamp(4rem, 7vw, 6rem) 2rem',
         background: getSectionGradient('challenge', tokens),
         overflow: 'hidden',
       }}
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div style={{ position: 'relative', zIndex: 5, maxWidth: 880, margin: '0 auto' }}>
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 1100, margin: '0 auto' }}>
 
         {/* Eyebrow */}
         <Reveal>
           <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-            <span style={{
-              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-              fontSize: '0.62rem', fontWeight: 700,
-              letterSpacing: '0.18em', textTransform: 'uppercase' as const,
-              color: tokens.accent, display: 'block', marginBottom: 20,
-            }}>
-              {content.eyebrow}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <span style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.6rem', fontWeight: 700,
+                letterSpacing: '0.18em', textTransform: 'uppercase' as const,
+                color: tokens.accent,
+              }}>
+                {content.eyebrow}
+              </span>
+              <div style={{ width: 28, height: 1, background: tokens.accent, flexShrink: 0 }} />
+            </div>
           </InlineEditable>
         </Reveal>
 
-        {/* Headline + body — two-column when no image, single when image */}
+        {/* Headline — full width above the columns */}
+        <Reveal delay={60}>
+          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+            <h2 style={{
+              fontFamily: `'${tokens.heroFont}', serif`,
+              fontWeight: Number(tokens.heroWeight) || 700,
+              fontSize: 'clamp(2rem, 4vw, 3rem)',
+              lineHeight: 1.1,
+              letterSpacing: '-0.03em',
+              color: tokens.text,
+              margin: '0 0 36px',
+              maxWidth: hasRightCol ? '60%' : '100%',
+            }}>
+              {content.headline}
+            </h2>
+          </InlineEditable>
+        </Reveal>
+
+        {/* 2-column: body + blockquote LEFT, stat grid or image RIGHT */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: imageUrl ? '1fr 1fr' : '5fr 4fr',
+          gridTemplateColumns: hasRightCol ? '1fr 1fr' : '1fr',
           gap: 'clamp(2.5rem, 5vw, 5rem)',
           alignItems: 'start',
-          marginBottom: 'clamp(3rem, 6vw, 5rem)',
         }}>
-          <Reveal delay={80}>
-            <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-              <h2 style={{
-                fontFamily: `'${tokens.heroFont}', serif`,
-                fontWeight: Number(tokens.heroWeight) || 700,
-                fontSize: 'clamp(2rem, 4vw, 3.2rem)',
-                lineHeight: 1.1, letterSpacing: '-0.03em',
-                color: tokens.text, margin: 0,
-              }}>
-                {content.headline}
-              </h2>
-            </InlineEditable>
-          </Reveal>
 
-          {imageUrl ? (
-            <Reveal delay={160}>
-              <div style={{ borderRadius: 8, overflow: 'hidden', boxShadow: tokens.cardShadow }}>
-                <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
-              </div>
-            </Reveal>
-          ) : (
-            <Reveal delay={160}>
+          {/* LEFT — body + pullquote */}
+          <div>
+            <Reveal delay={120}>
               <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-                <p style={{
-                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '1rem', lineHeight: 1.8,
-                  color: tokens.textMuted, margin: 0,
-                }}>
-                  {content.body}
-                </p>
+                <p
+                  style={{
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: '0.95rem', fontWeight: 300,
+                    lineHeight: 1.8, color: tokens.textMuted,
+                    margin: '0 0 16px',
+                  }}
+                  {...(hasMarkdown(content.body ?? '')
+                    ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.body ?? '') } }
+                    : { children: content.body })}
+                />
               </InlineEditable>
             </Reveal>
+
+            {content.pullquote && (
+              <Reveal delay={200}>
+                <InlineEditable field="pullquote" label="Pull quote" value={content.pullquote ?? ''} multiline>
+                  <blockquote style={{
+                    margin: '28px 0 0',
+                    padding: '20px 24px',
+                    borderLeft: `3px solid ${tokens.accent}`,
+                    background: `rgba(${accentRgb},0.05)`,
+                  }}>
+                    <p style={{
+                      fontFamily: `'${tokens.heroFont}', serif`,
+                      fontStyle: 'italic',
+                      fontSize: '1rem',
+                      lineHeight: 1.55,
+                      color: tokens.text,
+                      margin: 0,
+                    }}
+                      {...(hasMarkdown(content.pullquote ?? '')
+                        ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.pullquote ?? '') } }
+                        : { children: content.pullquote })}
+                    />
+                  </blockquote>
+                </InlineEditable>
+              </Reveal>
+            )}
+          </div>
+
+          {/* RIGHT — image or stat grid */}
+          {hasRightCol && (
+            imageUrl ? (
+              <Reveal delay={160}>
+                <div style={{ borderRadius: 8, overflow: 'hidden', boxShadow: tokens.cardShadow }}>
+                  <img src={imageUrl} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                </div>
+              </Reveal>
+            ) : highlights.length > 0 ? (
+              <Reveal delay={160}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 1,
+                  background: tokens.border,
+                }}>
+                  {highlights.map((h, i) => (
+                    <InlineArrayItem key={i} arrayPath="highlights" index={i} total={highlights.length}>
+                      <div
+                        style={{
+                          background: tokens.surface ?? tokens.bg,
+                          padding: 'clamp(1.25rem, 2.5vw, 1.75rem)',
+                        }}
+                      >
+                        {/* Big stat number */}
+                        <InlineEditable field={`highlights.${i}.title`} label="Stat" value={h.title ?? ''}>
+                          <div style={{
+                            fontFamily: `'${tokens.heroFont}', serif`,
+                            fontWeight: Number(tokens.heroWeight) || 700,
+                            fontSize: 'clamp(1.4rem, 2.5vw, 2rem)',
+                            color: tokens.accent,
+                            lineHeight: 1,
+                            marginBottom: 5,
+                          }}>
+                            {h.title}
+                          </div>
+                        </InlineEditable>
+                        {/* Label */}
+                        {h.subtitle && (
+                          <InlineEditable field={`highlights.${i}.subtitle`} label="Label" value={h.subtitle ?? ''}>
+                            <div style={{
+                              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                              fontSize: '0.6rem',
+                              fontWeight: 500,
+                              color: tokens.textMuted,
+                              letterSpacing: '0.03em',
+                              lineHeight: 1.4,
+                            }}>
+                              {h.subtitle}
+                            </div>
+                          </InlineEditable>
+                        )}
+                      </div>
+                    </InlineArrayItem>
+                  ))}
+                </div>
+              </Reveal>
+            ) : null
           )}
         </div>
 
-        {/* Body text when image is present */}
-        {imageUrl && (
-          <Reveal delay={200}>
-            <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-              <p style={{
-                fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                fontSize: '1rem', lineHeight: 1.8,
-                color: tokens.textMuted,
-                margin: '0 0 clamp(2rem,4vw,3rem)',
-                maxWidth: 640,
-              }}>
-                {content.body}
-              </p>
-            </InlineEditable>
-          </Reveal>
-        )}
-
-        {/* Pull quote */}
-        {content.pullquote && (
-          <Reveal delay={260}>
-            <InlineEditable field="pullquote" label="Pull quote" value={content.pullquote ?? ''} multiline>
-              <blockquote style={{ margin: '0 0 clamp(2.5rem,5vw,4rem)', padding: 0, border: 'none' }}>
-                <p style={{
-                  fontFamily: `'${tokens.heroFont}', serif`,
-                  fontWeight: Number(tokens.heroWeight) || 600,
-                  fontStyle: 'italic',
-                  fontSize: 'clamp(1.15rem, 2.2vw, 1.5rem)',
-                  lineHeight: 1.55,
-                  color: tokens.text,
-                  margin: 0,
-                  paddingLeft: 28,
-                  borderLeft: `3px solid ${tokens.accent}`,
-                }}
-                  {...(hasMarkdown(content.pullquote ?? '')
-                    ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(content.pullquote ?? '') } }
-                    : { children: content.pullquote })}
-                />
-              </blockquote>
-            </InlineEditable>
-          </Reveal>
-        )}
-
-        {/* Highlights — open numbered list, #heard style */}
+        {/* Add highlight — only visible in editor mode */}
         {highlights.length > 0 && (
-          <>
-            <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(2.5rem, 5vw, 4rem)' }} />
-            <div>
-              {highlights.map((h, i) => (
-                <Reveal key={i} delay={300 + i * 65}>
-                  <div style={{
-                    position: 'relative',
-                    display: 'grid',
-                    gridTemplateColumns: '72px 1fr',
-                    gap: 'clamp(1rem, 3vw, 2rem)',
-                    alignItems: 'start',
-                    paddingBottom: 'clamp(1.25rem, 2.5vw, 2rem)',
-                    marginBottom: i < highlights.length - 1 ? 'clamp(1.25rem, 2.5vw, 2rem)' : 0,
-                    borderBottom: i < highlights.length - 1 ? `1px solid ${tokens.border}` : 'none',
-                  }}>
-                    {/* Ordinal */}
-                    <div style={{
-                      fontFamily: `'${tokens.heroFont}', serif`,
-                      fontSize: 'clamp(1.1rem, 2vw, 1.4rem)',
-                      fontWeight: 700,
-                      color: i === 0 ? tokens.accent : `rgba(${accentRgb},0.3)`,
-                      letterSpacing: '-0.02em',
-                      lineHeight: 1,
-                      paddingTop: 3,
-                    }}>
-                      {String(i + 1).padStart(2, '0')}
-                    </div>
-
-                    {/* Content */}
-                    <div>
-                      <h3 style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 700, fontSize: '1rem',
-                        color: tokens.text, margin: '0 0 6px', lineHeight: 1.35,
-                      }}>
-                        {h.title}
-                      </h3>
-                      {h.subtitle && (
-                        <p style={{
-                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                          fontSize: '0.9rem', color: tokens.textMuted,
-                          margin: 0, lineHeight: 1.75,
-                        }}>
-                          {h.subtitle}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </Reveal>
-              ))}
-            </div>
-          </>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <InlineAddItem
+              arrayPath="highlights"
+              template={{ title: '0', subtitle: 'Metric label' }}
+              label="Add stat"
+            />
+          </div>
         )}
       </div>
     </section>

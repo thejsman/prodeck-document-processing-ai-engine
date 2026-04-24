@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useLayoutEffect, useRef } from 'react';
 import type { PluginTokens, TestimonialsContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -16,10 +17,103 @@ interface Props {
   sectionId?: string;
 }
 
+// ~4 lines at 0.875rem font-size / 1.75 line-height
+const COLLAPSED_MAX_H = '6.125rem';
+// Must be a px value (not 'none') so CSS max-height transition works
+const EXPANDED_MAX_H = '1000px';
+
+interface ExpandableQuoteProps {
+  quote: string;
+  tokens: PluginTokens;
+  index: number;
+}
+
+function ExpandableQuote({ quote, tokens, index }: ExpandableQuoteProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // useLayoutEffect: fires before paint so 'overflows' is correct on first visible frame
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [quote]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ position: 'relative' }}>
+        {/* Text container — clamped when collapsed */}
+        <div
+          ref={containerRef}
+          style={{
+            maxHeight: expanded ? EXPANDED_MAX_H : COLLAPSED_MAX_H,
+            overflow: 'hidden',
+            transition: 'max-height 0.35s ease',
+          }}
+        >
+          <InlineEditable field={`items.${index}.quote`} label="Quote" value={quote} multiline>
+            <p
+              style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.875rem',
+                lineHeight: 1.75,
+                color: tokens.text,
+                fontStyle: 'italic',
+                margin: 0,
+              }}
+              {...(hasMarkdown(quote)
+                ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(quote) } }
+                : { children: quote })}
+            />
+          </InlineEditable>
+        </div>
+
+        {/* Fade gradient — only visible when collapsed and content overflows */}
+        {!expanded && overflows && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: '2.5rem',
+              background: `linear-gradient(to bottom, transparent, ${tokens.surfaceCard})`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </div>
+
+      {/* Toggle — only rendered when text actually overflows the collapsed height */}
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            fontFamily: `'${tokens.bodyFont}', sans-serif`,
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            color: tokens.accent,
+            textAlign: 'left',
+          }}
+        >
+          {expanded ? 'See Less' : 'See More'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function TestimonialsSection({ content, tokens, sectionId }: Props) {
   const items = content.items ?? [];
 
-  // Suppress section entirely when no real testimonials exist (agent returns [] when no source quotes)
+  // Suppress section entirely when no real testimonials exist
   if (items.length === 0) return null;
 
   return (
@@ -80,31 +174,16 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
             <Reveal key={i} delay={160 + i * 80}>
               <InlineArrayItem arrayPath="items" index={i} total={items.length}>
                 <GlassCard tokens={tokens} style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
-                  {/* Quote mark */}
+                  {/* Decorative opening quote mark */}
                   <div style={{ fontFamily: 'Georgia, serif', fontSize: '3rem', lineHeight: 0.8, color: tokens.accent, fontWeight: 700 }}>
                     &ldquo;
                   </div>
 
-                  {/* Quote text */}
-                  <InlineEditable field={`items.${i}.quote`} label="Quote" value={item.quote ?? ''} multiline>
-                    <p
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.875rem',
-                        lineHeight: 1.75,
-                        color: tokens.text,
-                        fontStyle: 'italic',
-                        margin: 0,
-                        flex: 1,
-                      }}
-                      {...(hasMarkdown(item.quote ?? '')
-                        ? { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(item.quote ?? '') } }
-                        : { children: item.quote })}
-                    />
-                  </InlineEditable>
+                  {/* Quote text — clamped with per-card expand/collapse */}
+                  <ExpandableQuote quote={item.quote ?? ''} tokens={tokens} index={i} />
 
-                  {/* Attribution */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 20, borderTop: `1px solid ${tokens.border}` }}>
+                  {/* Attribution — marginTop auto anchors it to the card bottom */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingTop: 20, borderTop: `1px solid ${tokens.border}`, marginTop: 'auto' }}>
                     {/* Avatar initials */}
                     <div style={{
                       width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
