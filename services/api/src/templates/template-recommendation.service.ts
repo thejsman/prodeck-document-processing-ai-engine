@@ -155,7 +155,7 @@ async function extractCapabilityKeywords(
   workdir: string,
   namespace: string,
 ): Promise<string[]> {
-  const storageDir = path.join(workdir, 'namespaces');
+  const storageDir = path.join(workdir, 'namespaces', namespace);
 
   try {
     const result = await searchKnowledgeChunks({

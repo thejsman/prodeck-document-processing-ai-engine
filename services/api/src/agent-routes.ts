@@ -78,7 +78,7 @@ export function ensureRegistered(workdir: string): void {
       queryFn: async (namespace: string, question: string) => {
         const result = await queryKnowledgeBase({
           question,
-          storageDir: path.join(workdir, 'namespaces'),
+          storageDir: path.join(workdir, 'namespaces', namespace),
           namespace,
         });
         return result.answer;

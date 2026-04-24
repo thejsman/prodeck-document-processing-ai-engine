@@ -119,25 +119,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
           </div>
         </Reveal>
 
-        {rows.length === 0 && (
-          <Reveal delay={160}>
-            <div
-              style={{
-                padding: '32px',
-                borderRadius: 12,
-                border: `1px solid ${tokens.border}`,
-                textAlign: 'center',
-                color: tokens.textMuted,
-                fontSize: '0.875rem',
-              }}
-            >
-              Pricing details available on request.
-            </div>
-          </Reveal>
-        )}
-
-        {rows.length > 0 && (
-          <>
+        <>
             {/* ── Main investment card ── */}
             <Reveal delay={100}>
               <div
@@ -234,18 +216,38 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                     )}
                   </div>
 
-                  {deliverableRows.length > 0 && (
-                    <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(14px,2.5vw,20px)' }} />
-                  )}
+                  <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(14px,2.5vw,20px)' }} />
 
-                  {/* 2-column pricing table — Rule 3: NEVER render as checklist */}
-                  {deliverableRows.length > 0 && (
-                    <table
-                      data-component="pricing-line-items"
-                      style={{ width: '100%', borderCollapse: 'collapse' }}
-                    >
-                      <tbody>
-                        {deliverableRows.map((row, ri) => {
+                  {/* 2-column pricing table — always rendered so user can fill in data */}
+                  <table
+                    data-component="pricing-line-items"
+                    style={{ width: '100%', borderCollapse: 'collapse' }}
+                  >
+                    <tbody>
+                      {deliverableRows.length === 0 ? (
+                        [['', ''], ['', ''], ['', '']].map((_, pi) => (
+                          <tr key={`ph-${pi}`} style={{ borderBottom: `1px solid ${tokens.border}` }}>
+                            <td style={{ padding: '10px 0' }}>
+                              <span style={{
+                                display: 'block',
+                                height: 14,
+                                width: `${55 + (pi % 3) * 15}%`,
+                                borderRadius: 4,
+                                background: `rgba(${accentRgb},0.07)`,
+                              }} />
+                            </td>
+                            <td style={{ padding: '10px 0', textAlign: 'right', width: '35%' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                height: 14,
+                                width: 64,
+                                borderRadius: 4,
+                                background: `rgba(${accentRgb},0.07)`,
+                              }} />
+                            </td>
+                          </tr>
+                        ))
+                      ) : deliverableRows.map((row, ri) => {
                           const globalIdx = dataRows.indexOf(row) + (isGenericHeader ? 1 : 0);
                           const label = row[0] ?? '';
                           const amount = row[1] ?? '';
@@ -295,9 +297,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                             </InlineArrayItem>
                           );
                         })}
-                      </tbody>
-                    </table>
-                  )}
+                    </tbody>
+                  </table>
                 </div>
 
                 <div
@@ -314,178 +315,211 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               </div>
             </Reveal>
 
-            {/* ── Payment schedule ── */}
-            {paymentRows.length > 0 && (
-              <Reveal delay={200}>
-                <div
-                  style={{
-                    borderRadius: 12,
-                    border: `1px solid ${tokens.border}`,
-                    background: tokens.surface,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '12px 24px',
-                      borderBottom: `1px solid ${tokens.border}`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
+            {/* ── Payment schedule — premium stepper design ── */}
+            <Reveal delay={200}>
+              <div style={{ marginTop: 8 }}>
+                {/* Section label */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
+                }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: `rgba(${accentRgb},0.12)`,
+                    border: `1px solid rgba(${accentRgb},0.25)`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
                     <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                      <rect x="1" y="3" width="12" height="10" rx="2" stroke={tokens.textSubtle} strokeWidth="1.2" />
-                      <path d="M1 6h12" stroke={tokens.textSubtle} strokeWidth="1.2" />
-                      <path d="M4 1v3M10 1v3" stroke={tokens.textSubtle} strokeWidth="1.2" strokeLinecap="round" />
+                      <rect x="1" y="3" width="12" height="10" rx="2" stroke={tokens.accent} strokeWidth="1.3" />
+                      <path d="M1 6h12" stroke={tokens.accent} strokeWidth="1.3" />
+                      <path d="M4 1v3M10 1v3" stroke={tokens.accent} strokeWidth="1.3" strokeLinecap="round" />
                     </svg>
-                    <span
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.62rem',
-                        fontWeight: 700,
-                        letterSpacing: '0.13em',
-                        textTransform: 'uppercase' as const,
-                        color: tokens.textSubtle,
-                      }}
-                    >
-                      Payment Schedule
-                    </span>
                   </div>
+                  <span style={{
+                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: '0.63rem', fontWeight: 700,
+                    letterSpacing: '0.14em', textTransform: 'uppercase' as const,
+                    color: tokens.textSubtle,
+                  }}>
+                    Payment Schedule
+                  </span>
+                </div>
 
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: `repeat(${Math.min(paymentRows.length, 3)}, 1fr)`,
-                    }}
-                  >
-                    {paymentRows.map((row, ri) => {
-                      const globalIdx = dataRows.indexOf(row) + (isGenericHeader ? 1 : 0);
-                      return (
-                        <div
-                          key={ri}
-                          style={{
-                            padding: '18px 22px',
-                            borderRight: ri < paymentRows.length - 1 ? `1px solid ${tokens.border}` : undefined,
-                          }}
-                        >
+                {/* Milestone cards */}
+                {(() => {
+                  const milestones = paymentRows.length > 0
+                    ? paymentRows
+                    : [['Upon Signing', ''], ['Upon Delivery', ''], ['Upon Completion', '']];
+                  const count = Math.min(milestones.length, 3);
+
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${count}, 1fr)`, gap: 12 }}>
+                      {milestones.slice(0, count).map((row, ri) => {
+                        const isSkeleton = paymentRows.length === 0;
+                        const globalIdx = isSkeleton ? -1 : dataRows.indexOf(row as string[]) + (isGenericHeader ? 1 : 0);
+                        const label = row[0] ?? '';
+                        const amount = row[1] ?? '';
+                        const note = row[2] ?? '';
+                        const isFirst = ri === 0;
+                        const isLast = ri === count - 1;
+
+                        return (
                           <div
+                            key={ri}
                             style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: '50%',
-                              border: `1.5px solid ${tokens.border}`,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                              fontSize: '0.58rem',
-                              fontWeight: 700,
-                              color: tokens.textSubtle,
-                              marginBottom: 10,
+                              position: 'relative',
+                              borderRadius: 14,
+                              overflow: 'hidden',
+                              background: isFirst
+                                ? `linear-gradient(135deg, rgba(${accentRgb},0.18) 0%, rgba(${accentRgb},0.06) 100%)`
+                                : tokens.surfaceCard,
+                              border: isFirst
+                                ? `1px solid rgba(${accentRgb},0.35)`
+                                : `1px solid ${tokens.border}`,
+                              boxShadow: isFirst
+                                ? `0 4px 24px rgba(${accentRgb},0.15), 0 1px 4px rgba(0,0,0,0.08)`
+                                : tokens.cardShadow,
+                              padding: 'clamp(18px,2.5vw,26px)',
                             }}
                           >
-                            {ri + 1}
-                          </div>
+                            {/* Glow dot for first card */}
+                            {isFirst && (
+                              <div style={{
+                                position: 'absolute', top: -20, right: -20,
+                                width: 80, height: 80, borderRadius: '50%',
+                                background: `radial-gradient(circle, rgba(${accentRgb},0.25) 0%, transparent 70%)`,
+                                pointerEvents: 'none',
+                              }} />
+                            )}
 
-                          <div
-                            style={{
+                            {/* Step badge */}
+                            <div style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 26, height: 26, borderRadius: '50%',
+                              background: isFirst ? tokens.accent : `rgba(${accentRgb},0.1)`,
+                              border: isFirst ? 'none' : `1.5px solid rgba(${accentRgb},0.25)`,
                               fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                              fontSize: '0.62rem',
-                              fontWeight: 700,
-                              letterSpacing: '0.11em',
-                              textTransform: 'uppercase' as const,
-                              color: tokens.textSubtle,
-                              marginBottom: 6,
-                            }}
-                          >
-                            <InlineEditable field={`rows.${globalIdx}.0`} label="Milestone" value={row[0] ?? ''}>
-                              {row[0]}
-                            </InlineEditable>
-                          </div>
+                              fontSize: '0.6rem', fontWeight: 800,
+                              color: isFirst ? (tokens.bg || '#fff') : tokens.accent,
+                              marginBottom: 14,
+                              boxShadow: isFirst ? `0 2px 8px rgba(${accentRgb},0.4)` : 'none',
+                            }}>
+                              {ri + 1}
+                            </div>
 
-                          <div
-                            style={{
-                              fontFamily: `'${tokens.heroFont}', serif`,
-                              fontWeight: 700,
-                              fontSize: 'clamp(1.1rem, 2vw, 1.5rem)',
-                              color: tokens.accent,
-                              letterSpacing: '-0.02em',
+                            {/* Milestone label */}
+                            <div style={{
+                              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                              fontSize: '0.6rem', fontWeight: 700,
+                              letterSpacing: '0.13em', textTransform: 'uppercase' as const,
+                              color: isFirst ? tokens.accent : tokens.textSubtle,
+                              marginBottom: 8,
+                            }}>
+                              {isSkeleton ? label : (
+                                <InlineEditable field={`rows.${globalIdx}.0`} label="Milestone" value={label}>
+                                  {label}
+                                </InlineEditable>
+                              )}
+                            </div>
+
+                            {/* Amount */}
+                            <div style={{
+                              fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                              fontWeight: 500,
+                              fontSize: '0.95rem',
+                              color: isFirst ? tokens.text : tokens.accent,
+                              letterSpacing: '-0.03em',
                               lineHeight: 1,
-                              marginBottom: row[2] ? 6 : 0,
-                            }}
-                          >
-                            <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={row[1] ?? ''}>
-                              {row[1]}
-                            </InlineEditable>
-                          </div>
+                              marginBottom: note ? 10 : 0,
+                              minHeight: '1.75rem',
+                            }}>
+                              {isSkeleton ? (
+                                <span style={{
+                                  display: 'inline-block', height: 16, width: 80,
+                                  borderRadius: 6, background: `rgba(${accentRgb},0.1)`,
+                                  verticalAlign: 'middle',
+                                }} />
+                              ) : (
+                                <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={amount}>
+                                  {amount || (
+                                    <span style={{ opacity: 0.25, fontSize: '0.9rem', fontWeight: 400 }}>—</span>
+                                  )}
+                                </InlineEditable>
+                              )}
+                            </div>
 
-                          {row[2] && (
-                            <div
-                              style={{
+                            {/* Note */}
+                            {note && !isSkeleton && (
+                              <div style={{
+                                marginTop: 10,
+                                paddingTop: 10,
+                                borderTop: `1px solid rgba(${accentRgb},0.15)`,
                                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                                fontSize: '0.75rem',
+                                fontSize: '0.72rem',
                                 color: tokens.textSubtle,
                                 lineHeight: 1.5,
-                              }}
-                            >
-                              <InlineEditable field={`rows.${globalIdx}.2`} label="Note" value={row[2] ?? ''}>
-                                {row[2]}
-                              </InlineEditable>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                              }}>
+                                <InlineEditable field={`rows.${globalIdx}.2`} label="Note" value={note}>
+                                  {note}
+                                </InlineEditable>
+                              </div>
+                            )}
 
-                  {content.footnote && (
-                    <div
-                      style={{
-                        padding: '12px 24px',
-                        borderTop: `1px solid ${tokens.border}`,
-                        background: tokens.surfaceAlt,
-                      }}
-                    >
-                      <InlineEditable field="footnote" label="Footnote" value={content.footnote ?? ''} multiline>
-                        <p
-                          style={{
-                            fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                            fontSize: '0.75rem',
-                            color: tokens.textSubtle,
-                            lineHeight: 1.6,
-                            margin: 0,
-                            fontStyle: 'italic',
-                          }}
-                        >
-                          {content.footnote}
-                        </p>
-                      </InlineEditable>
+                            {/* "First step" indicator tag */}
+                            {isFirst && (
+                              <div style={{
+                                position: 'absolute', top: 14, right: 14,
+                                padding: '2px 8px', borderRadius: 100,
+                                background: `rgba(${accentRgb},0.15)`,
+                                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                fontSize: '0.52rem', fontWeight: 700,
+                                letterSpacing: '0.1em', textTransform: 'uppercase' as const,
+                                color: tokens.accent,
+                              }}>
+                                First
+                              </div>
+                            )}
+                            {isLast && count > 1 && (
+                              <div style={{
+                                position: 'absolute', top: 14, right: 14,
+                                padding: '2px 8px', borderRadius: 100,
+                                background: `rgba(${accentRgb},0.08)`,
+                                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                fontSize: '0.52rem', fontWeight: 700,
+                                letterSpacing: '0.1em', textTransform: 'uppercase' as const,
+                                color: tokens.textSubtle,
+                              }}>
+                                Final
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
-              </Reveal>
-            )}
+                  );
+                })()}
 
-            {paymentRows.length === 0 && content.footnote && (
-              <Reveal delay={260}>
-                <InlineEditable field="footnote" label="Footnote" value={content.footnote ?? ''} multiline>
-                  <p
-                    style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.78rem',
-                      color: tokens.textSubtle,
-                      lineHeight: 1.7,
-                      marginTop: 16,
-                      paddingLeft: 14,
-                      borderLeft: `2px solid ${tokens.accent}40`,
-                    }}
-                  >
-                    {content.footnote}
-                  </p>
-                </InlineEditable>
-              </Reveal>
-            )}
+                {/* Footnote */}
+                {content.footnote && (
+                  <div style={{
+                    marginTop: 16,
+                    padding: '12px 18px',
+                    borderRadius: 10,
+                    background: `rgba(${accentRgb},0.04)`,
+                    border: `1px solid rgba(${accentRgb},0.12)`,
+                  }}>
+                    <InlineEditable field="footnote" label="Footnote" value={content.footnote ?? ''} multiline>
+                      <p style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontSize: '0.75rem', color: tokens.textSubtle,
+                        lineHeight: 1.6, margin: 0, fontStyle: 'italic',
+                      }}>
+                        {content.footnote}
+                      </p>
+                    </InlineEditable>
+                  </div>
+                )}
+              </div>
+            </Reveal>
 
             {content.cta && (
               <Reveal delay={320}>
@@ -497,7 +531,6 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
               </Reveal>
             )}
           </>
-        )}
       </div>
     </section>
   );

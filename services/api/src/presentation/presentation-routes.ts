@@ -1184,13 +1184,6 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     await mkdir(path.dirname(astPath), { recursive: true });
     await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
 
-    // Mirror to data/namespaces path if it exists
-    const dataAstPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
-    try {
-      await mkdir(path.dirname(dataAstPath), { recursive: true });
-      await writeFile(dataAstPath, JSON.stringify(body.ast, null, 2), 'utf-8');
-    } catch { /* best-effort mirror */ }
-
     return reply.send({ ok: true, proposalId });
   });
 

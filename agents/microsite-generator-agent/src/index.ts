@@ -108,7 +108,7 @@ function classifyIndustry(clientIndustry: string): IndustryClass {
 const INDUSTRY_STRIPPED_SECTIONS: Record<IndustryClass, SectionType[]> = {
   TECHNICAL:  [],
   SERVICES:   ['techstack', 'testing'],
-  TRADES:     ['techstack', 'testing', 'security'],
+  TRADES:     ['techstack', 'testing'],
   HEALTHCARE: ['techstack', 'testing'],
   FINANCE:    ['techstack', 'testing'],
 };
@@ -387,12 +387,18 @@ REQUIRED sections — always include all 8, in this order:
   7. pricing    (investment and payment schedule)
   8. nextsteps  (last — always, the conversion closer)
 
-OPTIONAL sections — include ONLY if the proposal contains rich, distinct content for each:
-  9. whyus        (must be placed between timeline and pricing when included)
-  10. testimonials (include ONLY when the proposal source contains actual named client quotes, reviews, or feedback — place after whyus. If no real quotes exist, omit entirely)
-  11-16. metrics, benefits, stats, team, faq, casestudy, comparison — add ONLY when the proposal has substantial, unique content for them. Never invent or pad.
+PROMOTED sections — include whenever the proposal contains this content (do NOT fold into other sections):
+  • team        — REQUIRED when proposal names individual team members (real names, roles, qualifications). Place after timeline, before pricing. Use type "team".
+  • casestudy   — REQUIRED when proposal contains a case study with measurable outcomes (percentages, revenue, metrics). Place after testimonials. Use type "casestudy".
+  • security    — REQUIRED when proposal has a dedicated Safety, Compliance, Security, or Regulatory section with substantive content. Place after deliverables. Use type "security".
 
-SECTION COUNT: Minimum 8 sections (all 8 required). Maximum 10 sections. When BOTH testimonials AND whyus exist, prefer merging testimonials into whyus as a sub-block rather than a standalone section — this saves a slot for higher-value content. If user instructions specify a count, follow exactly within this range.
+OPTIONAL sections — include ONLY if the proposal contains rich, distinct content for each:
+  • whyus        (must be placed between timeline and pricing when included)
+  • testimonials — REQUIRED when proposal contains a heading "Testimonials", "References", "Client Feedback", or "Reviews" with named quotes. Place after whyus. DO NOT omit.
+  • whyus       — REQUIRED when proposal has a "Company Overview", "About Us", or "Why Us" heading with substantive content. Place between timeline and pricing.
+  • metrics, benefits, stats, faq, comparison — add ONLY when the proposal has substantial unique content. Never invent or pad.
+
+SECTION COUNT: Minimum 8 sections (all 8 required). Maximum 15 sections to accommodate all proposal content. Do NOT artificially cap sections — every distinct proposal section with real content deserves its own microsite section. If user instructions specify a count, follow exactly within this range.
 
 DO NOT include approval sections under any circumstances.
 
@@ -402,8 +408,10 @@ CONSOLIDATION RULES — map ALL proposal content into canonical sections above:
 - "Our Approach", "Methodology", "Proposed Solution", "Solution Overview" → approach
 - "Scope of Work", "Tasks", "Workstreams", "Activities", "Key Actions" → fold into deliverables
 - "Assumptions", "Limitations", "Exclusions", "Boundaries" → fold into pricing as footnote text
-- "Risk", "Risk Management", "Compliance", "Security", "Governance" → fold into deliverables detail or pricing footnote
-- "Why Us", "Credentials", "About Us", "Our Team", "Case Studies" → whyus (only if included)
+- "Risk", "Risk Management", "Compliance", "Security", "Safety", "Governance" → map to "security" section (DO NOT fold into deliverables or pricing footnote — these deserve their own section)
+- "Why Us", "Credentials", "About Us", "Company Overview" → MUST map to { "type": "whyus" } — always include when this heading exists in the proposal
+- "Our Team", "Team and Qualifications", "Meet the Team" → MUST map to a separate { "type": "team" } entry — DO NOT fold into whyus — include all named individuals
+- "Case Studies", "References and Case Studies" → SPLIT into TWO sections: measurable outcomes (%, $, numbers) MUST map to { "type": "casestudy" }; named quotes MUST map to { "type": "testimonials" }. Never collapse both into one section or omit either.
 - "Testimonials", "Client Feedback", "Client Testimonials", "Reviews", "What Clients Say" → MUST map to a separate { "type": "testimonials" } entry in the plan — do NOT fold into whyus, do NOT omit if the source heading exists
 - "FAQ", "Common Questions" → omit unless substantial; if included, add as a "faq" section
 - "Stats", "Metrics" → fold into whyus or challenge unless they deserve a standalone "stats" section
@@ -414,6 +422,8 @@ CONTENT FIDELITY — when consolidating:
 - Each source heading's content becomes part of the target section's rawBody
 - Use the sourceHeading field to record where content came from for the Pass 2 agent
 - NEVER lose pricing data — it MUST appear in the pricing section regardless of which source heading it was under
+- NEVER lose named team members — every person named in the proposal must appear in the team section
+- NEVER lose case study metrics — every quantified result (%, $, traffic, conversions) must appear in the casestudy section
 
 AI-GENERATED SECTIONS: Only add aiGenerated: true if a REQUIRED section type has ZERO content anywhere in the proposal (e.g. truly no timeline info). Maximum 1 AI-generated section per run. NEVER fabricate content.
 
@@ -1511,13 +1521,13 @@ Transform into a Timeline section. CRITICAL FIDELITY RULES:
 2. Use the EXACT duration stated in the source (e.g. "Weeks 1–6" or "6 weeks") — do not recalculate or round.
 3. Extract ALL phases present in the source — do not merge or drop any.
 4. PHASE COUNT ACCURACY (mandatory): After writing the phases array, count the items. The subheadline MUST state this EXACT count in words (e.g. "five structured phases" not "four"). If they disagree, update the subheadline to match the actual count.
-5. Add a "summary" array with 2-3 engagement stats: total duration, phase count, and key deliverable or milestone count. Numbers only — derive from source.
+5. Add a "summary" array with 2-3 engagement stats: total duration, phase count, and key deliverable or milestone count. Numbers only — derive from source. For the duration label, use the unit from the proposal: "Weeks Total" only if duration is in weeks, "Months Total" if months, "Year Engagement" or "2-Year Program" if years — never default to "Weeks Total" when the proposal states months or years.
 Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words",
   "subheadline": "1-2 sentences — must state the EXACT number of phases matching phases[] array length",
-  "summary": [{"number": "e.g. 14", "label": "Weeks Total"}, {"number": "e.g. 5", "label": "Phases"}, {"number": "e.g. 12", "label": "Key Deliverables"}],
+  "summary": [{"number": "exact value from source e.g. '2 Years' or '14 Weeks' or '6 Months'", "label": "Engagement Duration"}, {"number": "e.g. 5", "label": "Phases"}, {"number": "e.g. 12", "label": "Key Deliverables"}],
   "phases": [{"label": "Phase N or label from source", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, deliverables, and goals of this phase from the source"}],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
@@ -1540,36 +1550,36 @@ MANDATORY EXTRACTION RULES:
 5. If prices span multiple sections (e.g. Phase 1 costs in timeline, total in a budget section), COMBINE them all into rows.
 6. totalLabel = the grand total or investment total from the proposal. If split across phases, sum them or list the range.
 7. footnote = ALL payment terms, milestones, deposit info, start date, validity — copy verbatim.
-8. ONLY set rows to [] if the proposal contains ZERO price mentions anywhere. If ANY price exists, include it.
-9. NEVER fabricate prices, estimates, or placeholder amounts.
+8. NEVER set rows to []. Always output at minimum: the header row + 2 empty service rows + blank separator + 2 milestone rows with descriptive labels. Empty rows let the user fill in data — they are always better than an empty array.
+9. NEVER fabricate prices, estimates, or placeholder amounts. Leave column 2 as "" (empty string) when no price exists — the UI will render an editable field the user can fill in.
 
-PAYMENT SCHEDULE MATH RULE (critical — prevents $66,000 bug):
+PAYMENT SCHEDULE MATH RULE (critical — prevents calculation bugs):
 Payment milestone amounts MUST be computed from the MONTHLY or PER-ENGAGEMENT total, NEVER from the annual projection.
-Example: if monthly total = $11,000 → Upon Signing = 50% of $11,000 = $5,500 ✓ NOT 50% of ($11,000 × 12) = $66,000 ✗
+Example: if monthly total = $11,000 and deposit = 30% → Upon Signing = $3,300 ✓ NOT 30% of ($11,000 × 12) ✗
 If the proposal only states an annual figure, divide by contract duration in months to get the monthly/per-period base before computing milestones.
 
 PAYMENT SCHEDULE (REQUIRED — market standard):
 After listing all deliverable rows, add a BLANK SEPARATOR ROW ["", ""] then add 2–4 payment milestone rows.
-- If the proposal explicitly states payment terms, extract them verbatim as milestone rows.
-- If no explicit schedule, derive a standard 3-step schedule from the MONTHLY OR ENGAGEMENT total (never annual):
-  Step 1: "Upon Signing" — 50% of total (or stated deposit)
-  Step 2: "Upon Delivery" — 25% of total (or mid-project milestone amount)
-  Step 3: "Upon Launch / Completion" — remaining 25% (or final balance)
+- PRIORITY 1 — If the proposal explicitly states payment terms (any percentage, amount, deposit structure, milestone schedule), extract them VERBATIM as milestone rows. These take absolute priority — do NOT apply any defaults.
+- PRIORITY 2 — If no explicit schedule exists anywhere in the proposal, derive 2–3 generic milestone rows using only descriptive labels (no fabricated amounts):
+  Step 1: "Upon Signing" → amount column: descriptive only (e.g. "Deposit on agreement")
+  Step 2: "Upon Delivery" → amount column: descriptive only (e.g. "Progress payment")
+  Step 3: "Upon Completion" → amount column: descriptive only (e.g. "Final payment on launch")
+- The descriptive labels in the amount column MUST NOT contain any percentage or dollar figure unless that exact figure appears in the proposal.
 - Milestone row labels MUST use keywords from this set: "Upon Signing", "Upon Delivery", "Upon Completion", "Upon Launch", "Deposit", "Phase 1 Payment", "Phase 2 Payment", "Milestone 1", "Milestone 2"
+- NEVER output "$0", "$X,XXX", or any placeholder amount. If no price is available, use descriptive terms only (e.g. "TBD", "Per quote").
 - These milestone rows will be auto-detected and rendered as a separate Payment Schedule section in the UI.
 
 ROWS STRUCTURE:
-Part 1 — Deliverables (services, phases, line items):
+Part 1 — Deliverables (services, phases, line items — all sourced verbatim from proposal):
   ["Service / Deliverable", "Investment"]   ← header
-  ["Phase 1: Discovery & Strategy", "$X,XXX"]
-  ["Phase 2: Design & Development", "$X,XXX"]
+  ["<Exact service name from proposal>", "<Exact price from proposal or empty string>"]
   ...
 
-Part 2 — Payment Schedule (separator + milestones):
+Part 2 — Payment Schedule (separator + milestones sourced verbatim from proposal):
   ["", ""]                                  ← blank separator row
-  ["Upon Signing", "50% — $X,XXX"]
-  ["Upon Delivery", "25% — $X,XXX"]
-  ["Upon Launch", "25% — $X,XXX"]
+  ["<Milestone label from proposal>", "<Exact amount or descriptive term — NEVER fabricated %>"]
+  ...
 
 Return:
 {
@@ -1578,11 +1588,9 @@ Return:
   "subheadline": "2-3 sentences — what the client gets for this investment, outcomes and ROI",
   "rows": [
     ["Service / Deliverable", "Investment"],
-    ["Exact line item from proposal", "Exact price from proposal"],
+    ["<exact line item name from proposal>", "<exact price from proposal, or empty string if none>"],
     ["", ""],
-    ["Upon Signing", "50% — $X,XXX"],
-    ["Upon Delivery", "25% — $X,XXX"],
-    ["Upon Launch", "25% — $X,XXX"]
+    ["<milestone label from proposal>", "<exact amount or descriptive term from proposal>"]
   ],
   "totalLabel": "Total Investment: [exact total] — or empty string if no total stated",
   "footnote": "Payment terms, milestones, deposit requirements, validity period — verbatim from proposal",
@@ -1674,6 +1682,7 @@ Transform into a Testimonials section. CRITICAL FIDELITY RULES:
 1. ONLY include testimonials if the source content or proposal contains actual client quotes, case study outcomes, or named client references with results.
 2. If no real quotes, testimonials, or client success stories exist in the source — return items as an empty array []. Do NOT fabricate quotes or fictional names.
 3. If real quotes exist, use them verbatim or near-verbatim. Attribute to the real person/company named in the source.
+4. PLACEHOLDER RESOLUTION: If any testimonial contains "[Your Company Name]", "[Company]", "[Vendor]", or similar placeholder text referring to the proposing vendor, replace it with the proposingCompany name from the brief above. Never output raw brackets like "[Your Company Name]" in the final content.
 Return:
 {
   "eyebrow": "4-8 words e.g. 'Client Voices'",
@@ -2483,13 +2492,14 @@ function buildOverrideSectionPrompt(
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
 ROW TYPES — use these exact patterns:
 1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment"] — use descriptive text, NOT generic "Service / Deliverable"
-2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "price or empty string"] — deliverables that are part of the scope
-3. PAYMENT MILESTONE ROWS (only if payment schedule exists): ["Upon Signing", "$X,XXX", "Work begins immediately"] — replace $X,XXX with the EXACT amount from the proposal. If no specific amount is stated, use empty string "" — NEVER use $X,XXX as a literal value in output.
-{ "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["Exact deliverable from proposal", ""], ["...more deliverables..."], ["Upon Signing", "$X,XXX", "Work begins immediately"]], "totalLabel": "exact total e.g. '$100,000'", "footnote": "payment timing note if any", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "exact price from proposal or empty string if none"] — NEVER fabricate amounts.
+3. PAYMENT MILESTONE ROWS (only if payment schedule or deposit terms exist in proposal): ["<Milestone label from proposal>", "<exact amount from proposal — if no amount stated, use descriptive term like 'Deposit on agreement' or 'Progress payment', NEVER a fabricated % or $>"]
+PLACEHOLDER RULE: NEVER output "$X,XXX", "$0", or any invented percentage as a value. If no exact price exists for a row, use "" (empty string) or a descriptive term.
+{ "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["<exact deliverable from proposal>", "<exact price or empty string>"], ["", ""], ["<milestone label from proposal>", "<exact amount or descriptive term>"]], "totalLabel": "exact total from proposal e.g. '$100,000', or empty string if not stated", "footnote": "payment terms verbatim from proposal, or empty string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     approval: `{ "eyebrow": "3-6 words e.g. Approve This Proposal", "headline": "6-10 words e.g. Ready to Move Forward?", "subheadline": "2-3 sentences about signing off and what happens next", "termsText": "2-4 sentences of terms grounded in proposal scope and payment terms", "ctaLabel": "3-5 words e.g. Approve Proposal", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
-    testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names.
+    testimonials: `FIDELITY: ONLY include testimonials if source contains actual client quotes, case study outcomes, or named client references. If no real quotes exist, set items to [] (empty array) — do NOT fabricate quotes or fictional names. PLACEHOLDER RESOLUTION: replace any "[Your Company Name]", "[Company]", or "[Vendor]" placeholders with the proposingCompany from the brief — never output raw bracketed placeholders.
 { "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"quote": "verbatim or near-verbatim quote from source — only if real quote exists", "name": "real name from source", "title": "job title from source", "company": "company from source"}], "diagram": null }`,
     showcase: `{ "eyebrow": "4-8 words", "headline": "8-14 words", "subheadline": "1-2 sentences", "body": "2-3 sentences", "highlights": ["3-5 short feature pills, 2-5 words each"], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     benefits: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "imageQuery": "Unsplash search query: 3-5 words describing the visual mood and subject matching this section content", "items": [{"iconHint": "string", "title": "2-5 words", "description": "1-2 sentences"}] }`,
@@ -3140,33 +3150,87 @@ export class MicrositeGeneratorAgent implements Agent {
       }
 
       const MIN_SECTIONS = 8;
-      const MAX_SECTIONS = 10;
+      const MAX_SECTIONS = 15;
 
       // Always strip approval sections — they are never generated
       if (sectionPlan) {
         sectionPlan = sectionPlan.filter(s => s.type !== 'approval');
       }
 
-      // Deterministic testimonials injection — don't rely on LLM to include it.
-      // If the source proposal contains a testimonials/client feedback heading AND
-      // the plan doesn't already have a testimonials section, inject one before nextsteps.
+      // Deterministic section injection — for each rule, if the source proposal contains a matching
+      // heading AND the section type is not already in the plan, inject it at the right position.
+      // This ensures no proposal content is lost regardless of what the LLM planner chose to include.
       if (sectionPlan) {
-        const hasTestimonialsInPlan = sectionPlan.some(s => s.type === 'testimonials');
-        if (!hasTestimonialsInPlan) {
-          const testimonialsHeading = sourceSections.find(s =>
-            /testimonial|client\s*feedback|client\s*said|what.*say|reviews?\b/i.test(s.name)
-          );
-          if (testimonialsHeading) {
-            const nextstepsIdx = sectionPlan.findIndex(s => s.type === 'nextsteps');
-            const insertAt = nextstepsIdx >= 0 ? nextstepsIdx : sectionPlan.length;
-            sectionPlan.splice(insertAt, 0, {
-              type: 'testimonials',
-              sourceHeading: testimonialsHeading.name,
-              rationale: 'Client testimonials found in source — injected deterministically',
-              aiGenerated: false,
-            });
-            console.log(`[microsite-agent] Injected testimonials section from source heading: "${testimonialsHeading.name}"`);
-          }
+        const INJECTION_RULES: Array<{
+          type: SectionType;
+          headingPattern: RegExp;
+          contentPattern?: RegExp; // optional — heading must also have matching content
+          rationale: string;
+          insertAfter?: SectionType; // insert after this type; falls back to before nextsteps
+        }> = [
+          {
+            type: 'whyus',
+            headingPattern: /company\s*overview|about\s*us|why\s*us|our\s*company|who\s*we\s*are|credentials|our\s*story/i,
+            rationale: 'Company overview / about us found in source',
+            insertAfter: 'timeline',
+          },
+          {
+            type: 'team',
+            headingPattern: /our\s*team|team\s*(and|&)?\s*(qualif|member|intro)|meet\s*the\s*team|key\s*personnel|staff/i,
+            rationale: 'Named team section found in source',
+            insertAfter: 'whyus',
+          },
+          {
+            type: 'security',
+            headingPattern: /safety|compliance|security|regulatory|risk\s*management|governance|certif/i,
+            rationale: 'Safety / compliance / security section found in source',
+            insertAfter: 'deliverables',
+          },
+          {
+            type: 'testimonials',
+            headingPattern: /testimonial|client\s*feedback|client\s*said|what.*clients?\s*say|reviews?\b|references|case\s*stud/i,
+            rationale: 'Client testimonials / references found in source',
+            insertAfter: 'whyus',
+          },
+          {
+            type: 'casestudy',
+            headingPattern: /case\s*stud|references|past\s*work|portfolio|success\s*stor/i,
+            contentPattern: /\d+%|\$[\d,]+|x\s*faster|increase|boost|growth|traffic|conversion|saved|reduced|revenue/i,
+            rationale: 'Case study with measurable outcomes found in source',
+            insertAfter: 'testimonials',
+          },
+          {
+            type: 'faq',
+            headingPattern: /faq|frequently\s*asked|common\s*questions?|q\s*(&|and)\s*a/i,
+            rationale: 'FAQ section found in source',
+            insertAfter: 'pricing',
+          },
+        ];
+
+        for (const rule of INJECTION_RULES) {
+          const alreadyInPlan = sectionPlan.some(s => s.type === rule.type);
+          if (alreadyInPlan) continue;
+
+          const matchingSource = sourceSections.find(s => {
+            if (!rule.headingPattern.test(s.name)) return false;
+            if (rule.contentPattern && !rule.contentPattern.test(s.content)) return false;
+            return true;
+          });
+
+          if (!matchingSource) continue;
+
+          // Find insertion point
+          const afterIdx = rule.insertAfter ? (() => { let idx = -1; sectionPlan!.forEach((s: SectionPlan, i: number) => { if (s.type === rule.insertAfter) idx = i; }); return idx; })() : -1;
+          const nextstepsIdx = sectionPlan.findIndex(s => s.type === 'nextsteps');
+          const insertAt = afterIdx >= 0 ? afterIdx + 1 : nextstepsIdx >= 0 ? nextstepsIdx : sectionPlan.length;
+
+          sectionPlan.splice(insertAt, 0, {
+            type: rule.type,
+            sourceHeading: matchingSource.name,
+            rationale: `${rule.rationale} — injected deterministically`,
+            aiGenerated: false,
+          });
+          console.log(`[microsite-agent] Injected "${rule.type}" from source heading: "${matchingSource.name}"`);
         }
       }
 
@@ -3341,24 +3405,33 @@ export class MicrositeGeneratorAgent implements Agent {
         }
       }
 
-      // Industry-based section stripping (Rule 2): remove techstack/testing/security for non-technical clients
+      // Industry-based section stripping (Rule 2): remove irrelevant section types for non-technical clients.
+      // NEVER strip a section that has a real source heading from the proposal — only strip AI-invented sections.
       const clientIndustry = (brief?.clientIndustry as string | undefined) ?? '';
       if (clientIndustry) {
         const industryClass = classifyIndustry(clientIndustry);
-        const stripped = INDUSTRY_STRIPPED_SECTIONS[industryClass];
-        if (stripped.length > 0) {
+        const strippable = INDUSTRY_STRIPPED_SECTIONS[industryClass];
+        if (strippable.length > 0) {
           const before = resolvedSections.length;
-          const strippedSet = new Set<string>(stripped);
-          resolvedSections.splice(0, resolvedSections.length, ...resolvedSections.filter(s => !strippedSet.has(s.type)));
+          const strippableSet = new Set<string>(strippable);
+          // Build set of section types that have a real proposal source heading
+          const sourceHeadingNames = new Set(sourceSections.map(s => s.name.toLowerCase()));
+          resolvedSections.splice(0, resolvedSections.length, ...resolvedSections.filter(s => {
+            if (!strippableSet.has(s.type)) return true; // not in strip list — keep
+            // Keep if the section plan entry has a real sourceHeading present in the proposal
+            const planEntry = sectionPlan?.find(p => p.type === s.type);
+            if (planEntry?.sourceHeading && sourceHeadingNames.has(planEntry.sourceHeading.toLowerCase())) return true;
+            return false; // AI-invented section of a strippable type — remove
+          }));
           const after = resolvedSections.length;
           if (before !== after) {
-            console.log(`[microsite-agent] Industry stripping (${industryClass}): removed ${before - after} section(s) — ${stripped.join(', ')}`);
+            console.log(`[microsite-agent] Industry stripping (${industryClass}): removed ${before - after} AI-invented section(s) — ${strippable.join(', ')}`);
           }
         }
       }
 
-      // Hard cap: never generate more than 10 sections regardless of planning result
-      const MAX_SECTIONS_EXEC = 10;
+      // Hard cap: never generate more sections than the planning cap
+      const MAX_SECTIONS_EXEC = 15;
       if (resolvedSections.length > MAX_SECTIONS_EXEC) {
         const originalCount = resolvedSections.length;
         // Preserve nextsteps at tail; keep whyus if present; prioritise required sections
