@@ -104,8 +104,8 @@ export async function processDocument(
   // Step 4: Extract structured requirements from cleaned content (LLM)
   const extraction = await extractRequirementsFromPreprocessed(cleanDoc, detection.type, llmFn);
 
-  // Step 5: Extract knowledge entries from cleaned content (LLM)
-  const { entries: knowledge, warnings: knowledgeWarnings } = await extractKnowledge(cleanDoc, detection.type, fileName, llmFn);
+  // Step 5: Extract knowledge entries from cleaned content (LLM), with raw fallback
+  const { entries: knowledge, warnings: knowledgeWarnings } = await extractKnowledge(cleanDoc, detection.type, fileName, llmFn, content);
   warnings.push(...knowledgeWarnings);
 
   // Step 6: Validate extraction outputs (deterministic)

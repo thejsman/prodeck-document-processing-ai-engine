@@ -86,16 +86,23 @@ export async function extractKnowledge(
   docType: DocumentType,
   fileName: string,
   llmFn: LLMGenerateFn,
+  rawContent?: string,
 ): Promise<KnowledgeExtractionResult> {
   const warnings: string[] = [];
 
-  const cleanContent = preprocessed.sections
+  const sectionContent = preprocessed.sections
     .map(
       (s) =>
         `## ${s.topic}\n${s.summary}\nFacts: ${s.keyFacts.join('; ')}\n` +
         `Decisions: ${s.decisions.join('; ')}\nConcerns: ${s.openQuestions.join('; ')}`,
     )
     .join('\n\n');
+
+  // If preprocessed sections are thin (no facts/decisions extracted), fall back to raw content
+  const totalFacts = preprocessed.sections.reduce((n, s) => n + s.keyFacts.length + s.decisions.length, 0);
+  const cleanContent = totalFacts === 0 && rawContent
+    ? rawContent.slice(0, 12000)
+    : sectionContent;
 
   const prompt = `
 You are extracting high-value business intelligence from a client conversation summary.

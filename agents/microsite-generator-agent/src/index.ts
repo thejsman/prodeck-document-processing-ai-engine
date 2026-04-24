@@ -1582,8 +1582,13 @@ MANDATORY EXTRACTION RULES:
 5. If prices span multiple sections (e.g. Phase 1 costs in timeline, total in a budget section), COMBINE them all into rows.
 6. totalLabel = the grand total or investment total from the proposal. If split across phases, sum them or list the range.
 7. footnote = ALL payment terms, milestones, deposit info, start date, validity — copy verbatim.
-8. NEVER set rows to []. Always output at minimum: the header row + 2 empty service rows + blank separator + 2 milestone rows with descriptive labels. Empty rows let the user fill in data — they are always better than an empty array.
-9. NEVER fabricate prices, estimates, or placeholder amounts. Leave column 2 as "" (empty string) when no price exists — the UI will render an editable field the user can fill in.
+8. BUDGET ESTIMATE EXTRACTION (critical — do not skip): If the proposal has a "Budget Estimate", "Cost Estimate", or "Budget" section with named cost categories but no dollar figures, extract EVERY named category as a row with an empty amount. Examples:
+   - "Playground Equipment & Installation" → ["Playground Equipment & Installation", "", ""]
+   - "Content Creation (Photos/Video)" → ["Content Creation (Photos/Video)", "", ""]
+   - "SEO & Digital Marketing" → ["SEO & Digital Marketing", "", ""]
+   This gives the client a structured breakdown they can fill in — far better than skeleton rows.
+9. NEVER set rows to []. Always output at minimum: the header row + rows from rule 8 or 2 empty service rows + blank separator + 2 milestone rows.
+10. NEVER fabricate prices, estimates, or placeholder amounts. Leave column 2 as "" (empty string) when no price exists — the UI will render an editable field the user can fill in.
 
 PAYMENT SCHEDULE MATH RULE (critical — prevents calculation bugs):
 Payment milestone amounts MUST be computed from the MONTHLY or PER-ENGAGEMENT total, NEVER from the annual projection.
@@ -2524,6 +2529,7 @@ function buildOverrideSectionPrompt(
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
+BUDGET ESTIMATE RULE: If the proposal has a Budget Estimate, Cost Estimate, or Budget section with named cost categories but NO dollar figures, extract each named category as a row with empty amount — e.g. ["Playground Equipment & Installation", "", ""], ["Content Creation", "", ""]. Never skip these rows just because amounts are missing.
 Each row has 3 columns: [name, amount, paymentStructure]
 ROW TYPES — use these exact patterns:
 1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment", "Payment Structure"]

@@ -198,7 +198,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   }, [namespace, apiKey, fileRefreshTick]);
 
   // Poll while files are uploading or processing — mirrors ChatUploadDrawer polling
-  const hasActiveIngestion = files.some(f => f.status === 'uploaded' || f.status === 'processing');
+  const hasActiveIngestion = files.some(f => ['uploaded', 'processing', 'extracting'].includes(f.status ?? ''));
   useEffect(() => {
     if (!hasActiveIngestion || !namespace || !apiKey) return;
     const timer = setInterval(async () => {
