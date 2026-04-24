@@ -39,6 +39,7 @@ import {
   buildDallePrompt,
   resolveImageSource,
   downloadImageToFile,
+  buildPicsumUrl,
 } from '../image-routes.js';
 
 /**
@@ -959,6 +960,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
               const remoteUrl = await generateDalle3Image(prompt);
               if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+            } else if (chosenSource === 'picsum') {
+              sec.image.url = await saveImagePersistently(buildPicsumUrl(query), namespace, secId, workdir);
             } else {
               const remoteUrl = await fetchUnsplashImageUrl(query);
               if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
@@ -1164,6 +1167,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               if (chosenSource === 'dalle') {
                 const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
                 remoteUrl = await generateDalle3Image(prompt);
+              } else if (chosenSource === 'picsum') {
+                remoteUrl = buildPicsumUrl(query);
               } else {
                 remoteUrl = await fetchUnsplashImageUrl(query);
               }
@@ -1227,13 +1232,6 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
     await mkdir(path.dirname(astPath), { recursive: true });
     await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
-
-    // Mirror to data/namespaces path if it exists
-    const dataAstPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
-    try {
-      await mkdir(path.dirname(dataAstPath), { recursive: true });
-      await writeFile(dataAstPath, JSON.stringify(body.ast, null, 2), 'utf-8');
-    } catch { /* best-effort mirror */ }
 
     return reply.send({ ok: true, proposalId });
   });

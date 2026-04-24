@@ -71,7 +71,7 @@ export async function extractRfpRequirements(
   workdir: string,
   namespace: string,
 ): Promise<RequirementMatrix> {
-  const storageDir = path.join(workdir, 'namespaces');
+  const storageDir = path.join(workdir, 'namespaces', namespace);
 
   const matrix: RequirementMatrix = {
     functional: [],

@@ -83,7 +83,7 @@ export async function extractRequirementsFromKnowledge(
   workdir: string,
   namespace: string,
 ): Promise<ExtractedProposalInputs> {
-  const storageDir = path.join(workdir, 'namespaces');
+  const storageDir = path.join(workdir, 'namespaces', namespace);
 
   // Run all three targeted queries in parallel
   const chunkResults = await Promise.all(
