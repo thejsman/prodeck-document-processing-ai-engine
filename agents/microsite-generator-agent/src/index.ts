@@ -1561,24 +1561,26 @@ If the proposal only states an annual figure, divide by contract duration in mon
 PAYMENT SCHEDULE (REQUIRED — market standard):
 After listing all deliverable rows, add a BLANK SEPARATOR ROW ["", ""] then add 2–4 payment milestone rows.
 - PRIORITY 1 — If the proposal explicitly states payment terms (any percentage, amount, deposit structure, milestone schedule), extract them VERBATIM as milestone rows. These take absolute priority — do NOT apply any defaults.
-- PRIORITY 2 — If no explicit schedule exists anywhere in the proposal, derive 2–3 generic milestone rows using only descriptive labels (no fabricated amounts):
-  Step 1: "Upon Signing" → amount column: descriptive only (e.g. "Deposit on agreement")
-  Step 2: "Upon Delivery" → amount column: descriptive only (e.g. "Progress payment")
-  Step 3: "Upon Completion" → amount column: descriptive only (e.g. "Final payment on launch")
-- The descriptive labels in the amount column MUST NOT contain any percentage or dollar figure unless that exact figure appears in the proposal.
+- PRIORITY 2 — If no explicit schedule exists anywhere in the proposal, output 2–3 generic milestone rows with EMPTY amount columns:
+  Step 1: ["Upon Signing", ""]
+  Step 2: ["Upon Delivery", ""]
+  Step 3: ["Upon Completion", ""]
+- The amount column for milestone rows MUST be either: an exact value from the proposal (e.g. "$5,000", "30%"), or an empty string "". NEVER a sentence or phrase.
 - Milestone row labels MUST use keywords from this set: "Upon Signing", "Upon Delivery", "Upon Completion", "Upon Launch", "Deposit", "Phase 1 Payment", "Phase 2 Payment", "Milestone 1", "Milestone 2"
-- NEVER output "$0", "$X,XXX", or any placeholder amount. If no price is available, use descriptive terms only (e.g. "TBD", "Per quote").
+- NEVER output "$0", "$X,XXX", any invented percentage, or any descriptive sentence as an amount. Amount = exact figure from proposal or "".
 - These milestone rows will be auto-detected and rendered as a separate Payment Schedule section in the UI.
 
 ROWS STRUCTURE:
+Each row has 3 columns: [name, amount, paymentStructure]
+
 Part 1 — Deliverables (services, phases, line items — all sourced verbatim from proposal):
-  ["Service / Deliverable", "Investment"]   ← header
-  ["<Exact service name from proposal>", "<Exact price from proposal or empty string>"]
+  ["Service / Deliverable", "Investment", "Payment Structure"]   ← header row (literal strings)
+  ["<Exact service name from proposal>", "<Exact price from proposal or empty string>", "<Payment structure for this phase e.g. 'Monthly retainer', 'One-time fee', 'Upon completion', 'Invoiced monthly' — extract from proposal or leave empty string>"]
   ...
 
 Part 2 — Payment Schedule (separator + milestones sourced verbatim from proposal):
-  ["", ""]                                  ← blank separator row
-  ["<Milestone label from proposal>", "<Exact amount or descriptive term — NEVER fabricated %>"]
+  ["", "", ""]                              ← blank separator row
+  ["<Milestone label from proposal>", "<Exact amount from proposal or empty string>", "<Note e.g. 'Due on contract signing', 'Invoiced at project kickoff' — or empty string>"]
   ...
 
 Return:
@@ -1587,10 +1589,10 @@ Return:
   "headline": "8-12 words, frame value not cost",
   "subheadline": "2-3 sentences — what the client gets for this investment, outcomes and ROI",
   "rows": [
-    ["Service / Deliverable", "Investment"],
-    ["<exact line item name from proposal>", "<exact price from proposal, or empty string if none>"],
-    ["", ""],
-    ["<milestone label from proposal>", "<exact amount or descriptive term from proposal>"]
+    ["Service / Deliverable", "Investment", "Payment Structure"],
+    ["<exact line item name from proposal>", "<exact price from proposal, or empty string if none>", "<payment structure e.g. 'Monthly retainer' or empty string>"],
+    ["", "", ""],
+    ["<milestone label from proposal>", "<exact amount or empty string>", "<note or empty string>"]
   ],
   "totalLabel": "Total Investment: [exact total] — or empty string if no total stated",
   "footnote": "Payment terms, milestones, deposit requirements, validity period — verbatim from proposal",
@@ -2490,12 +2492,14 @@ function buildOverrideSectionPrompt(
     timeline: `FIDELITY: Copy EVERY phase name EXACTLY as written in source. Use exact durations stated in source. Extract ALL phases — do not merge or drop any. For each phase, extract 2-4 key outcomes (activities/tasks within the phase) as short phrases (5-10 words each) and 3-5 specific deliverables (concrete outputs/artifacts produced).
 { "eyebrow": "4-8 words", "headline": "8-12 words", "subheadline": "2-3 sentences describing the overall engagement approach", "phases": [{"label": "string", "duration": "exact duration from source", "name": "EXACT phase name from source — verbatim", "description": "2-3 sentences describing the activities, goals, and approach of this phase from the source", "outcomes": ["short outcome phrase", "another outcome"], "deliverables": ["Specific deliverable from source", "Another deliverable"]}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     pricing: `CRITICAL: Extract EVERY line item, price, cost, and amount from the source content. Use exact figures (e.g. '$45,000', '€2,400/mo', '£180/hr'). Never return an empty rows array — if you see any pricing data in the source, include it.
+Each row has 3 columns: [name, amount, paymentStructure]
 ROW TYPES — use these exact patterns:
-1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment"] — use descriptive text, NOT generic "Service / Deliverable"
-2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "exact price from proposal or empty string if none"] — NEVER fabricate amounts.
-3. PAYMENT MILESTONE ROWS (only if payment schedule or deposit terms exist in proposal): ["<Milestone label from proposal>", "<exact amount from proposal — if no amount stated, use descriptive term like 'Deposit on agreement' or 'Progress payment', NEVER a fabricated % or $>"]
-PLACEHOLDER RULE: NEVER output "$X,XXX", "$0", or any invented percentage as a value. If no exact price exists for a row, use "" (empty string) or a descriptive term.
-{ "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment"], ["<exact deliverable from proposal>", "<exact price or empty string>"], ["", ""], ["<milestone label from proposal>", "<exact amount or descriptive term>"]], "totalLabel": "exact total from proposal e.g. '$100,000', or empty string if not stated", "footnote": "payment terms verbatim from proposal, or empty string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
+1. SCOPE HEADER ROW (always first): ["Full scope description matching the proposal title or package name", "Investment", "Payment Structure"]
+2. DELIVERABLE ROWS: ["Exact deliverable/line item name from proposal", "exact price from proposal or empty string", "payment structure e.g. 'Monthly retainer', 'One-time fee', 'Invoiced monthly' — from proposal or empty string"] — NEVER fabricate amounts.
+3. BLANK SEPARATOR: ["", "", ""]
+4. PAYMENT MILESTONE ROWS: ["<Milestone label>", "<exact amount from proposal or empty string>", "<note e.g. 'Due on signing' or empty string>"]
+PLACEHOLDER RULE: NEVER output "$X,XXX", "$0", or any invented percentage as a value. Amount must be exact from proposal or "".
+{ "eyebrow": "4-8 words e.g. 'Investment (All-Inclusive)'", "headline": "6-12 words ending with period e.g. 'Total project investment.'", "subheadline": "1-2 sentences about full scope", "rows": [["Scope description", "Investment", "Payment Structure"], ["<exact deliverable>", "<exact price or empty string>", "<payment structure or empty string>"], ["", "", ""], ["<milestone label>", "<exact amount or empty string>", "<note or empty string>"]], "totalLabel": "exact total from proposal e.g. '$100,000', or empty string if not stated", "footnote": "payment terms verbatim from proposal, or empty string", "cta": "3-5 words", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above", "diagram": null }`,
     whyus: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "stats": [{"number": "string", "label": "2-4 words", "context": "1 sentence"}], "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     nextsteps: `{ "eyebrow": "4-8 words", "headline": "8-12 words", "body": "2-3 sentences", "ctaPrimary": "3-5 words", "ctaSecondary": "3-4 words", "urgencyNote": "string or null", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,
     approval: `{ "eyebrow": "3-6 words e.g. Approve This Proposal", "headline": "6-10 words e.g. Ready to Move Forward?", "subheadline": "2-3 sentences about signing off and what happens next", "termsText": "2-4 sentences of terms grounded in proposal scope and payment terms", "ctaLabel": "3-5 words e.g. Approve Proposal", "imageQuery": "Unsplash query matching the visual theme and mood from the design specification above" }`,

@@ -3,7 +3,6 @@
 import type { PluginTokens, WhyUsContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Body, Label } from '../shared/Typography';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
@@ -17,128 +16,150 @@ interface Props {
   sectionId?: string;
 }
 
-export function WhyUsSection({ content, tokens, index, sectionId }: Props) {
+export function WhyUsSection({ content, tokens }: Props) {
   const stats = Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : [];
+  const accentRgb = tokens.accentRgb ?? '99,179,237';
+
   return (
     <section
       id="whyus"
       style={{
         position: 'relative',
-        padding: 'clamp(4rem, 8vw, 7rem) 2rem',
+        padding: 'clamp(5rem, 10vw, 8rem) 2rem',
         background: getSectionGradient('whyus', tokens),
         overflow: 'hidden',
       }}
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 880, margin: '0 auto' }}>
+
+        {/* Section header — left-aligned, typographic */}
         <Reveal>
-          <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-            <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-              {content.eyebrow}
-            </Label>
-          </InlineEditable>
+          <div style={{ marginBottom: 'clamp(3rem, 6vw, 5rem)' }}>
+            <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+              <span style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.62rem', fontWeight: 700,
+                letterSpacing: '0.18em', textTransform: 'uppercase' as const,
+                color: tokens.accent, display: 'block', marginBottom: 20,
+              }}>
+                {content.eyebrow}
+              </span>
+            </InlineEditable>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 'clamp(2rem, 5vw, 4rem)',
+              alignItems: 'end',
+            }}>
+              <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+                <h2 style={{
+                  fontFamily: `'${tokens.heroFont}', serif`,
+                  fontWeight: Number(tokens.heroWeight) || 700,
+                  fontSize: 'clamp(2rem, 4vw, 3.2rem)',
+                  lineHeight: 1.1, letterSpacing: '-0.03em',
+                  color: tokens.text, margin: 0,
+                }}>
+                  {content.headline}
+                </h2>
+              </InlineEditable>
+
+              <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+                <p style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '1rem', lineHeight: 1.75,
+                  color: tokens.textMuted, margin: 0,
+                }}>
+                  {content.body}
+                </p>
+              </InlineEditable>
+            </div>
+          </div>
         </Reveal>
 
-        <Reveal delay={80}>
-          <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-            <Headline tokens={tokens} style={{ marginBottom: 12 }}>
-              {content.headline}
-            </Headline>
-          </InlineEditable>
-        </Reveal>
+        {/* Divider */}
+        <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(2.5rem, 5vw, 4rem)' }} />
 
-        <Reveal delay={160}>
-          <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-            <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
-              {content.body}
-            </Body>
-          </InlineEditable>
-        </Reveal>
-
-        {/* Stats grid with AnimatedCounter */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min(stats.length || 1, 4)}, minmax(0, 1fr))`,
-            gap: 'clamp(1rem, 2vw, 2rem)',
-            alignItems: 'stretch',
-          }}
-        >
+        {/* Stats — numbered list, open, no cards */}
+        <div>
           {stats.map((stat, si) => (
-            <Reveal key={si} delay={240 + si * 80}>
+            <Reveal key={si} delay={100 + si * 80}>
               <InlineArrayItem arrayPath="stats" index={si} total={stats.length}>
-                <div
-                  style={{
-                    textAlign: 'center',
-                    padding: '32px 20px',
-                    borderRadius: 12,
-                    border: `1px solid ${tokens.border}`,
-                    background: tokens.surfaceCard,
-                    position: 'relative',
-                    overflow: 'hidden',
-                    height: '100%',
-                    boxSizing: 'border-box',
-                  }}
-                >
+                <div style={{
+                  position: 'relative',
+                  display: 'grid',
+                  gridTemplateColumns: '72px 1fr 1fr',
+                  gap: 'clamp(1rem, 3vw, 2.5rem)',
+                  alignItems: 'start',
+                  paddingBottom: 'clamp(1.5rem, 3vw, 2.5rem)',
+                  marginBottom: si < stats.length - 1 ? 'clamp(1.5rem, 3vw, 2.5rem)' : 0,
+                  borderBottom: si < stats.length - 1 ? `1px solid ${tokens.border}` : 'none',
+                }}>
+                  {/* Left: large ordinal number */}
                   <div style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: '20%',
-                    right: '20%',
-                    height: 2,
-                    background: `linear-gradient(90deg, transparent, ${tokens.accent}, transparent)`,
-                  }} />
+                    fontFamily: `'${tokens.heroFont}', serif`,
+                    fontSize: 'clamp(1.1rem, 2vw, 1.4rem)',
+                    fontWeight: 700,
+                    color: si === 0 ? tokens.accent : `rgba(${accentRgb},0.3)`,
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1,
+                    paddingTop: 4,
+                  }}>
+                    {String(si + 1).padStart(2, '0')}
+                  </div>
 
-                  <InlineEditable field={`stats.${si}.number`} label="Number" value={stat.number ?? ''}>
-                    <div
-                      style={{
+                  {/* Centre: stat number + label */}
+                  <div>
+                    <InlineEditable field={`stats.${si}.number`} label="Number" value={stat.number ?? ''}>
+                      <div style={{
                         fontFamily: `'${tokens.heroFont}', serif`,
-                        fontWeight: tokens.heroWeight,
-                        fontSize: 'clamp(1.25rem, 2.8vw, 2.2rem)',
-                        lineHeight: 1.1,
-                        color: tokens.accent,
-                        marginBottom: 10,
-                        wordBreak: 'break-word',
-                        overflowWrap: 'break-word',
-                      }}
-                    >
-                      <AnimatedCounter value={stat.number} />
-                    </div>
-                  </InlineEditable>
-                  <InlineEditable field={`stats.${si}.label`} label="Label" value={stat.label ?? ''}>
-                    <div
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 700,
-                        fontSize: '0.8rem',
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase' as const,
+                        fontWeight: 800,
+                        fontSize: 'clamp(2.2rem, 4.5vw, 3.5rem)',
+                        lineHeight: 1, letterSpacing: '-0.04em',
                         color: tokens.text,
                         marginBottom: 8,
-                      }}
-                    >
-                      {stat.label}
-                    </div>
-                  </InlineEditable>
+                      }}>
+                        <AnimatedCounter value={stat.number} />
+                      </div>
+                    </InlineEditable>
+                    <InlineEditable field={`stats.${si}.label`} label="Label" value={stat.label ?? ''}>
+                      <div style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontWeight: 600, fontSize: '0.75rem',
+                        letterSpacing: '0.1em', textTransform: 'uppercase' as const,
+                        color: tokens.accent,
+                      }}>
+                        {stat.label}
+                      </div>
+                    </InlineEditable>
+                  </div>
+
+                  {/* Right: context */}
                   <InlineEditable field={`stats.${si}.context`} label="Context" value={stat.context ?? ''} multiline>
-                    <Body tokens={tokens} style={{ fontSize: '0.8rem' }}>
+                    <p style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontSize: '0.95rem', lineHeight: 1.75,
+                      color: tokens.textMuted, margin: 0,
+                      paddingTop: 6,
+                    }}>
                       {stat.context}
-                    </Body>
+                    </p>
                   </InlineEditable>
                 </div>
               </InlineArrayItem>
             </Reveal>
           ))}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+
+        <div style={{ marginTop: 16 }}>
           <InlineAddItem
             arrayPath="stats"
             template={{ number: '0', label: 'New stat', context: 'Context…' }}
             label="Add stat"
           />
         </div>
-
       </div>
     </section>
   );
