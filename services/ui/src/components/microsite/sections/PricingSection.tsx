@@ -1,11 +1,43 @@
 'use client';
 
+import { useEffect } from 'react';
 import type { PluginTokens, PricingContent, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { CTAButton } from '../shared/CTAButton';
+import { useEditContext } from '../editor/EditContext';
+import { useSectionId } from '../editor/SectionIdContext';
+
+/** Parse a raw amount string → number. Returns 0 if not a plain one-time figure. */
+function parseAmount(raw: string): number {
+  if (!raw?.trim()) return 0;
+  // Skip periodic rates — can't sum monthly fees with one-time costs
+  if (/\/\s*(mo|month|yr|year|week|day)/i.test(raw)) return 0;
+  // Remove currency symbols, spaces, commas (thousands separator)
+  const cleaned = raw.replace(/[$€£¥₹,\s]/g, '').replace(/[^0-9.]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+}
+
+/** Format a number as a currency string with comma thousands separator. */
+function formatCurrency(currency: string, total: number): string {
+  const isWhole = Number.isInteger(total);
+  const formatted = isWhole
+    ? total.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    : total.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${currency}${formatted}`;
+}
+
+/** Detect the currency symbol from the first amount that has one. */
+function detectCurrency(rows: string[][]): string {
+  for (const row of rows) {
+    const m = (row[1] ?? '').match(/([$€£¥₹])/);
+    if (m) return m[1];
+  }
+  return '$';
+}
 
 interface Props {
   content: PricingContent;
@@ -22,6 +54,9 @@ function isPaymentRow(label: string) {
 }
 
 export function PricingSection({ content, tokens, sections = [] }: Props) {
+  const ctx = useEditContext();
+  const sectionId = useSectionId();
+
   const rows = content.rows ?? [];
   const firstRow = rows[0] ?? [];
   const isGenericHeader = /^(service|deliverable|item|scope|description|investment)$/i.test((firstRow[0] ?? '').trim());
@@ -30,10 +65,68 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
   const paymentRows = dataRows.filter((r) => r.length >= 2 && isPaymentRow(r[0] ?? ''));
   const deliverableRows = dataRows.filter((r) => !isPaymentRow(r[0] ?? ''));
 
-  const isTotalRow = (label: string) => /total/i.test(label);
+  const isTotalRow = (label: string) => /total|subtotal/i.test(label);
   const isAnnualRow = (label: string) => /annual/i.test(label);
 
   const totalLabel = content.totalLabel?.trim();
+
+  // Auto-recalculate totalLabel + propagate to other sections whenever rows change
+  useEffect(() => {
+    if (!ctx || !sectionId) return;
+    const allRows = content.rows ?? [];
+    const firstR = allRows[0] ?? [];
+    const hasHeader = /^(service|deliverable|item|scope|description|investment)$/i.test((firstR[0] ?? '').trim());
+    const dataR = hasHeader ? allRows.slice(1) : allRows;
+    const pricedRows = dataR.filter(r =>
+      !isPaymentRow(r[0] ?? '') &&
+      !/total|subtotal/i.test(r[0] ?? '') &&
+      !/annual/i.test(r[0] ?? ''),
+    );
+    const validAmounts = pricedRows.map(r => parseAmount(r[1] ?? '')).filter(a => a > 0);
+    if (validAmounts.length === 0) return;
+    const total = validAmounts.reduce((a, b) => a + b, 0);
+    const currency = detectCurrency(pricedRows);
+    const newTotal = formatCurrency(currency, total);
+
+    // 1. Update pricing section totalLabel
+    if (newTotal !== content.totalLabel) {
+      ctx.updateField(sectionId, 'totalLabel', newTotal);
+    }
+
+    // 2. Propagate to any other section that has a highlight/stat with an
+    //    investment-related label (e.g. "Total Investment", "Project Cost", "Budget")
+    const INVESTMENT_LABEL = /total\s*invest|project\s*cost|budget|investment|total\s*cost|engagement\s*value/i;
+    for (const sec of ctx.ast.sections) {
+      if (sec.id === sectionId) continue;
+      const c = sec.content as unknown as Record<string, unknown>;
+
+      // Overview / WhyUs / Stats — highlights array: [{value, label}]
+      const highlights = c.highlights as Array<{value?: string; label?: string}> | undefined;
+      if (Array.isArray(highlights)) {
+        highlights.forEach((h, i) => {
+          if (INVESTMENT_LABEL.test(h.label ?? '') && h.value !== newTotal) {
+            ctx.updateField(sec.id, `highlights.${i}.value`, newTotal);
+          }
+        });
+      }
+
+      // Stats section — items array: [{value, label}]
+      const items = c.items as Array<{value?: string; label?: string}> | undefined;
+      if (Array.isArray(items)) {
+        items.forEach((item, i) => {
+          if (INVESTMENT_LABEL.test(item.label ?? '') && item.value !== newTotal) {
+            ctx.updateField(sec.id, `items.${i}.value`, newTotal);
+          }
+        });
+      }
+
+      // Hero / Challenge / Generic — standalone totalLabel field
+      if (typeof c.totalLabel === 'string' && INVESTMENT_LABEL.test('total invest') && c.totalLabel !== newTotal) {
+        ctx.updateField(sec.id, 'totalLabel', newTotal);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content.rows]);
 
   const ctaTarget = (
     sections.find((s) => s.sectionType === 'approval') ?? sections.find((s) => s.sectionType === 'nextsteps')

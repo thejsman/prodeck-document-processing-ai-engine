@@ -162,7 +162,7 @@ export function TeamSection({ content, tokens }: Props) {
                             marginBottom: 10,
                           }}>{member.role}</span>
                         </InlineEditable>
-                        <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline>
+                        <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline display="block">
                           <Body tokens={tokens} style={{ fontSize: '0.825rem', lineHeight: 1.65 }}>{member.bio}</Body>
                         </InlineEditable>
                       </div>
@@ -177,7 +177,6 @@ export function TeamSection({ content, tokens }: Props) {
                       boxShadow: tokens.cardShadow,
                       textAlign: 'center',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
-                      overflow: 'hidden',
                       height: '100%',
                     }}>
                       {/* Top gradient stripe */}
@@ -239,7 +238,7 @@ export function TeamSection({ content, tokens }: Props) {
                       {/* Divider */}
                       <div style={{ width: 32, height: 1, background: `${tokens.accent}30`, marginBottom: 14 }} />
 
-                      <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline>
+                      <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline display="block">
                         <Body tokens={tokens} style={{ fontSize: '0.82rem', lineHeight: 1.65, textAlign: 'center' }}>{member.bio}</Body>
                       </InlineEditable>
                     </div>
@@ -253,7 +252,7 @@ export function TeamSection({ content, tokens }: Props) {
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
           <InlineAddItem
             arrayPath="members"
-            template={{ name: 'Team Member', role: 'Role Title', bio: 'Brief bio…', iconHint: 'identity' }}
+            template={{ name: 'Team Member', role: 'Role Title', bio: 'Add a short bio describing this team member\'s background and expertise.', iconHint: 'identity' }}
             label="Add member"
           />
         </div>

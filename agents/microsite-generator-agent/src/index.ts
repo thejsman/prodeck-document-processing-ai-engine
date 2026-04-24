@@ -1597,6 +1597,8 @@ MANDATORY EXTRACTION RULES:
 3. The header row must always be ["Service / Deliverable", "Investment"].
 4. Each data row = ["Exact service name from proposal", "Exact price from proposal"].
 5. If prices span multiple sections (e.g. Phase 1 costs in timeline, total in a budget section), COMBINE them all into rows.
+5a. NO DOUBLE-COUNTING RULE (critical): If the proposal has both individual line items AND subtotals/group totals that sum those items (e.g. individual costs + "Total Setup Costs: $X"), include ONLY the individual line items — NEVER include the subtotal row. The UI auto-calculates the grand total. Only use subtotal rows when no individual breakdown exists.
+5b. GRAND TOTAL ROW: Never add a "Total" or "Grand Total" row at the end of deliverable rows. The UI displays totalLabel separately. Adding a total row causes double-counting.
 6. totalLabel = the grand total or investment total from the proposal. If split across phases, sum them or list the range.
 7. footnote = ALL payment terms, milestones, deposit info, start date, validity — copy verbatim.
 8. BUDGET ESTIMATE EXTRACTION (critical — do not skip): If the proposal has a "Budget Estimate", "Cost Estimate", or "Budget" section with named cost categories but no dollar figures, extract EVERY named category as a row with an empty amount. Examples:
