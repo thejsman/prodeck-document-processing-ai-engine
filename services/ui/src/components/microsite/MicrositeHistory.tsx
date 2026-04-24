@@ -32,10 +32,12 @@ function getPluginAccent(plugin: string): string {
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString("en-US", {
+    const d = new Date(iso);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
-      year: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -165,7 +167,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
           No microsites generated yet
         </p>
         <p style={{ fontSize: 12, margin: 0 }}>
-          Use the Generate tab to create your first microsite
+          Use Generate Microsite to create your first one
         </p>
       </div>
     );
@@ -173,200 +175,52 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
 
   return (
     <>
-      <style>{`
-        .ms-history-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-        @media (max-width: 960px) {
-          .ms-history-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 640px) {
-          .ms-history-grid { grid-template-columns: 1fr; }
-        }
-        .ms-history-card {
-          border: 1px solid var(--color-border);
-          border-radius: 10px;
-          background: var(--color-surface);
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          transition: box-shadow 0.2s, border-color 0.2s;
-        }
-        .ms-history-card:hover {
-          border-color: var(--color-primary);
-          box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-        }
-      `}</style>
+      {loadingServer && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+          <span style={{
+            display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+            border: '1.5px solid var(--border)', borderTopColor: 'var(--primary)',
+            animation: 'ms-spin 0.8s linear infinite',
+          }} />
+          Loading history…
+        </div>
+      )}
 
-      <div
-        style={{
-          padding: "4px 0 8px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
-          {loadingServer ? (
-            <span
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  border: "1.5px solid var(--color-border)",
-                  borderTopColor: "var(--color-primary)",
-                  animation: "spin 0.8s linear infinite",
-                }}
-              />
-              Loading history…
-            </span>
-          ) : (
-            `${combined.length} microsite${combined.length !== 1 ? "s" : ""} — all namespaces`
-          )}
-        </span>
-      </div>
-
-      <div className="ms-history-grid">
+      <div className="proposal-cards-grid" style={{ padding: 0, maxWidth: 'none', margin: 0 }}>
         {combined.map((entry) => {
           const accent = getPluginAccent(entry.ast.plugin);
           const pluginName = entry.ast.plugin || "default";
-          const companyName =
-            entry.ast.brand?.companyName || entry.namespace || "Untitled";
+          const companyName = entry.ast.brand?.companyName || entry.namespace || "Untitled";
           const sectionCount = entry.ast.sections?.length ?? 0;
-          const isLocal = entry.source === "local";
 
           return (
-            <div key={entry.id} className="ms-history-card">
-              {/* Accent top strip */}
-              <div style={{ height: 4, background: accent }} />
-
-              {/* Card body */}
-              <div style={{ padding: "14px 16px 12px", flex: 1 }}>
-                {/* Badges row */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    flexWrap: "wrap",
-                    marginBottom: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-block",
-                      background: `${accent}18`,
-                      color: accent,
-                      borderRadius: 100,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      padding: "2px 8px",
-                      letterSpacing: "0.08em",
-                      lineHeight: 1.4,
-                      textTransform: "uppercase" as const,
-                    }}
-                  >
-                    {pluginName}
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      background: "var(--color-bg)",
-                      color: "var(--color-text-muted)",
-                      borderRadius: 100,
-                      fontSize: 10,
-                      fontWeight: 400,
-                      padding: "2px 8px",
-                      border: "1px solid var(--color-border)",
-                    }}
-                  >
-                    {entry.namespace}
-                  </span>
-                </div>
-
-                {/* Company name */}
-                <p
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--color-text)",
-                    margin: "0 0 4px",
-                    lineHeight: 1.5,
-                    letterSpacing: '0em',
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {companyName}
-                </p>
-
-                {/* Meta row */}
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <span
-                    style={{ fontSize: 11, color: "var(--color-text-muted)" }}
-                  >
+            <div key={entry.id} className="proposal-card" style={{ gap: 10 }}>
+              <div className="proposal-card-header">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span className="proposal-card-name">{companyName}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
                     {formatDate(entry.savedAt)}
                   </span>
-                  <span
-                    style={{ fontSize: 11, color: "var(--color-text-muted)" }}
-                  >
-                    ·
-                  </span>
-                  <span
-                    style={{ fontSize: 11, color: "var(--color-text-muted)" }}
-                  >
-                    {sectionCount} section{sectionCount !== 1 ? "s" : ""}
+                  <span style={{
+                    display: 'inline-block', background: `${accent}18`, color: accent,
+                    borderRadius: 100, fontSize: 10, fontWeight: 600,
+                    padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4,
+                    textTransform: 'uppercase' as const, marginTop: 4,
+                  }}>
+                    {pluginName}
                   </span>
                 </div>
               </div>
 
-              {/* Card footer */}
-              <div style={{ padding: "0 12px 12px", display: "flex", gap: 8 }}>
+              <div className="proposal-card-footer">
+                <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
+                  Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{entry.namespace}</span>
+                </span>
                 <button
+                  className="chat-v2-clear-btn"
                   onClick={() => setPreviewEntry(entry)}
-                  style={{
-                    flex: 1,
-                    background: accent,
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 6,
-                    padding: "7px 12px",
-                    fontSize: 12,
-                    fontWeight: 400,
-                    cursor: "pointer",
-                  }}
                 >
-                  Preview
-                </button>
-                <button
-                  onClick={() => {
-                    // Remove from server state immediately (prevents flash-back)
-                    setServerEntries(prev => prev.filter(e => e.namespace !== entry.namespace));
-                    if (isLocal) {
-                      deleteEntry(entry.id); // removes from localStorage + fires server DELETE
-                    } else {
-                      if (apiKey) deleteMicrositeHistoryFromServer(apiKey, entry.namespace).catch(() => {});
-                    }
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: 6,
-                    padding: "7px 10px",
-                    fontSize: 12,
-                    color: "var(--color-text-muted)",
-                    cursor: "pointer",
-                  }}
-                  title="Remove from history"
-                >
-                  ×
+                  View
                 </button>
               </div>
             </div>
@@ -374,7 +228,7 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
         })}
       </div>
 
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes ms-spin{to{transform:rotate(360deg)}}`}</style>
     </>
   );
 }

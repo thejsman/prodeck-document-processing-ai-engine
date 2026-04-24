@@ -542,7 +542,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
                       }} />
                     )}
                     <span style={{
-                      display: 'inline-block',
+                      display: 'flex',
                       width: 18, height: 18,
                       borderRadius: 6,
                       background: isActive ? `${tokens.accent}20` : tokens.dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
@@ -550,7 +550,6 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
                       fontSize: 9,
                       fontWeight: 700,
                       color: isActive ? tokens.accent : navInactiveColor,
-                      display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
