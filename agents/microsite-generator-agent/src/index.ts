@@ -1497,12 +1497,22 @@ CRITICAL FIDELITY RULES:
 1. Use specific metrics, pain points, and language from the source — do not generalize (e.g. preserve "month-end close takes 9 business days" not "slow processes").
 2. The "body" must name the exact problems described in the source, with any numbers present.
 3. The "pullquote" must be a near-verbatim lift from the proposal source or the most visceral statement of the core tension — NOT an invented generalisation.
+HIGHLIGHTS RULE (mandatory — always include):
+Extract 2–4 key metrics or pain indicators that describe the CLIENT'S PROBLEM — not the solution, not the price, not the timeline.
+- "title" must be a SHORT value: a number, percentage, or 1–3 word pain descriptor (e.g. "194", "$255", "~20%", "3 Agencies", "No Tracking").
+- "subtitle" must be a brief label explaining what that metric means (e.g. "Digital leads per year", "Cost per lead", "Estimated conversion rate").
+- ONLY use pain/problem data: lost revenue, wasted time, missed leads, poor conversion, lack of visibility, broken processes, competitor gaps.
+- NEVER include: budget amounts, project costs, pricing, fees, retainer values, project duration, weeks, phases, or delivery timelines — those belong in Pricing and Timeline sections.
+- If the source has no explicit numbers, derive 2–4 qualitative pain indicators as short values (e.g. "3 Agencies", "0 Tracking", "Years Behind").
+- NEVER leave highlights empty — always output 2–4 items.
+
 Return:
 {
   "eyebrow": "4-8 words",
   "headline": "8-12 words, name the specific client tension — not an internal process goal",
   "body": "3-5 sentences using specific details and metrics from the source — include all key pain points",
   "pullquote": "sharpest insight drawn from source content (Tier 1 or 2 preferred), 10-18 words",
+  "highlights": [{ "title": "short metric value or stat", "subtitle": "2-6 word label explaining the metric" }],
   "imageQuery": "DALL-E 3 prompt: cinematic photorealistic scene relevant to this section content. Describe subject, lighting, mood. e.g. 'Modern glass office with soft directional lighting, executive collaboration, professional photography, 4K'",
   ${meta}
 }`,

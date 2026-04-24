@@ -7,7 +7,7 @@
       "options": {},
       "fallback": null
     },
-    "query": {stil
+    "query": {
       "provider": "openai",
       "models": {},
       "options": {},
