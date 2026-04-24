@@ -383,7 +383,7 @@ export async function fetchKnowledgeFiles(apiKey: string, namespace: string): Pr
 export async function deleteKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(
     `/api/knowledge/files/${encodeURIComponent(fileName)}?namespace=${encodeURIComponent(namespace)}`,
-    { method: 'DELETE', headers: authHeaders(apiKey) },
+    { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
   );
   await handleResponse<{ ok: boolean }>(res);
 }

@@ -2,12 +2,13 @@
  * Knowledge route handlers — async document upload and ingestion status.
  *
  * Endpoints:
- *   POST /knowledge/upload         — save files, enqueue indexing jobs
- *   GET  /knowledge/files          — list files with ingestion status
- *   POST /knowledge/reindex        — re-queue a single file for indexing
+ *   POST   /knowledge/upload              — save files, enqueue indexing jobs
+ *   GET    /knowledge/files               — list files with ingestion status
+ *   DELETE /knowledge/files/:fileName     — delete file + remove from index
+ *   POST   /knowledge/reindex             — re-queue a single file for indexing
  */
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, unlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ConfigResolver } from '@ai-engine/core';
@@ -17,6 +18,7 @@ import {
   loadFilesIndex,
   upsertFile,
   updateFileStatus,
+  removeFileEntry,
   type IngestionFile,
 } from './ingestion-service.js';
 import { ingestionQueue } from './ingestion-queue.js';
@@ -176,6 +178,50 @@ export function registerKnowledgeRoutes(
 
     const files = await loadFilesIndex(workdir, namespace);
     return reply.send({ files });
+  });
+
+  // DELETE /knowledge/files/:fileName?namespace=<ns>
+  app.delete('/knowledge/files/:fileName', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { fileName } = req.params as { fileName: string };
+    const { namespace } = req.query as { namespace?: string };
+
+    if (!namespace) {
+      return reply.code(400).send({ error: 'Missing required query param: namespace' });
+    }
+
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const sanitized = sanitizeFileName(fileName);
+    if (!sanitized || sanitized === '_') {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    const uploadsDir = path.join(workdir, 'namespaces', namespace, 'uploads');
+    const filePath = path.join(uploadsDir, fileName);
+    const resolved = path.resolve(filePath);
+
+    if (!resolved.startsWith(path.resolve(uploadsDir))) {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    try {
+      const fileStat = await stat(resolved);
+      if (!fileStat.isFile()) {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+      await unlink(resolved);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // File already gone — still remove from index
+      } else {
+        throw err;
+      }
+    }
+
+    await removeFileEntry(workdir, namespace, sanitized);
+
+    return reply.send({ ok: true });
   });
 
   // POST /knowledge/reindex

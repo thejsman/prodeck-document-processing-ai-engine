@@ -20,6 +20,17 @@ import type {
 
 const MAX_KNOWLEDGE_ENTRIES = 200;
 
+/** Normalizes text to a deduplicated word set for Jaccard similarity. */
+function tokenizeWords(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(Boolean),
+  );
+}
+
 const ARRAY_FIELDS: RequirementKey[] = [
   'technicalStack',
   'keyObjectives',
@@ -259,22 +270,53 @@ export class ContextService {
   ): Promise<NamespaceContext> {
     const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
 
+    // Build inverted word index over active existing entries so duplicate checks
+    // scan only same-category candidates sharing at least one word (O(n) amortized)
+    // rather than the full knowledge array (O(n×m)).
+    const wordIndex = new Map<string, Set<number>>();
+    const addToIndex = (idx: number, words: Set<string>) => {
+      for (const w of words) {
+        let bucket = wordIndex.get(w);
+        if (!bucket) { bucket = new Set(); wordIndex.set(w, bucket); }
+        bucket.add(idx);
+      }
+    };
+    for (let i = 0; i < current.knowledge.length; i++) {
+      if (current.knowledge[i].supersededBy) continue;
+      addToIndex(i, tokenizeWords(current.knowledge[i].content));
+    }
+
     for (const entry of incoming) {
-      const existingIdx = current.knowledge.findIndex(
-        (k) =>
-          k.category === entry.category &&
-          this.isSemanticallyDuplicate(k.content, entry.content),
-      );
+      const entryWords = tokenizeWords(entry.content);
+
+      // Collect candidate indices: active entries that share ≥1 word AND same category
+      const candidates = new Set<number>();
+      for (const w of entryWords) {
+        for (const idx of (wordIndex.get(w) ?? [])) {
+          if (current.knowledge[idx]?.category === entry.category) {
+            candidates.add(idx);
+          }
+        }
+      }
+
+      // Run full Jaccard only on the small candidate set (typically 0–5 entries)
+      const existingIdx = [...candidates].find((idx) =>
+        this.isSemanticallyDuplicate(current.knowledge[idx].content, entry.content),
+      ) ?? -1;
 
       if (existingIdx >= 0) {
         const existing = current.knowledge[existingIdx];
         if (entry.confidence >= existing.confidence) {
           existing.supersededBy = entry.id;
+          const newIdx = current.knowledge.length;
           current.knowledge.push(entry);
+          addToIndex(newIdx, entryWords);
         }
         // otherwise keep existing, discard incoming
       } else {
+        const newIdx = current.knowledge.length;
         current.knowledge.push(entry);
+        addToIndex(newIdx, entryWords);
       }
     }
 
@@ -300,16 +342,8 @@ export class ContextService {
   }
 
   private isSemanticallyDuplicate(a: string, b: string): boolean {
-    const normalize = (s: string) =>
-      new Set(
-        s
-          .toLowerCase()
-          .replace(/[^\w\s]/g, '')
-          .split(/\s+/)
-          .filter(Boolean),
-      );
-    const wordsA = normalize(a);
-    const wordsB = normalize(b);
+    const wordsA = tokenizeWords(a);
+    const wordsB = tokenizeWords(b);
     const intersection = new Set([...wordsA].filter((w) => wordsB.has(w)));
     const union = new Set([...wordsA, ...wordsB]);
     if (union.size === 0) return false;

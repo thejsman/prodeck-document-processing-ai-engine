@@ -122,6 +122,21 @@ export async function extractRequirementsFromPreprocessed(
     'No participants identified';
 
   const baseConfidence = CONFIDENCE_BY_DOC_TYPE[docType];
+  const now = new Date().toISOString();
+
+  // For meeting transcripts: try combined single-pass extraction (saves 1 LLM call).
+  // Falls back to the two-pass approach below if the combined call fails.
+  if (docType === 'meeting_transcript' && preprocessed.sections.length > 0) {
+    const combined = await tryExtractMeetingCombined(
+      preprocessed,
+      cleanContent,
+      participantContext,
+      baseConfidence,
+      now,
+      llmFn,
+    );
+    if (combined) return combined;
+  }
 
   const prompt = `
 You are an information extraction system.
@@ -186,7 +201,6 @@ Return JSON only:
   const validated = ExtractionSchema.safeParse(parsed);
 
   const fields: ExtractionResult['fields'] = {};
-  const now = new Date().toISOString();
 
   if (validated.success) {
     for (const [key, value] of Object.entries(validated.data)) {
@@ -294,6 +308,146 @@ const MeetingSummarySchema = z.object({
     )
     .optional(),
 });
+
+// Combined schema used by tryExtractMeetingCombined — must follow MeetingSummarySchema
+/**
+ * Attempts to extract both requirement fields and the meeting summary in a
+ * single LLM call. Returns null on any failure so the caller can fall back to
+ * the original two-pass approach.
+ */
+async function tryExtractMeetingCombined(
+  preprocessed: PreprocessedDocument,
+  cleanContent: string,
+  participantContext: string,
+  baseConfidence: number,
+  now: string,
+  llmFn: LLMGenerateFn,
+): Promise<ExtractionResult | null> {
+  const existingAgenda = preprocessed.sections.map((s, i) => `${i + 1}. ${s.topic}`).join('\n');
+  const existingActionItems =
+    preprocessed.actionItems
+      .map((a) => `- ${a.owner}: ${a.action}${a.deadline ? ` (by ${a.deadline})` : ''}`)
+      .join('\n') || '(none captured)';
+
+  const combinedPrompt = `
+You are an information extraction system for a client discovery / sales meeting.
+
+Return a SINGLE JSON object with exactly two top-level keys: "fields" and "summary".
+
+--- "fields" schema ---
+{
+  "clientName": string,
+  "industry": string,
+  "projectType": string,
+  "budget": string,
+  "timeline": string,
+  "teamSize": number,
+  "technicalStack": string[],
+  "keyObjectives": string[],
+  "constraints": string[],
+  "deliverables": string[],
+  "stakeholders": string[],
+  "contactName": string
+}
+Rules for "fields":
+- Omit fields not explicitly stated in the document
+- teamSize MUST be a number
+- Arrays MUST be arrays
+- DO NOT hallucinate
+
+--- "summary" schema ---
+{
+  "clientOrganization": { "name": "...", "industry": "...", "roles": ["CEO", ...] },
+  "agencyOrganization": { "name": "...", "services": ["branding", ...] },
+  "agenda": [{ "title": "...", "keyTakeaways": ["...", "..."] }],
+  "clientPriorities": [{ "rank": 1, "title": "...", "bullets": ["...", "..."] }],
+  "requirementsByPriority": { "must": [...], "should": [...], "could": [...] },
+  "agencyDeliverables": [{ "owner": "...", "deliverable": "...", "deadline": "..." }],
+  "engagementModel": { "approach": "...", "phases": [...], "pricingStructure": "..." },
+  "businessMetrics": [{ "metric": "...", "value": "...", "context": "..." }]
+}
+Rules for "summary":
+- clientOrganization: the party asking for services
+- agencyOrganization: the party offering services
+- agenda: one entry per major discussion topic; reuse preprocessed section titles
+- clientPriorities: one entry per explicitly ranked priority (Priority 1, 2, ...)
+- requirementsByPriority: must=client said they need it, should=they want it, could=nice-to-have
+- agencyDeliverables: every item the agency committed to deliver after this meeting
+- engagementModel: omit if not discussed
+- businessMetrics: every concrete number (dollars, counts, percentages, timelines)
+- Omit any optional field with no content; return {} rather than hallucinating
+
+Preprocessed agenda (section titles):
+${existingAgenda}
+
+Preprocessed action items:
+${existingActionItems}
+
+Participants:
+${participantContext}
+
+Preprocessed sections:
+${cleanContent}
+
+Return JSON only: { "fields": {...}, "summary": {...} }
+`;
+
+  let raw = '';
+  try {
+    raw = await llmFn(combinedPrompt);
+  } catch (err) {
+    console.warn('[RequirementExtractor] Combined meeting extraction LLM call failed:', err);
+    return null;
+  }
+
+  const parsed = safeParseJSON<{ fields?: unknown; summary?: unknown }>(raw);
+  if (!parsed || typeof parsed !== 'object' || !('fields' in parsed) || !('summary' in parsed)) {
+    console.warn('[RequirementExtractor] Combined meeting extraction: missing "fields" or "summary" key — falling back to two-pass');
+    return null;
+  }
+
+  const fieldsValidated = ExtractionSchema.safeParse(parsed.fields);
+  const summaryValidated = MeetingSummarySchema.safeParse(parsed.summary);
+
+  if (!fieldsValidated.success) {
+    console.warn('[RequirementExtractor] Combined meeting extraction: fields validation failed — falling back to two-pass');
+    return null;
+  }
+
+  const fields: ExtractionResult['fields'] = {};
+  for (const [key, value] of Object.entries(fieldsValidated.data)) {
+    if (!VALID_REQUIREMENT_KEYS.includes(key as RequirementKey)) continue;
+    const normalized = normalizeValue(key as RequirementKey, value);
+    if (normalized === undefined) continue;
+    fields[key as RequirementKey] = {
+      value: normalized,
+      confidence: computeFieldConfidence(normalized, baseConfidence),
+      source: 'document',
+      updatedAt: now,
+    } as RequirementField<unknown>;
+  }
+
+  let meetingSummary: MeetingSummary | undefined;
+  if (summaryValidated.success) {
+    const data = summaryValidated.data;
+    const s: MeetingSummary = { updatedAt: now };
+    if (data.clientOrganization) s.clientOrganization = data.clientOrganization;
+    if (data.agencyOrganization) s.agencyOrganization = data.agencyOrganization;
+    if (data.agenda?.length) s.agenda = data.agenda;
+    if (data.clientPriorities?.length) s.clientPriorities = data.clientPriorities;
+    if (data.requirementsByPriority) {
+      const r = data.requirementsByPriority;
+      if (r.must.length || r.should.length || r.could.length) s.requirementsByPriority = r;
+    }
+    if (data.agencyDeliverables?.length) s.agencyDeliverables = data.agencyDeliverables;
+    if (data.engagementModel) s.engagementModel = data.engagementModel;
+    if (data.businessMetrics?.length) s.businessMetrics = data.businessMetrics;
+    meetingSummary = s;
+    promoteMeetingSummaryFields(s, fields, baseConfidence, now);
+  }
+
+  return { fields, knowledge: [], meetingSummary, raw };
+}
 
 async function extractMeetingSummary(
   preprocessed: PreprocessedDocument,
