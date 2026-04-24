@@ -196,7 +196,7 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 
   const files = await loadFilesIndex(workdir, namespace);
   const available = files
-    .filter((f) => f.status === 'indexed' || f.status === 'uploaded')
+    .filter((f) => f.status === 'indexed' || f.status === 'extracting' || f.status === 'extracted' || f.status === 'uploaded')
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
 
   if (available.length === 0) {

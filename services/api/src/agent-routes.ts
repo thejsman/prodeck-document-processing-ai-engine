@@ -265,6 +265,7 @@ function spawnMermaidGenerator(description: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export async function buildRunner(workdir: string): Promise<AgentRunner> {
+  ensureRegistered(workdir);
   const configBasePath = path.join(workdir, 'config');
   const memoryBasePath = path.join(workdir, 'memory');
   const usageEventsPath = path.join(workdir, 'data', 'usage', 'events.jsonl');

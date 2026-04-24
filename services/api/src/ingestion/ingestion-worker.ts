@@ -182,9 +182,15 @@ export async function processJob(
         const filesToProcess = allFiles ?? [fileName];
 
         for (const f of filesToProcess) {
+          await updateFileStatus(workdir, namespace, f, 'extracting');
+        }
+
+        for (const f of filesToProcess) {
           try {
             const content = await readFile(path.join(uploadsDir, f), 'utf-8');
             const v2Result = await processDocument(namespace, f, content, llmGenerateFn, contextService);
+
+            await updateFileStatus(workdir, namespace, f, 'extracted');
 
             emitExecution({
               executionId: `doc-processed-${namespace}-${f}-${Date.now()}`,
@@ -214,6 +220,8 @@ export async function processJob(
             }
           } catch (err) {
             console.warn(`[IngestV2] processDocument failed for ${f}:`, err);
+            // Leave status as 'indexed' — FAISS search still works even if extraction failed
+            await updateFileStatus(workdir, namespace, f, 'indexed');
           }
         }
       }

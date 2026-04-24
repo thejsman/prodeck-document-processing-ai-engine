@@ -68,10 +68,10 @@ const TOOL_PARAM_SCHEMAS: Partial<Record<z.infer<typeof ToolNameEnum>, z.ZodType
   generate_proposal: z.object({
     client: z.string().min(1),
     industry: z.string().min(1),
-    template: z.string().optional(),
-    teamSize: z.union([z.string(), z.number()]).optional(),
-    duration: z.union([z.string(), z.number()]).optional(),
-    ratePerWeek: z.union([z.string(), z.number()]).optional(),
+    template: z.string().nullish(),
+    teamSize: z.union([z.string(), z.number()]).nullish(),
+    duration: z.union([z.string(), z.number()]).nullish(),
+    ratePerWeek: z.union([z.string(), z.number()]).nullish(),
   }),
 
   generate_template: z.object({

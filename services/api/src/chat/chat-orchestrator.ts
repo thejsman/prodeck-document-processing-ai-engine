@@ -237,7 +237,7 @@ async function answerFromKnowledge(
       if (files.length === 0) {
         return 'No files have been uploaded to this namespace yet.';
       }
-      const indexed = files.filter((f) => f.status === 'indexed');
+      const indexed = files.filter((f) => f.status === 'indexed' || f.status === 'extracting' || f.status === 'extracted');
       const lines = files.map(
         (f) => `- **${f.fileName}** (${f.status}${f.uploadedAt ? `, uploaded ${f.uploadedAt.slice(0, 10)}` : ''})`,
       );

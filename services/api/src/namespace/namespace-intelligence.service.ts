@@ -77,8 +77,8 @@ export async function scanNamespace(workdir: string, namespace: string): Promise
   // ── 1. Load files index ───────────────────────────────────────────
   const files = await loadFilesIndex(workdir, namespace);
 
-  const indexedFiles = files.filter((f) => f.status === 'indexed');
-  const pendingFiles = files.filter((f) => f.status === 'uploaded' || f.status === 'processing');
+  const indexedFiles = files.filter((f) => f.status === 'indexed' || f.status === 'extracting' || f.status === 'extracted');
+  const pendingFiles = files.filter((f) => f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting');
 
   const hasRfp = files.some((f) => matchesAny(f.fileName, RFP_PATTERNS));
   const hasPricingDoc = files.some((f) => matchesAny(f.fileName, PRICING_PATTERNS));

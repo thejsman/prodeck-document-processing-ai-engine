@@ -355,7 +355,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
             files.map(f => {
               const isHovered = hoveredFile === f.fileName && (menuFile === null || menuFile === f.fileName);
               const isMenuOpen = menuFile === f.fileName;
-              const isActive = f.status === 'uploaded' || f.status === 'processing';
+              const isActive = f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting';
               return (
                 <div
                   key={f.fileName}
@@ -383,13 +383,19 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                         Indexing
                       </span>
                     )}
+                    {f.status === 'extracting' && (
+                      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, color: 'var(--primary)' }}>
+                        <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }} />
+                        Extracting
+                      </span>
+                    )}
                     {f.status === 'uploaded' && (
                       <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, color: 'var(--muted)' }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--muted)', flexShrink: 0, animation: 'pulse 1.6s ease-in-out infinite' }} />
                         Queued
                       </span>
                     )}
-                    {(f.status === 'indexed' || f.status === 'failed') && (
+                    {(f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed') && (
                       <span className={`ingestion-badge--${f.status}`} style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}>
                         {f.status.toUpperCase()}
                       </span>

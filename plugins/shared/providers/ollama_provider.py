@@ -12,6 +12,7 @@ class OllamaProvider(LLMProvider):
         base_url: Ollama HTTP endpoint (default ``http://localhost:11434``).
         generation_model: Model name for text generation (default ``mistral``).
         embedding_model: Model name for embeddings (default ``nomic-embed-text``).
+        timeout: Generation request timeout in seconds (default ``300``).
     """
 
     def __init__(
@@ -19,10 +20,12 @@ class OllamaProvider(LLMProvider):
         base_url: str = "http://localhost:11434",
         generation_model: str = "mistral",
         embedding_model: str = "nomic-embed-text",
+        timeout: int = 300,
     ):
         self._base_url = base_url.rstrip("/")
         self._generation_model = generation_model
         self._embedding_model = embedding_model
+        self._timeout = timeout
 
     def generate(self, prompt: str) -> str:
         url = f"{self._base_url}/api/generate"
@@ -32,7 +35,7 @@ class OllamaProvider(LLMProvider):
             "stream": False,
         }
         try:
-            resp = requests.post(url, json=payload, timeout=120)
+            resp = requests.post(url, json=payload, timeout=self._timeout)
             resp.raise_for_status()
         except requests.ConnectionError as exc:
             raise ConnectionError(
@@ -54,7 +57,7 @@ class OllamaProvider(LLMProvider):
         url = f"{self._base_url}/api/generate"
         payload = {"model": self._generation_model, "prompt": prompt, "stream": True}
         try:
-            resp = requests.post(url, json=payload, stream=True, timeout=120)
+            resp = requests.post(url, json=payload, stream=True, timeout=self._timeout)
             resp.raise_for_status()
         except requests.ConnectionError as exc:
             raise ConnectionError(

@@ -9,7 +9,7 @@ import { useNamespace } from '@/lib/namespace-context';
 // Types
 // ---------------------------------------------------------------------------
 
-type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'failed';
+type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extracting' | 'extracted' | 'failed';
 
 interface KBFile {
   fileName: string;
@@ -34,7 +34,9 @@ function formatDate(iso: string): string {
 }
 
 const STATUS_BADGE: Record<IngestionStatus, string> = {
-  indexed:    'badge--ok',
+  indexed:    'badge--running',
+  extracting: 'badge--running',
+  extracted:  'badge--ok',
   processing: 'badge--running',
   uploaded:   'badge--editing',
   failed:     'badge--error',
@@ -42,6 +44,8 @@ const STATUS_BADGE: Record<IngestionStatus, string> = {
 
 const STATUS_LABEL: Record<IngestionStatus, string> = {
   indexed:    'Indexed',
+  extracting: 'Extracting',
+  extracted:  'Extracted',
   processing: 'Processing',
   uploaded:   'Pending',
   failed:     'Failed',

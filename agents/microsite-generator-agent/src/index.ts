@@ -18,6 +18,38 @@ import type { Agent, AgentInput, AgentOutput, ToolRegistry } from '@ai-engine/co
 import { extractDesignTokens, type ExtractedDesignTokens } from './designTokenExtractor.js';
 import { detectSectionLimitRequest, type SectionLimitRequest } from './lib/sectionLimitDetector.js';
 
+// ── Rate-limit retry helper ───────────────────────────────────────────────────
+
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('429') || msg.includes('rate_limit_exceeded') || msg.includes('tokens per min');
+}
+
+function extractRetryAfterMs(err: unknown): number {
+  const msg = err instanceof Error ? err.message : String(err);
+  const m = msg.match(/try again in (\d+(?:\.\d+)?)\s*s/i);
+  return m ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 8000;
+}
+
+async function withRateLimitRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isRateLimitError(err) && attempt < maxRetries) {
+        const delayMs = extractRetryAfterMs(err) * (attempt + 1);
+        console.warn(`[microsite-agent] Rate limit hit — retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        lastErr = err;
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ── Section type classification (mirrors UI types) ───────────────────────────
 
 type SectionType =
@@ -3452,8 +3484,8 @@ export class MicrositeGeneratorAgent implements Agent {
           ? pass2Sections.filter(s => s.type !== 'hero')
           : pass2Sections;
 
-        // Process sections in batches of 3 for faster progressive streaming
-        const BATCH_SIZE = 3;
+        // Process sections in batches of 2 to stay within TPM limits
+        const BATCH_SIZE = 2;
 
         for (let batchStart = 0; batchStart < pass2SectionsFiltered.length; batchStart += BATCH_SIZE) {
           const batch = pass2SectionsFiltered.slice(batchStart, batchStart + BATCH_SIZE);
@@ -3475,10 +3507,10 @@ export class MicrositeGeneratorAgent implements Agent {
                 : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, finalReferenceDesign, s.rawItemCount);
               try {
                 const timeoutMs = 90_000;
-                const runSection = () => Promise.race([
+                const runSection = () => withRateLimitRetry(() => Promise.race([
                   generateTool!.run({ query: prompt, content: '' }),
                   new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Section "${s.type}" timed out after ${timeoutMs}ms`)), timeoutMs)),
-                ]);
+                ]));
                 let result = await runSection();
                 let parsed = safeParseJSON(result.text ?? '');
                 // Retry once if JSON failed to parse or primary content fields are missing
