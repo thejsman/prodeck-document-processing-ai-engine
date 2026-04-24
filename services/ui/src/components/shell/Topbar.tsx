@@ -25,7 +25,9 @@ export function Topbar({ onMenuClick }: Props) {
   if (
     pathname === "/" ||
     pathname?.startsWith("/chat") ||
-    pathname?.startsWith("/proposal")
+    pathname?.startsWith("/proposal") ||
+    pathname?.startsWith("/microsite") ||
+    pathname?.startsWith("/presentation")
   )
     return null;
 

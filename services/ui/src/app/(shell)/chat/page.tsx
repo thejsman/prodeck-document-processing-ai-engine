@@ -383,10 +383,6 @@ export default function ChatPage() {
   }
 
   function handleSuggestion(text: string) {
-    if (text === 'Generate a proposal from my documents') {
-      setShowGenerateModal(true);
-      return;
-    }
     setInput(text);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }

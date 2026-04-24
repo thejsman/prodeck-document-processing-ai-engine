@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Check, X } from "lucide-react";
+import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useExecutionStore } from "@/core/execution/execution-store";
 import {
@@ -256,6 +258,7 @@ interface WizardSnapshot {
   selectedNamespace: string;
   selectedProposal: ProposalFile | null;
   generationStartedAt?: number;
+  lockedFromProposal?: boolean;
 }
 
 function readSnapshot(): WizardSnapshot | null {
@@ -317,6 +320,9 @@ export function PresentationPage() {
   const [proposalsError, setProposalsError] = useState<string | null>(null);
   const [selectedProposal, setSelectedProposal] = useState<ProposalFile | null>(
     () => _snap?.selectedProposal ?? null,
+  );
+  const [lockedFromProposal] = useState<boolean>(
+    () => _snap?.lockedFromProposal ?? false,
   );
   const [mdContent, setMdContent] = useState("");
   const [loadingContent, setLoadingContent] = useState(false);
@@ -436,13 +442,10 @@ export function PresentationPage() {
     null,
   );
 
-  // History
-  const [activeTab, setActiveTab] = useState<"generate" | "history">(() => {
-    if (typeof window === "undefined") return "generate";
-    return (
-      (localStorage.getItem("ms_activeTab") as "generate" | "history") ||
-      "generate"
-    );
+  // Generate modal
+  const [showGenerateModal, setShowGenerateModal] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return !!(_snap?.lockedFromProposal);
   });
   // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
   const { addEntry } = useMicrositeHistory(selectedNamespace, apiKey);
@@ -450,12 +453,6 @@ export function PresentationPage() {
   const [totalHistoryCount, setTotalHistoryCount] = useState(() =>
     getHistoryCount(),
   );
-
-  const handleTabChange = (tab: "generate" | "history") => {
-    setActiveTab(tab);
-    if (typeof window !== "undefined")
-      localStorage.setItem("ms_activeTab", tab);
-  };
 
   // Unified preview handler — opens ThemeFullPreview and closes ThemeModal
   const handlePreview = (id: string) => {
@@ -652,14 +649,15 @@ export function PresentationPage() {
   }, [step, apiKey]);
 
   useEffect(() => {
+    if (lockedFromProposal) return;
     setProposals([]);
     setSelectedProposal(null);
     setMdContent("");
     setProposalsError(null);
-  }, [selectedNamespace]);
+  }, [selectedNamespace, lockedFromProposal]);
 
   useEffect(() => {
-    if (step !== "upload" || !apiKey || !selectedNamespace) return;
+    if (step !== "upload" || !apiKey || !selectedNamespace || lockedFromProposal) return;
     setProposalsLoading(true);
     fetchProposals(apiKey)
       .then((all) =>
@@ -682,7 +680,18 @@ export function PresentationPage() {
       )
       .catch((e) => setProposalsError((e as Error).message))
       .finally(() => setProposalsLoading(false));
-  }, [step, apiKey, selectedNamespace]);
+  }, [step, apiKey, selectedNamespace, lockedFromProposal]);
+
+  // Auto-load proposal content when arriving locked from the proposal flow
+  useEffect(() => {
+    if (!lockedFromProposal || !selectedProposal || !apiKey || mdContent) return;
+    setLoadingContent(true);
+    fetchProposalContent(apiKey, selectedProposal.fileName)
+      .then((doc) => setMdContent(doc.content))
+      .catch(() => {})
+      .finally(() => setLoadingContent(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedFromProposal, apiKey, selectedProposal?.fileName]);
 
   const selectProposal = useCallback(
     async (p: ProposalFile) => {
@@ -1174,73 +1183,59 @@ export function PresentationPage() {
   // ── Wizard steps ─────────────────────────────────────────────────────────
   return (
     <>
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px" }}>
-        {/* Page header */}
-        <div
-          className="page-header"
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <h1>Microsite Builder</h1>
-            <p className="muted" style={{ marginTop: 4 }}>
-              Transform a proposal into a high-end presentation microsite
-            </p>
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "59px 24px 0" }}>
+        {/* ── Header — same style as Proposals page ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 14 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", marginRight: "auto" }}>
+            Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ""}
+          </span>
+          <button
+            onClick={() => setShowGenerateModal(true)}
+            style={{
+              height: 30, padding: "0 14px",
+              background: "var(--primary)", color: "#fff",
+              border: "none", borderRadius: "var(--radius)",
+              fontSize: 13, fontWeight: 500,
+              cursor: "pointer",
+              flexShrink: 0, whiteSpace: "nowrap",
+            }}
+          >
+            + Generate Microsite
+          </button>
+        </div>
+        <div style={{ height: 1, background: "var(--border)", marginBottom: 24 }} />
+
+        {/* History — always visible */}
+        <MicrositeHistory onCountChange={setTotalHistoryCount} />
+      </div>
+
+      {/* Generate Microsite modal — always mounted so wizard state persists */}
+      <div style={{
+        display: showGenerateModal ? "flex" : "none",
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.5)", zIndex: 200,
+        alignItems: "flex-start", justifyContent: "center",
+        padding: "24px", overflowY: "auto",
+      }} onClick={() => setShowGenerateModal(false)}>
+        <div style={{
+          background: "var(--color-surface)", border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          width: "100%", maxWidth: 860, display: "flex", flexDirection: "column",
+        }} onClick={(e) => e.stopPropagation()}>
+          {/* Modal header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 400, margin: 0 }}>Generate Microsite</h3>
+            <button
+              className="chat-v2-panel-toggle"
+              onClick={() => setShowGenerateModal(false)}
+              aria-label="Close"
+            >
+              <Icon icon={X} size="sm" />
+            </button>
           </div>
-        </div>
-
-        {/* ── Tab strip ── */}
-        <div
-          style={{
-            display: "flex",
-            gap: 4,
-            marginBottom: 24,
-            borderBottom: "1px solid var(--color-border)",
-          }}
-        >
-          {(["generate", "history"] as const).map((tab) => {
-            const isActive = activeTab === tab;
-            const label =
-              tab === "generate"
-                ? "Generate"
-                : `History (${totalHistoryCount})`;
-            return (
-              <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                style={{
-                  padding: "8px 16px",
-                  background: "none",
-                  border: "none",
-                  borderBottom: isActive
-                    ? "2px solid var(--color-primary)"
-                    : "2px solid transparent",
-                  marginBottom: -1,
-                  fontWeight: isActive ? 700 : 500,
-                  fontSize: 13,
-                  color: isActive
-                    ? "var(--color-primary)"
-                    : "var(--color-text-muted)",
-                  cursor: "pointer",
-                  transition: "color 0.15s",
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* History panel — always mounted so count never resets on tab switch */}
-        <div style={{ display: activeTab === "history" ? "block" : "none" }}>
-          <MicrositeHistory onCountChange={setTotalHistoryCount} />
-        </div>
-
-        {/* Generate panel — always mounted, hidden when on history tab */}
-        <div style={{ display: activeTab !== "history" ? "block" : "none" }}>
+          {/* Modal body — wizard content */}
+          <div style={{ padding: 24 }}>
+        <div>
           {/* Stepper */}
           <div
             style={{
@@ -1436,35 +1431,58 @@ export function PresentationPage() {
                   {/* Namespace */}
                   <div className="form-group">
                     <label>Project</label>
-                    <div style={{ position: "relative" }}>
-                      <select
-                        className="select"
-                        value={selectedNamespace}
-                        disabled={namespacesLoading}
-                        onChange={(e) => {
-                          setSelectedNamespace(e.target.value);
-                          localStorage.setItem("ms_namespace", e.target.value);
+                    {lockedFromProposal ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "10px 14px",
+                          background: "var(--color-surface)",
+                          border: "1px solid var(--color-border)",
+                          borderRadius: "var(--radius)",
+                          cursor: "not-allowed",
+                          opacity: 0.85,
                         }}
                       >
-                        <option value="">
-                          {namespacesLoading
-                            ? "Loading namespaces…"
-                            : "Select a namespace…"}
-                        </option>
-                        {namespaces.map((ns) => (
-                          <option key={ns} value={ns}>
-                            {ns}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {selectedNamespace && (
-                      <p className="muted" style={{ marginTop: 4 }}>
-                        Showing approved proposals for{" "}
-                        <strong style={{ color: "var(--color-text)" }}>
+                        <span style={{ fontWeight: 500, color: "var(--color-text)", flex: 1 }}>
                           {selectedNamespace}
-                        </strong>
-                      </p>
+                        </span>
+                        <span className="muted" style={{ fontSize: 11 }}>locked</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ position: "relative" }}>
+                          <select
+                            className="select"
+                            value={selectedNamespace}
+                            disabled={namespacesLoading}
+                            onChange={(e) => {
+                              setSelectedNamespace(e.target.value);
+                              localStorage.setItem("ms_namespace", e.target.value);
+                            }}
+                          >
+                            <option value="">
+                              {namespacesLoading
+                                ? "Loading namespaces…"
+                                : "Select a namespace…"}
+                            </option>
+                            {namespaces.map((ns) => (
+                              <option key={ns} value={ns}>
+                                {ns}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {selectedNamespace && (
+                          <p className="muted" style={{ marginTop: 4 }}>
+                            Showing approved proposals for{" "}
+                            <strong style={{ color: "var(--color-text)" }}>
+                              {selectedNamespace}
+                            </strong>
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -1472,15 +1490,49 @@ export function PresentationPage() {
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label
                       style={{
-                        color: selectedNamespace
-                          ? undefined
-                          : "var(--color-border)",
+                        color: !lockedFromProposal && !selectedNamespace
+                          ? "var(--color-border)"
+                          : undefined,
                       }}
                     >
                       Proposal
                     </label>
 
-                    {!selectedNamespace && (
+                    {lockedFromProposal && selectedProposal && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem" }}>
+                        <div
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "var(--radius)",
+                            border: "1px solid var(--color-primary)",
+                            background: "var(--color-primary-muted, rgba(99,102,241,0.15))",
+                            boxShadow: "0 0 0 2px var(--color-primary-muted, rgba(99,102,241,0.25))",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)" }}>
+                              {selectedProposal.client || selectedProposal.fileName}
+                            </span>
+                            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)", flexShrink: 0 }}>
+                              <Check size={12} strokeWidth={2.5} /> Selected
+                            </span>
+                          </div>
+                          <p className="muted" style={{ fontSize: 11, marginBottom: 0, wordBreak: "break-all" }}>
+                            {selectedProposal.fileName.includes("::") ? selectedProposal.fileName.split("::")[1] : selectedProposal.fileName}
+                          </p>
+                          {loadingContent && (
+                            <p className="loading" style={{ marginTop: 4 }}>Loading content…</p>
+                          )}
+                          {!loadingContent && mdContent && (
+                            <p style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)", marginTop: 4 }}>
+                              <Check size={12} strokeWidth={2.5} /> Ready
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {!lockedFromProposal && !selectedNamespace && (
                       <div
                         style={{
                           padding: "2rem",
@@ -1493,17 +1545,17 @@ export function PresentationPage() {
                       </div>
                     )}
 
-                    {selectedNamespace && proposalsLoading && (
+                    {!lockedFromProposal && selectedNamespace && proposalsLoading && (
                       <p className="loading">Loading proposals…</p>
                     )}
 
-                    {selectedNamespace &&
+                    {!lockedFromProposal && selectedNamespace &&
                       proposalsError &&
                       !proposalsLoading && (
                         <p className="error">{proposalsError}</p>
                       )}
 
-                    {selectedNamespace &&
+                    {!lockedFromProposal && selectedNamespace &&
                       !proposalsLoading &&
                       !proposalsError &&
                       proposals.length === 0 && (
@@ -1523,7 +1575,7 @@ export function PresentationPage() {
                         </div>
                       )}
 
-                    {selectedNamespace &&
+                    {!lockedFromProposal && selectedNamespace &&
                       !proposalsLoading &&
                       proposals.length > 0 && (
                         <div
@@ -2901,6 +2953,8 @@ export function PresentationPage() {
               )}
             </div>
           )}
+        </div>
+          </div>
         </div>
       </div>
 

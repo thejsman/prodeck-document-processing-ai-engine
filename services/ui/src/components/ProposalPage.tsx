@@ -167,16 +167,7 @@ function ProposalVersionPanel({
                       </span>
                     )}
                     {p.version != null && (
-                      <span style={{
-                        flexShrink: 0,
-                        fontSize: 10,
-                        fontWeight: 500,
-                        padding: '1px 5px',
-                        borderRadius: 4,
-                        background: 'var(--primary-soft)',
-                        color: 'var(--primary)',
-                        border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)',
-                      }}>
+                      <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
                         v{p.version}
                       </span>
                     )}
@@ -718,7 +709,8 @@ export function ProposalPage() {
     };
     try {
       sessionStorage.setItem('ms_wizard_state', JSON.stringify({
-        step: 'brand',
+        step: 'upload',
+        lockedFromProposal: true,
         wasGenerating: false,
         progress: [],
         streamingSections: [],
@@ -821,125 +813,76 @@ export function ProposalPage() {
   return (
     <>
       <div className="chat-v2">
-        <header className="chat-v2-header">
-          {fromChat ? (
-            /* ── Workspace header ── */
-            <>
-              <div className="chat-v2-header-left">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
-                    {currentDocument && (
-                      <>
-                        <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                        <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
-                      </>
-                    )}
-                    {searchParams.get('namespace') && (
-                      <>
-                        <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                        <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>{searchParams.get('namespace')}</span>
-                      </>
-                    )}
-                  </div>
-                  {currentDocument && (() => {
-                    const raw = meta?.createdAt ?? currentDocument.createdAt;
-                    const label = raw ? formatCreatedAt(raw) : null;
-                    return label ? (
-                      <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
-                    ) : null;
-                  })()}
+        {fromChat && (
+          <header className="chat-v2-header">
+            {/* ── Workspace header ── */}
+            <div className="chat-v2-header-left">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
+                  {currentDocument && (
+                    <>
+                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                      <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+                    </>
+                  )}
+                  {searchParams.get('namespace') && (
+                    <>
+                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>{searchParams.get('namespace')}</span>
+                    </>
+                  )}
                 </div>
+                {currentDocument && (() => {
+                  const raw = meta?.createdAt ?? currentDocument.createdAt;
+                  const label = raw ? formatCreatedAt(raw) : null;
+                  return label ? (
+                    <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
+                  ) : null;
+                })()}
               </div>
-              <div className="chat-v2-header-right">
-                <button
-                  style={{
-                    height: 30, padding: '0 12px', whiteSpace: 'nowrap',
-                    background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
-                    color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
-                    border: 'none', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
-                    cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
-                    flexShrink: 0, opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
-                  }}
-                  disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
-                  onClick={handleGenerateMicrosite}
-                >
-                  Generate Microsite
-                </button>
-                <button
-                  ref={statusBtnRef}
-                  onClick={openStatusMenu}
-                  disabled={!currentDocument}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    height: 30, padding: '0 10px',
-                    background: 'var(--panel-soft)', border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
-                    cursor: currentDocument ? 'pointer' : 'not-allowed',
-                    color: 'var(--text)', opacity: currentDocument ? 1 : 0.4, flexShrink: 0,
-                  }}
-                >
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[currentStatus], flexShrink: 0 }} />
-                  {STATUS_LABELS[currentStatus]}
-                  <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
-                </button>
-                <button ref={overflowBtnRef} className="chat-v2-panel-toggle" onClick={openOverflow} title="More options" aria-label="More options">
-                  <Icon icon={MoreHorizontal} size="sm" />
-                </button>
-                <button className="chat-v2-panel-toggle" onClick={() => router.back()} title="Close" aria-label="Close">
-                  <Icon icon={X} size="sm" />
-                </button>
-              </div>
-            </>
-          ) : (
-            /* ── Browser header ── */
-            <>
-              <div className="chat-v2-header-left">
-                <span className="chat-v2-ns" style={{ lineHeight: 1 }}>Proposals</span>
-              </div>
-              <div className="chat-v2-header-right">
-                {/* Namespace filter */}
-                <button
-                  ref={nsBtnRef}
-                  onClick={openNsDropdown}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    height: 30, padding: '0 10px',
-                    background: 'var(--panel-soft)', border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
-                    cursor: 'pointer', color: 'var(--text)', flexShrink: 0,
-                  }}
-                >
-                  {browseNs
-                    ? `${browseNs} (${nsCounts[browseNs] ?? 0})`
-                    : `All (${allProposals.length})`
-                  }
-                  <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
-                </button>
-                {/* Generate Proposal — primary action */}
-                <button
-                  onClick={() => setShowGenerateModal(true)}
-                  disabled={isGenerating || pending?.status === 'generating'}
-                  style={{
-                    height: 30, padding: '0 14px',
-                    background: 'var(--primary)', color: '#fff',
-                    border: 'none', borderRadius: 'var(--radius)',
-                    fontSize: 13, fontWeight: 500,
-                    cursor: isGenerating || pending?.status === 'generating' ? 'not-allowed' : 'pointer',
-                    opacity: isGenerating || pending?.status === 'generating' ? 0.55 : 1,
-                    flexShrink: 0, whiteSpace: 'nowrap',
-                  }}
-                >
-                  + Generate Proposal
-                </button>
-                {/* Close */}
-                <button className="chat-v2-panel-toggle" onClick={() => router.back()} title="Close" aria-label="Close">
-                  <Icon icon={X} size="sm" />
-                </button>
-              </div>
-            </>
-          )}
-        </header>
+            </div>
+            <div className="chat-v2-header-right">
+              <button
+                style={{
+                  height: 30, padding: '0 12px', whiteSpace: 'nowrap',
+                  background: currentDocument && currentStatus === 'approved' ? 'var(--primary)' : 'var(--panel-soft)',
+                  color: currentDocument && currentStatus === 'approved' ? '#fff' : 'var(--muted)',
+                  border: 'none', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
+                  cursor: currentDocument && currentStatus === 'approved' ? 'pointer' : 'not-allowed',
+                  flexShrink: 0, opacity: currentDocument && currentStatus === 'approved' ? 1 : 0.45,
+                }}
+                disabled={!currentDocument || currentStatus !== 'approved' || isGenerating}
+                onClick={handleGenerateMicrosite}
+              >
+                Generate Microsite
+              </button>
+              <button
+                ref={statusBtnRef}
+                onClick={openStatusMenu}
+                disabled={!currentDocument}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  height: 30, padding: '0 10px',
+                  background: 'var(--panel-soft)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
+                  cursor: currentDocument ? 'pointer' : 'not-allowed',
+                  color: 'var(--text)', opacity: currentDocument ? 1 : 0.4, flexShrink: 0,
+                }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLORS[currentStatus], flexShrink: 0 }} />
+                {STATUS_LABELS[currentStatus]}
+                <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
+              </button>
+              <button ref={overflowBtnRef} className="chat-v2-panel-toggle" onClick={openOverflow} title="More options" aria-label="More options">
+                <Icon icon={MoreHorizontal} size="sm" />
+              </button>
+              <button className="chat-v2-panel-toggle" onClick={() => router.back()} title="Close" aria-label="Close">
+                <Icon icon={X} size="sm" />
+              </button>
+            </div>
+          </header>
+        )}
 
         {fromChat ? (
           /* ── Workspace body ── */
@@ -979,6 +922,47 @@ export function ProposalPage() {
         ) : (
           /* ── Browser body: proposal card grid ── */
           <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* Inline browser header */}
+            <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>Proposals</span>
+                {/* Namespace filter */}
+                <button
+                  ref={nsBtnRef}
+                  onClick={openNsDropdown}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    height: 30, padding: '0 10px',
+                    background: 'var(--panel-soft)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500,
+                    cursor: 'pointer', color: 'var(--text)', flexShrink: 0,
+                  }}
+                >
+                  {browseNs
+                    ? `${browseNs} (${nsCounts[browseNs] ?? 0})`
+                    : `All (${allProposals.length})`
+                  }
+                  <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
+                </button>
+                {/* Generate Proposal */}
+                <button
+                  onClick={() => setShowGenerateModal(true)}
+                  disabled={isGenerating || pending?.status === 'generating'}
+                  style={{
+                    height: 30, padding: '0 14px',
+                    background: 'var(--primary)', color: '#fff',
+                    border: 'none', borderRadius: 'var(--radius)',
+                    fontSize: 13, fontWeight: 500,
+                    cursor: isGenerating || pending?.status === 'generating' ? 'not-allowed' : 'pointer',
+                    opacity: isGenerating || pending?.status === 'generating' ? 0.55 : 1,
+                    flexShrink: 0, whiteSpace: 'nowrap',
+                  }}
+                >
+                  + Generate Proposal
+                </button>
+              </div>
+              <div style={{ height: 1, background: 'var(--border)' }} />
+            </div>
             {browseLoading && !pending ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
                 Loading…
@@ -1055,7 +1039,7 @@ export function ProposalPage() {
                             </span>
                           )}
                           {p.version != null && (
-                            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: '1px 5px', borderRadius: 4, background: 'var(--primary-soft)', color: 'var(--primary)', border: '1px solid color-mix(in srgb, var(--primary) 30%, transparent)' }}>
+                            <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
                               v{p.version}
                             </span>
                           )}
