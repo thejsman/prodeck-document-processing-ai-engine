@@ -736,6 +736,13 @@ export default function ChatPage() {
                           <ReactMarkdown>{displayed}</ReactMarkdown>
                         </div>
                       )}
+                      {!isStreaming && (doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl) && (
+                        <div className="proposal-done-actions" style={{ marginTop: 12 }}>
+                          <a href={(doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl)!} className="proposal-done-link proposal-done-link--primary">
+                            View Templates ↗
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

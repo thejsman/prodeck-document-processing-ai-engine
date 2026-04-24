@@ -510,12 +510,11 @@ export async function handleSavingTemplate(ctx: HandlerContext): Promise<Handler
     message: [
       `✓ Template **"${draft.name}"** saved successfully.`,
       '',
-      'You can now select it in the Proposals page when generating a new proposal.',
-      'Say **"Create a proposal"** to start using it.',
+      'You can view and edit it in the Templates page, or say **"Generate a proposal"** to use it now.',
     ].join('\n'),
     stateSignal: 'DONE',
     actions: {
-      viewProposalsUrl: '/proposals',
+      viewTemplatesUrl: '/proposal/templates',
     },
   };
 }

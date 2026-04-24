@@ -523,6 +523,9 @@ export async function handleGenerateTemplate(
     message: `Template "${displayName}" created successfully.`,
     data: { name: displayName, slug, sections: draft.sections.map((s) => s.title) },
     artifacts: [`${slug}.yaml`],
+    actionCards: [
+      { type: 'view_templates', label: 'View Templates', href: '/proposal/templates' },
+    ],
   };
 }
 
