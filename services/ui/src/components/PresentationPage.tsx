@@ -1,15 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
+import { useNamespace } from "@/lib/namespace-context";
 import { useExecutionStore } from "@/core/execution/execution-store";
 import {
   fetchNamespaces,
   fetchProposals,
   fetchProposalContent,
   fetchMicrositeContent,
+  fetchPresentations,
   generateMicrositeStream,
   saveMicrositeAst,
   extractUrlDesign,
@@ -18,6 +21,7 @@ import {
   type SynthesizedDesignSystem,
   type ReferenceDesign,
 } from "@/lib/api";
+import { useNamespacePanelStore } from "@/lib/namespace-panel-store";
 import type {
   LayoutAST,
   LayoutSection,
@@ -292,8 +296,11 @@ function clearSnapshot() {
 // ── Main Component ───────────────────────────────────────────────────────────
 export function PresentationPage() {
   const { apiKey } = useAuth();
+  const { setNamespace: setGlobalNamespace } = useNamespace();
+  const router = useRouter();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
+  const setPanelMicrosites = useNamespacePanelStore((s) => s.setMicrosites);
 
   // Restore wizard state from sessionStorage on mount
   const _snap = readSnapshot();
@@ -1045,6 +1052,12 @@ export function PresentationPage() {
             setStep("preview");
             updateExecution(execId, { status: "completed" });
             clearSnapshot();
+            // Prime the namespace panel store so the microsite appears immediately on return to /chat
+            if (selectedNamespace) {
+              fetchPresentations(apiKey, selectedNamespace)
+                .then(ms => setPanelMicrosites(selectedNamespace, ms))
+                .catch(() => {});
+            }
           } else if (event.type === "error") {
             throw new Error(
               (event as { type: "error"; message: string }).message,
@@ -1171,7 +1184,14 @@ export function PresentationPage() {
         generating={generating}
         streamingTotal={generating ? streamingTotal : undefined}
         planSectionTypes={generating ? planSectionTypes : undefined}
-        onBack={generating ? undefined : () => setStep("upload")}
+        onBack={generating ? undefined : () => {
+          if (lockedFromProposal) {
+            if (selectedNamespace) setGlobalNamespace(selectedNamespace);
+            router.push('/chat');
+          } else {
+            setStep("upload");
+          }
+        }}
         onRegenerate={generating ? undefined : () => setStep("generate")}
         onEdit={generating ? undefined : () => setShowEditor(true)}
         namespace={selectedNamespace}
@@ -1474,14 +1494,6 @@ export function PresentationPage() {
                             ))}
                           </select>
                         </div>
-                        {selectedNamespace && (
-                          <p className="muted" style={{ marginTop: 4 }}>
-                            Showing approved proposals for{" "}
-                            <strong style={{ color: "var(--color-text)" }}>
-                              {selectedNamespace}
-                            </strong>
-                          </p>
-                        )}
                       </>
                     )}
                   </div>
@@ -1495,7 +1507,7 @@ export function PresentationPage() {
                           : undefined,
                       }}
                     >
-                      Proposal
+                      Approved proposals
                     </label>
 
                     {lockedFromProposal && selectedProposal && (

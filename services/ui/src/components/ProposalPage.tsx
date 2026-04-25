@@ -888,7 +888,7 @@ export function ProposalPage() {
           /* ── Workspace body ── */
           <div key={searchParams.get('artifact') ?? 'workspace'} className="proposal-view-fadein" style={{ flex: 1, overflowY: 'auto' }}>
             {isLoadingDocument ? (
-              <div className="page-container">
+              <div className="page-container page-container--narrow">
                 <div className="proposal-doc-skeleton">
                   <div className="proposal-doc-skeleton-header" />
                   <div className="proposal-doc-skeleton-section" />
@@ -897,7 +897,7 @@ export function ProposalPage() {
                 </div>
               </div>
             ) : (
-              <div className="page-container">
+              <div className="page-container page-container--narrow">
                 {(regenError || workflowError) && (
                   <p className="error">{regenError || workflowError}</p>
                 )}
