@@ -261,23 +261,33 @@ export function ProposalPage() {
     return parseProposalSections(currentDocument.content, retried).sections.length;
   }, [currentDocument]);
 
+  // Exclude proposals from namespaces that no longer exist
+  const knownProposals = useMemo(() =>
+    namespaces.length === 0
+      ? allProposals
+      : allProposals.filter(p => {
+          const ns = nsFromFileName(p.fileName);
+          return !ns || namespaces.includes(ns);
+        }),
+  [allProposals, namespaces]);
+
   const nsCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    allProposals.forEach((p) => {
+    knownProposals.forEach((p) => {
       const ns = nsFromFileName(p.fileName);
       if (ns) counts[ns] = (counts[ns] ?? 0) + 1;
     });
     return counts;
-  }, [allProposals]);
+  }, [knownProposals]);
 
   const filteredProposals = useMemo(() => {
     const list = browseNs
-      ? allProposals.filter((p) => p.fileName.startsWith(`${browseNs}::`))
-      : allProposals;
+      ? knownProposals.filter((p) => p.fileName.startsWith(`${browseNs}::`))
+      : knownProposals;
     return [...list].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
-  }, [allProposals, browseNs]);
+  }, [knownProposals, browseNs]);
 
   useEffect(() => {
     if (fromChat) return;
@@ -940,7 +950,7 @@ export function ProposalPage() {
                 >
                   {browseNs
                     ? `${browseNs} (${nsCounts[browseNs] ?? 0})`
-                    : `All (${allProposals.length})`
+                    : `All (${knownProposals.length})`
                   }
                   <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
                 </button>
@@ -1074,7 +1084,7 @@ export function ProposalPage() {
             onClick={() => { setBrowseNs(''); setNsDropOpen(false); }}
           >
             <span style={{ flex: 1 }}>All</span>
-            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{allProposals.length}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{knownProposals.length}</span>
             {!browseNs && <Icon icon={Check} size="sm" style={{ color: 'var(--primary)', flexShrink: 0 }} />}
           </button>
           {namespaces.length > 0 && <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />}
