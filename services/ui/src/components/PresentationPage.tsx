@@ -707,6 +707,7 @@ export function PresentationPage() {
     async (p: ProposalFile) => {
       if (!apiKey) return;
       setSelectedProposal(p);
+      if (p.client) setBrand((b) => ({ ...b, companyName: p.client }));
       setLoadingContent(true);
       try {
         const doc = await fetchProposalContent(apiKey, p.fileName);
@@ -720,6 +721,29 @@ export function PresentationPage() {
     },
     [apiKey],
   );
+
+  const resetWizard = useCallback(() => {
+    clearSnapshot();
+    setStep("upload");
+    setSelectedProposal(null);
+    setMdContent("");
+    setProposalsError(null);
+    setBrand((b) => ({ ...b, companyName: "", tagline: "", logoUrl: null, logoText: "" }));
+    setColorsAutoExtracted(false);
+    setDesignBrief("");
+    setReferenceFile(null);
+    setUrlInput("");
+    setUrlReferenceDesign(null);
+    setUrlExtractionState("idle");
+    setProgress([]);
+    setStreamingSections([]);
+    setStreamingTotal(0);
+    setPlanSectionTypes([]);
+    setError(null);
+    setLayoutAST(null);
+    setGeneratedMarkdown(null);
+    setWasGenerating(false);
+  }, []);
 
   const stepIdx = STEPS.findIndex((s) => s.id === step);
 
@@ -1240,7 +1264,7 @@ export function PresentationPage() {
         background: "rgba(0,0,0,0.5)", zIndex: 200,
         alignItems: "flex-start", justifyContent: "center",
         padding: "24px", overflowY: "auto",
-      }} onClick={() => { if (step === "generate" && generating) { setShowCancelConfirm(true); } else { setShowGenerateModal(false); } }}>
+      }} onClick={() => { if (step === "generate" && generating) { setShowCancelConfirm(true); } else { resetWizard(); setShowGenerateModal(false); } }}>
         <div style={{
           background: "var(--color-surface)", border: "1px solid var(--color-border)",
           borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
@@ -1255,6 +1279,7 @@ export function PresentationPage() {
                 if (step === "generate" && generating) {
                   setShowCancelConfirm(true);
                 } else {
+                  resetWizard();
                   setShowGenerateModal(false);
                 }
               }}
@@ -2007,7 +2032,7 @@ export function PresentationPage() {
                             <span key={i} style={{ width: 16, height: 16, borderRadius: 4, background: c, opacity: 0.7 }} />
                           ))}
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+10 MORE</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+20 MORE</span>
                       </div>
                       <div
                         style={{
@@ -2527,6 +2552,66 @@ export function PresentationPage() {
                         </span>
                       )}
                     </div>
+
+                    {/* Image preview — shown when a reference image is attached */}
+                    {referenceFile && referenceFile.mediaType.startsWith("image/") && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{
+                          position: "relative",
+                          borderRadius: 8,
+                          overflow: "hidden",
+                          border: "1px solid var(--color-border, #333)",
+                          background: "var(--color-surface, #1a1a1a)",
+                          lineHeight: 0,
+                        }}>
+                          <img
+                            src={referenceFile.base64}
+                            alt="Reference design preview"
+                            style={{
+                              width: "100%",
+                              maxHeight: 180,
+                              objectFit: "cover",
+                              objectPosition: "top",
+                              display: "block",
+                            }}
+                          />
+                          {/* Extracted color swatches overlay */}
+                          {referenceFile.dominantColors && referenceFile.dominantColors.length > 0 && (
+                            <div style={{
+                              position: "absolute",
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              padding: "6px 8px",
+                              background: "linear-gradient(to top, rgba(0,0,0,0.7), transparent)",
+                              display: "flex",
+                              gap: 4,
+                              alignItems: "center",
+                            }}>
+                              {referenceFile.dominantColors.slice(0, 6).map((color: string, i: number) => (
+                                <span
+                                  key={i}
+                                  title={color}
+                                  style={{
+                                    width: 14,
+                                    height: 14,
+                                    borderRadius: 3,
+                                    background: color,
+                                    border: "1px solid rgba(255,255,255,0.2)",
+                                    display: "inline-block",
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              ))}
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", marginLeft: 2 }}>
+                                extracted colors
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {urlReferenceDesign && (
                       <div
                         style={{

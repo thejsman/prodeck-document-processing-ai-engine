@@ -1328,7 +1328,7 @@ ${el.innerHTML}
             sections={ast.sections ?? []}
             client={ast.meta?.client}
             date={ast.meta?.date}
-            proposedBy={ast.brief?.proposingCompany || ast.brand?.companyName}
+            proposedBy={ast.brief?.proposingCompany}
           />
         </div>
 

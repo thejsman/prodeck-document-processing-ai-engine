@@ -28,7 +28,21 @@ function readAll(): MicrositeHistoryEntry[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as MicrositeHistoryEntry[]) : [];
+    if (!raw) return [];
+    const entries = JSON.parse(raw) as MicrositeHistoryEntry[];
+    // Migration: if proposingCompany was incorrectly set to the client name, clear it
+    // so the footer falls back gracefully rather than showing the client as the proposer.
+    let dirty = false;
+    for (const entry of entries) {
+      const brief = entry.ast?.brief as { proposingCompany?: string } | undefined;
+      const clientName = entry.ast?.brand?.companyName;
+      if (brief && clientName && brief.proposingCompany === clientName) {
+        brief.proposingCompany = '';
+        dirty = true;
+      }
+    }
+    if (dirty) writeAll(entries);
+    return entries;
   } catch {
     return [];
   }
