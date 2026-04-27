@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Check } from 'lucide-react';
 import type { ThemeDefinition, ThemeCategory } from '../../lib/presentation/pluginRegistry';
 
 const CATEGORY_COLORS: Record<ThemeCategory, string> = {
@@ -158,7 +159,7 @@ export function ThemePreviewCard({ theme, selected, onSelect, onPreview, size = 
             background: 'var(--color-primary)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 10, color: '#fff',
-          }}>✓</div>
+          }}><Check size={10} strokeWidth={3} /></div>
         )}
       </div>
 
@@ -200,7 +201,7 @@ export function ThemePreviewCard({ theme, selected, onSelect, onPreview, size = 
             cursor: 'pointer', transition: 'all 0.15s',
           }}
         >
-          {selected ? '✓ Selected' : 'Select'}
+          {selected ? <><Check size={10} strokeWidth={3} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />Selected</> : 'Select'}
         </button>
       </div>
     </div>

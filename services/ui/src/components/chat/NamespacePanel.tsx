@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Loader2, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -12,10 +12,12 @@ import {
   deleteKnowledgeFile,
   type IngestionFile,
   type Presentation,
+  type PresentationConfig,
 } from '@/lib/api';
 import { Icon } from '@/components/ui/Icon';
 import { useNamespacePanelStore } from '@/lib/namespace-panel-store';
 import { useExecutionStore } from '@/core/execution/execution-store';
+import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
 
 // ── Helpers — same as VersionHistory ─────────────────────────────
 
@@ -107,12 +109,67 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
       if (vDiff !== 0) return vDiff;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  const microsites = [...(panelData?.microsites ?? [])]
-    .sort((a, b) => {
-      const vDiff = (parseMicrositeInfo(b.proposalId).version ?? -1) - (parseMicrositeInfo(a.proposalId).version ?? -1);
-      if (vDiff !== 0) return vDiff;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+
+  const { history: localMicrositeHistory } = useMicrositeHistory(namespace);
+
+  const proposalClientMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of proposals) {
+      const parts = p.fileName.split('::');
+      const pid = (parts.length > 1 ? parts.slice(1).join('::') : parts[0]).replace(/\.md$/, '');
+      if (p.client) map.set(pid, p.client);
+    }
+    return map;
+  }, [proposals]);
+
+  // Merge local history (localStorage) with server presentations so the count
+  // stays consistent with the Microsites page, which also uses local history.
+  const microsites = useMemo<(Presentation & { _localId?: string; _clientName?: string })[]>(() => {
+    const serverEntries = panelData?.microsites ?? [];
+    // Build a set of proposalIds covered by local entries
+    const localPropIds = new Set(
+      localMicrositeHistory.map(e => e.ast?.proposalId).filter(Boolean)
+    );
+    // Local entries → Presentation shape; carry brand.companyName through as _clientName
+    // (same source the Microsites page cards use, so names stay consistent)
+    const localAsPresentations = localMicrositeHistory
+      .filter(e => e.ast?.proposalId)
+      .map(e => ({
+        _localId: e.id,
+        _clientName: e.ast?.brand?.companyName || '',
+        namespace: e.namespace,
+        proposalId: e.ast.proposalId,
+        fileName: `${e.namespace}::${e.ast.proposalId}`,
+        config: {} as PresentationConfig,
+        sections: [],
+        createdAt: e.savedAt,
+        updatedAt: e.savedAt,
+      }));
+    // Server entries not already represented by local (avoid duplicates)
+    const serverOnly = serverEntries.filter(m => !localPropIds.has(m.proposalId));
+    return [...localAsPresentations, ...serverOnly]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }, [localMicrositeHistory, panelData?.microsites]);
+
+  // Resolve display name then assign version numbers per client group.
+  // microsites is sorted newest-first; v1 = oldest, vN = newest.
+  const micrositesWithMeta = useMemo(() => {
+    const resolved = microsites.map(m => {
+      const { name: parsedName } = parseMicrositeInfo(m.proposalId);
+      const _m = m as Presentation & { _clientName?: string };
+      const displayName = _m._clientName || proposalClientMap.get(m.proposalId) || (parsedName !== namespace ? parsedName : '') || 'Untitled';
+      return { m, displayName };
     });
+    const nameCount = new Map<string, number>();
+    for (const { displayName } of resolved) nameCount.set(displayName, (nameCount.get(displayName) ?? 0) + 1);
+    const seen = new Map<string, number>();
+    return resolved.map(({ m, displayName }) => {
+      const total = nameCount.get(displayName) ?? 1;
+      const idx = seen.get(displayName) ?? 0;
+      seen.set(displayName, idx + 1);
+      return { m, displayName, version: total - idx };
+    });
+  }, [microsites, proposalClientMap, namespace]);
 
   // Ingested files stay local — no cross-session caching needed
   const [files, setFiles] = useState<IngestionFile[]>([]);
@@ -124,7 +181,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   // This prevents the panel from returning null on the first render after a namespace
   // switch before the fetch effects have had a chance to set loadingProposals/Microsites.
   const effectiveLoadingProposals = loadingProposals || panelData?.proposals === undefined;
-  const effectiveLoadingMicrosites = loadingMicrosites || panelData?.microsites === undefined;
+  const effectiveLoadingMicrosites = (loadingMicrosites || panelData?.microsites === undefined) && localMicrositeHistory.length === 0;
 
   // File hover / menu state — mirrors NamespacesSection pattern
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
@@ -292,26 +349,21 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
               <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No microsites yet</span>
             </div>
           ) : (
-            microsites.map(m => {
-              const { name, version } = parseMicrositeInfo(m.proposalId);
-              return (
+            micrositesWithMeta.map(({ m, displayName, version }) => (
                 <div
-                  key={m.proposalId}
+                  key={(m as Presentation & { _localId?: string })._localId ?? m.proposalId}
                   className="sidebar-link"
                   onClick={() => onMicrositeClick?.(m)}
                   style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', padding: '0 12px' }}
                 >
                   <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                    {name}
+                    {displayName}
                   </span>
-                  {version != null && (
-                    <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                      v{version}
-                    </span>
-                  )}
+                  <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                    v{version}
+                  </span>
                 </div>
-              );
-            })
+              ))
           )}
         </Section>
 

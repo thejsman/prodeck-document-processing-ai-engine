@@ -175,6 +175,26 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
     );
   }
 
+  // Version numbers scoped to namespace+client — matches the namespace panel's per-namespace grouping.
+  // Newest = highest version; key = "namespace::clientName" so "mergecompany" in two namespaces version independently.
+  const combinedWithVersion = (() => {
+    const groupCount = new Map<string, number>();
+    for (const e of combined) {
+      const clientName = e.ast.brand?.companyName || 'Untitled';
+      const key = `${e.namespace}::${clientName}`;
+      groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
+    }
+    const seen = new Map<string, number>();
+    return combined.map(e => {
+      const companyName = e.ast.brand?.companyName || 'Untitled';
+      const key = `${e.namespace}::${companyName}`;
+      const total = groupCount.get(key) ?? 1;
+      const idx = seen.get(key) ?? 0;
+      seen.set(key, idx + 1);
+      return { entry: e, companyName, version: total - idx };
+    });
+  })();
+
   return (
     <>
       {loadingServer && (
@@ -189,11 +209,9 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
       )}
 
       <div className="proposal-cards-grid" style={{ padding: 0, maxWidth: 'none', margin: 0 }}>
-        {combined.map((entry) => {
+        {combinedWithVersion.map(({ entry, companyName, version }) => {
           const accent = getPluginAccent(entry.ast.plugin);
           const pluginName = entry.ast.plugin || "default";
-          const companyName = entry.ast.brand?.companyName || entry.namespace || "Untitled";
-          const sectionCount = entry.ast.sections?.length ?? 0;
 
           return (
             <div key={entry.id} className="proposal-card" style={{ gap: 10 }}>
@@ -212,6 +230,9 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
                     {pluginName}
                   </span>
                 </div>
+                <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                  v{version}
+                </span>
               </div>
 
               <div className="proposal-card-footer">

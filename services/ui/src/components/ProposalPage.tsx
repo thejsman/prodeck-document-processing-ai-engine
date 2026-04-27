@@ -1047,6 +1047,11 @@ export function ProposalPage() {
                             </span>
                           )}
                         </div>
+                        {p.version != null && (
+                          <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                            v{p.version}
+                          </span>
+                        )}
                       </div>
                       <div className="proposal-card-footer">
                         {ns ? (
@@ -1112,15 +1117,6 @@ export function ProposalPage() {
           className="card"
           style={{ position: 'fixed', top: overflowMenuPos.top, right: overflowMenuPos.right, minWidth: 180, padding: '4px 0', zIndex: 99999 }}
         >
-          <button
-            className="btn btn-sm"
-            style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => { setShowGenerateModal(true); setOverflowOpen(false); }}
-            disabled={isGenerating}
-          >
-            Generate Proposal
-          </button>
           {fromChat && (
             <>
               <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />

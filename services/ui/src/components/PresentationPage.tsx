@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X } from "lucide-react";
+import { Check, Globe, Paperclip, X } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useNamespace } from "@/lib/namespace-context";
@@ -338,14 +338,15 @@ export function PresentationPage() {
   const prevNamespaceRef = useRef<string>("");
   const [brand, setBrand] = useState<BrandConfig>(() => {
     if (typeof window === 'undefined') return {
-      companyName: '', tagline: 'Strategy & Design Consultancy',
+      companyName: '', tagline: '',
       logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612',
     };
+    const clientName = (_snap?.lockedFromProposal && _snap?.selectedProposal?.client) ? _snap.selectedProposal.client : '';
     try {
       const saved = localStorage.getItem('agency-brand');
-      if (saved) return { ...JSON.parse(saved), logoUrl: null }; // skip saved logoUrl (too large)
+      if (saved) return { ...JSON.parse(saved), logoUrl: null, ...(clientName ? { companyName: clientName } : {}) };
     } catch { /* ignore */ }
-    return { companyName: '', tagline: 'Strategy & Design Consultancy', logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612' };
+    return { companyName: clientName, tagline: '', logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612' };
   });
 
   // Step 2 – logo extraction
@@ -427,6 +428,7 @@ export function PresentationPage() {
   // Auto-save AST to disk (debounced) whenever it changes after initial generation.
   // This ensures section deletions/edits survive page refresh without requiring
   // the user to open the full editor and click Export.
+  const abortCtrlRef = useRef<AbortController | null>(null);
   const astSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedAstRef = useRef<string>('');
   useEffect(() => {
@@ -454,6 +456,7 @@ export function PresentationPage() {
     if (typeof window === "undefined") return false;
     return !!(_snap?.lockedFromProposal);
   });
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
   const { addEntry } = useMicrositeHistory(selectedNamespace, apiKey);
   // Count reported directly from MicrositeHistory (combined local + server, always accurate)
@@ -872,6 +875,7 @@ export function PresentationPage() {
     });
 
     const abortCtrl = new AbortController();
+    abortCtrlRef.current = abortCtrl;
 
     try {
       setProgress([{ text: "Connecting to AI pipeline...", done: true }]);
@@ -1236,7 +1240,7 @@ export function PresentationPage() {
         background: "rgba(0,0,0,0.5)", zIndex: 200,
         alignItems: "flex-start", justifyContent: "center",
         padding: "24px", overflowY: "auto",
-      }} onClick={() => setShowGenerateModal(false)}>
+      }} onClick={() => { if (step === "generate" && generating) { setShowCancelConfirm(true); } else { setShowGenerateModal(false); } }}>
         <div style={{
           background: "var(--color-surface)", border: "1px solid var(--color-border)",
           borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
@@ -1247,7 +1251,13 @@ export function PresentationPage() {
             <h3 style={{ fontSize: 16, fontWeight: 400, margin: 0 }}>Generate Microsite</h3>
             <button
               className="chat-v2-panel-toggle"
-              onClick={() => setShowGenerateModal(false)}
+              onClick={() => {
+                if (step === "generate" && generating) {
+                  setShowCancelConfirm(true);
+                } else {
+                  setShowGenerateModal(false);
+                }
+              }}
               aria-label="Close"
             >
               <Icon icon={X} size="sm" />
@@ -1320,7 +1330,7 @@ export function PresentationPage() {
                         : "none",
                     }}
                   >
-                    {isDone ? "✓" : i + 1}
+                    {isDone ? <Check size={16} strokeWidth={2.5} /> : i + 1}
                   </div>
                   <div style={{ textAlign: "center" }}>
                     <p
@@ -1409,38 +1419,6 @@ export function PresentationPage() {
                   </p>
                 </div>
               </div>
-              {step === "plugin" && (
-                <button
-                  onClick={() => setIsThemeModalOpen(true)}
-                  style={{
-                    background: "none",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: 8,
-                    padding: "6px 12px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--color-text-muted)",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                  }}
-                >
-                  More themes →
-                  <span
-                    style={{
-                      fontSize: 10,
-                      padding: "1px 6px",
-                      borderRadius: 100,
-                      background: "var(--color-border)",
-                      color: "var(--color-text-muted)",
-                    }}
-                  >
-                    +10
-                  </span>
-                </button>
-              )}
             </div>
 
             {/* Card body */}
@@ -1667,10 +1645,12 @@ export function PresentationPage() {
                   <div className="form-row">
                     {/* Company name */}
                     <div className="form-group">
-                      <label>Company / Logo Name</label>
+                      <label>Client * <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: 12 }}>(this name will appear on the microsite)</span></label>
                       <input
                         type="text"
                         className="input"
+                        placeholder="e.g. Acme Corp"
+                        maxLength={100}
                         value={brand.companyName}
                         onChange={(e) =>
                           setBrand((b) => ({
@@ -1683,7 +1663,7 @@ export function PresentationPage() {
 
                     {/* Logo upload — PNG & SVG only */}
                     <div className="form-group">
-                      <label>Logo (PNG or SVG)</label>
+                      <label>Logo <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: 12 }}>(this logo will appear on the microsite)</span></label>
                       <div
                         style={{
                           display: "flex",
@@ -1798,20 +1778,20 @@ export function PresentationPage() {
                     </div>
                   </div>
 
-                  <div className="form-row">
-                    {/* Tagline */}
-                    <div className="form-group">
-                      <label>Tagline</label>
-                      <input
-                        type="text"
-                        className="input"
-                        value={brand.tagline}
-                        onChange={(e) =>
-                          setBrand((b) => ({ ...b, tagline: e.target.value }))
-                        }
-                      />
-                    </div>
+                  <div className="form-group">
+                    <label>Tagline</label>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="e.g. Strategy & Design Consultancy"
+                      value={brand.tagline}
+                      onChange={(e) =>
+                        setBrand((b) => ({ ...b, tagline: e.target.value }))
+                      }
+                    />
+                  </div>
 
+                  <div className="form-row">
                     {/* Primary color */}
                     <div className="form-group">
                       <label
@@ -1836,32 +1816,42 @@ export function PresentationPage() {
                           </span>
                         )}
                       </label>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          alignItems: "center",
-                        }}
-                      >
-                        <input
-                          type="color"
-                          value={brand.primaryColor || "#888888"}
-                          onChange={(e) => {
-                            setBrand((b) => ({
-                              ...b,
-                              primaryColor: e.target.value,
-                            }));
-                            setColorsAutoExtracted(false);
-                          }}
+                      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                        <label
                           style={{
-                            width: 38,
-                            height: 38,
-                            borderRadius: "var(--radius)",
+                            position: "relative",
+                            width: 35,
+                            flexShrink: 0,
+                            borderRadius: 6,
                             border: "1px solid var(--color-border)",
-                            padding: 2,
+                            background: brand.primaryColor || "#888888",
+                            overflow: "hidden",
                             cursor: "pointer",
+                            display: "block",
                           }}
-                        />
+                        >
+                          <input
+                            type="color"
+                            value={brand.primaryColor || "#888888"}
+                            onChange={(e) => {
+                              setBrand((b) => ({
+                                ...b,
+                                primaryColor: e.target.value,
+                              }));
+                              setColorsAutoExtracted(false);
+                            }}
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              opacity: 0,
+                              cursor: "pointer",
+                              border: "none",
+                              padding: 0,
+                            }}
+                          />
+                        </label>
                         <input
                           type="text"
                           className="input"
@@ -1877,142 +1867,84 @@ export function PresentationPage() {
                         />
                       </div>
                     </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      Secondary Color
-                      {colorsAutoExtracted && (
-                        <span
-                          className="badge"
+                    {/* Secondary color */}
+                    <div className="form-group">
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        Secondary Color
+                        {colorsAutoExtracted && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 10,
+                              background: "var(--color-success)",
+                              color: "#fff",
+                              border: "none",
+                            }}
+                          >
+                            auto
+                          </span>
+                        )}
+                      </label>
+                      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                        <label
                           style={{
-                            fontSize: 10,
-                            background: "var(--color-success)",
-                            color: "#fff",
-                            border: "none",
+                            position: "relative",
+                            width: 35,
+                            flexShrink: 0,
+                            borderRadius: 6,
+                            border: "1px solid var(--color-border)",
+                            background: brand.secondaryColor || "#888888",
+                            overflow: "hidden",
+                            cursor: "pointer",
+                            display: "block",
                           }}
                         >
-                          auto
-                        </span>
-                      )}
-                    </label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        type="color"
-                        value={brand.secondaryColor || "#888888"}
-                        onChange={(e) => {
-                          setBrand((b) => ({
-                            ...b,
-                            secondaryColor: e.target.value,
-                          }));
-                          setColorsAutoExtracted(false);
-                        }}
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: "var(--radius)",
-                          border: "1px solid var(--color-border)",
-                          padding: 2,
-                          cursor: "pointer",
-                        }}
-                      />
-                      <input
-                        type="text"
-                        className="input"
-                        value={brand.secondaryColor}
-                        onChange={(e) => {
-                          setBrand((b) => ({
-                            ...b,
-                            secondaryColor: e.target.value,
-                          }));
-                          setColorsAutoExtracted(false);
-                        }}
-                        style={{ fontFamily: "monospace" }}
-                      />
+                          <input
+                            type="color"
+                            value={brand.secondaryColor || "#888888"}
+                            onChange={(e) => {
+                              setBrand((b) => ({
+                                ...b,
+                                secondaryColor: e.target.value,
+                              }));
+                              setColorsAutoExtracted(false);
+                            }}
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              opacity: 0,
+                              cursor: "pointer",
+                              border: "none",
+                              padding: 0,
+                            }}
+                          />
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={brand.secondaryColor}
+                          onChange={(e) => {
+                            setBrand((b) => ({
+                              ...b,
+                              secondaryColor: e.target.value,
+                            }));
+                            setColorsAutoExtracted(false);
+                          }}
+                          style={{ fontFamily: "monospace" }}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Brand preview */}
-                  <div
-                    className="card"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      marginTop: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: "var(--radius)",
-                        background: brand.logoUrl
-                          ? "transparent"
-                          : brand.primaryColor || "var(--color-border)",
-                        border: "1px solid var(--color-border)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "1rem",
-                        fontWeight: 700,
-                        color: "#fff",
-                        flexShrink: 0,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {brand.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={brand.logoUrl}
-                          alt="logo"
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "contain",
-                          }}
-                        />
-                      ) : (
-                        brand.companyName?.[0] || "?"
-                      )}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontWeight: 600, fontSize: 13, margin: 0 }}>
-                        {brand.companyName || "Company Name"}
-                      </p>
-                      <p className="muted" style={{ fontSize: 12 }}>
-                        {brand.tagline || "Tagline"}
-                      </p>
-                    </div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {[brand.primaryColor, brand.secondaryColor].map((c, i) =>
-                        c ? (
-                          <div
-                            key={i}
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: "50%",
-                              background: c,
-                              border: "1px solid var(--color-border)",
-                            }}
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -2039,6 +1971,59 @@ export function PresentationPage() {
                         size="default"
                       />
                     ))}
+
+                    {/* ── More Themes card ── */}
+                    <button
+                      key="more-themes"
+                      onClick={() => setIsThemeModalOpen(true)}
+                      title="Browse all available themes"
+                      style={{
+                        background: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        border: "2px solid var(--color-border)",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        boxShadow: "var(--shadow)",
+                        transition: "border-color 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: 130,
+                          position: "relative",
+                          overflow: "hidden",
+                          background: "var(--color-surface)",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {["#6366f1", "#f59e0b", "#22c55e", "#ef4444"].map((c, i) => (
+                            <span key={i} style={{ width: 16, height: 16, borderRadius: 4, background: c, opacity: 0.7 }} />
+                          ))}
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+10 MORE</span>
+                      </div>
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          background: "var(--color-surface)",
+                          borderTop: "1px solid var(--color-border)",
+                        }}
+                      >
+                        <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 2px", color: "var(--color-text)" }}>
+                          More Themes
+                        </p>
+                        <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
+                          Browse all styles
+                        </p>
+                      </div>
+                    </button>
 
                     {/* ── No Theme card ── */}
                     {(() => {
@@ -2100,11 +2085,10 @@ export function PresentationPage() {
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
-                                  fontSize: 10,
                                   color: "#fff",
                                 }}
                               >
-                                ✓
+                                <Check size={10} strokeWidth={3} />
                               </div>
                             )}
                           </div>
@@ -2143,16 +2127,6 @@ export function PresentationPage() {
                     })()}
                   </div>
 
-                  {/* Selection hint */}
-                  <p
-                    className="muted"
-                    style={{ fontSize: 11, margin: "10px 0 0" }}
-                  >
-                    {selectedPlugin
-                      ? `Theme: ${PLUGINS.find((p) => p.id === selectedPlugin)?.name ?? selectedPlugin}`
-                      : "No theme selected"}
-                  </p>
-
                   {/* Custom prompt */}
                   <div
                     className="form-group"
@@ -2185,16 +2159,7 @@ export function PresentationPage() {
                     <textarea
                       className="input"
                       rows={8}
-                      placeholder={
-                        "Structure, design, and content — all in one place.\n\n" +
-                        "Examples:\n" +
-                        '• "only generate 1 section: hero"\n' +
-                        '• "make it 3 sections focused on the problem and solution"\n' +
-                        '• "remove pricing, add a benefits section after hero"\n' +
-                        '• "swap hero and challenge order"\n' +
-                        '• "make it beautiful by using images"\n' +
-                        '• "dark premium theme, no CTA in hero, add fade-in animations"'
-                      }
+                      placeholder="e.g. dark premium theme, 3 sections, remove pricing, add fade-in animations…"
                       value={designBrief}
                       onChange={(e) => setDesignBrief(e.target.value)}
                       style={{
@@ -2401,96 +2366,40 @@ export function PresentationPage() {
                         e.target.value = "";
                       }}
                     />
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 8,
-                      }}
-                    >
+                    {/* ── Attach + URL in one row ── */}
+                    <div style={{ display: "flex", alignItems: "stretch", gap: 8, marginTop: 8 }}>
+                      {/* Attach button */}
                       <button
                         type="button"
-                        onClick={() =>
-                          document.getElementById("ref-file-input")?.click()
-                        }
+                        onClick={() => document.getElementById("ref-file-input")?.click()}
                         style={{
-                          fontSize: 12,
-                          padding: "4px 10px",
-                          background: "transparent",
-                          border: "1px solid var(--color-border, #333)",
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 14,
+                          padding: "8px 10px",
+                          background: "var(--color-surface)",
+                          border: "1px solid var(--color-border)",
                           borderRadius: 6,
-                          color: "var(--color-text-muted, #888)",
+                          color: "var(--color-text-muted)",
                           cursor: "pointer",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        📎 Attach design reference
-                      </button>
-                      {referenceFile && (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "3px 8px",
-                            background: "var(--color-surface, #1a1a1a)",
-                            borderRadius: 6,
-                            border: "1px solid var(--color-border, #333)",
-                          }}
-                        >
-                          {referenceFile.mediaType.startsWith("image/") ? (
-                            <img
-                              src={referenceFile.base64}
-                              alt="ref"
-                              style={{
-                                width: 24,
-                                height: 24,
-                                objectFit: "cover",
-                                borderRadius: 3,
-                              }}
-                            />
-                          ) : (
-                            <span style={{ fontSize: 16 }}>📄</span>
-                          )}
+                        <Paperclip size={12} />
+                        {referenceFile ? referenceFile.fileName.slice(0, 18) + (referenceFile.fileName.length > 18 ? "…" : "") : "Attach design screenshot"}
+                        {referenceFile && (
                           <span
-                            style={{
-                              fontSize: 12,
-                              color: "var(--color-text-muted, #888)",
-                              maxWidth: 140,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
+                            onMouseDown={(e) => { e.stopPropagation(); setReferenceFile(null); }}
+                            style={{ marginLeft: 2, lineHeight: 1, cursor: "pointer", color: "var(--color-text-muted, #888)" }}
                           >
-                            {referenceFile.fileName}
+                            <X size={10} />
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => setReferenceFile(null)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              color: "var(--color-text-muted, #888)",
-                              fontSize: 14,
-                              lineHeight: 1,
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </button>
 
-                    {/* URL design reference input */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 8,
-                      }}
-                    >
+                      {/* URL input */}
                       <div style={{ position: "relative", flex: 1 }}>
                         <span
                           style={{
@@ -2498,15 +2407,16 @@ export function PresentationPage() {
                             left: 8,
                             top: "50%",
                             transform: "translateY(-50%)",
-                            fontSize: 13,
                             color: "var(--color-text-muted, #888)",
                             pointerEvents: "none",
+                            display: "flex",
                           }}
                         >
-                          🌐
+                          <Globe size={12} />
                         </span>
                         <input
                           type="url"
+                          className="input"
                           placeholder="Paste a website URL to extract design tokens"
                           value={urlInput}
                           onChange={(e) => {
@@ -2524,19 +2434,14 @@ export function PresentationPage() {
                               clearTimeout(urlDebounceRef.current);
                             urlDebounceRef.current = setTimeout(async () => {
                               try {
-                                const result = await extractUrlDesign(
-                                  apiKey,
-                                  val.trim(),
-                                );
+                                const result = await extractUrlDesign(apiKey, val.trim());
                                 if (result.tokens) {
                                   setUrlReferenceDesign(result.tokens);
                                   setUrlExtractionState("success");
                                 } else {
                                   setUrlReferenceDesign(null);
                                   setUrlExtractionState(
-                                    result.error === "blocked_by_bot_protection"
-                                      ? "blocked"
-                                      : "error",
+                                    result.error === "blocked_by_bot_protection" ? "blocked" : "error",
                                   );
                                 }
                               } catch {
@@ -2545,17 +2450,7 @@ export function PresentationPage() {
                               }
                             }, 800);
                           }}
-                          style={{
-                            width: "100%",
-                            fontSize: 12,
-                            padding: "5px 32px 5px 28px",
-                            background: "var(--color-surface, #1a1a1a)",
-                            border: "1px solid var(--color-border, #333)",
-                            borderRadius: 6,
-                            color: "var(--color-text, #fff)",
-                            outline: "none",
-                            boxSizing: "border-box",
-                          }}
+                          style={{ paddingLeft: 28, paddingRight: 28 }}
                         />
                         {urlInput && (
                           <button
@@ -2564,8 +2459,7 @@ export function PresentationPage() {
                               setUrlInput("");
                               setUrlReferenceDesign(null);
                               setUrlExtractionState("idle");
-                              if (urlDebounceRef.current)
-                                clearTimeout(urlDebounceRef.current);
+                              if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
                             }}
                             style={{
                               position: "absolute",
@@ -2576,12 +2470,12 @@ export function PresentationPage() {
                               border: "none",
                               cursor: "pointer",
                               color: "var(--color-text-muted, #888)",
-                              fontSize: 13,
-                              lineHeight: 1,
+                              display: "flex",
+                              alignItems: "center",
                               padding: 2,
                             }}
                           >
-                            ✕
+                            <X size={10} />
                           </button>
                         )}
                       </div>
@@ -2677,11 +2571,6 @@ export function PresentationPage() {
                       </div>
                     )}
 
-                    <p className="muted" style={{ marginTop: 4 }}>
-                      Drives colors, fonts, section structure, layout variants,
-                      and motion. The more specific you are, the more distinct
-                      the result.
-                    </p>
                   </div>
                 </div>
               )}
@@ -2885,6 +2774,7 @@ export function PresentationPage() {
                 <button
                   className="btn btn-primary"
                   onClick={() => setStep("plugin")}
+                  disabled={!brand.companyName.trim()}
                   style={{ minWidth: 120, width: "auto" }}
                 >
                   Next →
@@ -2937,6 +2827,51 @@ export function PresentationPage() {
           onPreview={handlePreview}
           onClose={() => setIsThemeModalOpen(false)}
         />
+      )}
+
+      {/* Cancel generation confirmation dialog */}
+      {showCancelConfirm && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowCancelConfirm(false); }}
+        >
+          <div style={{ background: "var(--panel, var(--color-surface))", border: "1px solid var(--border, var(--color-border))", borderRadius: 12, width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text, var(--color-text))", margin: 0, lineHeight: 1.5 }}>Cancel microsite creation?</p>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted, var(--color-text-muted))", padding: 2, display: "flex", alignItems: "center" }}
+                ><Icon icon={X} size="md" /></button>
+              </div>
+            </div>
+            <div style={{ height: 1, background: "var(--border, var(--color-border))" }} />
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 14, color: "var(--text, var(--color-text))", marginBottom: 20, lineHeight: 1.5 }}>
+                Your microsite is still being generated. If you cancel now, the current progress will be lost and you&apos;ll need to start over.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border, var(--color-border))", background: "var(--panel-soft, var(--color-surface))", color: "var(--text, var(--color-text))", fontSize: 14, cursor: "pointer" }}
+                >Keep waiting</button>
+                <button
+                  onClick={() => {
+                    abortCtrlRef.current?.abort();
+                    setShowCancelConfirm(false);
+                    setShowGenerateModal(false);
+                    setStep("plugin");
+                    setGenerating(false);
+                    setProgress([]);
+                    setStreamingSections([]);
+                    setError(null);
+                  }}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--danger, #ef4444)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
+                >Cancel creation</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Unified fullscreen theme preview — z-index 10000, above ThemeModal */}
