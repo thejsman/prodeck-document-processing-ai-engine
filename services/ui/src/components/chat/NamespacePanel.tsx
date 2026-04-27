@@ -10,9 +10,12 @@ import {
   fetchPresentations,
   fetchKnowledgeFiles,
   deleteKnowledgeFile,
+  deleteProposal,
+  deleteMicrositeHistoryFromServer,
   type IngestionFile,
   type Presentation,
   type PresentationConfig,
+  type ProposalFile,
 } from '@/lib/api';
 import { Icon } from '@/components/ui/Icon';
 import { useNamespacePanelStore } from '@/lib/namespace-panel-store';
@@ -192,6 +195,26 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   const menuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
+  // Proposal delete state
+  const [hoveredProposal, setHoveredProposal] = useState<string | null>(null);
+  const [menuProposal, setMenuProposal] = useState<ProposalFile | null>(null);
+  const [proposalMenuPos, setProposalMenuPos] = useState({ top: 0, right: 0 });
+  const [confirmProposal, setConfirmProposal] = useState<ProposalFile | null>(null);
+  const [deletingProposal, setDeletingProposal] = useState(false);
+  const proposalMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const proposalDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Microsite delete state
+  const [hoveredMicrosite, setHoveredMicrosite] = useState<string | null>(null);
+  const [menuMicrosite, setMenuMicrosite] = useState<{ id: string; localId?: string; proposalId: string } | null>(null);
+  const [micrositeMenuPos, setMicrositeMenuPos] = useState({ top: 0, right: 0 });
+  const [confirmMicrosite, setConfirmMicrosite] = useState<{ id: string; localId?: string; proposalId: string; displayName: string } | null>(null);
+  const [deletingMicrosite, setDeletingMicrosite] = useState(false);
+  const micrositeMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const micrositeDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const { deleteEntry: deleteMicrositeLocalEntry } = useMicrositeHistory(namespace);
+
   const openFileMenu = useCallback((fileName: string) => {
     const btn = menuBtnRefs.current[fileName];
     if (!btn) return;
@@ -213,6 +236,26 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
     return () => document.removeEventListener('mousedown', handler);
   }, [menuFile]);
 
+  useEffect(() => {
+    if (!menuProposal) return;
+    const handler = (e: MouseEvent) => {
+      const btn = proposalMenuBtnRefs.current[menuProposal.fileName];
+      if (proposalDropdownRef.current && !proposalDropdownRef.current.contains(e.target as Node) && btn && !btn.contains(e.target as Node)) setMenuProposal(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuProposal]);
+
+  useEffect(() => {
+    if (!menuMicrosite) return;
+    const handler = (e: MouseEvent) => {
+      const btn = micrositeMenuBtnRefs.current[menuMicrosite.id];
+      if (micrositeDropdownRef.current && !micrositeDropdownRef.current.contains(e.target as Node) && btn && !btn.contains(e.target as Node)) setMenuMicrosite(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuMicrosite]);
+
   const handleDeleteConfirmed = async () => {
     if (!confirmFile) return;
     setDeleting(true);
@@ -223,6 +266,38 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
     finally {
       setDeleting(false);
       setConfirmFile(null);
+    }
+  };
+
+  const handleDeleteProposalConfirmed = async () => {
+    if (!confirmProposal) return;
+    const p = confirmProposal;
+    const parts = p.fileName.split('::');
+    const ns = parts.length > 1 ? parts[0] : namespace;
+    const file = parts.length > 1 ? parts.slice(1).join('::') : parts[0];
+    setDeletingProposal(true);
+    try {
+      await deleteProposal(apiKey, ns, file);
+      setProposals(namespace, proposals.filter(x => x.fileName !== p.fileName));
+    } catch { /* ignore */ } finally {
+      setDeletingProposal(false);
+      setConfirmProposal(null);
+    }
+  };
+
+  const handleDeleteMicrositeConfirmed = async () => {
+    if (!confirmMicrosite) return;
+    setDeletingMicrosite(true);
+    try {
+      if (confirmMicrosite.localId) {
+        deleteMicrositeLocalEntry(confirmMicrosite.localId);
+      } else {
+        await deleteMicrositeHistoryFromServer(apiKey, namespace);
+        setMicrosites(namespace, (panelData?.microsites ?? []).filter(m => m.proposalId !== confirmMicrosite.proposalId));
+      }
+    } catch { /* ignore */ } finally {
+      setDeletingMicrosite(false);
+      setConfirmMicrosite(null);
     }
   };
 
@@ -349,12 +424,18 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
               <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No microsites yet</span>
             </div>
           ) : (
-            micrositesWithMeta.map(({ m, displayName, version }) => (
+            micrositesWithMeta.map(({ m, displayName, version }) => {
+              const itemId = (m as Presentation & { _localId?: string })._localId ?? m.proposalId;
+              const localId = (m as Presentation & { _localId?: string })._localId;
+              const isHov = hoveredMicrosite === itemId;
+              return (
                 <div
-                  key={(m as Presentation & { _localId?: string })._localId ?? m.proposalId}
+                  key={itemId}
                   className="sidebar-link"
                   onClick={() => onMicrositeClick?.(m)}
-                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', padding: '0 12px' }}
+                  onMouseEnter={() => setHoveredMicrosite(itemId)}
+                  onMouseLeave={() => setHoveredMicrosite(null)}
+                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', paddingLeft: 12, paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
                 >
                   <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                     {displayName}
@@ -362,8 +443,25 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                   <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
                     v{version}
                   </span>
+                  <button
+                    ref={el => { micrositeMenuBtnRefs.current[itemId] = el; }}
+                    className="btn btn-sm"
+                    title="Options"
+                    onClick={e => {
+                      e.stopPropagation();
+                      const btn = micrositeMenuBtnRefs.current[itemId];
+                      if (!btn) return;
+                      const rect = btn.getBoundingClientRect();
+                      setMicrositeMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                      setMenuMicrosite({ id: itemId, localId, proposalId: m.proposalId });
+                    }}
+                    style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHov || menuMicrosite?.id === itemId ? 1 : 0, pointerEvents: isHov || menuMicrosite?.id === itemId ? 'auto' : 'none', transition: 'opacity 0.15s' }}
+                  >
+                    <Icon icon={MoreHorizontal} size="sm" />
+                  </button>
                 </div>
-              ))
+              );
+            })
           )}
         </Section>
 
@@ -381,12 +479,15 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                 ? `/proposal?artifact=${encodeURIComponent(file)}&namespace=${encodeURIComponent(ns)}&from=chat`
                 : `/proposal?artifact=${encodeURIComponent(file)}&from=chat`;
               const badgeClass = statusBadgeClass(p.status);
+              const isHov = hoveredProposal === p.fileName;
               return (
               <div
                 key={p.fileName}
                 className="sidebar-link"
                 onClick={() => router.push(href)}
-                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', padding: '0 12px' }}
+                onMouseEnter={() => setHoveredProposal(p.fileName)}
+                onMouseLeave={() => setHoveredProposal(null)}
+                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', paddingLeft: 12, paddingRight: isHov || menuProposal?.fileName === p.fileName ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
               >
                 <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                   {p.client}
@@ -401,6 +502,22 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                     v{p.version}
                   </span>
                 )}
+                <button
+                  ref={el => { proposalMenuBtnRefs.current[p.fileName] = el; }}
+                  className="btn btn-sm"
+                  title="Options"
+                  onClick={e => {
+                    e.stopPropagation();
+                    const btn = proposalMenuBtnRefs.current[p.fileName];
+                    if (!btn) return;
+                    const rect = btn.getBoundingClientRect();
+                    setProposalMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                    setMenuProposal(p);
+                  }}
+                  style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHov || menuProposal?.fileName === p.fileName ? 1 : 0, pointerEvents: isHov || menuProposal?.fileName === p.fileName ? 'auto' : 'none', transition: 'opacity 0.15s' }}
+                >
+                  <Icon icon={MoreHorizontal} size="sm" />
+                </button>
               </div>
               );
             })
@@ -537,6 +654,102 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                 disabled={deleting}
                 style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}
               >{deleting ? 'Deleting…' : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )}
+
+    {/* Proposal overflow dropdown */}
+    {menuProposal && createPortal(
+      <div
+        ref={proposalDropdownRef}
+        className="card"
+        style={{ position: 'fixed', top: proposalMenuPos.top, right: proposalMenuPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}
+      >
+        <button
+          className="btn btn-sm"
+          style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { const p = menuProposal; setMenuProposal(null); setConfirmProposal(p); }}
+        >
+          <Icon icon={Trash2} size="sm" /><span>Delete</span>
+        </button>
+      </div>,
+      document.body,
+    )}
+
+    {/* Proposal confirm delete dialog */}
+    {confirmProposal && createPortal(
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        onMouseDown={e => { if (e.target === e.currentTarget && !deletingProposal) setConfirmProposal(null); }}
+      >
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+          <div style={{ padding: '20px 24px 0' }}>
+            <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>Delete proposal</p>
+          </div>
+          <div style={{ height: 1, background: 'var(--border)' }} />
+          <div style={{ padding: 24 }}>
+            <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+              Delete the proposal for <strong>"{confirmProposal.client || confirmProposal.fileName}"</strong>?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmProposal(null)} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer' }}>Cancel</button>
+              <button onClick={handleDeleteProposalConfirmed} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer', opacity: deletingProposal ? 0.7 : 1 }}>{deletingProposal ? 'Deleting…' : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )}
+
+    {/* Microsite overflow dropdown */}
+    {menuMicrosite && createPortal(
+      <div
+        ref={micrositeDropdownRef}
+        className="card"
+        style={{ position: 'fixed', top: micrositeMenuPos.top, right: micrositeMenuPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}
+      >
+        <button
+          className="btn btn-sm"
+          style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => {
+            const ms = menuMicrosite;
+            setMenuMicrosite(null);
+            const meta = micrositesWithMeta.find(x => {
+              const id = (x.m as Presentation & { _localId?: string })._localId ?? x.m.proposalId;
+              return id === ms.id;
+            });
+            setConfirmMicrosite({ ...ms, displayName: meta?.displayName ?? ms.proposalId });
+          }}
+        >
+          <Icon icon={Trash2} size="sm" /><span>Delete</span>
+        </button>
+      </div>,
+      document.body,
+    )}
+
+    {/* Microsite confirm delete dialog */}
+    {confirmMicrosite && createPortal(
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        onMouseDown={e => { if (e.target === e.currentTarget && !deletingMicrosite) setConfirmMicrosite(null); }}
+      >
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+          <div style={{ padding: '20px 24px 0' }}>
+            <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>Delete microsite</p>
+          </div>
+          <div style={{ height: 1, background: 'var(--border)' }} />
+          <div style={{ padding: 24 }}>
+            <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+              Delete the microsite for <strong>"{confirmMicrosite.displayName}"</strong>?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmMicrosite(null)} disabled={deletingMicrosite} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingMicrosite ? 'not-allowed' : 'pointer' }}>Cancel</button>
+              <button onClick={handleDeleteMicrositeConfirmed} disabled={deletingMicrosite} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingMicrosite ? 'not-allowed' : 'pointer', opacity: deletingMicrosite ? 0.7 : 1 }}>{deletingMicrosite ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>
         </div>
