@@ -186,6 +186,14 @@ export async function deleteTemplate(apiKey: string, name: string): Promise<void
   await handleResponse<{ deleted: string }>(res);
 }
 
+export async function deleteProposal(apiKey: string, namespace: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/proposals/${encodeURIComponent(namespace)}/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeaders(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
 export async function fetchProposals(apiKey: string): Promise<ProposalFile[]> {
   const res = await fetch('/api/proposals', {
     headers: authHeaders(apiKey),
