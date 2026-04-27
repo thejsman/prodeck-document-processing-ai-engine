@@ -63,7 +63,6 @@ const STEPS: Array<{ id: StepId; label: string; description: string }> = [
     label: "Generate",
     description: "AI builds your microsite",
   },
-  { id: "preview", label: "Preview", description: "Review the result" },
 ];
 
 interface ProgressItem {
@@ -409,6 +408,7 @@ export function PresentationPage() {
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentHistoryIdRef = useRef<string | null>(null);
   const layoutASTRef = useRef<LayoutAST | null>(null);
+  const userCancelledRef = useRef(false);
   const generationStartedAtRef = useRef<number>(
     _snap?.generationStartedAt ?? 0,
   );
@@ -458,7 +458,7 @@ export function PresentationPage() {
   });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
-  const { addEntry } = useMicrositeHistory(selectedNamespace, apiKey);
+  const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace, apiKey);
   // Count reported directly from MicrositeHistory (combined local + server, always accurate)
   const [totalHistoryCount, setTotalHistoryCount] = useState(() =>
     getHistoryCount(),
@@ -840,6 +840,7 @@ export function PresentationPage() {
     // This gives the Gamma-like effect: all skeleton slides appear right away,
     // then fill in as sections arrive — no blank waiting screen.
     generationStartedAtRef.current = Date.now();
+    userCancelledRef.current = false;
     setGenerating(true);
     setError(null);
     setProgress([
@@ -1078,15 +1079,23 @@ export function PresentationPage() {
         });
       }
     } finally {
-      // Safety net: if complete event never fired (e.g. server error during image fetch),
-      // save whatever sections we have so history is never lost.
-      const latestAST = layoutASTRef.current;
-      if (latestAST?.sections?.length) {
-        if (!currentHistoryIdRef.current) {
-          const saved = addEntry(latestAST);
-          currentHistoryIdRef.current = saved.id;
+      if (userCancelledRef.current) {
+        // User cancelled — discard any partial entry already saved during streaming
+        if (currentHistoryIdRef.current) {
+          deleteEntry(currentHistoryIdRef.current);
+          currentHistoryIdRef.current = null;
         }
-        setStep("preview");
+      } else {
+        // Safety net: if complete event never fired (e.g. server error during image fetch),
+        // save whatever sections we have so history is never lost.
+        const latestAST = layoutASTRef.current;
+        if (latestAST?.sections?.length) {
+          if (!currentHistoryIdRef.current) {
+            const saved = addEntry(latestAST);
+            currentHistoryIdRef.current = saved.id;
+          }
+          setStep("preview");
+        }
       }
       setGenerating(false);
     }
@@ -1104,6 +1113,7 @@ export function PresentationPage() {
     updateExecution,
     selectedProposal,
     addEntry,
+    deleteEntry,
     pdfFriendly,
     referenceFile,
     urlReferenceDesign,
@@ -2007,7 +2017,7 @@ export function PresentationPage() {
                             <span key={i} style={{ width: 16, height: 16, borderRadius: 4, background: c, opacity: 0.7 }} />
                           ))}
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+10 MORE</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+{THEME_REGISTRY.filter((t) => !DEFAULT_PLUGIN_IDS.includes(t.id)).length} MORE</span>
                       </div>
                       <div
                         style={{
@@ -2756,9 +2766,6 @@ export function PresentationPage() {
               )}
               {step === "upload" && <span />}
 
-              <span className="muted">
-                Step {stepIdx + 1} of {STEPS.length}
-              </span>
 
               {step === "upload" && (
                 <button
@@ -2857,6 +2864,7 @@ export function PresentationPage() {
                 >Keep waiting</button>
                 <button
                   onClick={() => {
+                    userCancelledRef.current = true;
                     abortCtrlRef.current?.abort();
                     setShowCancelConfirm(false);
                     setShowGenerateModal(false);
