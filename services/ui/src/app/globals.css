@@ -6352,6 +6352,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-top: auto;
 }
 
 .proposal-card-meta {

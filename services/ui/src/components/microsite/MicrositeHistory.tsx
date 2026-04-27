@@ -11,6 +11,7 @@ import {
 } from "@/lib/useMicrositeHistory";
 import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useNamespace } from "@/lib/namespace-context";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
 import type { LayoutAST } from "@/types/presentation";
 
@@ -48,6 +49,7 @@ function formatDate(iso: string): string {
 
 export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { apiKey } = useAuth();
+  const { namespaces } = useNamespace();
   // All local history (no namespace filter)
   const { history: localHistory, deleteEntry, addEntry, updateEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
@@ -99,9 +101,9 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
       (e) => !localNamespaces.has(e.namespace),
     );
 
-    return [...localMapped, ...serverOnly].sort(
-      (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
-    );
+    return [...localMapped, ...serverOnly]
+      .filter(e => namespaces.length === 0 || namespaces.includes(e.namespace))
+      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
   })();
 
   // Report combined count to parent whenever it changes

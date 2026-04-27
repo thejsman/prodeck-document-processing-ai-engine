@@ -102,7 +102,11 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   const setMicrosites = useNamespacePanelStore((s: { setMicrosites: (ns: string, m: import('@/lib/api').Presentation[]) => void }) => s.setMicrosites);
 
   const proposals = [...(panelData?.proposals ?? [])]
-    .sort((a, b) => (b.version ?? -1) - (a.version ?? -1));
+    .sort((a, b) => {
+      const vDiff = (b.version ?? -1) - (a.version ?? -1);
+      if (vDiff !== 0) return vDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   const microsites = [...(panelData?.microsites ?? [])]
     .sort((a, b) => {
       const vDiff = (parseMicrositeInfo(b.proposalId).version ?? -1) - (parseMicrositeInfo(a.proposalId).version ?? -1);
@@ -115,6 +119,12 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   const [loadingProposals, setLoadingProposals] = useState(false);
   const [loadingMicrosites, setLoadingMicrosites] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
+
+  // True if the namespace has never been fetched yet (undefined vs empty array).
+  // This prevents the panel from returning null on the first render after a namespace
+  // switch before the fetch effects have had a chance to set loadingProposals/Microsites.
+  const effectiveLoadingProposals = loadingProposals || panelData?.proposals === undefined;
+  const effectiveLoadingMicrosites = loadingMicrosites || panelData?.microsites === undefined;
 
   // File hover / menu state — mirrors NamespacesSection pattern
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
@@ -251,7 +261,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
 
   if (!namespace) return null;
 
-  const allLoaded = !loadingProposals && !loadingMicrosites && !loadingFiles;
+  const allLoaded = !effectiveLoadingProposals && !effectiveLoadingMicrosites && !loadingFiles;
   const hasContent = proposals.length > 0 || microsites.length > 0 || files.length > 0;
   if (allLoaded && !hasContent) return null;
 
@@ -276,7 +286,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
       <div>
 
         {/* ── Microsites ── */}
-        <Section label="Microsites" loading={loadingMicrosites}>
+        <Section label="Microsites" loading={effectiveLoadingMicrosites}>
           {microsites.length === 0 ? (
             <div style={{ padding: '2px 8px 4px 12px' }}>
               <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No microsites yet</span>
@@ -306,7 +316,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
         </Section>
 
         {/* ── Proposals ── */}
-        <Section label="Proposals" loading={loadingProposals}>
+        <Section label="Proposals" loading={effectiveLoadingProposals}>
           {proposals.length === 0 ? (
             <div style={{ padding: '2px 8px 4px 12px' }}>
               <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No proposals yet</span>
