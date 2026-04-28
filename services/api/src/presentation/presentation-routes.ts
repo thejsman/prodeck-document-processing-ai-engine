@@ -35,11 +35,13 @@ import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
   fetchUnsplashImageUrl,
+  generateGptImage1,
   generateDalle3Image,
   buildDallePrompt,
   resolveImageSource,
   downloadImageToFile,
   buildPicsumUrl,
+  saveBase64ToFile,
 } from '../image-routes.js';
 
 /**
@@ -958,8 +960,18 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
 
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
-              const remoteUrl = await generateDalle3Image(prompt);
-              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              const result = await generateGptImage1(prompt);
+              if (result) {
+                const hash = crypto.createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
+                const filename = `${secId}-${hash}.png`;
+                const destPath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
+                const saved = await saveBase64ToFile(result.b64, destPath);
+                if (saved) sec.image.url = `/presentation-images/${namespace}/${filename}`;
+              } else {
+                // fallback to DALL-E 3 if gpt-image-1 fails
+                const remoteUrl = await generateDalle3Image(prompt);
+                if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              }
             } else if (chosenSource === 'picsum') {
               sec.image.url = await saveImagePersistently(buildPicsumUrl(query), namespace, secId, workdir);
             } else {

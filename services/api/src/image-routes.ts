@@ -242,6 +242,7 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
   // POST /images/batch — fetch images for multiple sections in parallel
   app.post('/images/batch', async (req, reply) => {
     const body = req.body as {
+      namespace?: string;
       sections: Array<{
         id: string;
         sectionType: string;
@@ -275,18 +276,22 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
         if (source === 'dalle') {
           const prompt = buildDallePrompt(sec.sectionType, sec.imageQuery, sec.accentColor);
           const result = await generateGptImage1(prompt);
-          if (!result) return { id: sec.id, url: null, source: 'dalle' as const };
-          // Persist to disk so the image survives beyond the request lifetime
-          if (workdir) {
-            try {
-              const hash = createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
-              const filename = `${sec.id}-${hash}.png`;
-              const destPath = join(workdir, 'assets', 'presentations', 'batch', 'images', filename);
-              const saved = await saveBase64ToFile(result.b64, destPath);
-              if (saved) return { id: sec.id, url: `/presentation-images/batch/${filename}`, source: 'dalle' as const };
-            } catch { /* fall through to data URI */ }
+          if (result) {
+            if (workdir) {
+              try {
+                const ns = body.namespace?.trim() || 'batch';
+                const hash = createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
+                const filename = `${sec.id}-${hash}.png`;
+                const destPath = join(workdir, 'assets', 'presentations', ns, 'images', filename);
+                const saved = await saveBase64ToFile(result.b64, destPath);
+                if (saved) return { id: sec.id, url: `/presentation-images/${ns}/${filename}`, source: 'dalle' as const };
+              } catch { /* fall through to data URI */ }
+            }
+            return { id: sec.id, url: `data:image/png;base64,${result.b64}`, source: 'dalle' as const };
           }
-          return { id: sec.id, url: `data:image/png;base64,${result.b64}`, source: 'dalle' as const };
+          // fallback to DALL-E 3
+          const dalleUrl = await generateDalle3Image(prompt);
+          return { id: sec.id, url: dalleUrl, source: 'dalle' as const };
         }
 
         if (source === 'picsum') {
