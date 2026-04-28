@@ -17,6 +17,7 @@
   --bg:         #0b0f17;
   --panel:      #121826;
   --panel-soft: #151c2e;
+  --panel-item: #1c2538;
   --border:     #1f2937;
 
   /* Text */
@@ -52,6 +53,7 @@
   --bg:         #f7f9fc;
   --panel:      #ffffff;
   --panel-soft: #f1f5f9;
+  --panel-item: #edf2f7;
   --border:     #e5e7eb;
 
   /* Text */

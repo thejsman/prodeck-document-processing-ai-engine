@@ -52,22 +52,21 @@ function Section({ label, loading, children }: SectionProps) {
   const [hovered, setHovered] = useState(false);
 
   return (
-    <div style={{ borderBottom: '1px solid var(--border)' }}>
+    <div>
       <div
         className="sidebar-link"
-        role="button"
         onClick={() => setOpen(v => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        style={{ cursor: 'pointer', borderRadius: 0, paddingLeft: 12 }}
+        style={{ cursor: 'pointer' }}
       >
-        <span className="sidebar-label" style={{ flex: 1, opacity: 0.5, fontSize: 13 }}>{label}</span>
+        <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>{label}</span>
         <Icon
           icon={ChevronDown}
           size="sm"
           style={{
             flexShrink: 0,
-            opacity: hovered ? 0.7 : 0.35,
+            opacity: hovered ? 0.5 : 0,
             transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
             transition: 'opacity 0.15s, transform 0.15s ease',
           }}
@@ -77,7 +76,7 @@ function Section({ label, loading, children }: SectionProps) {
       {open && (
         loading ? (
           <div style={{ padding: '2px 8px 8px' }}>
-            <span className="sidebar-label" style={{ opacity: 0.45, fontSize: 13 }}>Loading…</span>
+            <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.45, fontSize: 13 }}>Loading…</span>
           </div>
         ) : <div style={{ padding: '2px 0 4px' }}>{children}</div>
       )}
@@ -95,9 +94,10 @@ interface Props {
   namespace: string;
   onMicrositeClick?: (m: Presentation) => void;
   fileRefreshTick?: number;
+  onHasContent?: (hasContent: boolean) => void;
 }
 
-export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }: Props) {
+export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, onHasContent }: Props) {
   const { apiKey } = useAuth();
   const router = useRouter();
 
@@ -391,10 +391,14 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
     }
   }, [allExecutions, namespace, apiKey, setProposals, setMicrosites]);
 
-  if (!namespace) return null;
-
   const allLoaded = !effectiveLoadingProposals && !effectiveLoadingMicrosites && !loadingFiles;
   const hasContent = proposals.length > 0 || microsites.length > 0 || files.length > 0;
+
+  useEffect(() => {
+    if (allLoaded) onHasContent?.(hasContent);
+  }, [allLoaded, hasContent, onHasContent]);
+
+  if (!namespace) return null;
   if (allLoaded && !hasContent) return null;
 
   const statusBadgeClass = (status: string | null) => {
@@ -415,13 +419,13 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
   return (
     <>
     <aside className="chat-ctx-panel">
-      <div>
+      <div style={{ padding: '0 8px' }}>
 
         {/* ── Microsites ── */}
         <Section label="Microsites" loading={effectiveLoadingMicrosites}>
           {microsites.length === 0 ? (
             <div style={{ padding: '2px 8px 4px 12px' }}>
-              <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No microsites yet</span>
+              <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No microsites yet</span>
             </div>
           ) : (
             micrositesWithMeta.map(({ m, displayName, version }) => {
@@ -435,7 +439,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                   onClick={() => onMicrositeClick?.(m)}
                   onMouseEnter={() => setHoveredMicrosite(itemId)}
                   onMouseLeave={() => setHoveredMicrosite(null)}
-                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', paddingLeft: 12, paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
+                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
                 >
                   <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                     {displayName}
@@ -469,7 +473,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
         <Section label="Proposals" loading={effectiveLoadingProposals}>
           {proposals.length === 0 ? (
             <div style={{ padding: '2px 8px 4px 12px' }}>
-              <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No proposals yet</span>
+              <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No proposals yet</span>
             </div>
           ) : (
             proposals.map(p => {
@@ -487,7 +491,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                 onClick={() => router.push(href)}
                 onMouseEnter={() => setHoveredProposal(p.fileName)}
                 onMouseLeave={() => setHoveredProposal(null)}
-                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 12px 2px', background: 'var(--panel-soft)', paddingLeft: 12, paddingRight: isHov || menuProposal?.fileName === p.fileName ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
+                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: isHov || menuProposal?.fileName === p.fileName ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
               >
                 <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                   {p.client}
@@ -528,7 +532,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
         <Section label="Ingested Files" loading={loadingFiles}>
           {files.length === 0 ? (
             <div style={{ padding: '2px 8px 4px 12px' }}>
-              <span className="sidebar-label" style={{ opacity: 0.18, fontSize: 13 }}>No files yet</span>
+              <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No files yet</span>
             </div>
           ) : (
             files.map(f => {
@@ -548,8 +552,8 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick }:
                       cursor: 'default',
                       height: 32,
                       minWidth: 0,
-                      margin: '0 12px 2px',
-                      background: isActive ? 'color-mix(in srgb, var(--primary) 12%, var(--panel-soft))' : 'var(--panel-soft)',
+                      margin: '0 0 2px',
+                      background: isActive ? 'color-mix(in srgb, var(--primary) 12%, var(--panel-item))' : 'var(--panel-item)',
                       paddingLeft: 12,
                       paddingRight: isHovered || isMenuOpen ? 36 : 12,
                       transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease, transform 0.2s ease',
