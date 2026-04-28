@@ -446,6 +446,19 @@ export function ProposalPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isLoadingDocument, setIsLoadingDocument] = useState(false);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setHeaderScrolled(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!showGenerateModal || isGenerating) return;
@@ -860,8 +873,9 @@ export function ProposalPage() {
   return (
     <>
       <div className="chat-v2">
+        <div className="chat-v2-center">
         {fromChat && (
-          <header className="chat-v2-header">
+          <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
             {/* ── Workspace header ── */}
             <div className="chat-v2-header-left">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -934,6 +948,7 @@ export function ProposalPage() {
         {fromChat ? (
           /* ── Workspace body ── */
           <div key={searchParams.get('artifact') ?? 'workspace'} className="proposal-view-fadein" style={{ flex: 1, overflowY: 'auto' }}>
+            <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
             {isLoadingDocument ? (
               <div className="page-container page-container--narrow">
                 <div className="proposal-doc-skeleton">
@@ -1133,6 +1148,7 @@ export function ProposalPage() {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Namespace dropdown (portalled, browser mode only) */}

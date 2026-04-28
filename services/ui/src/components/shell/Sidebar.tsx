@@ -112,7 +112,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 13, fontWeight: 600, lineHeight: 1.5, letterSpacing: '0.01em',
           }}>A</div>
-          <span style={{ flex: 1, fontSize: 13, fontWeight: 400, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 400, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             Admin
           </span>
           <button

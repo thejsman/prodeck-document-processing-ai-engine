@@ -312,7 +312,7 @@ export async function handleGenerateProposal(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?file=${encodeURIComponent(namespacedFile)}&ns=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(fileName)}&namespace=${encodeURIComponent(namespace)}`,
       },
     ],
   };
@@ -391,7 +391,7 @@ export async function handleEditProposalSection(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?file=${encodeURIComponent(proposalFileName)}&ns=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
       },
     ],
   };
@@ -791,7 +791,7 @@ export async function handleSetProposalStatus(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?file=${encodeURIComponent(proposalFileName)}&ns=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
       },
     ],
   };

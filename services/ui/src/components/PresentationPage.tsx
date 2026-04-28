@@ -1524,7 +1524,7 @@ export function PresentationPage() {
                     </label>
 
                     {lockedFromProposal && selectedProposal && (
-                      <div className="proposal-card" style={{ borderColor: "var(--primary)" }}>
+                      <div className="proposal-card">
                         <div className="proposal-card-header">
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <span className="proposal-card-name">{selectedProposal.client || selectedProposal.fileName}</span>

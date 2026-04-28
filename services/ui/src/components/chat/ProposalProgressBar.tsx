@@ -1,9 +1,9 @@
 'use client';
 
+import { Check } from 'lucide-react';
 import type { ToolEvent } from '@/lib/use-sse';
 
 // ── Phase → step mapping ────────────────────────────────────────────
-// Ordered list of expected phases; we highlight the active one.
 
 const GENERATION_STEPS = [
   { key: 'outline',   label: 'Planning structure',   phases: ['Planning proposal structure', 'Building section outline'] },
@@ -45,8 +45,16 @@ interface Props {
 
 export function ProposalProgressBar({ phase, toolEvents, sectionCount, isStreaming }: Props) {
   const activeStep = resolveStep(phase);
+  const allDone = !isStreaming && sectionCount > 0;
 
-  // Deduplicate tool calls: keep only last status per tool
+  // Only reveal steps up to (and including) the current active one.
+  // When everything is done, show all four with checks.
+  const visibleCount = allDone
+    ? GENERATION_STEPS.length
+    : activeStep >= 0
+      ? activeStep + 1
+      : 0;
+
   const toolMap = new Map<string, ToolEvent>();
   for (const ev of toolEvents) {
     toolMap.set(ev.tool, ev);
@@ -54,31 +62,38 @@ export function ProposalProgressBar({ phase, toolEvents, sectionCount, isStreami
   const activeTools = [...toolMap.values()].filter((ev) => ev.status === 'started');
   const completedTools = [...toolMap.values()].filter((ev) => ev.status !== 'started');
 
+  if (visibleCount === 0) return null;
+
   return (
     <div className="ppb">
-      {/* Step track */}
-      <div className="ppb-steps">
-        {GENERATION_STEPS.map((step, i) => {
-          const isDone = activeStep > i || (!isStreaming && activeStep === -1 && sectionCount > 0);
+      {/* Vertical step list — steps appear one by one as generation progresses */}
+      <div className="ppb-rows">
+        {GENERATION_STEPS.slice(0, visibleCount).map((step, i) => {
+          const isDone = allDone || activeStep > i;
           const isActive = activeStep === i && isStreaming;
           return (
             <div
               key={step.key}
-              className={`ppb-step${isDone ? ' ppb-step--done' : ''}${isActive ? ' ppb-step--active' : ''}`}
+              className={`ppb-row${isDone ? ' ppb-row--done' : ''}${isActive ? ' ppb-row--active' : ''}`}
             >
-              <div className="ppb-step-icon">
-                {isDone ? '✓' : isActive ? <span className="ppb-spinner" /> : i + 1}
+              <div className="ppb-row-icon">
+                {isDone
+                  ? <Check size={11} strokeWidth={2.5} />
+                  : isActive
+                    ? <span className="ppb-dots"><span /><span /><span /></span>
+                    : null
+                }
               </div>
-              <span className="ppb-step-label">{step.label}</span>
+              <div className="ppb-row-body">
+                <span className="ppb-row-label">{step.label}</span>
+                {isActive && phase && (
+                  <span className="ppb-row-detail">{phase}</span>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
-
-      {/* Phase text */}
-      {phase && isStreaming && (
-        <div className="ppb-phase">{phase}…</div>
-      )}
 
       {/* Active tool calls */}
       {activeTools.length > 0 && (
