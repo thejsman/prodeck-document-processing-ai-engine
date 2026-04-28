@@ -447,18 +447,17 @@ export function ProposalPage() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isLoadingDocument, setIsLoadingDocument] = useState(false);
   const [headerScrolled, setHeaderScrolled] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [sentinelEl, setSentinelEl] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
+    if (!sentinelEl) return;
     const observer = new IntersectionObserver(
       ([entry]) => setHeaderScrolled(!entry.isIntersecting),
       { threshold: 0 },
     );
-    observer.observe(sentinel);
+    observer.observe(sentinelEl);
     return () => observer.disconnect();
-  }, []);
+  }, [sentinelEl]);
 
   useEffect(() => {
     if (!showGenerateModal || isGenerating) return;
@@ -878,29 +877,30 @@ export function ProposalPage() {
           <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
             {/* ── Workspace header ── */}
             <div className="chat-v2-header-left">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
-                  {currentDocument && (
-                    <>
-                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                      <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
-                    </>
-                  )}
-                  {searchParams.get('namespace') && (
-                    <>
-                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                      <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>{searchParams.get('namespace')}</span>
-                    </>
-                  )}
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
                 {currentDocument && (() => {
                   const raw = meta?.createdAt ?? currentDocument.createdAt;
                   const label = raw ? formatCreatedAt(raw) : null;
                   return label ? (
-                    <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
+                    <>
+                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
+                    </>
                   ) : null;
                 })()}
+                {currentDocument && (
+                  <>
+                    <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                    <span className="workspace-stat">{totalSections} section{totalSections !== 1 ? 's' : ''}</span>
+                  </>
+                )}
+                {searchParams.get('namespace') && (
+                  <>
+                    <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                    <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>{searchParams.get('namespace')}</span>
+                  </>
+                )}
               </div>
             </div>
             <div className="chat-v2-header-right">
@@ -948,7 +948,7 @@ export function ProposalPage() {
         {fromChat ? (
           /* ── Workspace body ── */
           <div key={searchParams.get('artifact') ?? 'workspace'} className="proposal-view-fadein" style={{ flex: 1, overflowY: 'auto' }}>
-            <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
+            <div ref={setSentinelEl} style={{ height: 0, flexShrink: 0 }} />
             {isLoadingDocument ? (
               <div className="page-container page-container--narrow">
                 <div className="proposal-doc-skeleton">
@@ -1023,7 +1023,7 @@ export function ProposalPage() {
                   + Generate Proposal
                 </button>
               </div>
-              <div style={{ height: 1, background: 'var(--border)' }} />
+              <div style={{ height: 1, background: 'var(--panel)' }} />
             </div>
             {browseLoading && !pending ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>

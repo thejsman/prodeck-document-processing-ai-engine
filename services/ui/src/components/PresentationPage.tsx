@@ -1261,7 +1261,7 @@ export function PresentationPage() {
             + Generate Microsite
           </button>
         </div>
-        <div style={{ height: 1, background: "var(--border)", marginBottom: 24 }} />
+        <div style={{ height: 1, background: "var(--panel)", marginBottom: 24 }} />
 
         {/* History — always visible */}
         <MicrositeHistory onCountChange={setTotalHistoryCount} />

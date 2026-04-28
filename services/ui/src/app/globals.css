@@ -2195,7 +2195,7 @@ body {
 }
 
 .chat-v2-header--scrolled {
-  border-bottom-color: color-mix(in srgb, var(--border) 40%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border) 55%, var(--panel));
 }
 
 .chat-v2-header-left {
