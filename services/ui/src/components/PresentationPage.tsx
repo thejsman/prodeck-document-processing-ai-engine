@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Globe, Paperclip, X } from "lucide-react";
+import { Check, Globe, ImageIcon, Paperclip, X } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useNamespace } from "@/lib/namespace-context";
@@ -370,6 +370,7 @@ export function PresentationPage() {
     "idle" | "loading" | "success" | "error" | "blocked"
   >("idle");
   const urlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [imagePreviewModal, setImagePreviewModal] = useState<{ type: 'hero' | 'logo'; src: string } | null>(null);
   const [synthStatus, setSynthStatus] = useState<
     null | "scanning" | "building" | "ready"
   >(null);
@@ -2460,6 +2461,7 @@ export function PresentationPage() {
                             if (!val.trim()) {
                               setUrlReferenceDesign(null);
                               setUrlExtractionState("idle");
+                              setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
                               if (urlDebounceRef.current)
                                 clearTimeout(urlDebounceRef.current);
                               return;
@@ -2470,8 +2472,11 @@ export function PresentationPage() {
                             urlDebounceRef.current = setTimeout(async () => {
                               try {
                                 const result = await extractUrlDesign(apiKey, val.trim());
+                                if (result.logoUrl) {
+                                  setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: result.logoUrl! });
+                                }
                                 if (result.tokens) {
-                                  setUrlReferenceDesign(result.tokens);
+                                  setUrlReferenceDesign({ ...result.tokens, heroImageUrl: result.heroImageUrl ?? null });
                                   setUrlExtractionState("success");
                                 } else {
                                   setUrlReferenceDesign(null);
@@ -2495,6 +2500,7 @@ export function PresentationPage() {
                               setUrlReferenceDesign(null);
                               setUrlExtractionState("idle");
                               if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                              setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
                             }}
                             style={{
                               position: "absolute",
@@ -2563,42 +2569,162 @@ export function PresentationPage() {
                       )}
                     </div>
 
-                    {/* Image preview — shown when a reference image is attached */}
-                    {referenceFile && referenceFile.mediaType.startsWith("image/") && (
-                      <div style={{ marginTop: 8 }}>
-                        <div style={{
-                          position: "relative",
-                          borderRadius: 8,
-                          overflow: "hidden",
-                          border: "1px solid var(--color-border, #333)",
+                    {/* Image thumbnails — compact row when any preview is available */}
+                    {(referenceFile?.mediaType.startsWith("image/") || urlReferenceDesign?.heroImageUrl || (urlExtractionState === "success" && brand.logoUrl)) && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "flex-end" }}>
+                        {/* Attached reference file */}
+                        {referenceFile?.mediaType.startsWith("image/") && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+                            <img
+                              src={referenceFile.base64}
+                              alt="Reference design"
+                              style={{
+                                height: 48,
+                                width: 76,
+                                objectFit: "cover",
+                                objectPosition: "top",
+                                borderRadius: 5,
+                                border: "1px solid var(--color-border, #333)",
+                                display: "block",
+                              }}
+                            />
+                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>screenshot</span>
+                          </div>
+                        )}
+                        {/* URL OG / hero image */}
+                        {urlReferenceDesign?.heroImageUrl && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, position: "relative" }}>
+                            <img
+                              src={urlReferenceDesign.heroImageUrl}
+                              alt="Site hero"
+                              title="Click to preview"
+                              onClick={() => setImagePreviewModal({ type: 'hero', src: urlReferenceDesign.heroImageUrl! })}
+                              style={{
+                                height: 48,
+                                width: 76,
+                                objectFit: "cover",
+                                objectPosition: "top",
+                                borderRadius: 5,
+                                border: "1px solid var(--color-border, #333)",
+                                display: "block",
+                                cursor: "zoom-in",
+                              }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).parentElement!.style.display = "none";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              title="Remove hero image (will use AI-generated image instead)"
+                              onClick={() => setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: null } : null)}
+                              style={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                background: "rgba(0,0,0,0.65)",
+                                border: "none",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: 0,
+                                lineHeight: 1,
+                                fontSize: 9,
+                                color: "#fff",
+                              }}
+                            >✕</button>
+                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>hero image</span>
+                          </div>
+                        )}
+                        {/* Extracted brand logo */}
+                        {brand.logoUrl && !brand.logoUrl.startsWith('data:') && urlInput && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, position: "relative" }}>
+                            <div
+                              title="Click to preview"
+                              onClick={() => setImagePreviewModal({ type: 'logo', src: brand.logoUrl! })}
+                              style={{
+                                height: 48,
+                                width: 48,
+                                borderRadius: 5,
+                                border: "1px solid var(--color-border, #333)",
+                                background: "var(--color-surface, #1a1a1a)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                overflow: "hidden",
+                                cursor: "zoom-in",
+                              }}
+                            >
+                              <img
+                                src={brand.logoUrl}
+                                alt="Brand logo"
+                                style={{
+                                  maxHeight: 36,
+                                  maxWidth: 36,
+                                  objectFit: "contain",
+                                  display: "block",
+                                }}
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).parentElement!.parentElement!.style.display = "none";
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              title="Remove logo"
+                              onClick={() => setBrand((b) => ({ ...b, logoUrl: null }))}
+                              style={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                background: "rgba(0,0,0,0.65)",
+                                border: "none",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: 0,
+                                lineHeight: 1,
+                                fontSize: 9,
+                                color: "#fff",
+                              }}
+                            >✕</button>
+                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>logo</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Color extraction — separate block below images */}
+                    {(urlReferenceDesign || (referenceFile?.dominantColors && referenceFile.dominantColors.length > 0)) && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: "6px 8px",
+                          borderRadius: 6,
                           background: "var(--color-surface, #1a1a1a)",
-                          lineHeight: 0,
-                        }}>
-                          <img
-                            src={referenceFile.base64}
-                            alt="Reference design preview"
-                            style={{
-                              width: "100%",
-                              maxHeight: 180,
-                              objectFit: "cover",
-                              objectPosition: "top",
-                              display: "block",
-                            }}
-                          />
-                          {/* Extracted color swatches overlay */}
-                          {referenceFile.dominantColors && referenceFile.dominantColors.length > 0 && (
-                            <div style={{
-                              position: "absolute",
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              padding: "6px 8px",
-                              background: "linear-gradient(to top, rgba(0,0,0,0.7), transparent)",
-                              display: "flex",
-                              gap: 4,
-                              alignItems: "center",
-                            }}>
-                              {referenceFile.dominantColors.slice(0, 6).map((color: string, i: number) => (
+                          border: "1px solid var(--color-border, #333)",
+                          display: "flex",
+                          gap: 5,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        {urlReferenceDesign
+                          ? [
+                              urlReferenceDesign.colors.primary,
+                              urlReferenceDesign.colors.secondary,
+                              urlReferenceDesign.colors.accent,
+                              urlReferenceDesign.colors.background,
+                            ]
+                              .filter(Boolean)
+                              .map((color, i) => (
                                 <span
                                   key={i}
                                   title={color}
@@ -2607,61 +2733,37 @@ export function PresentationPage() {
                                     height: 14,
                                     borderRadius: 3,
                                     background: color,
-                                    border: "1px solid rgba(255,255,255,0.2)",
+                                    border: "1px solid rgba(128,128,128,0.3)",
                                     display: "inline-block",
                                     flexShrink: 0,
                                   }}
                                 />
-                              ))}
-                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.6)", marginLeft: 2 }}>
-                                extracted colors
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {urlReferenceDesign && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          display: "flex",
-                          gap: 6,
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                        }}
-                      >
-                        {[
-                          urlReferenceDesign.colors.primary,
-                          urlReferenceDesign.colors.secondary,
-                          urlReferenceDesign.colors.accent,
-                          urlReferenceDesign.colors.background,
-                        ]
-                          .filter(Boolean)
-                          .map((color, i) => (
-                            <span
-                              key={i}
-                              style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: 3,
-                                background: color,
-                                border: "1px solid var(--color-border, #333)",
-                                display: "inline-block",
-                              }}
-                              title={color}
-                            />
-                          ))}
+                              ))
+                          : referenceFile!.dominantColors!.slice(0, 6).map((color: string, i: number) => (
+                              <span
+                                key={i}
+                                title={color}
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  borderRadius: 3,
+                                  background: color,
+                                  border: "1px solid rgba(128,128,128,0.3)",
+                                  display: "inline-block",
+                                  flexShrink: 0,
+                                }}
+                              />
+                            ))}
                         <span
                           style={{
-                            fontSize: 11,
+                            fontSize: 10,
                             color: "var(--color-text-muted, #888)",
-                            marginLeft: 4,
+                            marginLeft: 2,
                           }}
                         >
-                          {urlReferenceDesign.typography.headingFont} ·{" "}
-                          {urlReferenceDesign.style.borderRadius}
+                          {urlReferenceDesign
+                            ? `${urlReferenceDesign.typography.headingFont} · ${urlReferenceDesign.style.borderRadius}`
+                            : "extracted colors"}
                         </span>
                       </div>
                     )}
@@ -2962,6 +3064,168 @@ export function PresentationPage() {
                   style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--danger, #ef4444)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
                 >Cancel creation</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image preview modal — hero image or brand logo */}
+      {imagePreviewModal && (
+        <div
+          onClick={() => setImagePreviewModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9500,
+            background: "rgba(0,0,0,0.78)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--color-surface, #1a1a1a)",
+              border: "1px solid var(--color-border, #333)",
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: "min(640px, 90vw)",
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+          >
+            {/* Hidden file input for local gallery selection */}
+            <input
+              id="modal-gallery-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (file.size > 8 * 1024 * 1024) {
+                  alert('Image must be under 8 MB');
+                  e.target.value = '';
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const dataUrl = reader.result as string;
+                  if (imagePreviewModal.type === 'hero') {
+                    setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: dataUrl } : prev);
+                  } else {
+                    setBrand((b) => ({ ...b, logoUrl: dataUrl }));
+                  }
+                  setImagePreviewModal((prev) => prev ? { ...prev, src: dataUrl } : null);
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }}
+            />
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text, #fff)" }}>
+                {imagePreviewModal.type === 'hero' ? 'Hero Image' : 'Brand Logo'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setImagePreviewModal(null)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted, #888)", display: "flex", alignItems: "center", padding: 4 }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Image */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--color-bg, #111)",
+              borderRadius: 8,
+              overflow: "hidden",
+              minHeight: 180,
+            }}>
+              <img
+                src={imagePreviewModal.src}
+                alt={imagePreviewModal.type === 'hero' ? 'Hero image preview' : 'Brand logo preview'}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: imagePreviewModal.type === 'hero' ? 360 : 240,
+                  objectFit: imagePreviewModal.type === 'hero' ? "cover" : "contain",
+                  borderRadius: 6,
+                  display: "block",
+                }}
+              />
+            </div>
+
+            {/* Note */}
+            <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-muted, #888)", lineHeight: 1.5 }}>
+              {imagePreviewModal.type === 'hero'
+                ? 'This image will be used as the hero section background. Remove it to let the AI generate one instead.'
+                : 'This logo will appear in the microsite header and footer. Remove it to use the default brand icon.'}
+            </p>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => document.getElementById('modal-gallery-input')?.click()}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: 7,
+                  border: "1px solid var(--color-border, #333)",
+                  background: "transparent",
+                  color: "var(--color-text-muted, #888)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginRight: "auto",
+                }}
+              >
+                <ImageIcon size={14} />
+                Choose from device
+              </button>
+              <button
+                type="button"
+                onClick={() => setImagePreviewModal(null)}
+                style={{
+                  padding: "7px 16px",
+                  borderRadius: 7,
+                  border: "1px solid var(--color-border, #333)",
+                  background: "transparent",
+                  color: "var(--color-text-muted, #888)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >Keep</button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (imagePreviewModal.type === 'hero') {
+                    setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: null } : null);
+                  } else {
+                    setBrand((b) => ({ ...b, logoUrl: null }));
+                  }
+                  setImagePreviewModal(null);
+                }}
+                style={{
+                  padding: "7px 16px",
+                  borderRadius: 7,
+                  border: "none",
+                  background: "var(--danger, #ef4444)",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >Remove</button>
             </div>
           </div>
         </div>
