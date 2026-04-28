@@ -186,6 +186,14 @@ export async function deleteTemplate(apiKey: string, name: string): Promise<void
   await handleResponse<{ deleted: string }>(res);
 }
 
+export async function deleteProposal(apiKey: string, namespace: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/proposals/${encodeURIComponent(namespace)}/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeaders(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
 export async function fetchProposals(apiKey: string): Promise<ProposalFile[]> {
   const res = await fetch('/api/proposals', {
     headers: authHeaders(apiKey),
@@ -725,6 +733,7 @@ export interface ReferenceDesign {
     spacing: 'compact' | 'comfortable' | 'spacious';
     vibe: string;
   };
+  heroImageUrl?: string | null;
 }
 
 export interface GenerateStreamOptions {
@@ -922,7 +931,7 @@ export async function editProposalSection(
 export async function extractUrlDesign(
   apiKey: string,
   url: string,
-): Promise<{ tokens: ReferenceDesign | null; error?: string }> {
+): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; error?: string }> {
   try {
     const res = await fetch('/api/microsite/extract-url-design', {
       method: 'POST',
@@ -930,7 +939,7 @@ export async function extractUrlDesign(
       body: JSON.stringify({ url }),
     });
     if (!res.ok) return { tokens: null, error: 'request_failed' };
-    return res.json() as Promise<{ tokens: ReferenceDesign | null; error?: string }>;
+    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; error?: string }>;
   } catch {
     return { tokens: null, error: 'network_error' };
   }

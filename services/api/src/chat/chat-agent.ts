@@ -400,6 +400,16 @@ async function persistState(
   // Derive a recentTopic from the classified intent for the next turn
   metadata.recentTopic = intentToTopic(classification.intent);
 
+  // Persist the proposal artifact ID so the chat history card can rehydrate
+  const proposalCard = response.actionCards?.find((c) => c.type === 'view_proposal');
+  if (proposalCard?.href) {
+    try {
+      const u = new URL(proposalCard.href, 'http://x');
+      const artifact = u.searchParams.get('artifact');
+      if (artifact) metadata.proposalArtifactId = artifact;
+    } catch { /* ignore malformed href */ }
+  }
+
   // Non-fatal: history persistence failures must not crash the pipeline
   await appendChatTurn(
     workdir,

@@ -18,6 +18,11 @@ interface DalleResponse {
   error?: { message: string };
 }
 
+interface GptImage1Response {
+  data: Array<{ b64_json?: string }>;
+  error?: { message: string };
+}
+
 // ── Source routing rules ──────────────────────────────────────────────────
 
 type ImageSource = 'unsplash' | 'dalle' | 'picsum' | 'gradient';
@@ -66,7 +71,34 @@ export async function fetchUnsplashImageUrl(query: string): Promise<string | nul
   return null;
 }
 
-// ── DALL-E 3 helper ───────────────────────────────────────────────────────
+// ── gpt-image-1 helper (primary) ──────────────────────────────────────────
+
+export async function generateGptImage1(prompt: string): Promise<{ b64: string } | null> {
+  const key = env.OPENAI_API_KEY;
+  if (!key?.trim()) return null;
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt,
+        n: 1,
+        size: '1536x1024',
+        quality: 'high',
+      }),
+    });
+    const json = await res.json() as GptImage1Response;
+    if (!res.ok) return null;
+    const b64 = json.data[0]?.b64_json;
+    return b64 ? { b64 } : null;
+  } catch { return null; }
+}
+
+// ── DALL-E 3 helper (fallback) ────────────────────────────────────────────
 
 export async function generateDalle3Image(prompt: string): Promise<string | null> {
   const key = env.OPENAI_API_KEY;
@@ -132,6 +164,15 @@ export async function downloadImageToFile(remoteUrl: string, destPath: string): 
   } catch { return false; }
 }
 
+export async function saveBase64ToFile(b64: string, destPath: string): Promise<boolean> {
+  try {
+    const buf = Buffer.from(b64, 'base64');
+    await mkdir(dirname(destPath), { recursive: true });
+    await writeFile(destPath, buf);
+    return true;
+  } catch { return false; }
+}
+
 // ── Route registration ────────────────────────────────────────────────────
 
 export function registerImageRoutes(app: FastifyInstance, workdir?: string): void {
@@ -171,53 +212,27 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
         : `Professional business concept art. ${styleDesc}${kwStr}. Beautiful, modern, no text or words.`;
 
     try {
-      const res = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'dall-e-3',
-          prompt: basePrompt,
-          n: 1,
-          size: '1792x1024',
-          quality: 'standard',
-          response_format: 'url',
-        }),
-      });
-
-      const json = (await res.json()) as DalleResponse;
-
-      if (!res.ok) {
-        return reply.status(res.status).send({ error: json.error?.message ?? `OpenAI error ${res.status}` });
+      const result = await generateGptImage1(basePrompt);
+      if (!result) {
+        return reply.status(500).send({ error: 'No image returned from gpt-image-1' });
       }
 
-      const url = json.data[0]?.url;
-      if (!url) {
-        return reply.status(500).send({ error: 'No image URL returned' });
-      }
-
-      // Persist to local disk so the URL never expires
+      // Persist to local disk as a permanent file
       const namespace = body.namespace?.trim();
       const sectionId = body.sectionId?.trim();
       if (workdir && namespace && sectionId) {
         try {
-          const hash = createHash('sha1').update(url).digest('hex').slice(0, 8);
-          const filename = `${sectionId}-${hash}.jpg`;
-          const imagesDir = join(workdir, 'assets', 'presentations', namespace, 'images');
-          await mkdir(imagesDir, { recursive: true });
-          const destPath = join(imagesDir, filename);
-          const imgRes = await fetch(url);
-          if (imgRes.ok) {
-            const buf = Buffer.from(await imgRes.arrayBuffer());
-            await writeFile(destPath, buf);
+          const hash = createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
+          const filename = `${sectionId}-${hash}.png`;
+          const destPath = join(workdir, 'assets', 'presentations', namespace, 'images', filename);
+          const saved = await saveBase64ToFile(result.b64, destPath);
+          if (saved) {
             return reply.send({ url: `/presentation-images/${namespace}/${filename}` });
           }
-        } catch { /* fall through to raw URL */ }
+        } catch { /* fall through to data URI */ }
       }
 
-      return reply.send({ url });
+      return reply.send({ url: `data:image/png;base64,${result.b64}` });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: `Image generation failed: ${msg}` });
@@ -227,6 +242,7 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
   // POST /images/batch — fetch images for multiple sections in parallel
   app.post('/images/batch', async (req, reply) => {
     const body = req.body as {
+      namespace?: string;
       sections: Array<{
         id: string;
         sectionType: string;
@@ -259,8 +275,23 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
 
         if (source === 'dalle') {
           const prompt = buildDallePrompt(sec.sectionType, sec.imageQuery, sec.accentColor);
-          const url = await generateDalle3Image(prompt);
-          return { id: sec.id, url, source: 'dalle' as const };
+          const result = await generateGptImage1(prompt);
+          if (result) {
+            if (workdir) {
+              try {
+                const ns = body.namespace?.trim() || 'batch';
+                const hash = createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
+                const filename = `${sec.id}-${hash}.png`;
+                const destPath = join(workdir, 'assets', 'presentations', ns, 'images', filename);
+                const saved = await saveBase64ToFile(result.b64, destPath);
+                if (saved) return { id: sec.id, url: `/presentation-images/${ns}/${filename}`, source: 'dalle' as const };
+              } catch { /* fall through to data URI */ }
+            }
+            return { id: sec.id, url: `data:image/png;base64,${result.b64}`, source: 'dalle' as const };
+          }
+          // fallback to DALL-E 3
+          const dalleUrl = await generateDalle3Image(prompt);
+          return { id: sec.id, url: dalleUrl, source: 'dalle' as const };
         }
 
         if (source === 'picsum') {

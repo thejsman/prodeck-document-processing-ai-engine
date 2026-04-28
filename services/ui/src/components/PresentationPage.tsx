@@ -1,15 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Check, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, Globe, ImageIcon, Paperclip, X } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
+import { useNamespace } from "@/lib/namespace-context";
 import { useExecutionStore } from "@/core/execution/execution-store";
 import {
   fetchNamespaces,
   fetchProposals,
   fetchProposalContent,
   fetchMicrositeContent,
+  fetchPresentations,
   generateMicrositeStream,
   saveMicrositeAst,
   extractUrlDesign,
@@ -18,6 +21,7 @@ import {
   type SynthesizedDesignSystem,
   type ReferenceDesign,
 } from "@/lib/api";
+import { useNamespacePanelStore } from "@/lib/namespace-panel-store";
 import type {
   LayoutAST,
   LayoutSection,
@@ -59,7 +63,6 @@ const STEPS: Array<{ id: StepId; label: string; description: string }> = [
     label: "Generate",
     description: "AI builds your microsite",
   },
-  { id: "preview", label: "Preview", description: "Review the result" },
 ];
 
 interface ProgressItem {
@@ -292,8 +295,11 @@ function clearSnapshot() {
 // ── Main Component ───────────────────────────────────────────────────────────
 export function PresentationPage() {
   const { apiKey } = useAuth();
+  const { setNamespace: setGlobalNamespace } = useNamespace();
+  const router = useRouter();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
+  const setPanelMicrosites = useNamespacePanelStore((s) => s.setMicrosites);
 
   // Restore wizard state from sessionStorage on mount
   const _snap = readSnapshot();
@@ -331,14 +337,15 @@ export function PresentationPage() {
   const prevNamespaceRef = useRef<string>("");
   const [brand, setBrand] = useState<BrandConfig>(() => {
     if (typeof window === 'undefined') return {
-      companyName: '', tagline: 'Strategy & Design Consultancy',
+      companyName: '', tagline: '',
       logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612',
     };
+    const clientName = (_snap?.lockedFromProposal && _snap?.selectedProposal?.client) ? _snap.selectedProposal.client : '';
     try {
       const saved = localStorage.getItem('agency-brand');
-      if (saved) return { ...JSON.parse(saved), logoUrl: null }; // skip saved logoUrl (too large)
+      if (saved) return { ...JSON.parse(saved), logoUrl: null, ...(clientName ? { companyName: clientName } : {}) };
     } catch { /* ignore */ }
-    return { companyName: '', tagline: 'Strategy & Design Consultancy', logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612' };
+    return { companyName: clientName, tagline: '', logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612' };
   });
 
   // Step 2 – logo extraction
@@ -363,6 +370,7 @@ export function PresentationPage() {
     "idle" | "loading" | "success" | "error" | "blocked"
   >("idle");
   const urlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [imagePreviewModal, setImagePreviewModal] = useState<{ type: 'hero' | 'logo'; src: string } | null>(null);
   const [synthStatus, setSynthStatus] = useState<
     null | "scanning" | "building" | "ready"
   >(null);
@@ -401,6 +409,7 @@ export function PresentationPage() {
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentHistoryIdRef = useRef<string | null>(null);
   const layoutASTRef = useRef<LayoutAST | null>(null);
+  const userCancelledRef = useRef(false);
   const generationStartedAtRef = useRef<number>(
     _snap?.generationStartedAt ?? 0,
   );
@@ -420,6 +429,7 @@ export function PresentationPage() {
   // Auto-save AST to disk (debounced) whenever it changes after initial generation.
   // This ensures section deletions/edits survive page refresh without requiring
   // the user to open the full editor and click Export.
+  const abortCtrlRef = useRef<AbortController | null>(null);
   const astSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedAstRef = useRef<string>('');
   useEffect(() => {
@@ -447,8 +457,9 @@ export function PresentationPage() {
     if (typeof window === "undefined") return false;
     return !!(_snap?.lockedFromProposal);
   });
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
-  const { addEntry } = useMicrositeHistory(selectedNamespace, apiKey);
+  const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace, apiKey);
   // Count reported directly from MicrositeHistory (combined local + server, always accurate)
   const [totalHistoryCount, setTotalHistoryCount] = useState(() =>
     getHistoryCount(),
@@ -697,6 +708,7 @@ export function PresentationPage() {
     async (p: ProposalFile) => {
       if (!apiKey) return;
       setSelectedProposal(p);
+      if (p.client) setBrand((b) => ({ ...b, companyName: p.client }));
       setLoadingContent(true);
       try {
         const doc = await fetchProposalContent(apiKey, p.fileName);
@@ -710,6 +722,29 @@ export function PresentationPage() {
     },
     [apiKey],
   );
+
+  const resetWizard = useCallback(() => {
+    clearSnapshot();
+    setStep("upload");
+    setSelectedProposal(null);
+    setMdContent("");
+    setProposalsError(null);
+    setBrand((b) => ({ ...b, companyName: "", tagline: "", logoUrl: null, logoText: "" }));
+    setColorsAutoExtracted(false);
+    setDesignBrief("");
+    setReferenceFile(null);
+    setUrlInput("");
+    setUrlReferenceDesign(null);
+    setUrlExtractionState("idle");
+    setProgress([]);
+    setStreamingSections([]);
+    setStreamingTotal(0);
+    setPlanSectionTypes([]);
+    setError(null);
+    setLayoutAST(null);
+    setGeneratedMarkdown(null);
+    setWasGenerating(false);
+  }, []);
 
   const stepIdx = STEPS.findIndex((s) => s.id === step);
 
@@ -830,6 +865,7 @@ export function PresentationPage() {
     // This gives the Gamma-like effect: all skeleton slides appear right away,
     // then fill in as sections arrive — no blank waiting screen.
     generationStartedAtRef.current = Date.now();
+    userCancelledRef.current = false;
     setGenerating(true);
     setError(null);
     setProgress([
@@ -865,6 +901,7 @@ export function PresentationPage() {
     });
 
     const abortCtrl = new AbortController();
+    abortCtrlRef.current = abortCtrl;
 
     try {
       setProgress([{ text: "Connecting to AI pipeline...", done: true }]);
@@ -1045,6 +1082,12 @@ export function PresentationPage() {
             setStep("preview");
             updateExecution(execId, { status: "completed" });
             clearSnapshot();
+            // Prime the namespace panel store so the microsite appears immediately on return to /chat
+            if (selectedNamespace) {
+              fetchPresentations(apiKey, selectedNamespace)
+                .then(ms => setPanelMicrosites(selectedNamespace, ms))
+                .catch(() => {});
+            }
           } else if (event.type === "error") {
             throw new Error(
               (event as { type: "error"; message: string }).message,
@@ -1061,15 +1104,23 @@ export function PresentationPage() {
         });
       }
     } finally {
-      // Safety net: if complete event never fired (e.g. server error during image fetch),
-      // save whatever sections we have so history is never lost.
-      const latestAST = layoutASTRef.current;
-      if (latestAST?.sections?.length) {
-        if (!currentHistoryIdRef.current) {
-          const saved = addEntry(latestAST);
-          currentHistoryIdRef.current = saved.id;
+      if (userCancelledRef.current) {
+        // User cancelled — discard any partial entry already saved during streaming
+        if (currentHistoryIdRef.current) {
+          deleteEntry(currentHistoryIdRef.current);
+          currentHistoryIdRef.current = null;
         }
-        setStep("preview");
+      } else {
+        // Safety net: if complete event never fired (e.g. server error during image fetch),
+        // save whatever sections we have so history is never lost.
+        const latestAST = layoutASTRef.current;
+        if (latestAST?.sections?.length) {
+          if (!currentHistoryIdRef.current) {
+            const saved = addEntry(latestAST);
+            currentHistoryIdRef.current = saved.id;
+          }
+          setStep("preview");
+        }
       }
       setGenerating(false);
     }
@@ -1087,6 +1138,7 @@ export function PresentationPage() {
     updateExecution,
     selectedProposal,
     addEntry,
+    deleteEntry,
     pdfFriendly,
     referenceFile,
     urlReferenceDesign,
@@ -1171,7 +1223,14 @@ export function PresentationPage() {
         generating={generating}
         streamingTotal={generating ? streamingTotal : undefined}
         planSectionTypes={generating ? planSectionTypes : undefined}
-        onBack={generating ? undefined : () => setStep("upload")}
+        onBack={generating ? undefined : () => {
+          if (lockedFromProposal) {
+            if (selectedNamespace) setGlobalNamespace(selectedNamespace);
+            router.push('/chat');
+          } else {
+            setStep("upload");
+          }
+        }}
         onRegenerate={generating ? undefined : () => setStep("generate")}
         onEdit={generating ? undefined : () => setShowEditor(true)}
         namespace={selectedNamespace}
@@ -1216,7 +1275,7 @@ export function PresentationPage() {
         background: "rgba(0,0,0,0.5)", zIndex: 200,
         alignItems: "flex-start", justifyContent: "center",
         padding: "24px", overflowY: "auto",
-      }} onClick={() => setShowGenerateModal(false)}>
+      }} onClick={() => { if (step === "generate" && generating) { setShowCancelConfirm(true); } else { resetWizard(); setShowGenerateModal(false); } }}>
         <div style={{
           background: "var(--color-surface)", border: "1px solid var(--color-border)",
           borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
@@ -1227,7 +1286,14 @@ export function PresentationPage() {
             <h3 style={{ fontSize: 16, fontWeight: 400, margin: 0 }}>Generate Microsite</h3>
             <button
               className="chat-v2-panel-toggle"
-              onClick={() => setShowGenerateModal(false)}
+              onClick={() => {
+                if (step === "generate" && generating) {
+                  setShowCancelConfirm(true);
+                } else {
+                  resetWizard();
+                  setShowGenerateModal(false);
+                }
+              }}
               aria-label="Close"
             >
               <Icon icon={X} size="sm" />
@@ -1300,7 +1366,7 @@ export function PresentationPage() {
                         : "none",
                     }}
                   >
-                    {isDone ? "✓" : i + 1}
+                    {isDone ? <Check size={16} strokeWidth={2.5} /> : i + 1}
                   </div>
                   <div style={{ textAlign: "center" }}>
                     <p
@@ -1389,38 +1455,6 @@ export function PresentationPage() {
                   </p>
                 </div>
               </div>
-              {step === "plugin" && (
-                <button
-                  onClick={() => setIsThemeModalOpen(true)}
-                  style={{
-                    background: "none",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: 8,
-                    padding: "6px 12px",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--color-text-muted)",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                  }}
-                >
-                  More themes →
-                  <span
-                    style={{
-                      fontSize: 10,
-                      padding: "1px 6px",
-                      borderRadius: 100,
-                      background: "var(--color-border)",
-                      color: "var(--color-text-muted)",
-                    }}
-                  >
-                    +10
-                  </span>
-                </button>
-              )}
             </div>
 
             {/* Card body */}
@@ -1474,14 +1508,6 @@ export function PresentationPage() {
                             ))}
                           </select>
                         </div>
-                        {selectedNamespace && (
-                          <p className="muted" style={{ marginTop: 4 }}>
-                            Showing approved proposals for{" "}
-                            <strong style={{ color: "var(--color-text)" }}>
-                              {selectedNamespace}
-                            </strong>
-                          </p>
-                        )}
                       </>
                     )}
                   </div>
@@ -1495,11 +1521,11 @@ export function PresentationPage() {
                           : undefined,
                       }}
                     >
-                      Proposal
+                      Approved proposals
                     </label>
 
                     {lockedFromProposal && selectedProposal && (
-                      <div className="proposal-card" style={{ borderColor: "var(--primary)" }}>
+                      <div className="proposal-card">
                         <div className="proposal-card-header">
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <span className="proposal-card-name">{selectedProposal.client || selectedProposal.fileName}</span>
@@ -1655,10 +1681,12 @@ export function PresentationPage() {
                   <div className="form-row">
                     {/* Company name */}
                     <div className="form-group">
-                      <label>Company / Logo Name</label>
+                      <label>Client * <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: 12 }}>(this name will appear on the microsite)</span></label>
                       <input
                         type="text"
                         className="input"
+                        placeholder="e.g. Acme Corp"
+                        maxLength={100}
                         value={brand.companyName}
                         onChange={(e) =>
                           setBrand((b) => ({
@@ -1671,7 +1699,7 @@ export function PresentationPage() {
 
                     {/* Logo upload — PNG & SVG only */}
                     <div className="form-group">
-                      <label>Logo (PNG or SVG)</label>
+                      <label>Logo <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: 12 }}>(this logo will appear on the microsite)</span></label>
                       <div
                         style={{
                           display: "flex",
@@ -1786,20 +1814,20 @@ export function PresentationPage() {
                     </div>
                   </div>
 
-                  <div className="form-row">
-                    {/* Tagline */}
-                    <div className="form-group">
-                      <label>Tagline</label>
-                      <input
-                        type="text"
-                        className="input"
-                        value={brand.tagline}
-                        onChange={(e) =>
-                          setBrand((b) => ({ ...b, tagline: e.target.value }))
-                        }
-                      />
-                    </div>
+                  <div className="form-group">
+                    <label>Tagline</label>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="e.g. Strategy & Design Consultancy"
+                      value={brand.tagline}
+                      onChange={(e) =>
+                        setBrand((b) => ({ ...b, tagline: e.target.value }))
+                      }
+                    />
+                  </div>
 
+                  <div className="form-row">
                     {/* Primary color */}
                     <div className="form-group">
                       <label
@@ -1824,32 +1852,42 @@ export function PresentationPage() {
                           </span>
                         )}
                       </label>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          alignItems: "center",
-                        }}
-                      >
-                        <input
-                          type="color"
-                          value={brand.primaryColor || "#888888"}
-                          onChange={(e) => {
-                            setBrand((b) => ({
-                              ...b,
-                              primaryColor: e.target.value,
-                            }));
-                            setColorsAutoExtracted(false);
-                          }}
+                      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                        <label
                           style={{
-                            width: 38,
-                            height: 38,
-                            borderRadius: "var(--radius)",
+                            position: "relative",
+                            width: 35,
+                            flexShrink: 0,
+                            borderRadius: 6,
                             border: "1px solid var(--color-border)",
-                            padding: 2,
+                            background: brand.primaryColor || "#888888",
+                            overflow: "hidden",
                             cursor: "pointer",
+                            display: "block",
                           }}
-                        />
+                        >
+                          <input
+                            type="color"
+                            value={brand.primaryColor || "#888888"}
+                            onChange={(e) => {
+                              setBrand((b) => ({
+                                ...b,
+                                primaryColor: e.target.value,
+                              }));
+                              setColorsAutoExtracted(false);
+                            }}
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              opacity: 0,
+                              cursor: "pointer",
+                              border: "none",
+                              padding: 0,
+                            }}
+                          />
+                        </label>
                         <input
                           type="text"
                           className="input"
@@ -1865,142 +1903,84 @@ export function PresentationPage() {
                         />
                       </div>
                     </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      Secondary Color
-                      {colorsAutoExtracted && (
-                        <span
-                          className="badge"
+                    {/* Secondary color */}
+                    <div className="form-group">
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        Secondary Color
+                        {colorsAutoExtracted && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 10,
+                              background: "var(--color-success)",
+                              color: "#fff",
+                              border: "none",
+                            }}
+                          >
+                            auto
+                          </span>
+                        )}
+                      </label>
+                      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                        <label
                           style={{
-                            fontSize: 10,
-                            background: "var(--color-success)",
-                            color: "#fff",
-                            border: "none",
+                            position: "relative",
+                            width: 35,
+                            flexShrink: 0,
+                            borderRadius: 6,
+                            border: "1px solid var(--color-border)",
+                            background: brand.secondaryColor || "#888888",
+                            overflow: "hidden",
+                            cursor: "pointer",
+                            display: "block",
                           }}
                         >
-                          auto
-                        </span>
-                      )}
-                    </label>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        type="color"
-                        value={brand.secondaryColor || "#888888"}
-                        onChange={(e) => {
-                          setBrand((b) => ({
-                            ...b,
-                            secondaryColor: e.target.value,
-                          }));
-                          setColorsAutoExtracted(false);
-                        }}
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: "var(--radius)",
-                          border: "1px solid var(--color-border)",
-                          padding: 2,
-                          cursor: "pointer",
-                        }}
-                      />
-                      <input
-                        type="text"
-                        className="input"
-                        value={brand.secondaryColor}
-                        onChange={(e) => {
-                          setBrand((b) => ({
-                            ...b,
-                            secondaryColor: e.target.value,
-                          }));
-                          setColorsAutoExtracted(false);
-                        }}
-                        style={{ fontFamily: "monospace" }}
-                      />
+                          <input
+                            type="color"
+                            value={brand.secondaryColor || "#888888"}
+                            onChange={(e) => {
+                              setBrand((b) => ({
+                                ...b,
+                                secondaryColor: e.target.value,
+                              }));
+                              setColorsAutoExtracted(false);
+                            }}
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              opacity: 0,
+                              cursor: "pointer",
+                              border: "none",
+                              padding: 0,
+                            }}
+                          />
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={brand.secondaryColor}
+                          onChange={(e) => {
+                            setBrand((b) => ({
+                              ...b,
+                              secondaryColor: e.target.value,
+                            }));
+                            setColorsAutoExtracted(false);
+                          }}
+                          style={{ fontFamily: "monospace" }}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Brand preview */}
-                  <div
-                    className="card"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      marginTop: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: "var(--radius)",
-                        background: brand.logoUrl
-                          ? "transparent"
-                          : brand.primaryColor || "var(--color-border)",
-                        border: "1px solid var(--color-border)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "1rem",
-                        fontWeight: 700,
-                        color: "#fff",
-                        flexShrink: 0,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {brand.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={brand.logoUrl}
-                          alt="logo"
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "contain",
-                          }}
-                        />
-                      ) : (
-                        brand.companyName?.[0] || "?"
-                      )}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontWeight: 600, fontSize: 13, margin: 0 }}>
-                        {brand.companyName || "Company Name"}
-                      </p>
-                      <p className="muted" style={{ fontSize: 12 }}>
-                        {brand.tagline || "Tagline"}
-                      </p>
-                    </div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {[brand.primaryColor, brand.secondaryColor].map((c, i) =>
-                        c ? (
-                          <div
-                            key={i}
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: "50%",
-                              background: c,
-                              border: "1px solid var(--color-border)",
-                            }}
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -2027,6 +2007,59 @@ export function PresentationPage() {
                         size="default"
                       />
                     ))}
+
+                    {/* ── More Themes card ── */}
+                    <button
+                      key="more-themes"
+                      onClick={() => setIsThemeModalOpen(true)}
+                      title="Browse all available themes"
+                      style={{
+                        background: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        border: "2px solid var(--color-border)",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        boxShadow: "var(--shadow)",
+                        transition: "border-color 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: 130,
+                          position: "relative",
+                          overflow: "hidden",
+                          background: "var(--color-surface)",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {["#6366f1", "#f59e0b", "#22c55e", "#ef4444"].map((c, i) => (
+                            <span key={i} style={{ width: 16, height: 16, borderRadius: 4, background: c, opacity: 0.7 }} />
+                          ))}
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+{THEME_REGISTRY.filter((t) => !DEFAULT_PLUGIN_IDS.includes(t.id)).length} MORE</span>
+                      </div>
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          background: "var(--color-surface)",
+                          borderTop: "1px solid var(--color-border)",
+                        }}
+                      >
+                        <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 2px", color: "var(--color-text)" }}>
+                          More Themes
+                        </p>
+                        <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
+                          Browse all styles
+                        </p>
+                      </div>
+                    </button>
 
                     {/* ── No Theme card ── */}
                     {(() => {
@@ -2088,11 +2121,10 @@ export function PresentationPage() {
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
-                                  fontSize: 10,
                                   color: "#fff",
                                 }}
                               >
-                                ✓
+                                <Check size={10} strokeWidth={3} />
                               </div>
                             )}
                           </div>
@@ -2131,16 +2163,6 @@ export function PresentationPage() {
                     })()}
                   </div>
 
-                  {/* Selection hint */}
-                  <p
-                    className="muted"
-                    style={{ fontSize: 11, margin: "10px 0 0" }}
-                  >
-                    {selectedPlugin
-                      ? `Theme: ${PLUGINS.find((p) => p.id === selectedPlugin)?.name ?? selectedPlugin}`
-                      : "No theme selected"}
-                  </p>
-
                   {/* Custom prompt */}
                   <div
                     className="form-group"
@@ -2173,16 +2195,7 @@ export function PresentationPage() {
                     <textarea
                       className="input"
                       rows={8}
-                      placeholder={
-                        "Structure, design, and content — all in one place.\n\n" +
-                        "Examples:\n" +
-                        '• "only generate 1 section: hero"\n' +
-                        '• "make it 3 sections focused on the problem and solution"\n' +
-                        '• "remove pricing, add a benefits section after hero"\n' +
-                        '• "swap hero and challenge order"\n' +
-                        '• "make it beautiful by using images"\n' +
-                        '• "dark premium theme, no CTA in hero, add fade-in animations"'
-                      }
+                      placeholder="e.g. dark premium theme, 3 sections, remove pricing, add fade-in animations…"
                       value={designBrief}
                       onChange={(e) => setDesignBrief(e.target.value)}
                       style={{
@@ -2389,96 +2402,40 @@ export function PresentationPage() {
                         e.target.value = "";
                       }}
                     />
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 8,
-                      }}
-                    >
+                    {/* ── Attach + URL in one row ── */}
+                    <div style={{ display: "flex", alignItems: "stretch", gap: 8, marginTop: 8 }}>
+                      {/* Attach button */}
                       <button
                         type="button"
-                        onClick={() =>
-                          document.getElementById("ref-file-input")?.click()
-                        }
+                        onClick={() => document.getElementById("ref-file-input")?.click()}
                         style={{
-                          fontSize: 12,
-                          padding: "4px 10px",
-                          background: "transparent",
-                          border: "1px solid var(--color-border, #333)",
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 14,
+                          padding: "8px 10px",
+                          background: "var(--color-surface)",
+                          border: "1px solid var(--color-border)",
                           borderRadius: 6,
-                          color: "var(--color-text-muted, #888)",
+                          color: "var(--color-text-muted)",
                           cursor: "pointer",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        📎 Attach design reference
-                      </button>
-                      {referenceFile && (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "3px 8px",
-                            background: "var(--color-surface, #1a1a1a)",
-                            borderRadius: 6,
-                            border: "1px solid var(--color-border, #333)",
-                          }}
-                        >
-                          {referenceFile.mediaType.startsWith("image/") ? (
-                            <img
-                              src={referenceFile.base64}
-                              alt="ref"
-                              style={{
-                                width: 24,
-                                height: 24,
-                                objectFit: "cover",
-                                borderRadius: 3,
-                              }}
-                            />
-                          ) : (
-                            <span style={{ fontSize: 16 }}>📄</span>
-                          )}
+                        <Paperclip size={12} />
+                        {referenceFile ? referenceFile.fileName.slice(0, 18) + (referenceFile.fileName.length > 18 ? "…" : "") : "Attach design screenshot"}
+                        {referenceFile && (
                           <span
-                            style={{
-                              fontSize: 12,
-                              color: "var(--color-text-muted, #888)",
-                              maxWidth: 140,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
+                            onMouseDown={(e) => { e.stopPropagation(); setReferenceFile(null); }}
+                            style={{ marginLeft: 2, lineHeight: 1, cursor: "pointer", color: "var(--color-text-muted, #888)" }}
                           >
-                            {referenceFile.fileName}
+                            <X size={10} />
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => setReferenceFile(null)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              color: "var(--color-text-muted, #888)",
-                              fontSize: 14,
-                              lineHeight: 1,
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </button>
 
-                    {/* URL design reference input */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 8,
-                      }}
-                    >
+                      {/* URL input */}
                       <div style={{ position: "relative", flex: 1 }}>
                         <span
                           style={{
@@ -2486,15 +2443,16 @@ export function PresentationPage() {
                             left: 8,
                             top: "50%",
                             transform: "translateY(-50%)",
-                            fontSize: 13,
                             color: "var(--color-text-muted, #888)",
                             pointerEvents: "none",
+                            display: "flex",
                           }}
                         >
-                          🌐
+                          <Globe size={12} />
                         </span>
                         <input
                           type="url"
+                          className="input"
                           placeholder="Paste a website URL to extract design tokens"
                           value={urlInput}
                           onChange={(e) => {
@@ -2503,6 +2461,7 @@ export function PresentationPage() {
                             if (!val.trim()) {
                               setUrlReferenceDesign(null);
                               setUrlExtractionState("idle");
+                              setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
                               if (urlDebounceRef.current)
                                 clearTimeout(urlDebounceRef.current);
                               return;
@@ -2512,19 +2471,17 @@ export function PresentationPage() {
                               clearTimeout(urlDebounceRef.current);
                             urlDebounceRef.current = setTimeout(async () => {
                               try {
-                                const result = await extractUrlDesign(
-                                  apiKey,
-                                  val.trim(),
-                                );
+                                const result = await extractUrlDesign(apiKey, val.trim());
+                                if (result.logoUrl) {
+                                  setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: result.logoUrl! });
+                                }
                                 if (result.tokens) {
-                                  setUrlReferenceDesign(result.tokens);
+                                  setUrlReferenceDesign({ ...result.tokens, heroImageUrl: result.heroImageUrl ?? null });
                                   setUrlExtractionState("success");
                                 } else {
                                   setUrlReferenceDesign(null);
                                   setUrlExtractionState(
-                                    result.error === "blocked_by_bot_protection"
-                                      ? "blocked"
-                                      : "error",
+                                    result.error === "blocked_by_bot_protection" ? "blocked" : "error",
                                   );
                                 }
                               } catch {
@@ -2533,17 +2490,7 @@ export function PresentationPage() {
                               }
                             }, 800);
                           }}
-                          style={{
-                            width: "100%",
-                            fontSize: 12,
-                            padding: "5px 32px 5px 28px",
-                            background: "var(--color-surface, #1a1a1a)",
-                            border: "1px solid var(--color-border, #333)",
-                            borderRadius: 6,
-                            color: "var(--color-text, #fff)",
-                            outline: "none",
-                            boxSizing: "border-box",
-                          }}
+                          style={{ paddingLeft: 28, paddingRight: 28 }}
                         />
                         {urlInput && (
                           <button
@@ -2552,8 +2499,8 @@ export function PresentationPage() {
                               setUrlInput("");
                               setUrlReferenceDesign(null);
                               setUrlExtractionState("idle");
-                              if (urlDebounceRef.current)
-                                clearTimeout(urlDebounceRef.current);
+                              if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                              setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
                             }}
                             style={{
                               position: "absolute",
@@ -2564,12 +2511,12 @@ export function PresentationPage() {
                               border: "none",
                               cursor: "pointer",
                               color: "var(--color-text-muted, #888)",
-                              fontSize: 13,
-                              lineHeight: 1,
+                              display: "flex",
+                              alignItems: "center",
                               padding: 2,
                             }}
                           >
-                            ✕
+                            <X size={10} />
                           </button>
                         )}
                       </div>
@@ -2621,55 +2568,206 @@ export function PresentationPage() {
                         </span>
                       )}
                     </div>
-                    {urlReferenceDesign && (
+
+                    {/* Image thumbnails — compact row when any preview is available */}
+                    {(referenceFile?.mediaType.startsWith("image/") || urlReferenceDesign?.heroImageUrl || (urlExtractionState === "success" && brand.logoUrl)) && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "flex-end" }}>
+                        {/* Attached reference file */}
+                        {referenceFile?.mediaType.startsWith("image/") && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+                            <img
+                              src={referenceFile.base64}
+                              alt="Reference design"
+                              style={{
+                                height: 48,
+                                width: 76,
+                                objectFit: "cover",
+                                objectPosition: "top",
+                                borderRadius: 5,
+                                border: "1px solid var(--color-border, #333)",
+                                display: "block",
+                              }}
+                            />
+                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>screenshot</span>
+                          </div>
+                        )}
+                        {/* URL OG / hero image */}
+                        {urlReferenceDesign?.heroImageUrl && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, position: "relative" }}>
+                            <img
+                              src={urlReferenceDesign.heroImageUrl}
+                              alt="Site hero"
+                              title="Click to preview"
+                              onClick={() => setImagePreviewModal({ type: 'hero', src: urlReferenceDesign.heroImageUrl! })}
+                              style={{
+                                height: 48,
+                                width: 76,
+                                objectFit: "cover",
+                                objectPosition: "top",
+                                borderRadius: 5,
+                                border: "1px solid var(--color-border, #333)",
+                                display: "block",
+                                cursor: "zoom-in",
+                              }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).parentElement!.style.display = "none";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              title="Remove hero image (will use AI-generated image instead)"
+                              onClick={() => setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: null } : null)}
+                              style={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                background: "rgba(0,0,0,0.65)",
+                                border: "none",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: 0,
+                                lineHeight: 1,
+                                fontSize: 9,
+                                color: "#fff",
+                              }}
+                            >✕</button>
+                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>hero image</span>
+                          </div>
+                        )}
+                        {/* Extracted brand logo */}
+                        {brand.logoUrl && !brand.logoUrl.startsWith('data:') && urlInput && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, position: "relative" }}>
+                            <div
+                              title="Click to preview"
+                              onClick={() => setImagePreviewModal({ type: 'logo', src: brand.logoUrl! })}
+                              style={{
+                                height: 48,
+                                width: 48,
+                                borderRadius: 5,
+                                border: "1px solid var(--color-border, #333)",
+                                background: "var(--color-surface, #1a1a1a)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                overflow: "hidden",
+                                cursor: "zoom-in",
+                              }}
+                            >
+                              <img
+                                src={brand.logoUrl}
+                                alt="Brand logo"
+                                style={{
+                                  maxHeight: 36,
+                                  maxWidth: 36,
+                                  objectFit: "contain",
+                                  display: "block",
+                                }}
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).parentElement!.parentElement!.style.display = "none";
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              title="Remove logo"
+                              onClick={() => setBrand((b) => ({ ...b, logoUrl: null }))}
+                              style={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                background: "rgba(0,0,0,0.65)",
+                                border: "none",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: 0,
+                                lineHeight: 1,
+                                fontSize: 9,
+                                color: "#fff",
+                              }}
+                            >✕</button>
+                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>logo</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Color extraction — separate block below images */}
+                    {(urlReferenceDesign || (referenceFile?.dominantColors && referenceFile.dominantColors.length > 0)) && (
                       <div
                         style={{
-                          marginTop: 6,
+                          marginTop: 8,
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          background: "var(--color-surface, #1a1a1a)",
+                          border: "1px solid var(--color-border, #333)",
                           display: "flex",
-                          gap: 6,
-                          flexWrap: "wrap",
+                          gap: 5,
                           alignItems: "center",
+                          flexWrap: "wrap",
                         }}
                       >
-                        {[
-                          urlReferenceDesign.colors.primary,
-                          urlReferenceDesign.colors.secondary,
-                          urlReferenceDesign.colors.accent,
-                          urlReferenceDesign.colors.background,
-                        ]
-                          .filter(Boolean)
-                          .map((color, i) => (
-                            <span
-                              key={i}
-                              style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: 3,
-                                background: color,
-                                border: "1px solid var(--color-border, #333)",
-                                display: "inline-block",
-                              }}
-                              title={color}
-                            />
-                          ))}
+                        {urlReferenceDesign
+                          ? [
+                              urlReferenceDesign.colors.primary,
+                              urlReferenceDesign.colors.secondary,
+                              urlReferenceDesign.colors.accent,
+                              urlReferenceDesign.colors.background,
+                            ]
+                              .filter(Boolean)
+                              .map((color, i) => (
+                                <span
+                                  key={i}
+                                  title={color}
+                                  style={{
+                                    width: 14,
+                                    height: 14,
+                                    borderRadius: 3,
+                                    background: color,
+                                    border: "1px solid rgba(128,128,128,0.3)",
+                                    display: "inline-block",
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              ))
+                          : referenceFile!.dominantColors!.slice(0, 6).map((color: string, i: number) => (
+                              <span
+                                key={i}
+                                title={color}
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  borderRadius: 3,
+                                  background: color,
+                                  border: "1px solid rgba(128,128,128,0.3)",
+                                  display: "inline-block",
+                                  flexShrink: 0,
+                                }}
+                              />
+                            ))}
                         <span
                           style={{
-                            fontSize: 11,
+                            fontSize: 10,
                             color: "var(--color-text-muted, #888)",
-                            marginLeft: 4,
+                            marginLeft: 2,
                           }}
                         >
-                          {urlReferenceDesign.typography.headingFont} ·{" "}
-                          {urlReferenceDesign.style.borderRadius}
+                          {urlReferenceDesign
+                            ? `${urlReferenceDesign.typography.headingFont} · ${urlReferenceDesign.style.borderRadius}`
+                            : "extracted colors"}
                         </span>
                       </div>
                     )}
 
-                    <p className="muted" style={{ marginTop: 4 }}>
-                      Drives colors, fonts, section structure, layout variants,
-                      and motion. The more specific you are, the more distinct
-                      the result.
-                    </p>
                   </div>
                 </div>
               )}
@@ -2855,9 +2953,6 @@ export function PresentationPage() {
               )}
               {step === "upload" && <span />}
 
-              <span className="muted">
-                Step {stepIdx + 1} of {STEPS.length}
-              </span>
 
               {step === "upload" && (
                 <button
@@ -2873,6 +2968,7 @@ export function PresentationPage() {
                 <button
                   className="btn btn-primary"
                   onClick={() => setStep("plugin")}
+                  disabled={!brand.companyName.trim()}
                   style={{ minWidth: 120, width: "auto" }}
                 >
                   Next →
@@ -2925,6 +3021,214 @@ export function PresentationPage() {
           onPreview={handlePreview}
           onClose={() => setIsThemeModalOpen(false)}
         />
+      )}
+
+      {/* Cancel generation confirmation dialog */}
+      {showCancelConfirm && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowCancelConfirm(false); }}
+        >
+          <div style={{ background: "var(--panel, var(--color-surface))", border: "1px solid var(--border, var(--color-border))", borderRadius: 12, width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text, var(--color-text))", margin: 0, lineHeight: 1.5 }}>Cancel microsite creation?</p>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted, var(--color-text-muted))", padding: 2, display: "flex", alignItems: "center" }}
+                ><Icon icon={X} size="md" /></button>
+              </div>
+            </div>
+            <div style={{ height: 1, background: "var(--border, var(--color-border))" }} />
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 14, color: "var(--text, var(--color-text))", marginBottom: 20, lineHeight: 1.5 }}>
+                Your microsite is still being generated. If you cancel now, the current progress will be lost and you&apos;ll need to start over.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border, var(--color-border))", background: "var(--panel-soft, var(--color-surface))", color: "var(--text, var(--color-text))", fontSize: 14, cursor: "pointer" }}
+                >Keep waiting</button>
+                <button
+                  onClick={() => {
+                    userCancelledRef.current = true;
+                    abortCtrlRef.current?.abort();
+                    setShowCancelConfirm(false);
+                    setShowGenerateModal(false);
+                    setStep("plugin");
+                    setGenerating(false);
+                    setProgress([]);
+                    setStreamingSections([]);
+                    setError(null);
+                  }}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--danger, #ef4444)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
+                >Cancel creation</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image preview modal — hero image or brand logo */}
+      {imagePreviewModal && (
+        <div
+          onClick={() => setImagePreviewModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9500,
+            background: "rgba(0,0,0,0.78)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--color-surface, #1a1a1a)",
+              border: "1px solid var(--color-border, #333)",
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: "min(640px, 90vw)",
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+          >
+            {/* Hidden file input for local gallery selection */}
+            <input
+              id="modal-gallery-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (file.size > 8 * 1024 * 1024) {
+                  alert('Image must be under 8 MB');
+                  e.target.value = '';
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const dataUrl = reader.result as string;
+                  if (imagePreviewModal.type === 'hero') {
+                    setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: dataUrl } : prev);
+                  } else {
+                    setBrand((b) => ({ ...b, logoUrl: dataUrl }));
+                  }
+                  setImagePreviewModal((prev) => prev ? { ...prev, src: dataUrl } : null);
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }}
+            />
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text, #fff)" }}>
+                {imagePreviewModal.type === 'hero' ? 'Hero Image' : 'Brand Logo'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setImagePreviewModal(null)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted, #888)", display: "flex", alignItems: "center", padding: 4 }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Image */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "var(--color-bg, #111)",
+              borderRadius: 8,
+              overflow: "hidden",
+              minHeight: 180,
+            }}>
+              <img
+                src={imagePreviewModal.src}
+                alt={imagePreviewModal.type === 'hero' ? 'Hero image preview' : 'Brand logo preview'}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: imagePreviewModal.type === 'hero' ? 360 : 240,
+                  objectFit: imagePreviewModal.type === 'hero' ? "cover" : "contain",
+                  borderRadius: 6,
+                  display: "block",
+                }}
+              />
+            </div>
+
+            {/* Note */}
+            <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-muted, #888)", lineHeight: 1.5 }}>
+              {imagePreviewModal.type === 'hero'
+                ? 'This image will be used as the hero section background. Remove it to let the AI generate one instead.'
+                : 'This logo will appear in the microsite header and footer. Remove it to use the default brand icon.'}
+            </p>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => document.getElementById('modal-gallery-input')?.click()}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: 7,
+                  border: "1px solid var(--color-border, #333)",
+                  background: "transparent",
+                  color: "var(--color-text-muted, #888)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginRight: "auto",
+                }}
+              >
+                <ImageIcon size={14} />
+                Choose from device
+              </button>
+              <button
+                type="button"
+                onClick={() => setImagePreviewModal(null)}
+                style={{
+                  padding: "7px 16px",
+                  borderRadius: 7,
+                  border: "1px solid var(--color-border, #333)",
+                  background: "transparent",
+                  color: "var(--color-text-muted, #888)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >Keep</button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (imagePreviewModal.type === 'hero') {
+                    setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: null } : null);
+                  } else {
+                    setBrand((b) => ({ ...b, logoUrl: null }));
+                  }
+                  setImagePreviewModal(null);
+                }}
+                style={{
+                  padding: "7px 16px",
+                  borderRadius: 7,
+                  border: "none",
+                  background: "var(--danger, #ef4444)",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >Remove</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Unified fullscreen theme preview — z-index 10000, above ThemeModal */}

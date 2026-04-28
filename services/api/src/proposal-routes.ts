@@ -472,6 +472,26 @@ export function registerProposalRoutes(
     },
   );
 
+  // DELETE /proposals/:namespace/:fileName — permanently remove a proposal file
+  app.delete(
+    '/proposals/:namespace/:fileName',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace, fileName } = req.params as { namespace: string; fileName: string };
+      const filePath = path.join(workdir, 'namespaces', namespace, 'proposals', fileName);
+      try {
+        await unlink(filePath);
+        // Remove the meta sidecar if it exists
+        try { await unlink(filePath.replace(/\.md$/, '.meta.json')); } catch { /* ignore */ }
+        return reply.send({ deleted: fileName });
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply.code(404).send({ error: 'Proposal not found' });
+        }
+        throw err;
+      }
+    },
+  );
+
   // GET /proposals
   app.get(
     '/proposals',

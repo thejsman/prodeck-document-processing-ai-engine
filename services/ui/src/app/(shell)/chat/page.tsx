@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Brain, Download, Eraser, Pencil, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
+import { ArrowUp, Brain, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
@@ -95,6 +95,8 @@ export default function ChatPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [fileRefreshTick, setFileRefreshTick] = useState(0);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [panelVisible, setPanelVisible] = useState(true);
+  const [panelHasContent, setPanelHasContent] = useState(true);
   const [insights, setInsights] = useState<string[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
@@ -108,13 +110,17 @@ export default function ChatPage() {
   const [viewMicrositeAST, setViewMicrositeAST] = useState<LayoutAST | null>(null);
   const [viewMicrositeLoading, setViewMicrositeLoading] = useState(false);
   const [editingMicrosite, setEditingMicrosite] = useState(false);
+  const [msHeaderScrolled, setMsHeaderScrolled] = useState(false);
   const micrositeRef = useRef<MicrositeHandle>(null);
+  const msSentinelRef = useRef<HTMLDivElement>(null);
 
   const chatSessionIdRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
   const rafRef = useRef<number | null>(null);
   const revealedLenRef = useRef(0);
 
@@ -127,10 +133,16 @@ export default function ChatPage() {
   // Tracks the execution ID registered in the store for the current stream's generation task
   const chatExecIdRef = useRef<string | null>(null);
 
-  // Once a phase label arrives in a stream, stay in "proposal stream" mode
-  // for the rest of that stream so the progress bar never flickers back to dots.
+  // Once a *generation* phase label arrives (not pre-generation phases like
+  // "Extracting requirements" that precede clarifying questions), lock into
+  // proposal stream mode so the progress bar never flickers back to dots.
+  const GENERATION_PHASE_PREFIXES = [
+    'Planning proposal structure', 'Building section outline',
+    'Preparing template', 'Generating proposal',
+    'Saved as version', 'Checking proposal consistency',
+  ];
   const hadPhaseRef = useRef(false);
-  if (isStreaming && phase) hadPhaseRef.current = true;
+  if (isStreaming && phase && GENERATION_PHASE_PREFIXES.some(p => phase.startsWith(p))) hadPhaseRef.current = true;
   if (!isStreaming) hadPhaseRef.current = false;
 
   // Reactive signal: which generation tool is running (null if none).
@@ -260,6 +272,30 @@ export default function ChatPage() {
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming, namespace, fetchInsights, error, updateExecution]);
+
+  // Show header border only when content has scrolled beneath it
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setHeaderScrolled(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  // Same scroll-border behaviour for the microsite viewer header
+  useEffect(() => {
+    const sentinel = msSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setMsHeaderScrolled(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [viewMicrosite]);
 
   // Close overflow menu on outside click
   useEffect(() => {
@@ -431,41 +467,44 @@ export default function ChatPage() {
 
     return (
       <div className="chat-v2">
-        <header className="chat-v2-header">
-          <div className="chat-v2-header-left">
-            <span className="chat-v2-ns">{name}</span>
-          </div>
-          <div className="chat-v2-header-right">
-            {viewMicrositeAST && (
-              <>
-                <button className="chat-v2-clear-btn" onClick={() => micrositeRef.current?.downloadPdf()} aria-label="Download PDF">
-                  <Icon icon={Download} size="md" />
-                </button>
-                <button className="chat-v2-clear-btn" onClick={() => setEditingMicrosite(true)} aria-label="Edit microsite">
-                  <Icon icon={Pencil} size="md" />
-                </button>
-              </>
-            )}
-            <button className="chat-v2-clear-btn" onClick={dismiss} aria-label="Close microsite">
-              <Icon icon={X} size="md" />
-            </button>
-          </div>
-        </header>
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          {viewMicrositeLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
-              Loading…
+        <div className="chat-v2-center">
+          <header className={`chat-v2-header${msHeaderScrolled ? ' chat-v2-header--scrolled' : ''}`}>
+            <div className="chat-v2-header-left">
+              <span className="chat-v2-ns">{name}</span>
             </div>
-          )}
-          {!viewMicrositeLoading && viewMicrositeAST && (
-            <Microsite
-              ref={micrositeRef}
-              ast={viewMicrositeAST}
-              mode="embedded"
-              namespace={viewMicrosite.namespace}
-              proposalId={viewMicrosite.proposalId}
-            />
-          )}
+            <div className="chat-v2-header-right">
+              {viewMicrositeAST && (
+                <>
+                  <button className="chat-v2-clear-btn" onClick={() => micrositeRef.current?.downloadPdf()} aria-label="Download PDF">
+                    <Icon icon={Download} size="md" />
+                  </button>
+                  <button className="chat-v2-clear-btn" onClick={() => setEditingMicrosite(true)} aria-label="Edit microsite">
+                    <Icon icon={Pencil} size="md" />
+                  </button>
+                </>
+              )}
+              <button className="chat-v2-clear-btn" onClick={dismiss} aria-label="Close microsite">
+                <Icon icon={X} size="md" />
+              </button>
+            </div>
+          </header>
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            <div ref={msSentinelRef} style={{ height: 0, flexShrink: 0 }} />
+            {viewMicrositeLoading && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
+                Loading…
+              </div>
+            )}
+            {!viewMicrositeLoading && viewMicrositeAST && (
+              <Microsite
+                ref={micrositeRef}
+                ast={viewMicrositeAST}
+                mode="embedded"
+                namespace={viewMicrosite.namespace}
+                proposalId={viewMicrosite.proposalId}
+              />
+            )}
+          </div>
         </div>
       </div>
     );
@@ -473,30 +512,39 @@ export default function ChatPage() {
 
   return (
     <div className="chat-v2">
-      {/* ── Header ── */}
-      <header className="chat-v2-header">
-        <div className="chat-v2-header-left">
-          <span className="chat-v2-ns">{namespace || 'default'}</span>
-        </div>
+      {/* ── Center column: header + messages + composer ── */}
+      <div className="chat-v2-center">
+        <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
+          <div className="chat-v2-header-left">
+            <span className="chat-v2-ns">{namespace || 'default'}</span>
+          </div>
+          <div className="chat-v2-header-right">
+            <button
+              className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
+              onClick={() => setTraceOpen((v) => !v)}
+              title={traceOpen ? 'Hide trace' : 'Show execution trace'}
+            >
+              ⚡
+            </button>
+            <ThemeToggle />
+            {panelHasContent && (
+              <button
+                className={`chat-v2-panel-toggle${panelVisible ? ' active' : ''}`}
+                onClick={() => setPanelVisible((v) => !v)}
+                title={panelVisible ? 'Hide panel' : 'Show panel'}
+              >
+                <Icon icon={panelVisible ? PanelRightClose : PanelRightOpen} size="sm" />
+              </button>
+            )}
+          </div>
+        </header>
 
-        <div className="chat-v2-header-right">
-          <button
-            className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
-            onClick={() => setTraceOpen((v) => !v)}
-            title={traceOpen ? 'Hide trace' : 'Show execution trace'}
-          >
-            ⚡
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
-
-      {/* ── Body ── */}
-      <div className="chat-v2-body">
-        {/* Main column */}
-        <div className="chat-v2-main">
+        {/* ── Body ── */}
+        <div className="chat-v2-body">
+          <div className="chat-v2-main">
           {/* Messages */}
           <div className="chat-v2-messages">
+            <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
             {!hasContent ? (
               <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
             ) : (
@@ -528,20 +576,28 @@ export default function ChatPage() {
                               </div>
                             );
                           }
-                          // History load: show persistent proposal link if artifact exists
+                          // History load: show persistent proposal card if artifact exists
                           const artifactId = m.metadata?.proposalArtifactId as string | undefined;
                           if (artifactId) {
+                            const historyClient = m.content?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'Proposal';
+                            const historyHref = `/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(namespace || 'default')}&from=chat`;
                             return (
-                              <div className="prose">
-                                <ReactMarkdown>{m.content}</ReactMarkdown>
-                                <div className="proposal-history-link-card">
-                                  <span className="proposal-history-link-label">Proposal generated</span>
-                                  <a
-                                    href={`/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(namespace || 'default')}`}
-                                    className="proposal-done-link proposal-done-link--primary"
-                                  >
-                                    View proposal ↗
-                                  </a>
+                              <div style={{ maxWidth: '33.33%' }}>
+                                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>Proposal generated</span>
+                                <div className="proposal-card" style={{ background: 'var(--panel-soft)', cursor: 'default' }}>
+                                  <div className="proposal-card-header">
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                      <span className="proposal-card-name">{historyClient}</span>
+                                    </div>
+                                    <span style={{ flexShrink: 0, background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>v1</span>
+                                  </div>
+                                  <div className="proposal-card-footer">
+                                    <div className="proposal-card-meta">
+                                      <span className="proposal-card-ns">{namespace || 'default'}</span>
+                                      <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
+                                    </div>
+                                    <a href={historyHref} className="proposal-card-view-btn">View →</a>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -563,34 +619,42 @@ export default function ChatPage() {
                 {isGeneratingFromModal && (
                   <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
                     <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble chat-v2-bubble--sections">
-                      <div className="chat-gen-progress">
-                        <span className="chat-gen-progress__spinner" aria-hidden="true" />
-                        <div className="chat-gen-progress__body">
-                          <span className="chat-gen-progress__label">Generating proposal…</span>
-                          <span className="chat-gen-progress__hint">Track progress in Active Tasks →</span>
-                        </div>
-                      </div>
+                    <div className="chat-v2-bubble">
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16 }}>
+                        <span className="ppb-dots"><span /><span /><span /></span>
+                        Generating proposal
+                      </span>
                     </div>
                   </div>
                 )}
-                {generatedDoc && !isGeneratingFromModal && (
-                  <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
-                    <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble chat-v2-bubble--sections">
-                      <div className="proposal-done-footer">
-                        <div className="proposal-done-actions">
-                          <a
-                            href={generatedProposalHref ?? '/proposal'}
-                            className="proposal-done-link proposal-done-link--primary"
-                          >
-                            Open in editor ↗
-                          </a>
+                {generatedDoc && !isGeneratingFromModal && (() => {
+                  const clientName = (generatedDoc.metadata?.client as string) || namespace || 'New Proposal';
+                  const dateLabel = new Date(generatedDoc.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
+                      <div className="chat-v2-avatar">AI</div>
+                      <div className="chat-v2-bubble" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: '33.33%' }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>Proposal generated</span>
+                        <div className="proposal-card" style={{ background: 'var(--panel-soft)', margin: 0, cursor: 'default' }}>
+                          <div className="proposal-card-header">
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <span className="proposal-card-name">{clientName}</span>
+                              <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
+                            </div>
+                            <span style={{ flexShrink: 0, background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>v1</span>
+                          </div>
+                          <div className="proposal-card-footer">
+                            <div className="proposal-card-meta">
+                              <span className="proposal-card-ns">{namespace || 'default'}</span>
+                              <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
+                            </div>
+                            <a href={generatedProposalHref ?? '/proposal'} className="proposal-card-view-btn">View →</a>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* ── Proposal generation: progress bar + sections + done card ── */}
                 {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool))) && (
@@ -611,21 +675,12 @@ export default function ChatPage() {
                         />
                       )}
 
-                      {/* In-progress card — V2 path: tool event detected but no sections stream */}
+                      {/* In-progress — V2 path: tool event detected but no sections stream */}
                       {isStreaming && generationTool !== null && sections.length === 0 && (
-                        <div className="chat-gen-progress">
-                          <span className="chat-gen-progress__spinner" aria-hidden="true" />
-                          <div className="chat-gen-progress__body">
-                            <span className="chat-gen-progress__label">
-                              {generationTool === 'generate_microsite'
-                                ? 'Generating microsite'
-                                : 'Generating proposal'}…
-                            </span>
-                            <span className="chat-gen-progress__hint">
-                              Track progress in Active Tasks →
-                            </span>
-                          </div>
-                        </div>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16 }}>
+                          <span className="ppb-dots"><span /><span /><span /></span>
+                          {generationTool === 'generate_microsite' ? 'Generating microsite' : 'Generating proposal'}
+                        </span>
                       )}
 
                       {/* Section blocks — V1 path streams sections one by one */}
@@ -644,19 +699,10 @@ export default function ChatPage() {
                           {/* After sections: in-progress card if type known, skeleton otherwise */}
                           {isStreaming && (
                             generationTool !== null ? (
-                              <div className="chat-gen-progress">
-                                <span className="chat-gen-progress__spinner" aria-hidden="true" />
-                                <div className="chat-gen-progress__body">
-                                  <span className="chat-gen-progress__label">
-                                    {generationTool === 'generate_microsite'
-                                      ? 'Generating microsite'
-                                      : 'Generating proposal'}…
-                                  </span>
-                                  <span className="chat-gen-progress__hint">
-                                    Track progress in Active Tasks →
-                                  </span>
-                                </div>
-                              </div>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16, marginTop: 8 }}>
+                                <span className="ppb-dots"><span /><span /><span /></span>
+                                {generationTool === 'generate_microsite' ? 'Generating microsite' : 'Generating proposal'}
+                              </span>
                             ) : (
                               <div className="psb psb--skeleton">
                                 <div className="psb-header">
@@ -672,32 +718,45 @@ export default function ChatPage() {
                         </div>
                       )}
 
-                      {/* Completion message + improvement prompts + link */}
-                      {!isStreaming && (sections.length > 0 || hadGenerationTool) && (
-                        <div className="proposal-done-footer">
-                          {chunks && (
-                            <div className="prose proposal-done-message">
-                              <ReactMarkdown>{chunks}</ReactMarkdown>
+                      {/* Completion card */}
+                      {!isStreaming && (sections.length > 0 || hadGenerationTool) && (() => {
+                        if (doneActions?.openMicrositeUrl) {
+                          return (
+                            <div className="proposal-done-footer">
+                              <div className="proposal-done-actions">
+                                <a href={doneActions.openMicrositeUrl} className="proposal-done-link proposal-done-link--primary">View microsite</a>
+                                {doneActions.openProposalUrl && <a href={`${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`} className="proposal-done-link">View proposal</a>}
+                              </div>
                             </div>
-                          )}
-                          <div className="proposal-done-actions">
-                            {doneActions?.openMicrositeUrl ? (
-                              <a href={doneActions.openMicrositeUrl} className="proposal-done-link proposal-done-link--primary">
-                                View microsite
-                              </a>
-                            ) : (
-                              <a href="/proposal" className="proposal-done-link proposal-done-link--primary">
-                                Open in editor
-                              </a>
-                            )}
-                            {doneActions?.openProposalUrl && (
-                              <a href={doneActions.openProposalUrl} className="proposal-done-link">
-                                View proposal
-                              </a>
-                            )}
+                          );
+                        }
+                        const clientName = chunks?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'New Proposal';
+                        const proposalHref = doneActions?.openProposalUrl
+                          ? `${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`
+                          : '/proposal';
+                        const dateLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        return (
+                          <div style={{ marginTop: 12, maxWidth: '33.33%' }}>
+                            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>Proposal generated</span>
+                            <div className="proposal-card" style={{ background: 'var(--panel-soft)', cursor: 'default' }}>
+                              <div className="proposal-card-header">
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <span className="proposal-card-name">{clientName}</span>
+                                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
+                                </div>
+                                <span style={{ flexShrink: 0, background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>v1</span>
+                              </div>
+                              <div className="proposal-card-footer">
+                                <div className="proposal-card-meta">
+                                  <span className="proposal-card-ns">{namespace || 'default'}</span>
+                                  <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
+                                </div>
+                                <a href={proposalHref} className="proposal-card-view-btn">View →</a>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -847,18 +906,22 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Namespace panel */}
-        <NamespacePanel namespace={namespace} onMicrositeClick={setViewMicrosite} fileRefreshTick={fileRefreshTick} />
+          </div>
+        </div>
 
-        {/* Execution trace panel — only rendered when open */}
-        {traceOpen && chatSessionIdRef.current && (
-          <ExecutionTracePanel
-            chatSessionId={chatSessionIdRef.current}
-            apiKey={apiKey}
-            live={isStreaming}
-          />
-        )}
+      {/* ── Right panel: full height, not under header ── */}
+      <div style={{ width: panelVisible && panelHasContent ? 256 : 0, flexShrink: 0, overflow: 'hidden', transition: 'width 0.22s ease' }}>
+        <NamespacePanel namespace={namespace} onMicrositeClick={setViewMicrosite} fileRefreshTick={fileRefreshTick} onHasContent={setPanelHasContent} />
       </div>
+
+      {/* Execution trace panel */}
+      {traceOpen && chatSessionIdRef.current && (
+        <ExecutionTracePanel
+          chatSessionId={chatSessionIdRef.current}
+          apiKey={apiKey}
+          live={isStreaming}
+        />
+      )}
 
       {/* Clear Chat confirmation dialog */}
       {showClearConfirm && createPortal(

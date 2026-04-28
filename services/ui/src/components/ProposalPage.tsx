@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X, ChevronDown, Check, MoreHorizontal } from 'lucide-react';
+import { X, ChevronDown, Check, MoreHorizontal, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
 import type {
@@ -24,6 +24,7 @@ import {
   setProposalStatus,
   fetchProposalDiff,
   runAgent,
+  deleteProposal,
 } from '@/lib/api';
 import {
   parseProposalSections,
@@ -237,6 +238,15 @@ export function ProposalPage() {
   const [nsDropPos, setNsDropPos] = useState({ top: 0, right: 0 });
   const nsBtnRef = useRef<HTMLButtonElement | null>(null);
   const nsDropRef = useRef<HTMLDivElement | null>(null);
+
+  // Card delete state
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [cardMenuProposal, setCardMenuProposal] = useState<ProposalFile | null>(null);
+  const [cardMenuPos, setCardMenuPos] = useState({ top: 0, right: 0 });
+  const [confirmDeleteProposal, setConfirmDeleteProposal] = useState<ProposalFile | null>(null);
+  const [deletingProposal, setDeletingProposal] = useState(false);
+  const cardMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const cardDropdownRef = useRef<HTMLDivElement | null>(null);
   const [currentDocument, setCurrentDocument] =
     useState<ProposalDocument | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -261,23 +271,33 @@ export function ProposalPage() {
     return parseProposalSections(currentDocument.content, retried).sections.length;
   }, [currentDocument]);
 
+  // Exclude proposals from namespaces that no longer exist
+  const knownProposals = useMemo(() =>
+    namespaces.length === 0
+      ? allProposals
+      : allProposals.filter(p => {
+          const ns = nsFromFileName(p.fileName);
+          return !ns || namespaces.includes(ns);
+        }),
+  [allProposals, namespaces]);
+
   const nsCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    allProposals.forEach((p) => {
+    knownProposals.forEach((p) => {
       const ns = nsFromFileName(p.fileName);
       if (ns) counts[ns] = (counts[ns] ?? 0) + 1;
     });
     return counts;
-  }, [allProposals]);
+  }, [knownProposals]);
 
   const filteredProposals = useMemo(() => {
     const list = browseNs
-      ? allProposals.filter((p) => p.fileName.startsWith(`${browseNs}::`))
-      : allProposals;
+      ? knownProposals.filter((p) => p.fileName.startsWith(`${browseNs}::`))
+      : knownProposals;
     return [...list].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
-  }, [allProposals, browseNs]);
+  }, [knownProposals, browseNs]);
 
   useEffect(() => {
     if (fromChat) return;
@@ -315,6 +335,33 @@ export function ProposalPage() {
     const rect = nsBtnRef.current?.getBoundingClientRect();
     if (rect) setNsDropPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
     setNsDropOpen(true);
+  }
+
+  // Card overflow menu — close on outside click
+  useEffect(() => {
+    if (!cardMenuProposal) return;
+    const handler = (e: MouseEvent) => {
+      const btn = cardMenuBtnRefs.current[cardMenuProposal.fileName];
+      if (cardDropdownRef.current && !cardDropdownRef.current.contains(e.target as Node) && btn && !btn.contains(e.target as Node)) setCardMenuProposal(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [cardMenuProposal]);
+
+  async function handleDeleteProposalConfirmed() {
+    if (!confirmDeleteProposal) return;
+    const p = confirmDeleteProposal;
+    const parts = p.fileName.split('::');
+    const ns = parts.length > 1 ? parts[0] : '';
+    const file = parts.length > 1 ? parts.slice(1).join('::') : parts[0];
+    setDeletingProposal(true);
+    try {
+      await deleteProposal(apiKey, ns, file);
+      setRefreshKey(k => k + 1);
+    } catch { /* ignore */ } finally {
+      setDeletingProposal(false);
+      setConfirmDeleteProposal(null);
+    }
   }
 
   // Status selector dropdown
@@ -399,6 +446,19 @@ export function ProposalPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [isLoadingDocument, setIsLoadingDocument] = useState(false);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setHeaderScrolled(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!showGenerateModal || isGenerating) return;
@@ -813,8 +873,9 @@ export function ProposalPage() {
   return (
     <>
       <div className="chat-v2">
+        <div className="chat-v2-center">
         {fromChat && (
-          <header className="chat-v2-header">
+          <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
             {/* ── Workspace header ── */}
             <div className="chat-v2-header-left">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -887,8 +948,9 @@ export function ProposalPage() {
         {fromChat ? (
           /* ── Workspace body ── */
           <div key={searchParams.get('artifact') ?? 'workspace'} className="proposal-view-fadein" style={{ flex: 1, overflowY: 'auto' }}>
+            <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
             {isLoadingDocument ? (
-              <div className="page-container">
+              <div className="page-container page-container--narrow">
                 <div className="proposal-doc-skeleton">
                   <div className="proposal-doc-skeleton-header" />
                   <div className="proposal-doc-skeleton-section" />
@@ -897,7 +959,7 @@ export function ProposalPage() {
                 </div>
               </div>
             ) : (
-              <div className="page-container">
+              <div className="page-container page-container--narrow">
                 {(regenError || workflowError) && (
                   <p className="error">{regenError || workflowError}</p>
                 )}
@@ -940,7 +1002,7 @@ export function ProposalPage() {
                 >
                   {browseNs
                     ? `${browseNs} (${nsCounts[browseNs] ?? 0})`
-                    : `All (${allProposals.length})`
+                    : `All (${knownProposals.length})`
                   }
                   <Icon icon={ChevronDown} size="sm" style={{ color: 'var(--muted)', marginLeft: 2 }} />
                 </button>
@@ -1020,8 +1082,31 @@ export function ProposalPage() {
                   const ns = nsFromFileName(p.fileName);
                   const dateLabel = formatCreatedAt(p.createdAt);
                   const href = proposalHref(p);
+                  const isHovered = hoveredCard === p.fileName;
                   return (
-                    <div key={p.fileName} className="proposal-card">
+                    <div
+                      key={p.fileName}
+                      className="proposal-card"
+                      style={{ position: 'relative' }}
+                      onMouseEnter={() => setHoveredCard(p.fileName)}
+                      onMouseLeave={() => setHoveredCard(null)}
+                    >
+                      <button
+                        ref={el => { cardMenuBtnRefs.current[p.fileName] = el; }}
+                        className="btn btn-sm"
+                        title="Options"
+                        onClick={e => {
+                          e.stopPropagation();
+                          const btn = cardMenuBtnRefs.current[p.fileName];
+                          if (!btn) return;
+                          const rect = btn.getBoundingClientRect();
+                          setCardMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                          setCardMenuProposal(p);
+                        }}
+                        style={{ position: 'absolute', top: 8, right: 8, padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHovered || cardMenuProposal?.fileName === p.fileName ? 1 : 0, pointerEvents: isHovered || cardMenuProposal?.fileName === p.fileName ? 'auto' : 'none', transition: 'opacity 0.15s', zIndex: 1 }}
+                      >
+                        <Icon icon={MoreHorizontal} size="sm" />
+                      </button>
                       <div className="proposal-card-header">
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <span className="proposal-card-name">{p.client}</span>
@@ -1037,6 +1122,11 @@ export function ProposalPage() {
                             </span>
                           )}
                         </div>
+                        {p.version != null && (
+                          <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                            v{p.version}
+                          </span>
+                        )}
                       </div>
                       <div className="proposal-card-footer">
                         {ns ? (
@@ -1058,6 +1148,7 @@ export function ProposalPage() {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Namespace dropdown (portalled, browser mode only) */}
@@ -1074,7 +1165,7 @@ export function ProposalPage() {
             onClick={() => { setBrowseNs(''); setNsDropOpen(false); }}
           >
             <span style={{ flex: 1 }}>All</span>
-            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{allProposals.length}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{knownProposals.length}</span>
             {!browseNs && <Icon icon={Check} size="sm" style={{ color: 'var(--primary)', flexShrink: 0 }} />}
           </button>
           {namespaces.length > 0 && <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />}
@@ -1102,15 +1193,6 @@ export function ProposalPage() {
           className="card"
           style={{ position: 'fixed', top: overflowMenuPos.top, right: overflowMenuPos.right, minWidth: 180, padding: '4px 0', zIndex: 99999 }}
         >
-          <button
-            className="btn btn-sm"
-            style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14 }}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => { setShowGenerateModal(true); setOverflowOpen(false); }}
-            disabled={isGenerating}
-          >
-            Generate Proposal
-          </button>
           {fromChat && (
             <>
               <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
@@ -1266,6 +1348,50 @@ export function ProposalPage() {
           onAccept={handleAcceptRewrite}
           onDiscard={() => setAiPreview(null)}
         />
+      )}
+
+      {/* Card overflow dropdown */}
+      {cardMenuProposal && createPortal(
+        <div
+          ref={cardDropdownRef}
+          className="card"
+          style={{ position: 'fixed', top: cardMenuPos.top, right: cardMenuPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}
+        >
+          <button
+            className="btn btn-sm"
+            style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => { const p = cardMenuProposal; setCardMenuProposal(null); setConfirmDeleteProposal(p); }}
+          >
+            <Icon icon={Trash2} size="sm" /><span>Delete</span>
+          </button>
+        </div>,
+        window.document.body,
+      )}
+
+      {/* Confirm delete proposal dialog */}
+      {confirmDeleteProposal && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onMouseDown={e => { if (e.target === e.currentTarget && !deletingProposal) setConfirmDeleteProposal(null); }}
+        >
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+            <div style={{ padding: '20px 24px 0' }}>
+              <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>Delete proposal</p>
+            </div>
+            <div style={{ height: 1, background: 'var(--border)' }} />
+            <div style={{ padding: 24 }}>
+              <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+                Delete <strong>"{confirmDeleteProposal.client}"</strong>?
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button onClick={() => setConfirmDeleteProposal(null)} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer' }}>Cancel</button>
+                <button onClick={handleDeleteProposalConfirmed} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer', opacity: deletingProposal ? 0.7 : 1 }}>{deletingProposal ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        window.document.body,
       )}
     </>
   );
