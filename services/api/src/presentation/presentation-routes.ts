@@ -40,6 +40,7 @@ import {
   buildDallePrompt,
   resolveImageSource,
   downloadImageToFile,
+  saveBase64ToFile,
   buildPicsumUrl,
   saveBase64ToFile,
 } from '../image-routes.js';
@@ -93,7 +94,14 @@ async function saveImagePersistently(
   const ext = '.jpg';
   const filename = `${sectionId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
   const destPath = path.join(imagesDir, filename);
-  const ok = await downloadImageToFile(remoteUrl, destPath);
+  let ok: boolean;
+  if (remoteUrl.startsWith('data:')) {
+    const commaIdx = remoteUrl.indexOf(',');
+    const b64 = commaIdx !== -1 ? remoteUrl.slice(commaIdx + 1) : '';
+    ok = b64 ? await saveBase64ToFile(b64, destPath) : false;
+  } else {
+    ok = await downloadImageToFile(remoteUrl, destPath);
+  }
   // Store as a root-relative path — works regardless of port or server restart.
   // Falls back to the remote URL only if the download failed.
   if (!ok) return remoteUrl;
@@ -184,8 +192,11 @@ export function registerPresentationRoutes(
     }
     const filePath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
     if (!existsSync(filePath)) return reply.code(404).send({ error: 'Not found' });
+    const ext = path.extname(filename).toLowerCase();
+    const mimeMap: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon', '.gif': 'image/gif' };
+    const mimeType = mimeMap[ext] ?? 'image/jpeg';
     const stream = createReadStream(filePath);
-    return reply.header('Access-Control-Allow-Origin', '*').type('image/jpeg').send(stream);
+    return reply.header('Access-Control-Allow-Origin', '*').type(mimeType).send(stream);
   });
 
   // POST /presentations/extract-url-design
@@ -239,6 +250,55 @@ export function registerPresentationRoutes(
       const msg = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'fetch_failed';
       return reply.code(200).send({ error: msg, tokens: null });
     }
+
+    // ── Extract meta image URLs and brand logo ────────────────────────────
+    const resolveAbsolute = (href: string): string | null => {
+      try { return new URL(href, parsedUrl.toString()).toString(); } catch { return null; }
+    };
+
+    const ogMatch =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/i) ??
+      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["'][^>]*>/i);
+    const heroImageUrl: string | null = ogMatch?.[1] ? resolveAbsolute(ogMatch[1]) : null;
+
+    // Logo priority: JSON-LD schema.org → apple-touch-icon → SVG favicon → PNG favicon → any favicon → /favicon.ico
+    let logoUrl: string | null = null;
+    for (const block of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const data = JSON.parse(block[1]) as Record<string, unknown>;
+        const items = Array.isArray(data['@graph']) ? data['@graph'] as Record<string, unknown>[] : [data];
+        for (const item of items) {
+          const logo = item.logo as Record<string, unknown> | string | undefined;
+          const logoHref = typeof logo === 'string' ? logo : (logo?.url as string | undefined) ?? (logo?.contentUrl as string | undefined);
+          if (logoHref) { logoUrl = resolveAbsolute(logoHref); break; }
+        }
+        if (logoUrl) break;
+      } catch { /* malformed JSON-LD */ }
+    }
+    if (!logoUrl) {
+      const appleMatch = html.match(/<link[^>]+rel=["']apple-touch-icon(?:-precomposed)?["'][^>]+href=["']([^"']+)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon(?:-precomposed)?["'][^>]*>/i);
+      if (appleMatch?.[1]) logoUrl = resolveAbsolute(appleMatch[1]);
+    }
+    if (!logoUrl) {
+      const svgFaviconMatch = html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+\.svg[^"']*)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+\.svg[^"']*)["'][^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i);
+      if (svgFaviconMatch?.[1]) logoUrl = resolveAbsolute(svgFaviconMatch[1]);
+    }
+    if (!logoUrl) {
+      const pngFaviconMatch = html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+\.png[^"']*)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+\.png[^"']*)["'][^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i);
+      if (pngFaviconMatch?.[1]) logoUrl = resolveAbsolute(pngFaviconMatch[1]);
+    }
+    if (!logoUrl) {
+      const anyFaviconMatch = html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i);
+      if (anyFaviconMatch?.[1]) logoUrl = resolveAbsolute(anyFaviconMatch[1]);
+    }
+    // Final fallback: every site serves /favicon.ico at the root (404 is handled gracefully by the client)
+    if (!logoUrl) logoUrl = new URL('/favicon.ico', parsedUrl.origin).toString();
 
     // ── Step 2: Extract CSS from HTML ─────────────────────────────────────
     const origin = parsedUrl.origin;
@@ -598,7 +658,7 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
       const jsonEnd = raw.lastIndexOf('}');
       if (jsonStart === -1 || jsonEnd <= jsonStart) {
         console.warn('[extract-url-design] LLM returned no JSON');
-        return reply.code(200).send({ error: 'parse_failed', tokens: null });
+        return reply.code(200).send({ error: 'parse_failed', tokens: null, heroImageUrl, logoUrl });
       }
       const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
       const colors = parsed.colors as Record<string, string> | undefined;
@@ -606,13 +666,13 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
       const style = parsed.style as Record<string, string> | undefined;
       if (!colors?.primary || !typography?.headingFont || !style?.vibe) {
         console.warn('[extract-url-design] LLM returned incomplete tokens');
-        return reply.code(200).send({ error: 'incomplete_tokens', tokens: null });
+        return reply.code(200).send({ error: 'incomplete_tokens', tokens: null, heroImageUrl, logoUrl });
       }
-      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}`);
-      return reply.code(200).send({ tokens: parsed });
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}`);
+      return reply.code(200).send({ tokens: parsed, heroImageUrl, logoUrl });
     } catch (err) {
       console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
-      return reply.code(200).send({ error: 'parse_failed', tokens: null });
+      return reply.code(200).send({ error: 'parse_failed', tokens: null, heroImageUrl, logoUrl });
     }
   });
 
@@ -1055,6 +1115,7 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
     const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
+    const urlHeroImageUrl = (body?.urlReferenceDesign as { heroImageUrl?: string | null } | undefined)?.heroImageUrl ?? null;
 
 
     const pdfFriendly = !!(body?.pdfFriendly);
@@ -1168,6 +1229,17 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               return;
             }
 
+            if (sec.sectionType === 'hero' && urlHeroImageUrl) {
+              try {
+                const localUrl = await saveImagePersistently(urlHeroImageUrl, namespace, `${secId}-og`, workdir);
+                sec.image.url = localUrl;
+                sec.image.source = 'custom';
+                return;
+              } catch {
+                // fall through to DALL-E / Unsplash fallback
+              }
+            }
+
             // hero/showcase: download the agent's URL locally (agent already called DALL-E)
             const agentUrl = sec.image?.url;
             let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
@@ -1194,6 +1266,25 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
             } catch { /* keep original remote URL on download failure */ }
           }),
         );
+      }
+
+      // Download brand logo locally if it's a remote URL, so it renders reliably in the microsite
+      const brandLogoRemote = (body?.brand?.logoUrl as string | null | undefined);
+      if (brandLogoRemote?.startsWith('http') && ast?.brand) {
+        try {
+          const logoExt = (() => {
+            try {
+              const p = new URL(brandLogoRemote).pathname;
+              const m = p.match(/\.(png|svg|jpg|jpeg|webp|ico)(?:[?#]|$)/i);
+              return m ? `.${m[1].toLowerCase()}` : '.png';
+            } catch { return '.png'; }
+          })();
+          const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+          await mkdir(imagesDir, { recursive: true });
+          const logoFilename = `brand-logo-${crypto.randomUUID().slice(0, 8)}${logoExt}`;
+          const ok = await downloadImageToFile(brandLogoRemote, path.join(imagesDir, logoFilename));
+          if (ok) (ast.brand as Record<string, unknown>).logoUrl = `/presentation-images/${namespace}/${logoFilename}`;
+        } catch { /* keep remote URL */ }
       }
 
       // complete event carries local image URLs — no further reconciliation needed

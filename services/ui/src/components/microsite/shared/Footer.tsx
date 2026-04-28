@@ -8,7 +8,6 @@ interface Props {
   sections?: LayoutSection[];
   client?: string;
   date?: string;
-  proposedBy?: string;
 }
 
 function BrandIcon({ color }: { color: string }) {
@@ -22,9 +21,9 @@ function BrandIcon({ color }: { color: string }) {
   );
 }
 
-export function Footer({ tokens, brand, client, date, proposedBy }: Props) {
+export function Footer({ tokens, brand, client, date }: Props) {
   const clientName = client || brand.companyName;
-  const preparer = proposedBy || brand.companyName;
+  const preparer = 'KM';
 
   // Extract domain hint from tagline if it looks like a domain
   const domainHint = brand.tagline && /^[\w.-]+\.\w{2,}$/.test(brand.tagline.trim()) ? brand.tagline.trim() : null;
