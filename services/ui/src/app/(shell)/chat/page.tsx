@@ -35,7 +35,7 @@ interface Message {
   content: string;
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
-  metadata?: { proposalArtifactId?: string };
+  metadata?: { proposalArtifactId?: string; proposalNamespace?: string };
   /** Populated when the pipeline halted at Stage 4.5 for user confirmation. */
   confirmation?: ConfirmationRequest;
 }
