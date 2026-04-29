@@ -12,6 +12,7 @@
 import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import yaml from 'js-yaml';
+import { recommendTemplate } from '../templates/template-recommendation.service.js';
 import {
   spawnProposalGenerator,
   type ProcessorPayload,
@@ -804,6 +805,81 @@ export async function handleSetProposalStatus(
         type: 'view_proposal',
         label: 'View Proposal',
         href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 11. recommend_template
+//     Surfaces the template recommendation engine to the planner/chat.
+//     Returns the best matching template or fallback-generate signal.
+// ---------------------------------------------------------------------------
+
+export async function handleRecommendTemplate(
+  _params: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<PartialResult> {
+  const { workdir, namespace } = ctx;
+
+  // Load namespace context to build the recommendation context
+  let nsContext: import('./context.types.js').NamespaceContext | null = null;
+  try {
+    const { readFile: rf } = await import('node:fs/promises');
+    const raw = await rf(path.join(workdir, 'namespaces', namespace, 'context.json'), 'utf-8');
+    nsContext = JSON.parse(raw) as import('./context.types.js').NamespaceContext;
+  } catch {
+    return { success: false, message: 'No context found. Please ingest documents first.' };
+  }
+
+  const fields = nsContext?.requirements?.fields ?? {};
+  const knowledge = nsContext?.knowledge ?? [];
+
+  const recContext = {
+    requirementMatrix: {
+      functional: knowledge.filter((k) => !k.supersededBy && ['requirement', 'priority', 'action_item'].includes(k.category)).map((k) => k.content).slice(0, 10),
+      compliance: knowledge.filter((k) => !k.supersededBy && k.category === 'constraint').map((k) => k.content).slice(0, 5),
+      timeline: fields.timeline?.value ? [String(fields.timeline.value)] : [],
+      pricing: fields.budget?.value ? [String(fields.budget.value)] : [],
+    },
+    detectedIndustry: fields.industry?.value ? String(fields.industry.value) : undefined,
+    keyCapabilities: [],
+    namespace,
+  };
+
+  let recommendation;
+  try {
+    recommendation = await recommendTemplate(recContext, workdir);
+  } catch (err) {
+    return { success: false, message: `Template recommendation failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  if (recommendation.fallbackGenerate) {
+    return {
+      success: true,
+      message: `No existing template is a strong match. ${recommendation.reasoning}\n\nI can generate a custom template tailored to your project. Reply "generate custom template" to proceed.`,
+      data: { fallbackGenerate: true, confidence: recommendation.confidence },
+    };
+  }
+
+  const template = recommendation.template!;
+  const pct = Math.round(recommendation.confidence * 100);
+  const sections = template.structure.join(', ');
+
+  return {
+    success: true,
+    message: `I recommend the **${template.name}** template (${pct}% match).\n\n${recommendation.reasoning}\n\n**Sections:** ${sections}`,
+    data: {
+      templateId: template.id,
+      templateName: template.name,
+      confidence: recommendation.confidence,
+      sections: template.structure,
+    },
+    actionCards: [
+      {
+        type: 'view_template',
+        label: 'View Template',
+        href: `/template?artifact=${encodeURIComponent(template.id + '.yaml')}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };

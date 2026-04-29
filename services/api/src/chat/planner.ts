@@ -28,6 +28,7 @@ export type ToolName =
   | 'list_templates'
   | 'get_proposal_status'
   | 'set_proposal_status'
+  | 'recommend_template'
 
 export type AgentAction =
   | { type: 'ASK'; question: string }
@@ -61,7 +62,7 @@ function safeParseJSON<T>(raw: string): T | null {
 // ---------------------------------------------------------------------------
 
 const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
-  GENERATE_PROPOSAL: ['problem', 'opportunity', 'preference', 'constraint', 'context', 'decision'],
+  GENERATE_PROPOSAL: ['requirement', 'priority', 'problem', 'opportunity', 'preference', 'constraint', 'context', 'decision'],
   MODIFY_PROPOSAL: ['problem', 'opportunity', 'preference', 'constraint'],
   GENERATE_MICROSITE: ['preference', 'context'],
   GENERATE_TEMPLATE: ['problem', 'opportunity', 'context'],
@@ -73,6 +74,8 @@ const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
   GREETING: ['context'],
   GENERAL_CHAT: [],
   UNKNOWN: [],
+  CONFIRM_ENTITIES: ['context'],
+  CONFIRM_TEMPLATE: ['context'],
 }
 
 function selectRelevantKnowledge(intent: Intent, knowledge: KnowledgeEntry[]): KnowledgeEntry[] {
@@ -112,6 +115,7 @@ Produce an action plan as strict JSON. Nothing else.
 - list_templates: params {}
 - get_proposal_status: params { proposalFileName }
 - set_proposal_status: params { proposalFileName, status }
+- recommend_template: params {} — recommends the best template for this namespace
 
 ## Current Requirements
 ${JSON.stringify(nsContext.requirements.fields)}
@@ -123,6 +127,7 @@ ${relevantKnowledge.map((k) => `[${k.category}] ${k.content}`).join('\n')}
 - Proposals: ${JSON.stringify(chatContext.proposals)}
 - Templates: ${JSON.stringify(chatContext.templates)}
 - Documents: ${chatContext.ingestedDocuments.map((d) => d.fileName).join(', ') || 'none'}
+${nsContext.selectedTemplate ? `\n## Confirmed Template\nThe user has already confirmed the template to use: "${nsContext.selectedTemplate.templateId}" (${nsContext.selectedTemplate.name}). Use this template ID when calling generate_proposal.` : ''}
 
 ## Rules
 1. Each action MUST use the field name "type" (not "action"). Use ONLY these type values: ASK, UPDATE_REQUIREMENTS, CALL_TOOL, RESPOND. Examples: ASK: { "type": "ASK", "question": "..." } (field is "question", not "message"). RESPOND: { "type": "RESPOND", "message": "..." } (field is "message", not "question"). CALL_TOOL: { "type": "CALL_TOOL", "tool": "search_documents", "params": { "query": "..." } } — NEVER use the tool name as the "type" value. UPDATE_REQUIREMENTS: { "type": "UPDATE_REQUIREMENTS", "data": { "clientName": "...", ... } } (fields go inside "data", not on the action directly)
@@ -155,17 +160,13 @@ export function buildFallbackPlan(
     (context.requirements.fields.industry?.value as string | undefined) ?? ''
 
   switch (intent) {
-    case 'GENERATE_PROPOSAL':
-      return {
-        intent,
-        actions: [
-          {
-            type: 'CALL_TOOL',
-            tool: 'generate_proposal',
-            params: { client: clientName, industry },
-          },
-        ],
+    case 'GENERATE_PROPOSAL': {
+      const params: Record<string, unknown> = { client: clientName, industry };
+      if (context.selectedTemplate) {
+        params.template = context.selectedTemplate.templateId;
       }
+      return { intent, actions: [{ type: 'CALL_TOOL', tool: 'generate_proposal', params }] };
+    }
     case 'GENERATE_MICROSITE': {
       const eligible = chatContext?.proposals.find((p) =>
         (MICROSITE_ELIGIBLE_STATUSES as readonly string[]).includes(p.status),
@@ -216,6 +217,7 @@ const TOOL_TYPE_ALIASES: Record<string, string> = {
   LIST_TEMPLATES: 'list_templates',
   GET_PROPOSAL_STATUS: 'get_proposal_status',
   SET_PROPOSAL_STATUS: 'set_proposal_status',
+  RECOMMEND_TEMPLATE: 'recommend_template',
 }
 
 // ---------------------------------------------------------------------------

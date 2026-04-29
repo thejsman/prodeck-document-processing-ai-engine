@@ -20,6 +20,7 @@ import {
   handleListTemplates,
   handleGetProposalStatus,
   handleSetProposalStatus,
+  handleRecommendTemplate,
 } from './tool-handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ const TOOL_HANDLERS: Record<ToolName, ToolHandler> = {
   list_templates: handleListTemplates,
   get_proposal_status: handleGetProposalStatus,
   set_proposal_status: handleSetProposalStatus,
+  recommend_template: handleRecommendTemplate,
 };
 
 // ---------------------------------------------------------------------------
