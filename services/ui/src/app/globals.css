@@ -4975,7 +4975,7 @@ body {
   height: 30px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: transparent;
+  background: var(--panel-soft);
   color: var(--muted);
   font-size: 15px;
   cursor: pointer;

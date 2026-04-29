@@ -946,14 +946,14 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
         zIndex: 10000,
         display: 'flex',
         flexDirection: 'column',
-        background: '#f1f5f9',
+        background: 'var(--bg)',
       }}
     >
       <style>{`
         .mse-bar {
           display: flex; align-items: center;
           padding: 0 16px; height: 52px;
-          background: #ffffff;
+          background: var(--panel);
           border-bottom: 1px solid var(--border);
           flex-shrink: 0; gap: 0;
           user-select: none;
@@ -967,54 +967,54 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           display: flex; align-items: center; justify-content: center;
           width: 34px; height: 34px; border-radius: 7px;
           border: none; background: transparent; cursor: pointer;
-          color: #64748b; transition: background 0.12s, color 0.12s;
+          color: var(--muted); transition: background 0.12s, color 0.12s;
         }
-        .mse-icon-btn:hover:not(:disabled) { background: #f1f5f9; color: #1e293b; }
-        .mse-icon-btn:disabled { color: #cbd5e1; cursor: not-allowed; }
-        .mse-icon-btn.active { background: #eef2ff; color: #6366f1; }
+        .mse-icon-btn:hover:not(:disabled) { background: var(--panel-soft); color: var(--text); }
+        .mse-icon-btn:disabled { color: var(--border); cursor: not-allowed; }
+        .mse-icon-btn.active { background: var(--primary-soft); color: var(--primary); }
 
         /* Label button */
         .mse-label-btn {
           display: flex; align-items: center; gap: 7px;
           padding: 0 13px; height: 34px; border-radius: 7px;
-          border: 1px solid #e2e8f0; background: #fff; cursor: pointer;
-          font-size: 13px; font-weight: 600; color: #475569;
+          border: 1px solid var(--border); background: var(--panel); cursor: pointer;
+          font-size: 13px; font-weight: 600; color: var(--muted);
           white-space: nowrap; transition: background 0.12s, color 0.12s, border-color 0.12s;
         }
-        .mse-label-btn:hover { background: #f8fafc; border-color: #cbd5e1; color: #1e293b; }
-        .mse-label-btn.active { background: #eef2ff; border-color: #c7d2fe; color: #6366f1; }
+        .mse-label-btn:hover { background: var(--panel-soft); border-color: var(--border); color: var(--text); }
+        .mse-label-btn.active { background: var(--primary-soft); border-color: var(--primary-dim); color: var(--primary); }
 
         /* Viewport segment */
-        .mse-viewport { display: flex; gap: 1px; background: #f1f5f9; border-radius: 8px; padding: 3px; }
+        .mse-viewport { display: flex; gap: 1px; background: var(--panel-soft); border-radius: 8px; padding: 3px; }
         .mse-vp-btn {
           display: flex; align-items: center; justify-content: center;
           width: 32px; height: 28px; border-radius: 5px;
           border: none; background: transparent; cursor: pointer;
-          color: #94a3b8; transition: all 0.12s;
+          color: var(--muted); transition: all 0.12s;
         }
-        .mse-vp-btn.active { background: #fff; color: #6366f1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .mse-vp-btn:not(.active):hover { color: #475569; }
+        .mse-vp-btn.active { background: var(--panel); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .mse-vp-btn:not(.active):hover { color: var(--text); }
 
         /* Primary CTA */
         .mse-cta {
           display: flex; align-items: center; gap: 7px;
           padding: 0 16px; height: 34px; border-radius: 7px;
-          border: none; background: #6366f1; cursor: pointer;
+          border: none; background: var(--primary); cursor: pointer;
           font-size: 13px; font-weight: 700; color: #fff;
           white-space: nowrap; transition: background 0.15s;
         }
-        .mse-cta:hover { background: #4f46e5; }
-        .mse-cta.muted { background: #f1f5f9; color: #94a3b8; cursor: default; }
+        .mse-cta:hover { background: var(--color-primary-hover); }
+        .mse-cta.muted { background: var(--panel-soft); color: var(--muted); cursor: default; }
 
         /* App name */
         .mse-appname {
-          font-size: 13px; font-weight: 700; color: #1e293b; letter-spacing: -0.01em;
+          font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -0.01em;
         }
-        .mse-breadcrumb { font-size: 13px; color: #94a3b8; }
+        .mse-breadcrumb { font-size: 13px; color: var(--muted); }
 
         /* Save status */
-        .mse-save-label { font-size: 12px; color: #94a3b8; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
-        .mse-save-label.dirty { color: #f59e0b; }
+        .mse-save-label { font-size: 12px; color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+        .mse-save-label.dirty { color: var(--warning); }
 
         @media (max-width: 700px) {
           .mse-breadcrumb { display: none; }
