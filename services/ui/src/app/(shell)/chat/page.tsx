@@ -8,11 +8,12 @@ import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
-import { useSSE, type ProposalSection } from '@/lib/use-sse';
+import { useSSE, type ProposalSection, type ConfirmationRequest } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { NamespacePanel, parseMicrositeInfo } from '@/components/chat/NamespacePanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
+import { ConfirmationBlock } from '@/components/chat/ConfirmationBlock';
 import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
 import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
 import { MemoryEditor } from '@/components/MemoryEditor';
@@ -35,6 +36,8 @@ interface Message {
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
   metadata?: { proposalArtifactId?: string };
+  /** Populated when the pipeline halted at Stage 4.5 for user confirmation. */
+  confirmation?: ConfirmationRequest;
 }
 
 
@@ -125,7 +128,7 @@ export default function ChatPage() {
   const rafRef = useRef<number | null>(null);
   const revealedLenRef = useRef(0);
 
-  const { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, startStream, reset } = useSSE(apiKey, '/api/chat/message');
+  const { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, confirmationRequest, startStream, reset } = useSSE(apiKey, '/api/chat/message');
 
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
@@ -364,7 +367,7 @@ export default function ChatPage() {
     if (!q || isStreaming) return;
 
     // Commit any in-progress streaming response to history
-    if (chunks || sections.length > 0) {
+    if (chunks || sections.length > 0 || confirmationRequest) {
       setMessages((prev) => [
         ...prev,
         {
@@ -372,6 +375,7 @@ export default function ChatPage() {
           role: 'assistant',
           content: chunks,
           sections: sections.length > 0 ? [...sections] : undefined,
+          confirmation: confirmationRequest ?? undefined,
         },
       ]);
       // Cancel any in-flight generation execution from the previous stream
@@ -399,7 +403,27 @@ export default function ChatPage() {
       }
       startStream({ message: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     });
-  }, [input, isStreaming, chunks, sections, namespace, apiKey, reset, startStream, removeExecution]);
+  }, [input, isStreaming, chunks, sections, confirmationRequest, namespace, apiKey, reset, startStream, removeExecution]);
+
+  const sendConfirmation = useCallback((msg: string) => {
+    if (isStreaming) return;
+    // Commit current stream to history first
+    if (chunks || confirmationRequest) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: chunks,
+          confirmation: confirmationRequest ?? undefined,
+        },
+      ]);
+      reset();
+    }
+    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }]);
+    const ns = namespace || 'default';
+    startStream({ message: msg, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
+  }, [isStreaming, chunks, confirmationRequest, namespace, startStream, reset]);
 
   function handleClear() {
     // Rotate to a new session ID so the fresh chat has clean history
@@ -605,9 +629,18 @@ export default function ChatPage() {
                             );
                           }
                           return (
-                            <div className="prose">
-                              <ReactMarkdown>{m.content}</ReactMarkdown>
-                            </div>
+                            <>
+                              <div className="prose">
+                                <ReactMarkdown>{m.content}</ReactMarkdown>
+                              </div>
+                              {m.confirmation && (
+                                <ConfirmationBlock
+                                  request={m.confirmation}
+                                  onConfirm={sendConfirmation}
+                                  disabled={isStreaming}
+                                />
+                              )}
+                            </>
                           );
                         })()
                       ) : (
@@ -802,6 +835,21 @@ export default function ChatPage() {
                             View Templates ↗
                           </a>
                         </div>
+                      )}
+                      {!isStreaming && doneActions?.openTemplateUrl && (
+                        <div className="proposal-done-actions" style={{ marginTop: 12 }}>
+                          <a href={`${doneActions.openTemplateUrl}&from=chat`} className="proposal-done-link proposal-done-link--primary">
+                            View Template Draft ↗
+                          </a>
+                        </div>
+                      )}
+                      {/* ── Confirmation block for active stream ── */}
+                      {!isStreaming && confirmationRequest && (
+                        <ConfirmationBlock
+                          request={confirmationRequest}
+                          onConfirm={sendConfirmation}
+                          disabled={isStreaming}
+                        />
                       )}
                     </div>
                   </div>

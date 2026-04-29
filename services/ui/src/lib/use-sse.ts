@@ -20,6 +20,40 @@ export interface ToolEvent {
   ts: number;
 }
 
+export interface EntityToConfirm {
+  field: string;
+  value: string;
+  source: 'document' | 'inferred';
+  confidence: number;
+}
+
+export interface OptionalFieldToFill {
+  field: string;
+  question: string;
+}
+
+export type ConfirmationRequest =
+  | {
+      kind: 'confirm_entities';
+      entities: EntityToConfirm[];
+      optionalFields: OptionalFieldToFill[];
+    }
+  | {
+      kind: 'confirm_template';
+      templateId: string;
+      templateName: string;
+      confidence: number;
+      reasoning: string;
+      sections: string[];
+    }
+  | {
+      kind: 'approve_generated_template';
+      templateSlug: string;
+      templateName: string;
+      sections: string[];
+      viewLink: string;
+    };
+
 interface UseSSEReturn {
   chunks: string;
   phase: string;
@@ -28,6 +62,7 @@ interface UseSSEReturn {
   sections: ProposalSection[];
   toolEvents: ToolEvent[];
   doneActions: Record<string, string> | null;
+  confirmationRequest: ConfirmationRequest | null;
   startStream: (body: Record<string, unknown>) => void;
   reset: () => void;
 }
@@ -40,6 +75,7 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
   const [sections, setSections] = useState<ProposalSection[]>([]);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [doneActions, setDoneActions] = useState<Record<string, string> | null>(null);
+  const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(
@@ -54,6 +90,7 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
       setSections([]);
       setToolEvents([]);
       setDoneActions(null);
+      setConfirmationRequest(null);
       setIsStreaming(true);
 
       (async () => {
@@ -146,6 +183,15 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
                   continue;
                 }
 
+                if (currentEvent === 'confirmation_request') {
+                  try {
+                    const parsed = JSON.parse(payload) as ConfirmationRequest;
+                    if (parsed.kind) setConfirmationRequest(parsed);
+                  } catch { /* ignore */ }
+                  currentEvent = '';
+                  continue;
+                }
+
                 if (currentEvent === 'done') {
                   setPhase('');
                   // Fallback: if no tokens streamed (e.g. Ollama buffered mode),
@@ -197,8 +243,9 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
     setSections([]);
     setToolEvents([]);
     setDoneActions(null);
+    setConfirmationRequest(null);
     setIsStreaming(false);
   }, []);
 
-  return { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, startStream, reset };
+  return { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, confirmationRequest, startStream, reset };
 }
