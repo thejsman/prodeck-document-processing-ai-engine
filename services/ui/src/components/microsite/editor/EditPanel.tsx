@@ -109,7 +109,7 @@ function IconPickerField({
           <span style={{ fontSize: 16, flexShrink: 0 }}>{displayEmoji}</span>
         )}
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayLabel}</span>
-        <span style={{ color: '#94a3b8', fontSize: 10, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--subtle)', fontSize: 10, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
@@ -119,25 +119,25 @@ function IconPickerField({
           left: 0,
           right: 0,
           zIndex: 9999,
-          background: '#fff',
-          border: '1px solid #e2e8f0',
+          background: 'var(--panel)',
+          border: '1px solid var(--border)',
           borderRadius: 8,
           boxShadow: '0 8px 24px rgba(0,0,0,0.14)',
           marginTop: 4,
           overflow: 'hidden',
         }}>
           {/* Tabs */}
-          <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
             {([['emoji', '⊞ Icons'], ['upload', '⬆ Upload'], ['url', '🔗 URL']] as [IconTab, string][]).map(([t, label]) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 style={{
                   flex: 1, padding: '7px 0', border: 'none', fontSize: 11, fontWeight: tab === t ? 700 : 500,
-                  background: tab === t ? '#f5f3ff' : '#fff',
-                  color: tab === t ? '#6366f1' : '#64748b',
+                  background: tab === t ? 'var(--primary-tint)' : 'var(--panel)',
+                  color: tab === t ? 'var(--primary)' : 'var(--muted)',
                   cursor: 'pointer',
-                  borderBottom: tab === t ? '2px solid #6366f1' : '2px solid transparent',
+                  borderBottom: tab === t ? '2px solid var(--primary)' : '2px solid transparent',
                 }}
               >
                 {label}
@@ -156,8 +156,8 @@ function IconPickerField({
                       onClick={() => { onChange(hint); setOpen(false); }}
                       style={{
                         width: '100%', aspectRatio: '1', borderRadius: 5,
-                        border: value === hint ? '2px solid #6366f1' : '1px solid #e2e8f0',
-                        background: value === hint ? '#f5f3ff' : '#f8fafc',
+                        border: value === hint ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        background: value === hint ? 'var(--primary-tint)' : 'var(--bg)',
                         fontSize: 16, cursor: 'pointer',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}
@@ -173,7 +173,7 @@ function IconPickerField({
                   onKeyDown={e => {
                     if (e.key === 'Enter') { onChange((e.target as HTMLInputElement).value); setOpen(false); }
                   }}
-                  style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid var(--border)', fontSize: 12, boxSizing: 'border-box' }}
                 />
               </>
             )}
@@ -185,22 +185,22 @@ function IconPickerField({
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     gap: 6, padding: '16px 8px',
                     border: '2px dashed #c7d2fe', borderRadius: 7,
-                    background: '#f5f3ff', cursor: 'pointer', marginBottom: 8,
+                    background: 'var(--primary-tint)', cursor: 'pointer', marginBottom: 8,
                   }}
                 >
                   <span style={{ fontSize: 22 }}>⬆</span>
-                  <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>Click to upload icon</span>
-                  <span style={{ fontSize: 10, color: '#94a3b8' }}>PNG · JPG · SVG · WebP · ICO</span>
+                  <span style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 600 }}>Click to upload icon</span>
+                  <span style={{ fontSize: 10, color: 'var(--subtle)' }}>PNG · JPG · SVG · WebP · ICO</span>
                   <input ref={fileInputRef} type="file" accept="image/*,.svg,.ico" onChange={handleFile} style={{ display: 'none' }} />
                 </label>
                 {uploadPreview && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={uploadPreview} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} />
-                    <span style={{ fontSize: 11, color: '#475569', flex: 1 }}>Uploaded image</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', flex: 1 }}>Uploaded image</span>
                     <button
                       onClick={() => { onChange(uploadPreview); setOpen(false); }}
-                      style={{ padding: '3px 10px', borderRadius: 5, border: 'none', background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      style={{ padding: '3px 10px', borderRadius: 5, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                     >
                       Use
                     </button>
@@ -211,7 +211,7 @@ function IconPickerField({
 
             {tab === 'url' && (
               <div>
-                <p style={{ margin: '0 0 6px', fontSize: 11, color: '#64748b' }}>
+                <p style={{ margin: '0 0 6px', fontSize: 11, color: 'var(--muted)' }}>
                   Paste an icon URL (PNG, SVG, ICO…)
                 </p>
                 <input
@@ -219,13 +219,13 @@ function IconPickerField({
                   value={urlInput}
                   onChange={e => setUrlInput(e.target.value)}
                   placeholder="https://example.com/icon.svg"
-                  style={{ width: '100%', padding: '6px 9px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 12, marginBottom: 8, boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '6px 9px', borderRadius: 5, border: '1px solid var(--border)', fontSize: 12, marginBottom: 8, boxSizing: 'border-box' }}
                 />
                 {urlInput && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: 6, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: 6, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={urlInput} alt="" style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    <span style={{ fontSize: 11, color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urlInput}</span>
+                    <span style={{ fontSize: 11, color: 'var(--subtle)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urlInput}</span>
                   </div>
                 )}
                 <button
@@ -233,8 +233,8 @@ function IconPickerField({
                   disabled={!urlInput.trim()}
                   style={{
                     width: '100%', padding: '6px', borderRadius: 5, border: 'none',
-                    background: urlInput.trim() ? '#6366f1' : '#e2e8f0',
-                    color: urlInput.trim() ? '#fff' : '#94a3b8',
+                    background: urlInput.trim() ? 'var(--primary)' : 'var(--border)',
+                    color: urlInput.trim() ? '#fff' : 'var(--subtle)',
                     fontSize: 12, fontWeight: 600, cursor: urlInput.trim() ? 'pointer' : 'default',
                   }}
                 >
@@ -443,8 +443,8 @@ interface FieldProps {
 }
 
 function FieldInput({ def, value, onChange, isSelected }: FieldProps) {
-  const borderColor = isSelected ? '#6366f1' : 'var(--color-border, #e2e8f0)';
-  const bg = isSelected ? '#f5f3ff' : 'var(--color-surface, #fff)';
+  const borderColor = isSelected ? 'var(--primary)' : 'var(--color-border, #e2e8f0)';
+  const bg = isSelected ? 'var(--primary-tint)' : 'var(--color-surface, #fff)';
 
   const baseStyle: React.CSSProperties = {
     width: '100%',
@@ -515,7 +515,7 @@ function SectionFieldsPanel({ sectionId, sectionType, content, selection }: Sect
               gap: 6,
               fontSize: 11,
               fontWeight: 400,
-              color: isSelected ? '#6366f1' : 'var(--color-text-muted, #666)',
+              color: isSelected ? 'var(--primary)' : 'var(--color-text-muted, #666)',
               marginBottom: 4,
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
@@ -527,7 +527,7 @@ function SectionFieldsPanel({ sectionId, sectionType, content, selection }: Sect
                   width: 6,
                   height: 6,
                   borderRadius: '50%',
-                  background: '#6366f1',
+                  background: 'var(--primary)',
                   flexShrink: 0,
                 }} />
               )}
@@ -580,7 +580,7 @@ function ArrayItemPanel({ sectionId, arrayPath, title, items, fields, itemTempla
         {canAdd && (
           <button
             onClick={() => ctx.addArrayItem(sectionId, arrayPath, { ...itemTemplate })}
-            style={{ padding: '5px 12px', borderRadius: 5, border: '1px solid #6366f1', background: '#f5f3ff', color: '#6366f1', fontSize: 14, fontWeight: 400, cursor: 'pointer', lineHeight: 1.5, letterSpacing: '0em' }}
+            style={{ padding: '5px 12px', borderRadius: 5, border: '1px solid var(--primary)', background: 'var(--primary-soft)', color: 'var(--primary)', fontSize: 14, fontWeight: 400, cursor: 'pointer', lineHeight: 1.5, letterSpacing: '0em' }}
           >
             + {addLabel}
           </button>
@@ -869,7 +869,7 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
         borderBottom: '1px solid var(--color-border, #e2e8f0)',
         flexShrink: 0,
       }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6366f1' }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--primary)' }}>
           Content Editor
         </p>
         {selection && (
@@ -929,7 +929,7 @@ export function EditPanel({ ast }: { ast: LayoutAST }) {
                 type="text"
                 value={section.heading}
                 onChange={e => ctx.updateField(section.id, '__heading', e.target.value)}
-                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #6366f133', fontSize: 12, boxSizing: 'border-box', background: '#f5f3ff' }}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--primary-alpha)', fontSize: 12, boxSizing: 'border-box', background: 'var(--primary-tint)' }}
               />
             </div>
 

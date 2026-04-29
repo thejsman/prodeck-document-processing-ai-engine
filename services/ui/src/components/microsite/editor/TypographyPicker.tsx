@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useEditContext } from './EditContext';
 import type { LayoutAST } from '../../../types/presentation';
 
-const ACCENT = '#6366f1';
+const ACCENT = 'var(--primary)';
 
 interface FontPair {
   name: string;
@@ -162,18 +162,18 @@ export function TypographyPicker({ onClose }: Props) {
         right: 0,
         zIndex: 30000,
         marginTop: 6,
-        background: '#fff',
+        background: 'var(--panel)',
         borderRadius: 12,
         boxShadow: '0 16px 48px rgba(0,0,0,0.18)',
-        border: '1px solid #e2e8f0',
+        border: '1px solid var(--border)',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         width: 340,
         overflow: 'hidden',
       }}
     >
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid #e2e8f0' }}>
-        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Typography</p>
-        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Choose a heading + body font pairing</p>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>Typography</p>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>Choose a heading + body font pairing</p>
       </div>
 
       <div style={{ maxHeight: 380, overflowY: 'auto', padding: '8px 0' }}>
@@ -187,7 +187,7 @@ export function TypographyPicker({ onClose }: Props) {
                 width: '100%',
                 padding: '10px 14px',
                 border: 'none',
-                background: isActive ? '#f5f3ff' : 'transparent',
+                background: isActive ? 'var(--primary-tint)' : 'transparent',
                 cursor: 'pointer',
                 textAlign: 'left',
                 display: 'flex',
@@ -195,46 +195,46 @@ export function TypographyPicker({ onClose }: Props) {
                 gap: 12,
                 transition: 'background 0.1s',
               }}
-              onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#f8fafc'; }}
+              onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'var(--bg)'; }}
               onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
             >
               {/* Font preview */}
               <div style={{
                 width: 52, height: 40, borderRadius: 8, flexShrink: 0,
-                background: isActive ? '#eef2ff' : '#f8fafc',
-                border: `1.5px solid ${isActive ? ACCENT : '#e2e8f0'}`,
+                background: isActive ? 'var(--primary-tint)' : 'var(--bg)',
+                border: `1.5px solid ${isActive ? ACCENT : 'var(--border)'}`,
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 2, overflow: 'hidden', padding: '0 4px',
               }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: isActive ? ACCENT : '#1e293b', lineHeight: 1, whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: isActive ? ACCENT : 'var(--text)', lineHeight: 1, whiteSpace: 'nowrap' }}>
                   Ag
                 </span>
-                <span style={{ fontSize: 8, color: '#94a3b8', lineHeight: 1, whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 8, color: 'var(--subtle)', lineHeight: 1, whiteSpace: 'nowrap' }}>
                   body
                 </span>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: isActive ? ACCENT : '#1e293b' }}>{pair.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: isActive ? ACCENT : 'var(--text)' }}>{pair.name}</span>
                   <span style={{
-                    fontSize: 9, fontWeight: 600, color: '#94a3b8',
-                    background: '#f1f5f9', padding: '1px 5px', borderRadius: 4,
+                    fontSize: 9, fontWeight: 600, color: 'var(--subtle)',
+                    background: 'var(--panel-soft)', padding: '1px 5px', borderRadius: 4,
                     textTransform: 'uppercase', letterSpacing: '0.05em',
                   }}>{pair.tag}</span>
                   {isActive && <span style={{ fontSize: 9, color: ACCENT, fontWeight: 700, marginLeft: 'auto' }}>✓ Active</span>}
                 </div>
-                <div style={{ fontSize: 10, color: '#64748b' }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)' }}>
                   {pair.heading} · {pair.body}
                 </div>
-                <div style={{ fontSize: 10, color: '#94a3b8' }}>{pair.preview}</div>
+                <div style={{ fontSize: 10, color: 'var(--subtle)' }}>{pair.preview}</div>
               </div>
             </button>
           );
         })}
       </div>
 
-      <div style={{ padding: '8px 14px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
-        <p style={{ margin: 0, fontSize: 10, color: '#94a3b8' }}>
+      <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', background: 'var(--bg)' }}>
+        <p style={{ margin: 0, fontSize: 10, color: 'var(--subtle)' }}>
           Changes apply instantly. Undo with Ctrl+Z.
         </p>
       </div>

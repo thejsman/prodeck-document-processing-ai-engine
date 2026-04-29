@@ -450,7 +450,7 @@ function QuickThemePanel({
         overflow: 'hidden',
       }}
     >
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid #e2e8f0' }}>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
         <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Quick Theme Switch</p>
         <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Click any theme to apply instantly</p>
       </div>
@@ -560,7 +560,7 @@ function QuickThemePanel({
         ))}
       </div>
 
-      <div style={{ padding: '10px 14px', borderTop: '1px solid #e2e8f0' }}>
+      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)' }}>
         <button
           onClick={() => {
             onClose();
@@ -954,12 +954,12 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
           display: flex; align-items: center;
           padding: 0 16px; height: 52px;
           background: #ffffff;
-          border-bottom: 1px solid #e2e8f0;
+          border-bottom: 1px solid var(--border);
           flex-shrink: 0; gap: 0;
           user-select: none;
         }
         .mse-group { display: flex; align-items: center; gap: 2px; }
-        .mse-sep { width: 1px; height: 22px; background: #e2e8f0; margin: 0 10px; flex-shrink: 0; }
+        .mse-sep { width: 1px; height: 22px; background: var(--border); margin: 0 10px; flex-shrink: 0; }
         .mse-spacer { flex: 1; }
 
         /* Icon-only button */

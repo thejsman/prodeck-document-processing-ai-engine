@@ -32,7 +32,7 @@ const COLOR_SWATCHES = [
   { label: 'Pink',    value: '#ec4899' },
   { label: 'Purple',  value: '#8b5cf6' },
   { label: 'Blue',    value: '#3b82f6' },
-  { label: 'White',   value: '#f1f5f9' },
+  { label: 'White',   value: '#f0efe9' },
   { label: 'Muted',   value: '#64748b' },
 ];
 

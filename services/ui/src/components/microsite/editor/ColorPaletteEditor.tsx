@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useEditContext } from "./EditContext";
 import type { LayoutAST } from "../../../types/presentation";
 
-const ACCENT = "#6366f1";
+const ACCENT = "var(--primary)";
 
 interface ColorToken {
   key: keyof import("../../../types/presentation").PluginTokens;
@@ -130,10 +130,10 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
         right: 0,
         zIndex: 30000,
         marginTop: 6,
-        background: "#fff",
+        background: "var(--panel)",
         borderRadius: 12,
         boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
-        border: "1px solid #e2e8f0",
+        border: "1px solid var(--border)",
         fontFamily: "system-ui, -apple-system, sans-serif",
         width: 300,
         overflow: "hidden",
@@ -142,7 +142,7 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
       <div
         style={{
           padding: "12px 14px",
-          borderBottom: "1px solid #e2e8f0",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -154,12 +154,12 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
               margin: 0,
               fontSize: 12,
               fontWeight: 700,
-              color: "#1e293b",
+              color: "var(--text)",
             }}
           >
             Color Palette
           </p>
-          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#94a3b8" }}>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--subtle)" }}>
             Edit global design tokens
           </p>
         </div>
@@ -201,11 +201,11 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
             >
               <div>
                 <span
-                  style={{ fontSize: 11, fontWeight: 600, color: "#1e293b" }}
+                  style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}
                 >
                   {token.label}
                 </span>
-                <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 6 }}>
+                <span style={{ fontSize: 10, color: "var(--subtle)", marginLeft: 6 }}>
                   {token.description}
                 </span>
               </div>
@@ -213,7 +213,7 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
                 <span
                   style={{
                     fontSize: 10,
-                    color: "#64748b",
+                    color: "var(--muted)",
                     fontFamily: "monospace",
                   }}
                 >
@@ -280,11 +280,11 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
       <div
         style={{
           padding: "8px 14px",
-          borderTop: "1px solid #e2e8f0",
-          background: "#f8fafc",
+          borderTop: "1px solid var(--border)",
+          background: "var(--bg)",
         }}
       >
-        <p style={{ margin: 0, fontSize: 10, color: "#94a3b8" }}>
+        <p style={{ margin: 0, fontSize: 10, color: "var(--subtle)" }}>
           Live preview · Ctrl+Z to undo · Use Design AI for advanced edits
         </p>
       </div>

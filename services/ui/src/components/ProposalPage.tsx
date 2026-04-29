@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { X, ChevronDown, Check, MoreHorizontal, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
+import { ThemeToggle } from '@/components/system/ThemeToggle';
 import type {
   ProposalDocument,
   ProposalFile,
@@ -983,7 +984,10 @@ export function ProposalPage() {
           </div>
         ) : (
           /* ── Browser body: proposal card grid ── */
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+              <ThemeToggle />
+            </div>
             {/* Inline browser header */}
             <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
@@ -1023,7 +1027,7 @@ export function ProposalPage() {
                   + Generate Proposal
                 </button>
               </div>
-              <div style={{ height: 1, background: 'var(--panel)' }} />
+              <div style={{ height: 1, background: 'var(--border)' }} />
             </div>
             {browseLoading && !pending ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>

@@ -78,7 +78,7 @@ export function CommandPalette({ commands, onClose }: Props) {
       <div
         style={{
           width: 'min(560px, calc(100vw - 32px))',
-          background: '#fff',
+          background: 'var(--panel)',
           borderRadius: 14,
           boxShadow: '0 24px 64px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.06)',
           overflow: 'hidden',
@@ -86,8 +86,8 @@ export function CommandPalette({ commands, onClose }: Props) {
         }}
       >
         {/* Search input */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #f1f5f9', gap: 10 }}>
-          <span style={{ fontSize: 16, color: '#94a3b8', flexShrink: 0 }}>⌕</span>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--panel-soft)', gap: 10 }}>
+          <span style={{ fontSize: 16, color: 'var(--subtle)', flexShrink: 0 }}>⌕</span>
           <input
             ref={inputRef}
             value={query}
@@ -96,26 +96,26 @@ export function CommandPalette({ commands, onClose }: Props) {
             placeholder="Search commands…"
             style={{
               flex: 1, border: 'none', outline: 'none',
-              fontSize: 15, color: '#1e293b',
+              fontSize: 15, color: 'var(--text)',
               background: 'transparent', fontFamily: 'inherit',
             }}
           />
           {query && (
             <button
               onClick={() => setQuery('')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 13, padding: 2 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', fontSize: 13, padding: 2 }}
             >✕</button>
           )}
           <kbd style={{
-            padding: '2px 6px', borderRadius: 5, border: '1px solid #e2e8f0',
-            background: '#f8fafc', color: '#94a3b8', fontSize: 10, fontWeight: 600, flexShrink: 0,
+            padding: '2px 6px', borderRadius: 5, border: '1px solid var(--border)',
+            background: 'var(--bg)', color: 'var(--subtle)', fontSize: 10, fontWeight: 600, flexShrink: 0,
           }}>Esc</kbd>
         </div>
 
         {/* Results */}
         <div ref={listRef} style={{ maxHeight: 380, overflowY: 'auto', padding: '6px 0' }}>
           {filtered.length === 0 ? (
-            <div style={{ padding: '20px 16px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+            <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--subtle)', fontSize: 13 }}>
               No commands match "{query}"
             </div>
           ) : (
@@ -130,28 +130,28 @@ export function CommandPalette({ commands, onClose }: Props) {
                   gap: 12,
                   padding: '8px 14px',
                   cursor: 'pointer',
-                  background: i === activeIdx ? '#f5f3ff' : 'transparent',
+                  background: i === activeIdx ? 'var(--primary-tint)' : 'transparent',
                   transition: 'background 0.08s',
                 }}
               >
                 <span
                   style={{
                     width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                    background: i === activeIdx ? '#ede9fe' : '#f1f5f9',
+                    background: i === activeIdx ? 'var(--primary-soft)' : 'var(--panel-soft)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 15, transition: 'background 0.08s',
                   }}
                 >{cmd.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{cmd.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{cmd.label}</div>
                   {cmd.description && (
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{cmd.description}</div>
+                    <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 1 }}>{cmd.description}</div>
                   )}
                 </div>
                 {cmd.shortcut && (
                   <kbd style={{
-                    padding: '2px 7px', borderRadius: 5, border: '1px solid #e2e8f0',
-                    background: '#f8fafc', color: '#64748b', fontSize: 10,
+                    padding: '2px 7px', borderRadius: 5, border: '1px solid var(--border)',
+                    background: 'var(--bg)', color: 'var(--muted)', fontSize: 10,
                     fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap',
                   }}>{cmd.shortcut}</kbd>
                 )}
@@ -163,15 +163,15 @@ export function CommandPalette({ commands, onClose }: Props) {
         {/* Footer */}
         <div style={{
           display: 'flex', gap: 16, padding: '8px 14px',
-          borderTop: '1px solid #f1f5f9', background: '#f8fafc',
+          borderTop: '1px solid var(--panel-soft)', background: 'var(--bg)',
         }}>
           {[['↑↓', 'Navigate'], ['↵', 'Run'], ['Esc', 'Close']].map(([key, label]) => (
             <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <kbd style={{
-                padding: '1px 6px', borderRadius: 4, border: '1px solid #e2e8f0',
-                background: '#fff', fontSize: 10, color: '#64748b', fontWeight: 600,
+                padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)',
+                background: 'var(--panel)', fontSize: 10, color: 'var(--muted)', fontWeight: 600,
               }}>{key}</kbd>
-              <span style={{ fontSize: 10, color: '#94a3b8' }}>{label}</span>
+              <span style={{ fontSize: 10, color: 'var(--subtle)' }}>{label}</span>
             </div>
           ))}
         </div>

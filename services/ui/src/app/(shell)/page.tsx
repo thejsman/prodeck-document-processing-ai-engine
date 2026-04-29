@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { LayoutGrid } from 'lucide-react';
 import { CreateNamespaceModal } from '@/components/shell/CreateNamespaceModal';
+import { ThemeToggle } from '@/components/system/ThemeToggle';
 
 export default function WelcomePage() {
   const [showCreate, setShowCreate] = useState(false);
@@ -15,8 +16,12 @@ export default function WelcomePage() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '40px 24px',
+        position: 'relative',
       }}
     >
+      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+        <ThemeToggle />
+      </div>
       <div
         style={{
           display: 'flex',
