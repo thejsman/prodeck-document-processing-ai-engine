@@ -282,7 +282,8 @@ export async function handleGenerateProposal(
     doc = await spawnProposalGenerator(payload);
   }
 
-  const outputFile = (doc.metadata as Record<string, unknown>).output_file as string | undefined;
+  const m = doc.metadata as Record<string, unknown>;
+  const outputFile = (m.output_file ?? m.output_path) as string | undefined;
   const fileName = outputFile
     ? path.basename(outputFile)
     : `${client.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 100)}_proposal.md`;
