@@ -366,6 +366,8 @@ export function PresentationPage() {
   const [urlInput, setUrlInput] = useState("");
   const [urlReferenceDesign, setUrlReferenceDesign] =
     useState<ReferenceDesign | null>(null);
+  const [urlLayout, setUrlLayout] = useState<Record<string, unknown> | null>(null);
+  const [urlImages, setUrlImages] = useState<string[]>([]);
   const [urlExtractionState, setUrlExtractionState] = useState<
     "idle" | "loading" | "success" | "error" | "blocked"
   >("idle");
@@ -801,19 +803,44 @@ export function PresentationPage() {
     // extractedCssVariables at stream-complete time, overwriting these.
     const urlDesignOverride = (() => {
       if (!urlReferenceDesign) return {};
+
+      // Relative luminance of a hex color (WCAG formula)
+      const hexLum = (hex: string): number => {
+        const h = hex.replace("#", "").slice(0, 6);
+        if (h.length < 6) return 0;
+        const r = parseInt(h.slice(0, 2), 16) / 255;
+        const g = parseInt(h.slice(2, 4), 16) / 255;
+        const b = parseInt(h.slice(4, 6), 16) / 255;
+        const lin = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+      };
+
+      // WCAG contrast ratio between two hex colors
+      const contrastRatio = (a: string, b: string): number => {
+        const l1 = hexLum(a), l2 = hexLum(b);
+        const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1];
+        return (lighter + 0.05) / (darker + 0.05);
+      };
+
+      // Ensure text has at least 4.5:1 contrast against its background.
+      // If not, fall back to pure white or pure black — whichever wins.
+      const ensureContrast = (textHex: string, bgHex: string): string => {
+        if (contrastRatio(textHex, bgHex) >= 4.5) return textHex;
+        const whiteContrast = contrastRatio("#ffffff", bgHex);
+        const blackContrast = contrastRatio("#111111", bgHex);
+        return whiteContrast >= blackContrast ? "#ffffff" : "#111111";
+      };
+
       const bg = urlReferenceDesign.colors.background;
-      const isDark = (() => {
-        const hex = bg.replace("#", "");
-        if (hex.length < 6) return false;
-        const r = parseInt(hex.slice(0, 2), 16) / 255;
-        const g = parseInt(hex.slice(2, 4), 16) / 255;
-        const b = parseInt(hex.slice(4, 6), 16) / 255;
-        const toLinear = (c: number) =>
-          c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-        const lum =
-          0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
-        return lum < 0.179;
-      })();
+      const surface = urlReferenceDesign.colors.surface;
+      const bgLum = hexLum(bg);
+      const isDark = bgLum < 0.179;
+
+      // Validate and correct all text colors against their respective backgrounds
+      const safeText     = ensureContrast(urlReferenceDesign.colors.text, bg);
+      const safeTextMuted = ensureContrast(urlReferenceDesign.colors.textMuted, bg);
+      const safeTextOnSurface = ensureContrast(urlReferenceDesign.colors.text, surface);
+
       const radiusMap: Record<string, string> = {
         sharp: "4px",
         soft: "8px",
@@ -821,15 +848,15 @@ export function PresentationPage() {
       };
       const cssVars: Record<string, string> = {
         "--ms-bg": bg,
-        "--ms-bg2": urlReferenceDesign.colors.surface,
-        "--ms-bg3": urlReferenceDesign.colors.surface,
-        "--ms-surface": urlReferenceDesign.colors.surface,
+        "--ms-bg2": surface,
+        "--ms-bg3": surface,
+        "--ms-surface": surface,
         "--ms-accent": urlReferenceDesign.colors.primary,
         "--ms-accent2": urlReferenceDesign.colors.secondary,
-        "--ms-text": urlReferenceDesign.colors.text,
-        "--ms-text2": urlReferenceDesign.colors.textMuted,
-        "--ms-text3": urlReferenceDesign.colors.textMuted,
-        "--ms-border": urlReferenceDesign.colors.surface,
+        "--ms-text": safeText,
+        "--ms-text2": safeTextMuted,
+        "--ms-text3": safeTextOnSurface,
+        "--ms-border": surface,
         "--ms-is-dark": isDark ? "1" : "0",
         "--ms-font-heading": urlReferenceDesign.typography.headingFont,
         "--ms-font-body": urlReferenceDesign.typography.bodyFont,
@@ -936,6 +963,9 @@ export function PresentationPage() {
         ...(referenceFile ? { referenceFile } : {}),
         // URL reference design — file tokens take priority if both provided
         ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+        // URL layout structure and images — always passed when available
+        ...(urlLayout ? { urlLayout } : {}),
+        ...(urlImages.length > 0 ? { urlImages } : {}),
         signal: abortCtrl.signal,
         onEvent: (event: StreamEvent) => {
           console.log(
@@ -2477,15 +2507,21 @@ export function PresentationPage() {
                                 }
                                 if (result.tokens) {
                                   setUrlReferenceDesign({ ...result.tokens, heroImageUrl: result.heroImageUrl ?? null });
+                                  setUrlLayout(result.layout ?? null);
+                                  setUrlImages(result.images ?? []);
                                   setUrlExtractionState("success");
                                 } else {
                                   setUrlReferenceDesign(null);
+                                  setUrlLayout(null);
+                                  setUrlImages([]);
                                   setUrlExtractionState(
                                     result.error === "blocked_by_bot_protection" ? "blocked" : "error",
                                   );
                                 }
                               } catch {
                                 setUrlReferenceDesign(null);
+                                setUrlLayout(null);
+                                setUrlImages([]);
                                 setUrlExtractionState("error");
                               }
                             }, 800);
@@ -2498,6 +2534,8 @@ export function PresentationPage() {
                             onClick={() => {
                               setUrlInput("");
                               setUrlReferenceDesign(null);
+                              setUrlLayout(null);
+                              setUrlImages([]);
                               setUrlExtractionState("idle");
                               if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
                               setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });

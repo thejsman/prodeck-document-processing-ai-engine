@@ -89,7 +89,7 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
               fontFamily: `'${tokens.bodyFont}', sans-serif`,
               fontSize: '0.75rem',
               fontWeight: 500,
-              color: imageUrl ? '#fff' : tokens.accent,
+              color: imageUrl ? (tokens.dark ? '#fff' : '#111') : tokens.accent,
               letterSpacing: '0.05em',
             }}
           >

@@ -126,7 +126,7 @@ export function TeamSection({ content, tokens }: Props) {
                           <span style={{
                             fontFamily: `'${tokens.heroFont}', sans-serif`,
                             fontWeight: 700, fontSize: '1rem',
-                            color: '#fff', letterSpacing: '-0.02em',
+                            color: tokens.dark ? '#fff' : '#111', letterSpacing: '-0.02em',
                           }}>
                             {getInitials(member.name ?? '?')}
                           </span>
@@ -198,7 +198,7 @@ export function TeamSection({ content, tokens }: Props) {
                           <span style={{
                             fontFamily: `'${tokens.heroFont}', sans-serif`,
                             fontWeight: 800, fontSize: '1.25rem',
-                            color: '#fff', letterSpacing: '-0.02em',
+                            color: tokens.dark ? '#fff' : '#111', letterSpacing: '-0.02em',
                           }}>
                             {getInitials(member.name ?? '?')}
                           </span>

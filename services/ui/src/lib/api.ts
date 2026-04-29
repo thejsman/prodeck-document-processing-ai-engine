@@ -747,6 +747,8 @@ export interface GenerateStreamOptions {
   pdfFriendly?: boolean;
   referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
   urlReferenceDesign?: ReferenceDesign | null;
+  urlLayout?: Record<string, unknown> | null;
+  urlImages?: string[];
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -771,6 +773,8 @@ export async function generateMicrositeStream(
       ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
       ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
       ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
+      ...(opts.urlLayout ? { urlLayout: opts.urlLayout } : {}),
+      ...(opts.urlImages?.length ? { urlImages: opts.urlImages } : {}),
     }),
     signal: opts.signal,
   });
@@ -931,7 +935,7 @@ export async function editProposalSection(
 export async function extractUrlDesign(
   apiKey: string,
   url: string,
-): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; error?: string }> {
+): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }> {
   try {
     const res = await fetch('/api/microsite/extract-url-design', {
       method: 'POST',
@@ -939,7 +943,7 @@ export async function extractUrlDesign(
       body: JSON.stringify({ url }),
     });
     if (!res.ok) return { tokens: null, error: 'request_failed' };
-    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; error?: string }>;
+    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }>;
   } catch {
     return { tokens: null, error: 'network_error' };
   }
