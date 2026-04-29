@@ -27,6 +27,7 @@ vi.mock('../tool-handlers.js', () => ({
   handleListTemplates:       vi.fn(),
   handleGetProposalStatus:   vi.fn(),
   handleSetProposalStatus:   vi.fn(),
+  handleRecommendTemplate:   vi.fn(),
 }));
 
 import { runChatAgent } from '../chat-agent.js';
@@ -174,15 +175,17 @@ afterEach(async () => {
 
 describe('1. proposal generation — happy path', () => {
   it('GENERATE_PROPOSAL: context ready → generate_proposal tool called → view_proposal action card', async () => {
-    // Arrange: namespace context with clientName + industry already set
+    // Arrange: namespace context with clientName + industry already set, document ingested
     await writeContext(workdir, NS, {
+      sources: [{ fileName: 'brief.txt', documentType: 'meeting_transcript', extractedAt: new Date().toISOString(), fieldsExtracted: [], knowledgeEntriesCreated: 0, preprocessConfidence: 0.9 }],
       requirements: {
         fields: {
-          clientName: { value: 'Acme Corp', confidence: 0.9, source: 'user', updatedAt: '' },
-          industry:   { value: 'Technology', confidence: 0.9, source: 'user', updatedAt: '' },
+          clientName: { value: 'Acme Corp', confidence: 0.9, source: 'user', updatedAt: '', confirmedByUser: { at: new Date().toISOString() } },
+          industry:   { value: 'Technology', confidence: 0.9, source: 'user', updatedAt: '', confirmedByUser: { at: new Date().toISOString() } },
         },
         customFields: {},
       },
+      selectedTemplate: { templateId: 'default', name: 'Default', confirmedAt: new Date().toISOString(), generatedFromScratch: false },
     });
 
     // Mock tool handler to return a successful proposal result
@@ -256,6 +259,19 @@ describe('2. proposal generation — missing fields → multi-turn', () => {
         generateFn: makeGenerateFn({ extraction: { projectType: 'software project' } }),
       }),
     );
+
+    // Simulate document ingestion happening between turns (adds a source + pre-confirms entities)
+    await writeContext(workdir, NS, {
+      sources: [{ fileName: 'brief.txt', documentType: 'meeting_transcript', extractedAt: new Date().toISOString(), fieldsExtracted: [], knowledgeEntriesCreated: 0, preprocessConfidence: 0.9 }],
+      requirements: {
+        fields: {
+          clientName: { value: 'TechStart Inc', confidence: 0.9, source: 'user', updatedAt: new Date().toISOString(), confirmedByUser: { at: new Date().toISOString() } },
+          industry:   { value: 'fintech', confidence: 0.9, source: 'user', updatedAt: new Date().toISOString(), confirmedByUser: { at: new Date().toISOString() } },
+        },
+        customFields: {},
+      },
+      selectedTemplate: { templateId: 'default', name: 'Default', confirmedAt: new Date().toISOString(), generatedFromScratch: false },
+    });
 
     // Mock generate_proposal for turn 2
     vi.mocked(toolHandlers.handleGenerateProposal).mockResolvedValue({
@@ -459,13 +475,15 @@ describe('6. ambiguous message → QUERY not GENERAL_CHAT', () => {
 describe('7. plan validation failure → fallback plan used', () => {
   it('invalid plan JSON from LLM → fallback generate_proposal → pipeline succeeds', async () => {
     await writeContext(workdir, NS, {
+      sources: [{ fileName: 'brief.txt', documentType: 'meeting_transcript', extractedAt: new Date().toISOString(), fieldsExtracted: [], knowledgeEntriesCreated: 0, preprocessConfidence: 0.9 }],
       requirements: {
         fields: {
-          clientName: { value: 'Acme Corp', confidence: 0.9, source: 'user', updatedAt: '' },
-          industry:   { value: 'Technology', confidence: 0.9, source: 'user', updatedAt: '' },
+          clientName: { value: 'Acme Corp', confidence: 0.9, source: 'user', updatedAt: '', confirmedByUser: { at: new Date().toISOString() } },
+          industry:   { value: 'Technology', confidence: 0.9, source: 'user', updatedAt: '', confirmedByUser: { at: new Date().toISOString() } },
         },
         customFields: {},
       },
+      selectedTemplate: { templateId: 'default', name: 'Default', confirmedAt: new Date().toISOString(), generatedFromScratch: false },
     });
 
     vi.mocked(toolHandlers.handleGenerateProposal).mockResolvedValue({
