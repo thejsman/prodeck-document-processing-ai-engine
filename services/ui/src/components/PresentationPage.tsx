@@ -2497,7 +2497,7 @@ export function PresentationPage() {
                       }}
                     />
                     {/* ── Attach + URL in one row ── */}
-                    <div style={{ display: "flex", alignItems: "stretch", gap: 8, marginTop: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                       {/* Attach button */}
                       <button
                         type="button"

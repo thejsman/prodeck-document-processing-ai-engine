@@ -3,7 +3,7 @@
 import type { PluginTokens, ChallengeContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
+import { inlineMarkdownToHtml, hasMarkdown, rt } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
@@ -138,41 +138,60 @@ export function ChallengeSection({ content, tokens, imageUrl }: Props) {
                   gridTemplateColumns: '1fr 1fr',
                   gap: 1,
                   background: tokens.border,
+                  border: `1px solid ${tokens.border}`,
                 }}>
                   {highlights.map((h, i) => (
-                    <InlineArrayItem key={i} arrayPath="highlights" index={i} total={highlights.length}>
+                    <InlineArrayItem
+                      key={i}
+                      arrayPath="highlights"
+                      index={i}
+                      total={highlights.length}
+                      style={{
+                        background: tokens.surface ?? tokens.bg,
+                        ...(highlights.length === 3 && i === 2 ? { gridColumn: '1 / -1' } : {}),
+                      }}
+                    >
                       <div
                         style={{
                           background: tokens.surface ?? tokens.bg,
                           padding: 'clamp(1.25rem, 2.5vw, 1.75rem)',
+                          display: 'flex',
+                          flexDirection: 'column' as const,
+                          alignItems: 'center',
+                          textAlign: 'center' as const,
+                          ...(highlights.length === 3 && i === 2 ? {
+                            gridColumn: '1 / -1',
+                          } : {}),
                         }}
                       >
                         {/* Big stat number */}
                         <InlineEditable field={`highlights.${i}.title`} label="Stat" value={h.title ?? ''}>
-                          <div style={{
-                            fontFamily: `'${tokens.heroFont}', serif`,
-                            fontWeight: Number(tokens.heroWeight) || 700,
-                            fontSize: 'clamp(1.4rem, 2.5vw, 2rem)',
-                            color: tokens.accent,
-                            lineHeight: 1,
-                            marginBottom: 5,
-                          }}>
-                            {h.title}
-                          </div>
+                          <div
+                            style={{
+                              fontFamily: `'${tokens.heroFont}', serif`,
+                              fontWeight: Number(tokens.heroWeight) || 700,
+                              fontSize: 'clamp(1.4rem, 2.5vw, 2rem)',
+                              color: tokens.accent,
+                              lineHeight: 1,
+                              marginBottom: 5,
+                            }}
+                            {...rt(h.title ?? '')}
+                          />
                         </InlineEditable>
                         {/* Label */}
                         {h.subtitle && (
                           <InlineEditable field={`highlights.${i}.subtitle`} label="Label" value={h.subtitle ?? ''}>
-                            <div style={{
-                              fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                              fontSize: '0.6rem',
-                              fontWeight: 500,
-                              color: tokens.textMuted,
-                              letterSpacing: '0.03em',
-                              lineHeight: 1.4,
-                            }}>
-                              {h.subtitle}
-                            </div>
+                            <div
+                              style={{
+                                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                fontSize: '0.6rem',
+                                fontWeight: 500,
+                                color: tokens.textMuted,
+                                letterSpacing: '0.03em',
+                                lineHeight: 1.4,
+                              }}
+                              {...rt(h.subtitle ?? '')}
+                            />
                           </InlineEditable>
                         )}
                       </div>

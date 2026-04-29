@@ -4,7 +4,7 @@ import type { PluginTokens, StatsContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
-import { Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
+import { Label, Body, rt, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { useMicrositeEffects } from '../shared/MicrositeEffectsContext';
@@ -145,9 +145,8 @@ export function StatsSection({ content, tokens, sectionId }: Props) {
                         color: tokens.text,
                         marginBottom: 10,
                       }}
-                    >
-                      {stat.label}
-                    </div>
+                      {...rt(stat.label ?? '')}
+                    />
                   </InlineEditable>
 
                   <InlineEditable field={`stats.${i}.context`} label="Context" value={stat.context ?? ''} multiline>

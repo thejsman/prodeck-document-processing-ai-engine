@@ -7,6 +7,7 @@ import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
+import { rt } from '../shared/Typography';
 
 interface Props {
   content: SecurityContent;
@@ -38,26 +39,22 @@ export function SecuritySection({ content, tokens }: Props) {
         <Reveal>
           <div style={{ marginBottom: 'clamp(3rem, 6vw, 5rem)' }}>
             <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-              <span style={{
+              <span {...rt(content.eyebrow ?? '')} style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.62rem', fontWeight: 700,
                 letterSpacing: '0.18em', textTransform: 'uppercase' as const,
                 color: tokens.accent, display: 'block', marginBottom: 20,
-              }}>
-                {content.eyebrow}
-              </span>
+              }} />
             </InlineEditable>
             <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-              <h2 style={{
+              <h2 {...rt(content.headline ?? '')} style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
                 fontWeight: Number(tokens.heroWeight) || 700,
                 fontSize: 'clamp(2rem, 4vw, 3.2rem)',
                 lineHeight: 1.1, letterSpacing: '-0.03em',
                 color: tokens.text, margin: 0,
                 maxWidth: 640,
-              }}>
-                {content.headline}
-              </h2>
+              }} />
             </InlineEditable>
           </div>
         </Reveal>
@@ -107,22 +104,18 @@ export function SecuritySection({ content, tokens }: Props) {
                   {/* Text */}
                   <div>
                     <InlineEditable field={`items.${si}.name`} label="Name" value={item.name ?? ''}>
-                      <h4 style={{
+                      <h4 {...rt(item.name ?? '')} style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontWeight: 700, fontSize: '1rem',
                         color: tokens.text, margin: '0 0 8px', lineHeight: 1.3,
-                      }}>
-                        {item.name}
-                      </h4>
+                      }} />
                     </InlineEditable>
                     <InlineEditable field={`items.${si}.description`} label="Description" value={item.description ?? ''} multiline>
-                      <p style={{
+                      <p {...rt(item.description ?? '')} style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.95rem', lineHeight: 1.75,
                         color: tokens.textMuted, margin: 0,
-                      }}>
-                        {item.description}
-                      </p>
+                      }} />
                     </InlineEditable>
                   </div>
                 </div>

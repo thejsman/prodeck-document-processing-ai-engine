@@ -4,6 +4,7 @@ import type { PluginTokens, NextStepsContent, LayoutSection } from '../../../typ
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { CTAButton } from '../shared/CTAButton';
+import { rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 
 interface Props {
@@ -75,9 +76,8 @@ export function NextStepsSection({ content, tokens, sectionId }: Props) {
                   fontSize: '0.62rem', fontWeight: 700,
                   letterSpacing: '0.18em', textTransform: 'uppercase' as const,
                   color: tokens.accent, display: 'block', marginBottom: 20,
-                }}>
-                  {content.eyebrow}
-                </span>
+                }}
+                  {...rt(content.eyebrow ?? '')} />
               </InlineEditable>
             </Reveal>
 
@@ -89,9 +89,8 @@ export function NextStepsSection({ content, tokens, sectionId }: Props) {
                   fontSize: 'clamp(2rem, 4vw, 3.2rem)',
                   lineHeight: 1.1, letterSpacing: '-0.03em',
                   color: tokens.text, margin: '0 0 24px',
-                }}>
-                  {content.headline}
-                </h2>
+                }}
+                  {...rt(content.headline ?? '')} />
               </InlineEditable>
             </Reveal>
 
@@ -101,9 +100,8 @@ export function NextStepsSection({ content, tokens, sectionId }: Props) {
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '1rem', lineHeight: 1.8,
                   color: tokens.textMuted, margin: '0 0 40px',
-                }}>
-                  {content.body}
-                </p>
+                }}
+                  {...rt(content.body ?? '')} />
               </InlineEditable>
             </Reveal>
 
@@ -123,9 +121,8 @@ export function NextStepsSection({ content, tokens, sectionId }: Props) {
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontSize: '0.82rem', color: tokens.accent,
                     fontWeight: 500, margin: '20px 0 0', lineHeight: 1.5,
-                  }}>
-                    {content.urgencyNote}
-                  </p>
+                  }}
+                    {...rt(content.urgencyNote ?? '')} />
                 </InlineEditable>
               </Reveal>
             )}
@@ -163,16 +160,14 @@ export function NextStepsSection({ content, tokens, sectionId }: Props) {
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.9rem', fontWeight: 700,
                         color: tokens.text, marginBottom: 5, lineHeight: 1.3,
-                      }}>
-                        {step.title}
-                      </div>
+                      }}
+                        {...rt(step.title ?? '')} />
                       <div style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.85rem', color: tokens.textMuted,
                         lineHeight: 1.7,
-                      }}>
-                        {step.description}
-                      </div>
+                      }}
+                        {...rt(step.description ?? '')} />
                     </div>
                   </div>
                 </Reveal>

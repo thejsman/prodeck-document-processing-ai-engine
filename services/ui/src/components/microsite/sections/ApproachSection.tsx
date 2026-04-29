@@ -4,7 +4,7 @@ import { useContext } from "react";
 import type { PluginTokens, ApproachContent } from "../../../types/presentation";
 import { Reveal } from "../shared/Reveal";
 import { NoiseOverlay } from "../shared/NoiseOverlay";
-import { Headline, Body, Label } from "../shared/Typography";
+import { Headline, Body, Label, rt, hasMarkdown, inlineMarkdownToHtml } from "../shared/Typography";
 import { getSectionGradient } from "../../../lib/presentation/pluginRegistry";
 import { InlineEditable } from "../editor/InlineEditable";
 import { InlineArrayItem, InlineAddItem } from "../editor/InlineArrayControls";
@@ -41,9 +41,8 @@ export function ApproachSection({ content, tokens }: Props) {
 
       <div style={{ position: "relative", zIndex: 5, maxWidth: 960, margin: "0 auto" }}>
         <Reveal>
-          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: tokens.accent, display: 'block', marginBottom: 'clamp(1rem, 2vw, 1.5rem)' }}>
-            {content.eyebrow}
-          </span>
+          <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: tokens.accent, display: 'block', marginBottom: 'clamp(1rem, 2vw, 1.5rem)' }}
+            {...rt(content.eyebrow ?? '')} />
         </Reveal>
 
         <Reveal delay={80}>
@@ -97,9 +96,8 @@ export function ApproachSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
-                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 6px' }}>
-                          {pillar.name}
-                        </h3>
+                        <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 6px' }}
+                          {...rt(pillar.name ?? '')} />
                       </InlineEditable>
                       <InlineEditable field={`pillars.${pi}.description`} label="Description" value={pillar.description ?? ''} multiline>
                         <Body tokens={tokens} style={{ fontSize: '0.825rem' }}>{pillar.description}</Body>
@@ -123,7 +121,9 @@ export function ApproachSection({ content, tokens }: Props) {
                     />
                     <InlineEditable field={`pillars.${pi}.name`} label="Pillar Name" value={pillar.name ?? ''}>
                       <h3 style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 600, fontSize: '0.875rem', color: tokens.text, margin: '0 0 10px' }}>
-                        {pillar.name}
+                        {hasMarkdown(pillar.name ?? '')
+                          ? <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtml(pillar.name ?? '') }} />
+                          : pillar.name}
                         <TypingCursor visible={twCtx?.activeField === `pillars.${pi}.name` && (twCtx?.showCursor ?? false)} />
                       </h3>
                     </InlineEditable>
