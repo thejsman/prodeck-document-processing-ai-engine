@@ -132,6 +132,9 @@ const READINESS_RULES: Record<Intent, ReadinessCheck> = {
   // deterministic decline response. Blocking it here would be wrong.
   GENERAL_CHAT: { required: [], optional: [], customCheck: null },
   UNKNOWN: { required: [], optional: [], customCheck: null },
+  // Confirmation intents are always "ready" — the gate handles them directly
+  CONFIRM_ENTITIES: { required: [], optional: [], customCheck: null },
+  CONFIRM_TEMPLATE: { required: [], optional: [], customCheck: null },
 }
 
 // ---------------------------------------------------------------------------

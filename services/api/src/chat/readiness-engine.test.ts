@@ -33,7 +33,7 @@ function makeChatCtx(overrides: Partial<ChatContext> = {}): ChatContext {
     namespace: 'test-ns',
     proposals: [],
     templates: [],
-    ingestedDocuments: [],
+    ingestedDocuments: [{ fileName: 'test-doc.txt' }],
     ...overrides,
   }
 }

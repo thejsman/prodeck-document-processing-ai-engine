@@ -66,7 +66,10 @@ const INTENT_RULES: Array<{
   },
   {
     id: 'kw_approve_proposal',
-    test: (msg) => /\b(approve|finalize|reject|mark\s+as\s+(approved|finalized|rejected))\b/i.test(msg),
+    test: (msg, ctx) =>
+      ctx.awaitingConfirmation?.kind !== 'confirm_template' &&
+      ctx.awaitingConfirmation?.kind !== 'approve_generated_template' &&
+      /\b(approve|finalize|reject|mark\s+as\s+(approved|finalized|rejected))\b/i.test(msg),
     intent: 'STATUS_CHECK',
     confidence: 0.88,
   },
@@ -93,6 +96,51 @@ const INTENT_RULES: Array<{
     test: (msg) => /^(hi|hello|hey|good\s+(morning|afternoon|evening)|what'?s\s+up)\b/i.test(msg) && msg.length < 30,
     intent: 'GREETING',
     confidence: 0.95,
+  },
+
+  // --- BYPASS (fires before confirmation rules so "just generate it" always escapes) ---
+  {
+    id: 'kw_bypass_confirmation',
+    test: (msg, ctx) =>
+      ctx.awaitingConfirmation != null &&
+      /\b(just\s+(generate|do|make|create|proceed|use)\b|use\s+defaults?|skip\s+(confirmation|this|all)?\b|proceed\s+anyway|generate\s+(it\s+)?(now|anyway|without\s+confirm)|use\s+what\s+you\s+have)\b/i.test(msg),
+    intent: 'GENERATE_PROPOSAL',
+    confidence: 0.95,
+  },
+
+  // --- CONFIRMATION (awaiting confirmation from Stage 4.5 gate) ---
+  // These fire before the generic awaiting-input fallbacks so that "yes/no/approve"
+  // replies to a pending confirmation request are routed correctly.
+  {
+    id: 'ctx_confirm_entities_yes',
+    test: (msg, ctx) =>
+      ctx.awaitingConfirmation?.kind === 'confirm_entities' &&
+      /^(yes|correct|confirmed?|that'?s right|looks? good|proceed|ok|yep|yup|sure)\b/i.test(msg.trim()),
+    intent: 'CONFIRM_ENTITIES',
+    confidence: 0.97,
+  },
+  {
+    id: 'ctx_confirm_entities_input',
+    test: (_msg, ctx) => ctx.awaitingConfirmation?.kind === 'confirm_entities',
+    intent: 'CONFIRM_ENTITIES',
+    confidence: 0.90,
+  },
+  {
+    id: 'ctx_confirm_template_yes',
+    test: (msg, ctx) =>
+      (ctx.awaitingConfirmation?.kind === 'confirm_template' ||
+       ctx.awaitingConfirmation?.kind === 'approve_generated_template') &&
+      /^(yes|approve[d]?|use it|use this|proceed|ok|yep|sure|looks? good|that'?s fine)\b/i.test(msg.trim()),
+    intent: 'CONFIRM_TEMPLATE',
+    confidence: 0.97,
+  },
+  {
+    id: 'ctx_confirm_template_input',
+    test: (_msg, ctx) =>
+      ctx.awaitingConfirmation?.kind === 'confirm_template' ||
+      ctx.awaitingConfirmation?.kind === 'approve_generated_template',
+    intent: 'CONFIRM_TEMPLATE',
+    confidence: 0.90,
   },
 
   // --- CONTEXTUAL (fallback — fires only when no keyword rule matched) ---

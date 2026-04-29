@@ -82,33 +82,33 @@ describe('keyword rules', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Contextual rules override keyword rules
+// Contextual rules: keyword rules take priority; contextual rules are fallbacks
 // ---------------------------------------------------------------------------
 
 describe('contextual rules', () => {
-  it('ctx_awaiting_proposal_input wins over keyword rules', async () => {
+  it('keyword rule wins when message has explicit keyword signal (even with awaitingInput)', async () => {
     const classifier = new IntentClassifier(noLLM)
-    // "create microsite" would normally match kw_microsite
+    // "create microsite" has an explicit keyword — kw_microsite fires regardless of awaitingInput
     const result = await classifier.classify(
       'create microsite',
       makeCtx({ awaitingInput: { intent: 'GENERATE_PROPOSAL' } }),
     )
     expect(result.source).toBe('rule')
-    expect(result.matchedRule).toBe('ctx_awaiting_proposal_input')
-    expect(result.intent).toBe('GENERATE_PROPOSAL')
+    expect(result.matchedRule).toBe('kw_microsite')
+    expect(result.intent).toBe('GENERATE_MICROSITE')
     expect(noLLM).not.toHaveBeenCalled()
   })
 
-  it('ctx_awaiting_microsite_input wins over keyword rules', async () => {
+  it('keyword rule wins when message has explicit proposal keyword (even with awaitingInput microsite)', async () => {
     const classifier = new IntentClassifier(noLLM)
-    // "generate proposal" would normally match kw_proposal_create
+    // "generate proposal" has an explicit keyword — kw_proposal_create fires regardless of awaitingInput
     const result = await classifier.classify(
       'generate proposal',
       makeCtx({ awaitingInput: { intent: 'GENERATE_MICROSITE' } }),
     )
     expect(result.source).toBe('rule')
-    expect(result.matchedRule).toBe('ctx_awaiting_microsite_input')
-    expect(result.intent).toBe('GENERATE_MICROSITE')
+    expect(result.matchedRule).toBe('kw_proposal_create')
+    expect(result.intent).toBe('GENERATE_PROPOSAL')
     expect(noLLM).not.toHaveBeenCalled()
   })
 
@@ -293,6 +293,52 @@ describe('LLM fallback', () => {
       // UNKNOWN is special — confidence of 0.85 is fine, intent stays UNKNOWN
       expect(result.intent).toBe(intent)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Confirmation gate interaction — kw_approve_proposal must NOT steal "approve"
+// when a template confirmation is pending
+// ---------------------------------------------------------------------------
+
+describe('confirmation gate interaction', () => {
+  const classifier = new IntentClassifier(noLLM)
+
+  it('"approve" with no pending confirmation → STATUS_CHECK (kw_approve_proposal)', async () => {
+    const result = await classifier.classify('approve', baseCtx)
+    expect(result.source).toBe('rule')
+    expect(result.matchedRule).toBe('kw_approve_proposal')
+    expect(result.intent).toBe('STATUS_CHECK')
+  })
+
+  it('"approve" while awaiting approve_generated_template → CONFIRM_TEMPLATE (ctx_confirm_template_yes)', async () => {
+    const result = await classifier.classify(
+      'approve',
+      makeCtx({ awaitingConfirmation: { kind: 'approve_generated_template', templateSlug: 'nb-corp-draft-123' } }),
+    )
+    expect(result.source).toBe('rule')
+    expect(result.matchedRule).toBe('ctx_confirm_template_yes')
+    expect(result.intent).toBe('CONFIRM_TEMPLATE')
+  })
+
+  it('"approve" while awaiting confirm_template → CONFIRM_TEMPLATE (ctx_confirm_template_yes)', async () => {
+    const result = await classifier.classify(
+      'approve',
+      makeCtx({ awaitingConfirmation: { kind: 'confirm_template' } }),
+    )
+    expect(result.source).toBe('rule')
+    expect(result.matchedRule).toBe('ctx_confirm_template_yes')
+    expect(result.intent).toBe('CONFIRM_TEMPLATE')
+  })
+
+  it('"finalize" while awaiting approve_generated_template → CONFIRM_TEMPLATE (ctx_confirm_template_input fallback)', async () => {
+    // "finalize" matches kw_approve_proposal regex but the confirmation guard blocks it;
+    // it's not a yes-word so it falls to ctx_confirm_template_input
+    const result = await classifier.classify(
+      'finalize',
+      makeCtx({ awaitingConfirmation: { kind: 'approve_generated_template', templateSlug: 'nb-corp-draft-123' } }),
+    )
+    expect(result.intent).toBe('CONFIRM_TEMPLATE')
   })
 })
 
