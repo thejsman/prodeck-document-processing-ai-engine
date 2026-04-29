@@ -399,6 +399,14 @@ def generate_section(section_def, client, industry, context_text, provider, tone
     for attempt in range(1 + MAX_SECTION_RETRIES):
         try:
             body = provider.generate(prompt)
+            if not body or not body.strip():
+                body = (
+                    "*[No source data was available to generate this section. "
+                    "Please provide the missing details and regenerate.]*"
+                )
+            # Demote any ## headings in the body to ### so they nest under
+            # the ## section heading that generate_section prepends.
+            body = re.sub(r'^## ', '### ', body, flags=re.MULTILINE)
             return f"## {section_def['title']}\n\n{body}"
         except Exception as exc:
             last_error = exc
