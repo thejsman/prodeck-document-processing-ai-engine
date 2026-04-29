@@ -12,8 +12,10 @@ export type Intent =
   | 'STATUS_CHECK'
   | 'INGEST_GUIDANCE'
   | 'GREETING'
-  | 'GENERAL_CHAT'   // off-topic but coherent — decline + redirect
-  | 'UNKNOWN'        // gibberish, unparseable
+  | 'GENERAL_CHAT'     // off-topic but coherent — decline + redirect
+  | 'UNKNOWN'          // gibberish, unparseable
+  | 'CONFIRM_ENTITIES' // user confirming/correcting extracted client name & industry
+  | 'CONFIRM_TEMPLATE' // user approving the recommended or generated template
 
 export const VALID_INTENTS: readonly Intent[] = [
   'GENERATE_PROPOSAL',
@@ -28,6 +30,8 @@ export const VALID_INTENTS: readonly Intent[] = [
   'GREETING',
   'GENERAL_CHAT',
   'UNKNOWN',
+  'CONFIRM_ENTITIES',
+  'CONFIRM_TEMPLATE',
 ] as const
 
 export interface ClassificationResult {
@@ -58,6 +62,12 @@ export interface ChatContext {
   ingestedDocuments: IngestedDocumentRef[]
   recentTopic?: string
   awaitingInput?: { intent: string }
+  /** Pending confirmation kind from the confirmation gate. Set when the
+   *  pipeline halted at Stage 4.5 waiting for the user to say yes/no. */
+  awaitingConfirmation?: {
+    kind: 'confirm_entities' | 'confirm_template' | 'approve_generated_template'
+    templateSlug?: string
+  }
   /** Content of the last assistant message — used to give the extraction LLM
    *  context about which field was most recently asked for, so it can correctly
    *  map short user replies (e.g. "Software") to the right requirement key. */

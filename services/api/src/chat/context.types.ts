@@ -4,6 +4,8 @@ export interface RequirementField<T> {
   source: 'user' | 'document' | 'inferred';
   updatedAt: string;
   sourceFile?: string; // which document (if source === 'document')
+  /** Set when the user explicitly confirms or directly states this value. */
+  confirmedByUser?: { at: string };
 }
 
 export type RequirementKey =
@@ -134,12 +136,21 @@ export interface ContextSource {
   warnings?: string[];
 }
 
+export interface SelectedTemplate {
+  templateId: string;
+  name: string;
+  confirmedAt: string;
+  generatedFromScratch: boolean;
+}
+
 export interface NamespaceContext {
   namespace: string;
   requirements: StructuredRequirements;
   knowledge: KnowledgeEntry[];
   meetingSummary?: MeetingSummary;
   sources: ContextSource[];
+  /** Template the user confirmed to use for the next proposal generation. */
+  selectedTemplate?: SelectedTemplate;
   version: number;
   updatedAt: string;
 }
