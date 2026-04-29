@@ -28,7 +28,7 @@ import type { StorageProvider, VectorStoreProvider, VectorChunk } from '@ai-engi
 const MAX_CHUNK_BYTES = 256 * 1024; // 256 KB
 
 /** Number of chunks to accumulate before calling upsertChunks. */
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 25;
 
 // ── Text chunker ───────────────────────────────────────────────────
 

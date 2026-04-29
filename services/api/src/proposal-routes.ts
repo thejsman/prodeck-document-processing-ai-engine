@@ -332,17 +332,22 @@ export function registerProposalRoutes(
 
         for (const file of yamlFiles) {
           const filePath = path.join(templateDir, file);
-          const raw = await readFile(filePath, 'utf-8');
-          const parsed = yaml.load(raw) as Record<string, unknown>;
           const id = path.basename(file, path.extname(file));
-
-          templates.push({
-            id,
-            name: (parsed.name as string) ?? id,
-            version: (parsed.version as string) ?? 'unknown',
-            description: (parsed.description as string) ?? '',
-            sections: (parsed.sections as TemplateSection[]) ?? [],
-          });
+          try {
+            const raw = await readFile(filePath, 'utf-8');
+            const parsed = yaml.load(raw) as Record<string, unknown>;
+            if (!parsed || typeof parsed !== 'object') continue;
+            templates.push({
+              id,
+              name: (parsed.name as string) ?? id,
+              version: (parsed.version as string) ?? 'unknown',
+              description: (parsed.description as string) ?? '',
+              sections: (parsed.sections as TemplateSection[]) ?? [],
+            });
+          } catch {
+            // Skip malformed files — don't let one bad file hide all templates
+            process.stderr.write(`[templates] Skipping invalid YAML: ${file}\n`);
+          }
         }
 
         return reply.send({ templates });

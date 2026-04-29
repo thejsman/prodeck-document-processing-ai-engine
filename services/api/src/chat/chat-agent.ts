@@ -36,7 +36,7 @@ import type {
 } from './context.types.js';
 import { checkReadiness } from './readiness-engine.js';
 import { Planner, buildFallbackPlan } from './planner.js';
-import type { AgentAction, AgentPlan } from './planner.js';
+import type { AgentAction, AgentPlan, ToolName } from './planner.js';
 import { validatePlan } from './plan-validator.js';
 import {
   executeToolActions,
@@ -647,8 +647,15 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     generateFn,
   );
 
-  // Apply RESPOND actions when no tools ran — the LLM composed the reply directly
-  if (toolResults.length === 0 && respondActions.length > 0) {
+  // Apply RESPOND actions — the LLM's planned reply is used when present.
+  // When no tools ran, it's the sole source. When tools ran but the tool message
+  // is generic (list/count-style), the RESPOND enriches it. For tools that
+  // produce content in their own message (search_documents, generate_proposal),
+  // skip the override so the actual content isn't lost.
+  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite'];
+  const hasContentTool = toolActions.some((a) => contentTools.includes(a.tool));
+
+  if (respondActions.length > 0 && !hasContentTool) {
     response.text = respondActions.map((a) => a.message).join('\n\n');
   }
 

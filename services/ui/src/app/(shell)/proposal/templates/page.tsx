@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronRight, X, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ChevronRight, X, MoreHorizontal, Trash2, RotateCcw } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
 import { TemplateEditor, TEMPLATE_SCAFFOLD } from '@/components/TemplateEditor';
@@ -80,6 +80,13 @@ export default function TemplatesPage() {
   }, [apiKey]);
 
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
+
+  // Refresh list when the user returns to this tab (e.g. after chat generates a template)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') loadTemplates(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadTemplates]);
 
   // Close template menu on outside click
   useEffect(() => {
@@ -211,6 +218,13 @@ export default function TemplatesPage() {
                   size="sm"
                   style={{ color: 'var(--muted)', opacity: 0.6, transform: templatesExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}
                 />
+              </button>
+              <button
+                onClick={() => loadTemplates()}
+                title="Refresh"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center', opacity: listLoading ? 0.4 : 0.6 }}
+              >
+                <Icon icon={RotateCcw} size="sm" style={{ color: 'var(--muted)' }} />
               </button>
             </div>
 
