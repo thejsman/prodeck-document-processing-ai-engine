@@ -114,6 +114,7 @@ export function registerChatRoutes(
             for (const card of response.actionCards) {
               if (card.type === 'view_proposal') actions.openProposalUrl = card.href;
               if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
+              if (card.type === 'view_templates') actions.openTemplatesUrl = card.href;
             }
             reply.raw.write(
               `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,

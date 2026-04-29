@@ -35,10 +35,12 @@ import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
   fetchUnsplashImageUrl,
+  generateGptImage1,
   generateDalle3Image,
   buildDallePrompt,
   resolveImageSource,
   downloadImageToFile,
+  saveBase64ToFile,
   buildPicsumUrl,
 } from '../image-routes.js';
 
@@ -91,7 +93,14 @@ async function saveImagePersistently(
   const ext = '.jpg';
   const filename = `${sectionId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
   const destPath = path.join(imagesDir, filename);
-  const ok = await downloadImageToFile(remoteUrl, destPath);
+  let ok: boolean;
+  if (remoteUrl.startsWith('data:')) {
+    const commaIdx = remoteUrl.indexOf(',');
+    const b64 = commaIdx !== -1 ? remoteUrl.slice(commaIdx + 1) : '';
+    ok = b64 ? await saveBase64ToFile(b64, destPath) : false;
+  } else {
+    ok = await downloadImageToFile(remoteUrl, destPath);
+  }
   // Store as a root-relative path — works regardless of port or server restart.
   // Falls back to the remote URL only if the download failed.
   if (!ok) return remoteUrl;
@@ -182,8 +191,11 @@ export function registerPresentationRoutes(
     }
     const filePath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
     if (!existsSync(filePath)) return reply.code(404).send({ error: 'Not found' });
+    const ext = path.extname(filename).toLowerCase();
+    const mimeMap: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon', '.gif': 'image/gif' };
+    const mimeType = mimeMap[ext] ?? 'image/jpeg';
     const stream = createReadStream(filePath);
-    return reply.header('Access-Control-Allow-Origin', '*').type('image/jpeg').send(stream);
+    return reply.header('Access-Control-Allow-Origin', '*').type(mimeType).send(stream);
   });
 
   // POST /presentations/extract-url-design
@@ -237,6 +249,55 @@ export function registerPresentationRoutes(
       const msg = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'fetch_failed';
       return reply.code(200).send({ error: msg, tokens: null });
     }
+
+    // ── Extract meta image URLs and brand logo ────────────────────────────
+    const resolveAbsolute = (href: string): string | null => {
+      try { return new URL(href, parsedUrl.toString()).toString(); } catch { return null; }
+    };
+
+    const ogMatch =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/i) ??
+      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["'][^>]*>/i);
+    const heroImageUrl: string | null = ogMatch?.[1] ? resolveAbsolute(ogMatch[1]) : null;
+
+    // Logo priority: JSON-LD schema.org → apple-touch-icon → SVG favicon → PNG favicon → any favicon → /favicon.ico
+    let logoUrl: string | null = null;
+    for (const block of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const data = JSON.parse(block[1]) as Record<string, unknown>;
+        const items = Array.isArray(data['@graph']) ? data['@graph'] as Record<string, unknown>[] : [data];
+        for (const item of items) {
+          const logo = item.logo as Record<string, unknown> | string | undefined;
+          const logoHref = typeof logo === 'string' ? logo : (logo?.url as string | undefined) ?? (logo?.contentUrl as string | undefined);
+          if (logoHref) { logoUrl = resolveAbsolute(logoHref); break; }
+        }
+        if (logoUrl) break;
+      } catch { /* malformed JSON-LD */ }
+    }
+    if (!logoUrl) {
+      const appleMatch = html.match(/<link[^>]+rel=["']apple-touch-icon(?:-precomposed)?["'][^>]+href=["']([^"']+)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon(?:-precomposed)?["'][^>]*>/i);
+      if (appleMatch?.[1]) logoUrl = resolveAbsolute(appleMatch[1]);
+    }
+    if (!logoUrl) {
+      const svgFaviconMatch = html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+\.svg[^"']*)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+\.svg[^"']*)["'][^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i);
+      if (svgFaviconMatch?.[1]) logoUrl = resolveAbsolute(svgFaviconMatch[1]);
+    }
+    if (!logoUrl) {
+      const pngFaviconMatch = html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+\.png[^"']*)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+\.png[^"']*)["'][^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i);
+      if (pngFaviconMatch?.[1]) logoUrl = resolveAbsolute(pngFaviconMatch[1]);
+    }
+    if (!logoUrl) {
+      const anyFaviconMatch = html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/i)
+        ?? html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i);
+      if (anyFaviconMatch?.[1]) logoUrl = resolveAbsolute(anyFaviconMatch[1]);
+    }
+    // Final fallback: every site serves /favicon.ico at the root (404 is handled gracefully by the client)
+    if (!logoUrl) logoUrl = new URL('/favicon.ico', parsedUrl.origin).toString();
 
     // ── Step 2: Extract CSS from HTML ─────────────────────────────────────
     const origin = parsedUrl.origin;
@@ -544,7 +605,119 @@ export function registerPresentationRoutes(
     const colorSummary = lines.join('\n').slice(0, 10_000);
     if (!colorSummary.trim()) return reply.code(200).send({ error: 'no_css_found', tokens: null });
 
-    // ── Step 3: LLM extraction ────────────────────────────────────────────
+    // ── Step 2b: Extract design layout structure from HTML DOM ────────────
+    // Parse HTML to identify sections, their types, and all image URLs used on the page.
+    // This gives the microsite agent structural context — not just colors/fonts but
+    // section order, hero style, grid density, and actual images from the site.
+
+    // Collect all <img src> and CSS background-image URLs from the page body
+    const bodyImages: string[] = [];
+    const seenImageUrls = new Set<string>();
+
+    // <img src="..."> and <img srcset="...">
+    for (const m of html.matchAll(/<img\s[^>]*>/gi)) {
+      const tag = m[0];
+      const srcM = tag.match(/\bsrc=["']([^"']+)["']/i);
+      if (srcM?.[1]) {
+        const abs = resolveAbsolute(srcM[1]);
+        if (abs && !seenImageUrls.has(abs) && !abs.includes('data:') && !abs.match(/\.(svg|gif)(\?|$)/i)) {
+          seenImageUrls.add(abs);
+          bodyImages.push(abs);
+        }
+      }
+      // srcset — pick the first (largest) candidate
+      const ssM = tag.match(/\bsrcset=["']([^"']+)["']/i);
+      if (ssM?.[1]) {
+        const first = ssM[1].trim().split(/,\s*/)[0]?.split(/\s+/)[0];
+        if (first) {
+          const abs = resolveAbsolute(first);
+          if (abs && !seenImageUrls.has(abs) && !abs.includes('data:')) {
+            seenImageUrls.add(abs);
+            bodyImages.push(abs);
+          }
+        }
+      }
+    }
+
+    // CSS background-image: url(...) from inline styles
+    for (const m of html.matchAll(/background-image\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) {
+      const abs = resolveAbsolute(m[1].trim());
+      if (abs && !seenImageUrls.has(abs) && !abs.includes('data:') && !abs.match(/\.(svg|gif)(\?|$)/i)) {
+        seenImageUrls.add(abs);
+        bodyImages.push(abs);
+      }
+    }
+
+    // background-image from stylesheets
+    for (const m of fullCss.matchAll(/background(?:-image)?\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) {
+      const abs = resolveAbsolute(m[1].trim());
+      if (abs && !seenImageUrls.has(abs) && !abs.includes('data:') && !abs.match(/\.(svg|gif)(\?|$)/i)) {
+        seenImageUrls.add(abs);
+        bodyImages.push(abs);
+      }
+    }
+
+    // Identify named sections from semantic HTML — extract tag, role/aria-label, id, class keywords, and first heading text
+    interface HtmlSection {
+      tag: string;
+      label: string;
+      headingText: string;
+      classHints: string[];
+      hasImage: boolean;
+    }
+
+    const SECTION_TAGS = /^(header|nav|section|main|article|aside|footer|div)$/i;
+    const LAYOUT_CLASS_KEYWORDS = /hero|banner|feature|benefit|service|about|team|testimonial|review|pricing|plan|faq|contact|cta|call-to-action|gallery|portfolio|case-study|stat|counter|highlight|intro|solution|problem|partner|client|logo|blog|news|video/i;
+
+    const htmlSections: HtmlSection[] = [];
+
+    // Simple regex-based tag extraction (no full DOM parser — keeps it lightweight)
+    for (const m of html.matchAll(/<(header|nav|section|main|article|aside|footer)(\s[^>]*)?>[\s\S]{0,3000}?<\/\1>/gi)) {
+      const tag = m[1].toLowerCase();
+      const attrs = m[2] ?? '';
+      const content = m[0];
+
+      // Collect class + id + aria-label for type inference
+      const classM = attrs.match(/class=["']([^"']+)["']/i);
+      const idM    = attrs.match(/id=["']([^"']+)["']/i);
+      const ariaM  = attrs.match(/aria-label=["']([^"']+)["']/i);
+      const roleM  = attrs.match(/role=["']([^"']+)["']/i);
+
+      const classWords = (classM?.[1] ?? '').toLowerCase().split(/\s+/).filter(w => LAYOUT_CLASS_KEYWORDS.test(w));
+      const idWords    = (idM?.[1] ?? '').toLowerCase().split(/[-_\s]+/).filter(w => LAYOUT_CLASS_KEYWORDS.test(w));
+      const ariaLabel  = ariaM?.[1] ?? roleM?.[1] ?? '';
+
+      // Extract first heading text inside this section
+      const headingM = content.match(/<h[1-3][^>]*>([^<]{1,80})<\/h[1-3]>/i);
+      const headingText = headingM?.[1]?.replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').trim() ?? '';
+
+      const hasImage = /<img\s/i.test(content) || /background-image\s*:\s*url/i.test(content);
+      const classHints = [...new Set([...classWords, ...idWords, ariaLabel.toLowerCase()].filter(Boolean))];
+
+      if (classHints.length > 0 || headingText || tag !== 'div') {
+        htmlSections.push({ tag, label: ariaLabel, headingText, classHints, hasImage });
+      }
+    }
+
+    // Build a compact layout summary for the LLM
+    const layoutLines: string[] = [];
+    layoutLines.push(`PAGE URL: ${parsedUrl.toString()}`);
+    layoutLines.push(`TOTAL IMAGES FOUND: ${bodyImages.length}`);
+    layoutLines.push(`IMAGE URLS (first 10):\n${bodyImages.slice(0, 10).map(u => `  ${u}`).join('\n')}`);
+    if (htmlSections.length > 0) {
+      layoutLines.push(`\nHTML SECTIONS DETECTED (${htmlSections.length} total):`);
+      htmlSections.slice(0, 20).forEach((s, i) => {
+        const parts = [`  ${i + 1}. <${s.tag}>`];
+        if (s.classHints.length) parts.push(`classes/id: [${s.classHints.join(', ')}]`);
+        if (s.label) parts.push(`aria: "${s.label}"`);
+        if (s.headingText) parts.push(`heading: "${s.headingText}"`);
+        if (s.hasImage) parts.push(`(has image)`);
+        layoutLines.push(parts.join(' | '));
+      });
+    }
+    const layoutSummary = layoutLines.join('\n').slice(0, 6_000);
+
+    // ── Step 3: LLM extraction (colors + layout in parallel) ─────────────
     const extractionPrompt = `You are a senior UI designer analyzing a website's design system.
 Below are pre-categorized design tokens extracted from the site's CSS.
 
@@ -590,27 +763,80 @@ ${colorSummary}
 
 Remember: output ONLY the JSON object. Every color field must be a valid hex string like #0420f2.`;
 
+    const layoutExtractionPrompt = `You are a senior UI designer analyzing a website's HTML structure and image assets.
+Below is a summary of the page's HTML sections (semantic tags, class names, headings) and image URLs.
+
+Analyze this and return a JSON object describing the design layout structure.
+
+Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
+
+{
+  "sections": ["hero", "features", "testimonials", "pricing", "cta", "footer"],
+  "heroStyle": "full-bleed | split-panel | text-centered | image-left | image-right",
+  "isImageHeavy": true,
+  "gridColumns": 3,
+  "hasVideo": false,
+  "layoutDensity": "minimal | balanced | dense",
+  "sectionLayouts": ["centered", "split", "card-grid", "editorial", "asymmetric"],
+  "visualHierarchy": "image-led | text-led | balanced"
+}
+
+Rules:
+- "sections": ordered list of section types present. Use these exact names where possible: hero, nav, features, benefits, about, team, testimonials, pricing, faq, cta, contact, gallery, stats, clients, blog, footer
+- "heroStyle": how the hero section is laid out
+- "isImageHeavy": true if more than 3 content images found
+- "gridColumns": most common column count in feature/benefit grids (1, 2, 3, or 4)
+- "sectionLayouts": one layout style per section in order (same length as "sections")
+- "visualHierarchy": whether images or text dominate the visual design
+
+HTML STRUCTURE SUMMARY:
+${layoutSummary}`;
+
     try {
-      const raw = await llmGenerateFn(extractionPrompt);
-      const jsonStart = raw.indexOf('{');
-      const jsonEnd = raw.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd <= jsonStart) {
-        console.warn('[extract-url-design] LLM returned no JSON');
-        return reply.code(200).send({ error: 'parse_failed', tokens: null });
+      const [colorRaw, layoutRaw] = await Promise.all([
+        llmGenerateFn(extractionPrompt),
+        llmGenerateFn(layoutExtractionPrompt),
+      ]);
+
+      // Parse color tokens
+      const colorJsonStart = colorRaw.indexOf('{');
+      const colorJsonEnd = colorRaw.lastIndexOf('}');
+      if (colorJsonStart === -1 || colorJsonEnd <= colorJsonStart) {
+        console.warn('[extract-url-design] LLM returned no JSON for colors');
+        return reply.code(200).send({ error: 'parse_failed', tokens: null, heroImageUrl, logoUrl });
       }
-      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+      const parsed = JSON.parse(colorRaw.slice(colorJsonStart, colorJsonEnd + 1)) as Record<string, unknown>;
       const colors = parsed.colors as Record<string, string> | undefined;
       const typography = parsed.typography as Record<string, string> | undefined;
       const style = parsed.style as Record<string, string> | undefined;
       if (!colors?.primary || !typography?.headingFont || !style?.vibe) {
         console.warn('[extract-url-design] LLM returned incomplete tokens');
-        return reply.code(200).send({ error: 'incomplete_tokens', tokens: null });
+        return reply.code(200).send({ error: 'incomplete_tokens', tokens: null, heroImageUrl, logoUrl });
       }
-      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}`);
-      return reply.code(200).send({ tokens: parsed });
+
+      // Parse layout structure
+      let layout: Record<string, unknown> | null = null;
+      try {
+        const layoutJsonStart = layoutRaw.indexOf('{');
+        const layoutJsonEnd = layoutRaw.lastIndexOf('}');
+        if (layoutJsonStart !== -1 && layoutJsonEnd > layoutJsonStart) {
+          layout = JSON.parse(layoutRaw.slice(layoutJsonStart, layoutJsonEnd + 1)) as Record<string, unknown>;
+        }
+      } catch {
+        console.warn('[extract-url-design] layout JSON parse failed — continuing without layout');
+      }
+
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}, sections=${JSON.stringify((layout as Record<string, unknown> | null)?.sections ?? [])}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}`);
+      return reply.code(200).send({
+        tokens: parsed,
+        heroImageUrl,
+        logoUrl,
+        images: bodyImages.slice(0, 20),
+        layout,
+      });
     } catch (err) {
       console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
-      return reply.code(200).send({ error: 'parse_failed', tokens: null });
+      return reply.code(200).send({ error: 'parse_failed', tokens: null, heroImageUrl, logoUrl });
     }
   });
 
@@ -958,8 +1184,18 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
 
             if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
-              const remoteUrl = await generateDalle3Image(prompt);
-              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              const result = await generateGptImage1(prompt);
+              if (result) {
+                const hash = crypto.createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
+                const filename = `${secId}-${hash}.png`;
+                const destPath = path.join(workdir, 'assets', 'presentations', namespace, 'images', filename);
+                const saved = await saveBase64ToFile(result.b64, destPath);
+                if (saved) sec.image.url = `/presentation-images/${namespace}/${filename}`;
+              } else {
+                // fallback to DALL-E 3 if gpt-image-1 fails
+                const remoteUrl = await generateDalle3Image(prompt);
+                if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              }
             } else if (chosenSource === 'picsum') {
               sec.image.url = await saveImagePersistently(buildPicsumUrl(query), namespace, secId, workdir);
             } else {
@@ -1015,6 +1251,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
       pdfFriendly?: boolean;
       referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
       urlReferenceDesign?: Record<string, unknown> | null;
+      urlLayout?: Record<string, unknown> | null;
+      urlImages?: string[];
     } | undefined;
 
     // Load markdown from body or saved file
@@ -1043,6 +1281,7 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
     const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
     const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
+    const urlHeroImageUrl = (body?.urlReferenceDesign as { heroImageUrl?: string | null } | undefined)?.heroImageUrl ?? null;
 
 
     const pdfFriendly = !!(body?.pdfFriendly);
@@ -1071,6 +1310,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
           ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
           ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
           ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
+          ...(body?.urlLayout ? { urlLayout: body.urlLayout } : {}),
+          ...(body?.urlImages?.length ? { urlImages: body.urlImages } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
             send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });
@@ -1156,6 +1397,17 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
               return;
             }
 
+            if (sec.sectionType === 'hero' && urlHeroImageUrl) {
+              try {
+                const localUrl = await saveImagePersistently(urlHeroImageUrl, namespace, `${secId}-og`, workdir);
+                sec.image.url = localUrl;
+                sec.image.source = 'custom';
+                return;
+              } catch {
+                // fall through to DALL-E / Unsplash fallback
+              }
+            }
+
             // hero/showcase: download the agent's URL locally (agent already called DALL-E)
             const agentUrl = sec.image?.url;
             let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
@@ -1182,6 +1434,25 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
             } catch { /* keep original remote URL on download failure */ }
           }),
         );
+      }
+
+      // Download brand logo locally if it's a remote URL, so it renders reliably in the microsite
+      const brandLogoRemote = (body?.brand?.logoUrl as string | null | undefined);
+      if (brandLogoRemote?.startsWith('http') && ast?.brand) {
+        try {
+          const logoExt = (() => {
+            try {
+              const p = new URL(brandLogoRemote).pathname;
+              const m = p.match(/\.(png|svg|jpg|jpeg|webp|ico)(?:[?#]|$)/i);
+              return m ? `.${m[1].toLowerCase()}` : '.png';
+            } catch { return '.png'; }
+          })();
+          const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+          await mkdir(imagesDir, { recursive: true });
+          const logoFilename = `brand-logo-${crypto.randomUUID().slice(0, 8)}${logoExt}`;
+          const ok = await downloadImageToFile(brandLogoRemote, path.join(imagesDir, logoFilename));
+          if (ok) (ast.brand as Record<string, unknown>).logoUrl = `/presentation-images/${namespace}/${logoFilename}`;
+        } catch { /* keep remote URL */ }
       }
 
       // complete event carries local image URLs — no further reconciliation needed

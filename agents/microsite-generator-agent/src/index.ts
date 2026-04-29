@@ -388,7 +388,7 @@ export function buildFontUrls(rawTokens: Record<string, unknown>): { family: str
 
 // ── Section plan prompt (Pass 0) ─────────────────────────────────────────────
 
-function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string, referenceDesign?: ReferenceDesign | null): string {
+function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstructions?: string, referenceDesign?: ReferenceDesign | null, urlLayout?: Record<string, unknown> | null): string {
   const character = plugin ? PLUGIN_CHARACTER[plugin] : undefined;
   const styleHint = character ? `\nDESIGN VOICE: "${plugin}" theme — ${character}\n` : '';
   // Only treat customInstructions as a structural override if it explicitly requests a section
@@ -405,7 +405,38 @@ function buildSectionPlanPrompt(markdown: string, plugin?: string, customInstruc
     ? `\nSTYLE NOTES (apply to design tokens only — do NOT affect section count or structure):\n${customInstructions.slice(0, 800)}\n`
     : (customInstructions ? `\nUSER INSTRUCTIONS: ${customInstructions.slice(0, 800)}\n` : '');
   const refShortBlock = referenceDesign ? `\n${formatReferenceDesignShortBlock(referenceDesign)}\n` : '';
-  return `${overrideBlock}${refShortBlock}You are a senior proposal strategist and UX director. Design a curated, high-impact presentation microsite from this proposal. Quality beats quantity — 8 excellent sections outperform 18 mediocre ones every time.
+
+  // URL layout structure hint — when the reference URL has a real page structure, use it to shape
+  // the section order and presence. This is a HINT not a hard override: proposal content fidelity
+  // still wins (never drop required content), but prefer the URL's section ordering and include
+  // URL-present section types when the proposal content supports them.
+  let urlLayoutBlock = '';
+  if (urlLayout) {
+    const urlSections = Array.isArray(urlLayout.sections) ? (urlLayout.sections as string[]) : [];
+    const heroStyle = typeof urlLayout.heroStyle === 'string' ? urlLayout.heroStyle : null;
+    const isImageHeavy = urlLayout.isImageHeavy === true;
+    const gridColumns = typeof urlLayout.gridColumns === 'number' ? urlLayout.gridColumns : null;
+    const density = typeof urlLayout.layoutDensity === 'string' ? urlLayout.layoutDensity : null;
+    const visualHierarchy = typeof urlLayout.visualHierarchy === 'string' ? urlLayout.visualHierarchy : null;
+
+    const lines: string[] = ['\n⭐ REFERENCE URL DESIGN STRUCTURE — mirror this layout as closely as proposal content allows:'];
+    if (urlSections.length > 0) {
+      lines.push(`Section order from reference site: [${urlSections.join(', ')}]`);
+      lines.push('Rules:');
+      lines.push('  • Prefer this section order over the default order when content supports it');
+      lines.push('  • Include section types present in this list when the proposal has matching content');
+      lines.push('  • NEVER drop required proposal content just to match URL structure — content fidelity wins');
+      lines.push('  • Map URL section types to canonical types: "banner"→hero, "services"→features, "about"→whyus, "clients"→testimonials, "contact"→nextsteps, "work"/"portfolio"→casestudy');
+    }
+    if (heroStyle) lines.push(`Hero layout style: "${heroStyle}" — reflect this in the hero section\'s rationale`);
+    if (isImageHeavy) lines.push('Site is image-heavy — prefer sections that support large imagery (hero, casestudy, gallery)');
+    if (gridColumns) lines.push(`Primary grid: ${gridColumns}-column — prefer feature/benefit sections that match this density`);
+    if (density) lines.push(`Layout density: ${density} — plan section count accordingly (minimal→fewer sections, dense→more)`);
+    if (visualHierarchy) lines.push(`Visual hierarchy: ${visualHierarchy} — ${visualHierarchy === 'image-led' ? 'prioritise visual sections' : visualHierarchy === 'text-led' ? 'prioritise content-rich sections' : 'balanced mix'}`);
+    urlLayoutBlock = lines.join('\n') + '\n';
+  }
+
+  return `${overrideBlock}${refShortBlock}${urlLayoutBlock}You are a senior proposal strategist and UX director. Design a curated, high-impact presentation microsite from this proposal. Quality beats quantity — 8 excellent sections outperform 18 mediocre ones every time.
 ${styleHint}
 SECTION ARCHITECTURE (NON-NEGOTIABLE):
 
@@ -2966,8 +2997,11 @@ export class MicrositeGeneratorAgent implements Agent {
       : (rawHasDesignIntent ? rawInstructions : '');
     const referenceFile = (meta.referenceFile as ReferenceFile | undefined) ?? null;
     const urlReferenceDesign = (meta.urlReferenceDesign as ReferenceDesign | undefined) ?? null;
+    const urlLayout = (meta.urlLayout as Record<string, unknown> | undefined) ?? null;
+    const urlImages = (meta.urlImages as string[] | undefined) ?? [];
     console.log(`[microsite-agent] referenceFile: ${referenceFile ? `fileName=${referenceFile.fileName}, mediaType=${referenceFile.mediaType}, dominantColors=${referenceFile.dominantColors?.length ?? 0}` : 'NOT attached'}`);
     console.log(`[microsite-agent] urlReferenceDesign: ${urlReferenceDesign ? `vibe="${urlReferenceDesign.style.vibe}", primary=${urlReferenceDesign.colors.primary}` : 'NOT provided'}`);
+    console.log(`[microsite-agent] urlLayout: ${urlLayout ? `sections=${JSON.stringify(urlLayout.sections)}, heroStyle=${urlLayout.heroStyle}` : 'NOT provided'}, urlImages: ${urlImages.length}`);
 
     if (!proposalMarkdown) {
       throw new Error('microsite-generator agent requires metadata.proposalMarkdown');
@@ -3081,6 +3115,7 @@ export class MicrositeGeneratorAgent implements Agent {
                 ? `${fullDesignPrompt}\n\n${customInstructions ?? ''}`.trim()
                 : customInstructions,
               urlReferenceDesign,
+              urlLayout,
             ),
             content: '',
           }),
@@ -3542,7 +3577,8 @@ export class MicrositeGeneratorAgent implements Agent {
         const tone = (brief.primaryTone as string) || 'authoritative';
         const brandName = (metaBrand.companyName as string | undefined) || (brief.proposingCompany as string | undefined);
 
-        const layoutPatterns = (designSystemResult?.rawTokens?.layoutPatterns as Record<string, unknown> | undefined);
+        // layoutPatterns: image/synthesized design system takes priority; URL-extracted layout is the fallback
+        const layoutPatterns = (designSystemResult?.rawTokens?.layoutPatterns as Record<string, unknown> | undefined) ?? urlLayout ?? undefined;
         const sectionRulesMap = (designSystemResult?.rawTokens?.sectionRules as Record<string, unknown> | undefined) ?? {};
 
         // Apply explicit color/token overrides from design brief on top of synthesized tokens

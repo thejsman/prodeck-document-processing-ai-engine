@@ -139,26 +139,17 @@ interface TemplateDraft {
 }
 
 function buildTemplateYaml(draft: TemplateDraft, version = '1.0'): string {
-  const lines: string[] = [
-    `name: ${draft.name}`,
-    `version: "${version}"`,
-    `description: >`,
-    `  ${draft.description.trim()}`,
-    ``,
-    `sections:`,
-  ];
-  for (const section of draft.sections) {
-    lines.push(`  - title: ${section.title}`);
-    lines.push(`    query: >-`);
-    for (const line of section.query.trim().split('\n')) {
-      lines.push(`      ${line}`);
-    }
-    lines.push(`    instruction: >-`);
-    for (const line of section.instruction.trim().split('\n')) {
-      lines.push(`      ${line}`);
-    }
-  }
-  return lines.join('\n') + '\n';
+  const doc = {
+    name: draft.name,
+    version,
+    description: draft.description.trim(),
+    sections: draft.sections.map((s) => ({
+      title: s.title,
+      query: s.query.trim(),
+      instruction: s.instruction.trim(),
+    })),
+  };
+  return yaml.dump(doc, { lineWidth: 120, quotingType: '"', forceQuotes: false });
 }
 
 function parseTemplateDraft(raw: string): TemplateDraft | null {
@@ -282,7 +273,8 @@ export async function handleGenerateProposal(
     doc = await spawnProposalGenerator(payload);
   }
 
-  const outputFile = (doc.metadata as Record<string, unknown>).output_file as string | undefined;
+  const m = doc.metadata as Record<string, unknown>;
+  const outputFile = (m.output_file ?? m.output_path) as string | undefined;
   const fileName = outputFile
     ? path.basename(outputFile)
     : `${client.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 100)}_proposal.md`;
@@ -523,6 +515,9 @@ export async function handleGenerateTemplate(
     message: `Template "${displayName}" created successfully.`,
     data: { name: displayName, slug, sections: draft.sections.map((s) => s.title) },
     artifacts: [`${slug}.yaml`],
+    actionCards: [
+      { type: 'view_templates', label: 'View Templates', href: '/proposal/templates' },
+    ],
   };
 }
 
@@ -661,9 +656,19 @@ export async function handleListProposals(
     (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
   );
 
+  if (proposals.length === 0) {
+    return { success: true, message: 'No proposals found in this namespace.', data: { proposals } };
+  }
+
+  const lines = proposals.map((p) => {
+    const parts = [`- **${p.client}**`];
+    if (p.status) parts.push(`(${p.status})`);
+    if (p.createdAt) parts.push(`— created ${p.createdAt.slice(0, 10)}`);
+    return parts.join(' ');
+  });
   return {
     success: true,
-    message: `Found ${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}.`,
+    message: `Found ${proposals.length} proposal${proposals.length !== 1 ? 's' : ''}:\n\n${lines.join('\n')}`,
     data: { proposals },
   };
 }
@@ -703,9 +708,16 @@ export async function handleListTemplates(
     // Template directory doesn't exist — return empty list
   }
 
+  if (templates.length === 0) {
+    return { success: true, message: 'No templates found.', data: { templates } };
+  }
+
+  const lines = templates.map(
+    (t) => `- **${t.name}** (\`${t.id}\`)${t.description ? `: ${t.description}` : ''}`,
+  );
   return {
     success: true,
-    message: `Found ${templates.length} template${templates.length !== 1 ? 's' : ''}.`,
+    message: `Found ${templates.length} template${templates.length !== 1 ? 's' : ''}:\n\n${lines.join('\n')}`,
     data: { templates },
   };
 }
