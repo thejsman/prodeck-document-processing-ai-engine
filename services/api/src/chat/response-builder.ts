@@ -17,6 +17,7 @@ import type { ExtractionResult } from './context.types.js';
 import type { ReadinessResult, MissingField } from './readiness-engine.js';
 import type { ToolExecutionResult, ActionCard } from './tool-handlers.js';
 import type { ToolName } from './planner.js';
+import type { ConfirmationRequest } from './confirmation-gate.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -28,6 +29,8 @@ export interface ChatResponse {
   requirementsUpdated: boolean;
   /** Names of tools that were called this turn. */
   toolsCalled: ToolName[];
+  /** Set when the pipeline halted at Stage 4.5 waiting for user confirmation. */
+  confirmationRequest?: ConfirmationRequest;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +143,80 @@ export function buildNotReadyResponse(
     actionCards: [],
     requirementsUpdated,
     toolsCalled: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// buildConfirmationResponse — called at Stage 4.5 when the confirmation gate
+// halts the pipeline
+// ---------------------------------------------------------------------------
+
+export function buildConfirmationResponse(
+  request: ConfirmationRequest,
+  extraction: ExtractionResult,
+): ChatResponse {
+  const requirementsUpdated = Object.keys(extraction.fields).length > 0;
+  const lines: string[] = [];
+  const actionCards: ActionCard[] = [];
+
+  if (request.kind === 'confirm_entities') {
+    lines.push(
+      "Before I generate the proposal, I want to confirm a few details I extracted from your documents:",
+      '',
+    );
+    for (const entity of request.entities) {
+      const sourceLabel = entity.source === 'inferred' ? 'inferred' : 'from documents';
+      const fieldLabel = entity.field === 'clientName' ? 'Client' : 'Industry';
+      lines.push(`- **${fieldLabel}:** ${entity.value} *(${sourceLabel})*`);
+    }
+
+    if (request.optionalFields.length > 0) {
+      lines.push('');
+      lines.push('I also noticed these details are missing — feel free to fill them in or skip:');
+      for (const opt of request.optionalFields) {
+        lines.push(`- ${opt.question}`);
+      }
+    }
+
+    lines.push('');
+    lines.push('Reply **"yes"** to confirm and continue, or correct anything above.');
+
+  } else if (request.kind === 'confirm_template') {
+    const pct = Math.round(request.confidence * 100);
+    lines.push(
+      `I recommend the **${request.templateName}** template for this proposal (${pct}% match).`,
+      '',
+      request.reasoning,
+      '',
+      `**Sections included (${request.sections.length}):**`,
+    );
+    request.sections.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
+    lines.push('');
+    lines.push('Reply **"yes"** to use this template, or ask me to suggest alternatives.');
+
+  } else if (request.kind === 'approve_generated_template') {
+    lines.push(
+      `I didn't find a strong template match, so I drafted one tailored for your project:`,
+      '',
+      `**${request.templateName}** — ${request.sections.length} sections:`,
+    );
+    request.sections.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
+    lines.push('');
+    lines.push('Reply **"approve"** to use this template, or tell me what to change.');
+
+    actionCards.push({
+      type: 'view_template',
+      label: 'View Full Draft',
+      href: request.viewLink,
+    });
+  }
+
+  return {
+    text: lines.join('\n'),
+    actionCards,
+    requirementsUpdated,
+    toolsCalled: [],
+    confirmationRequest: request,
   };
 }
 

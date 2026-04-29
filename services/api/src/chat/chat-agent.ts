@@ -46,8 +46,13 @@ import {
   buildResponse,
   buildNotReadyResponse,
   buildPlanFailureResponse,
+  buildConfirmationResponse,
 } from './response-builder.js';
 import type { ChatResponse } from './response-builder.js';
+import {
+  runConfirmationGate,
+} from './confirmation-gate.js';
+import type { ConfirmationRequest } from './confirmation-gate.js';
 import { buildBoundaryResponse, buildUnknownResponse } from './boundary-response.js';
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
 import { readMeta } from '../proposal-meta.js';
@@ -270,6 +275,7 @@ async function buildChatContext(
     ingestedDocuments,
     recentTopic: (lastAssistantMeta.meta?.recentTopic as string | undefined) ?? undefined,
     awaitingInput: lastAssistantMeta.meta?.awaitingInput as { intent: string } | undefined,
+    awaitingConfirmation: lastAssistantMeta.meta?.awaitingConfirmation as ChatContext['awaitingConfirmation'] | undefined,
     lastAssistantMessage: lastAssistantMeta.content ?? undefined,
   };
 }
@@ -390,11 +396,16 @@ async function persistState(
   response: ChatResponse,
   classification: ClassificationResult,
   awaitingInput?: { intent: string },
+  awaitingConfirmation?: ChatContext['awaitingConfirmation'],
 ): Promise<void> {
   const metadata: Record<string, unknown> = {};
 
   if (awaitingInput) {
     metadata.awaitingInput = awaitingInput;
+  }
+
+  if (awaitingConfirmation) {
+    metadata.awaitingConfirmation = awaitingConfirmation;
   }
 
   // Derive a recentTopic from the classified intent for the next turn
@@ -481,7 +492,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   onPhase('Classifying intent...');
 
   const chatContext = await buildChatContext(namespace, chatSessionId, workdir);
-  const classification = await classifier.classify(message, chatContext);
+  let classification = await classifier.classify(message, chatContext);
 
   // --- Early exit: UNKNOWN ---
   if (classification.intent === 'UNKNOWN') {
@@ -541,6 +552,168 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     );
     onDone(response);
     return response;
+  }
+
+  // =========================================================================
+  // STAGE 4.5 — Confirmation Gate
+  // =========================================================================
+
+  // Handle CONFIRM_ENTITIES intent — user is responding to an entity confirmation ask
+  if (classification.intent === 'CONFIRM_ENTITIES') {
+    onPhase('Confirming details...');
+
+    // If user is correcting something, their extracted fields have already been merged
+    // in Stage 3. Now mark confirmed entity fields as user-blessed.
+    if (currentContext) {
+      currentContext = await contextService.confirmEntities(namespace);
+    }
+
+    // Re-run the gate with the now-confirmed entities
+    const gateResultAfterConfirm = await runConfirmationGate(
+      'GENERATE_PROPOSAL',
+      currentContext,
+      workdir,
+      generateFn,
+    );
+
+    if (!gateResultAfterConfirm.confirmed) {
+      const response = buildConfirmationResponse(gateResultAfterConfirm.request, extraction);
+      await persistState(
+        workdir, namespace, chatSessionId, message, response, classification,
+        undefined,
+        { kind: gateResultAfterConfirm.request.kind, templateSlug: (gateResultAfterConfirm.request as { templateSlug?: string }).templateSlug },
+      );
+      onDone(response);
+      return response;
+    }
+
+    // Everything confirmed — proceed to proposal generation by re-classifying as GENERATE_PROPOSAL
+    classification = { ...classification, intent: 'GENERATE_PROPOSAL' };
+  }
+
+  // Handle CONFIRM_TEMPLATE intent — user is approving the recommended/generated template
+  if (classification.intent === 'CONFIRM_TEMPLATE') {
+    onPhase('Confirming template...');
+
+    const pendingConfirmation = chatContext.awaitingConfirmation;
+
+    // For edit requests ("change section 3"), route to MODIFY_TEMPLATE instead
+    const isEditRequest = /\b(change|modify|edit|update|add|remove|adjust|rename|replace)\b/i.test(message);
+
+    if (isEditRequest && pendingConfirmation?.kind === 'approve_generated_template' && pendingConfirmation.templateSlug) {
+      // Re-route to MODIFY_TEMPLATE with the draft template
+      classification = { ...classification, intent: 'MODIFY_TEMPLATE' };
+      // Fall through to planner which will call modify_template
+    } else if (pendingConfirmation?.kind === 'confirm_template' || pendingConfirmation?.kind === 'approve_generated_template') {
+      // User approved — determine which template was confirmed and save it
+      let selectedTemplateId = pendingConfirmation.templateSlug ?? '';
+      let selectedTemplateName = '';
+      let generatedFromScratch = pendingConfirmation.kind === 'approve_generated_template';
+
+      if (pendingConfirmation.kind === 'confirm_template') {
+        // Re-run recommendation to get the template details (already cached effectively)
+        try {
+          const { recommendTemplate: rec } = await import('../templates/template-recommendation.service.js');
+          const fields = currentContext?.requirements?.fields ?? {};
+          const knowledge = currentContext?.knowledge ?? [];
+          const recContext = {
+            requirementMatrix: {
+              functional: knowledge.filter((k) => !k.supersededBy && ['requirement', 'priority'].includes(k.category)).map((k) => k.content).slice(0, 10),
+              compliance: knowledge.filter((k) => !k.supersededBy && k.category === 'constraint').map((k) => k.content).slice(0, 5),
+              timeline: fields.timeline?.value ? [String(fields.timeline.value)] : [],
+              pricing: fields.budget?.value ? [String(fields.budget.value)] : [],
+            },
+            detectedIndustry: fields.industry?.value ? String(fields.industry.value) : undefined,
+            keyCapabilities: [],
+            namespace,
+          };
+          const recommendation = await rec(recContext, workdir);
+          if (recommendation.template) {
+            selectedTemplateId = recommendation.template.id;
+            selectedTemplateName = recommendation.template.name;
+          }
+        } catch { /* non-fatal */ }
+      } else if (pendingConfirmation.templateSlug) {
+        selectedTemplateId = pendingConfirmation.templateSlug;
+        selectedTemplateName = pendingConfirmation.templateSlug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+
+      if (selectedTemplateId && currentContext) {
+        currentContext = await contextService.setSelectedTemplate(namespace, {
+          templateId: selectedTemplateId,
+          name: selectedTemplateName,
+          confirmedAt: new Date().toISOString(),
+          generatedFromScratch,
+        });
+      }
+
+      // All confirmations done — now run as GENERATE_PROPOSAL
+      classification = { ...classification, intent: 'GENERATE_PROPOSAL' };
+    } else {
+      // No pending confirmation context — treat as a normal proposal generation attempt
+      classification = { ...classification, intent: 'GENERATE_PROPOSAL' };
+    }
+  }
+
+  // Run the confirmation gate for GENERATE_PROPOSAL (catches fresh requests
+  // and resume paths where CONFIRM_ENTITIES re-routed to GENERATE_PROPOSAL)
+  if (classification.intent === 'GENERATE_PROPOSAL') {
+    // Bypass: "just generate it / use defaults / skip confirmation" auto-accepts all pending gates
+    const isBypass =
+      classification.matchedRule === 'kw_bypass_confirmation' ||
+      /\b(just\s+(generate|do|make|create|proceed|use)\b|use\s+defaults?|skip\s+(confirmation|this|all)?\b|proceed\s+anyway|generate\s+(it\s+)?(now|anyway|without\s+confirm)|use\s+what\s+you\s+have)\b/i.test(message);
+
+    if (isBypass && currentContext) {
+      // Auto-confirm entities so the gate won't re-ask next time
+      currentContext = await contextService.confirmEntities(namespace);
+      // Auto-select template if none confirmed yet
+      if (!currentContext.selectedTemplate) {
+        try {
+          const { recommendTemplate: rec } = await import('../templates/template-recommendation.service.js');
+          const fields = currentContext.requirements?.fields ?? {};
+          const knowledge = currentContext.knowledge ?? [];
+          const recCtx = {
+            requirementMatrix: {
+              functional: knowledge.filter((k) => !k.supersededBy && ['requirement', 'priority'].includes(k.category)).map((k) => k.content).slice(0, 10),
+              compliance: knowledge.filter((k) => !k.supersededBy && k.category === 'constraint').map((k) => k.content).slice(0, 5),
+              timeline: fields.timeline?.value ? [String(fields.timeline.value)] : [],
+              pricing: fields.budget?.value ? [String(fields.budget.value)] : [],
+            },
+            detectedIndustry: fields.industry?.value ? String(fields.industry.value) : undefined,
+            keyCapabilities: [],
+            namespace,
+          };
+          const recommendation = await rec(recCtx, workdir);
+          if (recommendation.template) {
+            currentContext = await contextService.setSelectedTemplate(namespace, {
+              templateId: recommendation.template.id,
+              name: recommendation.template.name,
+              confirmedAt: new Date().toISOString(),
+              generatedFromScratch: false,
+            });
+          }
+        } catch { /* non-fatal — gate will handle fallback */ }
+      }
+    }
+
+    const gateResult = await runConfirmationGate(
+      'GENERATE_PROPOSAL',
+      currentContext,
+      workdir,
+      generateFn,
+    );
+
+    if (!gateResult.confirmed) {
+      onPhase('Confirming details...');
+      const response = buildConfirmationResponse(gateResult.request, extraction);
+      await persistState(
+        workdir, namespace, chatSessionId, message, response, classification,
+        undefined,
+        { kind: gateResult.request.kind, templateSlug: (gateResult.request as { templateSlug?: string }).templateSlug },
+      );
+      onDone(response);
+      return response;
+    }
   }
 
   // =========================================================================
@@ -652,7 +825,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   // is generic (list/count-style), the RESPOND enriches it. For tools that
   // produce content in their own message (search_documents, generate_proposal),
   // skip the override so the actual content isn't lost.
-  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite'];
+  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite', 'recommend_template'];
   const hasContentTool = toolActions.some((a) => contentTools.includes(a.tool));
 
   if (respondActions.length > 0 && !hasContentTool) {

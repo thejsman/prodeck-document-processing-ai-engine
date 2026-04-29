@@ -115,6 +115,14 @@ export function registerChatRoutes(
               if (card.type === 'view_proposal') actions.openProposalUrl = card.href;
               if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
               if (card.type === 'view_templates') actions.openTemplatesUrl = card.href;
+              if (card.type === 'view_template') actions.openTemplateUrl = card.href;
+            }
+            // Emit structured confirmation request before done so the frontend
+            // can render an interactive confirmation block
+            if (response.confirmationRequest) {
+              reply.raw.write(
+                `event: confirmation_request\ndata: ${JSON.stringify(response.confirmationRequest)}\n\n`,
+              );
             }
             reply.raw.write(
               `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,
