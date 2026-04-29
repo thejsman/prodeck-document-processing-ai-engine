@@ -5,6 +5,21 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { InlineEditable } from '../editor/InlineEditable';
 
+/** Pick white or near-black, whichever has better WCAG contrast against bgHex */
+function textOnBg(bgHex: string): string {
+  try {
+    const h = bgHex.replace('#', '').slice(0, 6);
+    if (h.length < 6) return '#ffffff';
+    const r = parseInt(h.slice(0, 2), 16) / 255;
+    const g = parseInt(h.slice(2, 4), 16) / 255;
+    const b = parseInt(h.slice(4, 6), 16) / 255;
+    const lin = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    // contrast vs white = 1.05 / (lum + 0.05), contrast vs black = (lum + 0.05) / 0.05
+    return lum > 0.179 ? '#111111' : '#ffffff';
+  } catch { return '#ffffff'; }
+}
+
 interface Props {
   content: GenericContent;
   tokens: PluginTokens;
@@ -129,20 +144,20 @@ function VariantBento({ content, tokens, listItems, imageUrl }: { content: Gener
                   <div style={{
                     fontFamily: `'${tokens.heroFont}', serif`,
                     fontSize: '2.8rem', fontWeight: 900, lineHeight: 1,
-                    color: isAccent ? 'rgba(255,255,255,0.13)' : `${tokens.accent}16`,
+                    color: isAccent ? `${textOnBg(tokens.accent)}22` : `${tokens.accent}16`,
                     marginBottom: '0.75rem', userSelect: 'none' as const,
                   }}>{String(i + 1).padStart(2, '0')}</div>
                   <h3 style={{
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontWeight: 700, fontSize: 'clamp(0.9rem, 1.4vw, 1.05rem)',
-                    color: isAccent ? '#fff' : tokens.text,
+                    color: isAccent ? textOnBg(tokens.accent) : tokens.text,
                     margin: '0 0 0.6rem', lineHeight: 1.3,
                   }}>{item.title}</h3>
                   {item.subtitle && (
                     <p style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
                       fontSize: '0.83rem', lineHeight: 1.75, margin: 0,
-                      color: isAccent ? 'rgba(255,255,255,0.75)' : tokens.textMuted,
+                      color: isAccent ? `${textOnBg(tokens.accent)}bb` : tokens.textMuted,
                     }}>{item.subtitle}</p>
                   )}
                 </div>
@@ -320,13 +335,14 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
             <div style={{ position: 'absolute', bottom: -44, right: -44, width: 190, height: 190, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
             <div style={{ position: 'absolute', top: -22, left: -22, width: 110, height: 110, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
             <Eyebrow text={content.eyebrow} tokens={tokens} light />
+            {(() => { const onAccent = textOnBg(tokens.accent); return (<>
             <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
               <h2 style={{
                 fontFamily: `'${tokens.heroFont}', serif`,
                 fontWeight: Number(tokens.heroWeight) || 700,
                 fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
                 lineHeight: 1.1, letterSpacing: '-0.02em',
-                color: '#fff', margin: '0 0 1.25rem',
+                color: onAccent, margin: '0 0 1.25rem',
               }}>{content.headline}</h2>
             </InlineEditable>
             {content.body && (
@@ -334,7 +350,7 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
                 <p style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '0.875rem', lineHeight: 1.8,
-                  color: 'rgba(255,255,255,0.72)', margin: 0,
+                  color: `${onAccent}bb`, margin: 0,
                 }}>{content.body}</p>
               </InlineEditable>
             )}
@@ -342,16 +358,17 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
               <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 marginTop: '2rem', padding: '8px 16px',
-                borderRadius: 100, background: 'rgba(255,255,255,0.14)',
-                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 100, background: `${onAccent}22`,
+                border: `1px solid ${onAccent}33`,
               }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', display: 'inline-block' }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: onAccent, display: 'inline-block' }} />
                 <span style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  fontSize: '0.75rem', fontWeight: 700, color: '#fff',
+                  fontSize: '0.75rem', fontWeight: 700, color: onAccent,
                 }}>{listItems.length} key point{listItems.length !== 1 ? 's' : ''}</span>
               </div>
             )}
+            </>); })()}
           </div>
         </Reveal>
 

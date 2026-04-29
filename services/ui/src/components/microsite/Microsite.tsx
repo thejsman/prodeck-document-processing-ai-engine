@@ -677,6 +677,36 @@ function isColorDark(hex: string): boolean {
   }
 }
 
+/** WCAG relative luminance of a hex color */
+function wcagLum(hex: string): number {
+  try {
+    const h = hex.replace('#', '').slice(0, 6);
+    if (h.length < 6) return 0;
+    const r = parseInt(h.slice(0, 2), 16) / 255;
+    const g = parseInt(h.slice(2, 4), 16) / 255;
+    const b = parseInt(h.slice(4, 6), 16) / 255;
+    const lin = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  } catch { return 0; }
+}
+
+/** WCAG contrast ratio between two hex colors (1–21) */
+function contrastRatio(a: string, b: string): number {
+  const l1 = wcagLum(a), l2 = wcagLum(b);
+  const [light, dark] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (light + 0.05) / (dark + 0.05);
+}
+
+/**
+ * Return textHex if it passes 4.5:1 against bgHex.
+ * Otherwise return #ffffff or #111111 — whichever wins.
+ */
+function safeTextColor(textHex: string, bgHex: string): string {
+  if (!textHex || !bgHex) return textHex;
+  if (contrastRatio(textHex, bgHex) >= 4.5) return textHex;
+  return contrastRatio('#ffffff', bgHex) >= contrastRatio('#111111', bgHex) ? '#ffffff' : '#111111';
+}
+
 export interface MicrositeHandle {
   downloadPdf: () => Promise<void>;
 }
@@ -749,6 +779,16 @@ export const Microsite = React.forwardRef<MicrositeHandle, Props>(function Micro
         cardShadow: vars['--ms-shadow'] ?? t.cardShadow,
         cardShadowHover: vars['--ms-shadow-hover'] ?? t.cardShadowHover,
         dark: isDark,
+      };
+
+      // Contrast safety pass — after all overrides are merged, ensure text is always
+      // readable against its respective background. Catches white-text-on-light-surface
+      // that can occur when a dark-theme URL's colors are applied to a light-theme plugin.
+      t = {
+        ...t,
+        text:       safeTextColor(t.text,       t.bg),
+        textMuted:  safeTextColor(t.textMuted,  t.bg),
+        textSubtle: safeTextColor(t.textSubtle, t.surface),
       };
     }
     return t;

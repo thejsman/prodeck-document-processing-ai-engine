@@ -605,7 +605,119 @@ export function registerPresentationRoutes(
     const colorSummary = lines.join('\n').slice(0, 10_000);
     if (!colorSummary.trim()) return reply.code(200).send({ error: 'no_css_found', tokens: null });
 
-    // ── Step 3: LLM extraction ────────────────────────────────────────────
+    // ── Step 2b: Extract design layout structure from HTML DOM ────────────
+    // Parse HTML to identify sections, their types, and all image URLs used on the page.
+    // This gives the microsite agent structural context — not just colors/fonts but
+    // section order, hero style, grid density, and actual images from the site.
+
+    // Collect all <img src> and CSS background-image URLs from the page body
+    const bodyImages: string[] = [];
+    const seenImageUrls = new Set<string>();
+
+    // <img src="..."> and <img srcset="...">
+    for (const m of html.matchAll(/<img\s[^>]*>/gi)) {
+      const tag = m[0];
+      const srcM = tag.match(/\bsrc=["']([^"']+)["']/i);
+      if (srcM?.[1]) {
+        const abs = resolveAbsolute(srcM[1]);
+        if (abs && !seenImageUrls.has(abs) && !abs.includes('data:') && !abs.match(/\.(svg|gif)(\?|$)/i)) {
+          seenImageUrls.add(abs);
+          bodyImages.push(abs);
+        }
+      }
+      // srcset — pick the first (largest) candidate
+      const ssM = tag.match(/\bsrcset=["']([^"']+)["']/i);
+      if (ssM?.[1]) {
+        const first = ssM[1].trim().split(/,\s*/)[0]?.split(/\s+/)[0];
+        if (first) {
+          const abs = resolveAbsolute(first);
+          if (abs && !seenImageUrls.has(abs) && !abs.includes('data:')) {
+            seenImageUrls.add(abs);
+            bodyImages.push(abs);
+          }
+        }
+      }
+    }
+
+    // CSS background-image: url(...) from inline styles
+    for (const m of html.matchAll(/background-image\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) {
+      const abs = resolveAbsolute(m[1].trim());
+      if (abs && !seenImageUrls.has(abs) && !abs.includes('data:') && !abs.match(/\.(svg|gif)(\?|$)/i)) {
+        seenImageUrls.add(abs);
+        bodyImages.push(abs);
+      }
+    }
+
+    // background-image from stylesheets
+    for (const m of fullCss.matchAll(/background(?:-image)?\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) {
+      const abs = resolveAbsolute(m[1].trim());
+      if (abs && !seenImageUrls.has(abs) && !abs.includes('data:') && !abs.match(/\.(svg|gif)(\?|$)/i)) {
+        seenImageUrls.add(abs);
+        bodyImages.push(abs);
+      }
+    }
+
+    // Identify named sections from semantic HTML — extract tag, role/aria-label, id, class keywords, and first heading text
+    interface HtmlSection {
+      tag: string;
+      label: string;
+      headingText: string;
+      classHints: string[];
+      hasImage: boolean;
+    }
+
+    const SECTION_TAGS = /^(header|nav|section|main|article|aside|footer|div)$/i;
+    const LAYOUT_CLASS_KEYWORDS = /hero|banner|feature|benefit|service|about|team|testimonial|review|pricing|plan|faq|contact|cta|call-to-action|gallery|portfolio|case-study|stat|counter|highlight|intro|solution|problem|partner|client|logo|blog|news|video/i;
+
+    const htmlSections: HtmlSection[] = [];
+
+    // Simple regex-based tag extraction (no full DOM parser — keeps it lightweight)
+    for (const m of html.matchAll(/<(header|nav|section|main|article|aside|footer)(\s[^>]*)?>[\s\S]{0,3000}?<\/\1>/gi)) {
+      const tag = m[1].toLowerCase();
+      const attrs = m[2] ?? '';
+      const content = m[0];
+
+      // Collect class + id + aria-label for type inference
+      const classM = attrs.match(/class=["']([^"']+)["']/i);
+      const idM    = attrs.match(/id=["']([^"']+)["']/i);
+      const ariaM  = attrs.match(/aria-label=["']([^"']+)["']/i);
+      const roleM  = attrs.match(/role=["']([^"']+)["']/i);
+
+      const classWords = (classM?.[1] ?? '').toLowerCase().split(/\s+/).filter(w => LAYOUT_CLASS_KEYWORDS.test(w));
+      const idWords    = (idM?.[1] ?? '').toLowerCase().split(/[-_\s]+/).filter(w => LAYOUT_CLASS_KEYWORDS.test(w));
+      const ariaLabel  = ariaM?.[1] ?? roleM?.[1] ?? '';
+
+      // Extract first heading text inside this section
+      const headingM = content.match(/<h[1-3][^>]*>([^<]{1,80})<\/h[1-3]>/i);
+      const headingText = headingM?.[1]?.replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').trim() ?? '';
+
+      const hasImage = /<img\s/i.test(content) || /background-image\s*:\s*url/i.test(content);
+      const classHints = [...new Set([...classWords, ...idWords, ariaLabel.toLowerCase()].filter(Boolean))];
+
+      if (classHints.length > 0 || headingText || tag !== 'div') {
+        htmlSections.push({ tag, label: ariaLabel, headingText, classHints, hasImage });
+      }
+    }
+
+    // Build a compact layout summary for the LLM
+    const layoutLines: string[] = [];
+    layoutLines.push(`PAGE URL: ${parsedUrl.toString()}`);
+    layoutLines.push(`TOTAL IMAGES FOUND: ${bodyImages.length}`);
+    layoutLines.push(`IMAGE URLS (first 10):\n${bodyImages.slice(0, 10).map(u => `  ${u}`).join('\n')}`);
+    if (htmlSections.length > 0) {
+      layoutLines.push(`\nHTML SECTIONS DETECTED (${htmlSections.length} total):`);
+      htmlSections.slice(0, 20).forEach((s, i) => {
+        const parts = [`  ${i + 1}. <${s.tag}>`];
+        if (s.classHints.length) parts.push(`classes/id: [${s.classHints.join(', ')}]`);
+        if (s.label) parts.push(`aria: "${s.label}"`);
+        if (s.headingText) parts.push(`heading: "${s.headingText}"`);
+        if (s.hasImage) parts.push(`(has image)`);
+        layoutLines.push(parts.join(' | '));
+      });
+    }
+    const layoutSummary = layoutLines.join('\n').slice(0, 6_000);
+
+    // ── Step 3: LLM extraction (colors + layout in parallel) ─────────────
     const extractionPrompt = `You are a senior UI designer analyzing a website's design system.
 Below are pre-categorized design tokens extracted from the site's CSS.
 
@@ -651,15 +763,49 @@ ${colorSummary}
 
 Remember: output ONLY the JSON object. Every color field must be a valid hex string like #0420f2.`;
 
+    const layoutExtractionPrompt = `You are a senior UI designer analyzing a website's HTML structure and image assets.
+Below is a summary of the page's HTML sections (semantic tags, class names, headings) and image URLs.
+
+Analyze this and return a JSON object describing the design layout structure.
+
+Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
+
+{
+  "sections": ["hero", "features", "testimonials", "pricing", "cta", "footer"],
+  "heroStyle": "full-bleed | split-panel | text-centered | image-left | image-right",
+  "isImageHeavy": true,
+  "gridColumns": 3,
+  "hasVideo": false,
+  "layoutDensity": "minimal | balanced | dense",
+  "sectionLayouts": ["centered", "split", "card-grid", "editorial", "asymmetric"],
+  "visualHierarchy": "image-led | text-led | balanced"
+}
+
+Rules:
+- "sections": ordered list of section types present. Use these exact names where possible: hero, nav, features, benefits, about, team, testimonials, pricing, faq, cta, contact, gallery, stats, clients, blog, footer
+- "heroStyle": how the hero section is laid out
+- "isImageHeavy": true if more than 3 content images found
+- "gridColumns": most common column count in feature/benefit grids (1, 2, 3, or 4)
+- "sectionLayouts": one layout style per section in order (same length as "sections")
+- "visualHierarchy": whether images or text dominate the visual design
+
+HTML STRUCTURE SUMMARY:
+${layoutSummary}`;
+
     try {
-      const raw = await llmGenerateFn(extractionPrompt);
-      const jsonStart = raw.indexOf('{');
-      const jsonEnd = raw.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd <= jsonStart) {
-        console.warn('[extract-url-design] LLM returned no JSON');
+      const [colorRaw, layoutRaw] = await Promise.all([
+        llmGenerateFn(extractionPrompt),
+        llmGenerateFn(layoutExtractionPrompt),
+      ]);
+
+      // Parse color tokens
+      const colorJsonStart = colorRaw.indexOf('{');
+      const colorJsonEnd = colorRaw.lastIndexOf('}');
+      if (colorJsonStart === -1 || colorJsonEnd <= colorJsonStart) {
+        console.warn('[extract-url-design] LLM returned no JSON for colors');
         return reply.code(200).send({ error: 'parse_failed', tokens: null, heroImageUrl, logoUrl });
       }
-      const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+      const parsed = JSON.parse(colorRaw.slice(colorJsonStart, colorJsonEnd + 1)) as Record<string, unknown>;
       const colors = parsed.colors as Record<string, string> | undefined;
       const typography = parsed.typography as Record<string, string> | undefined;
       const style = parsed.style as Record<string, string> | undefined;
@@ -667,8 +813,27 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
         console.warn('[extract-url-design] LLM returned incomplete tokens');
         return reply.code(200).send({ error: 'incomplete_tokens', tokens: null, heroImageUrl, logoUrl });
       }
-      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}`);
-      return reply.code(200).send({ tokens: parsed, heroImageUrl, logoUrl });
+
+      // Parse layout structure
+      let layout: Record<string, unknown> | null = null;
+      try {
+        const layoutJsonStart = layoutRaw.indexOf('{');
+        const layoutJsonEnd = layoutRaw.lastIndexOf('}');
+        if (layoutJsonStart !== -1 && layoutJsonEnd > layoutJsonStart) {
+          layout = JSON.parse(layoutRaw.slice(layoutJsonStart, layoutJsonEnd + 1)) as Record<string, unknown>;
+        }
+      } catch {
+        console.warn('[extract-url-design] layout JSON parse failed — continuing without layout');
+      }
+
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}, sections=${JSON.stringify((layout as Record<string, unknown> | null)?.sections ?? [])}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}`);
+      return reply.code(200).send({
+        tokens: parsed,
+        heroImageUrl,
+        logoUrl,
+        images: bodyImages.slice(0, 20),
+        layout,
+      });
     } catch (err) {
       console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
       return reply.code(200).send({ error: 'parse_failed', tokens: null, heroImageUrl, logoUrl });
@@ -1086,6 +1251,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
       pdfFriendly?: boolean;
       referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
       urlReferenceDesign?: Record<string, unknown> | null;
+      urlLayout?: Record<string, unknown> | null;
+      urlImages?: string[];
     } | undefined;
 
     // Load markdown from body or saved file
@@ -1143,6 +1310,8 @@ Remember: output ONLY the JSON object. Every color field must be a valid hex str
           ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
           ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
           ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
+          ...(body?.urlLayout ? { urlLayout: body.urlLayout } : {}),
+          ...(body?.urlImages?.length ? { urlImages: body.urlImages } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
             send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });

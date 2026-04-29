@@ -407,6 +407,8 @@ async function persistState(
       const u = new URL(proposalCard.href, 'http://x');
       const artifact = u.searchParams.get('artifact');
       if (artifact) metadata.proposalArtifactId = artifact;
+      const ns = u.searchParams.get('namespace');
+      if (ns) metadata.proposalNamespace = ns;
     } catch { /* ignore malformed href */ }
   }
 

@@ -156,7 +156,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                         <InlineIconEdit
                           fieldPath={`items.${ii}.iconHint`}
                           hint={item.iconHint}
-                          color={isFirst ? (tokens.bg || '#fff') : tokens.accent}
+                          color={isFirst ? (tokens.dark ? '#fff' : '#111') : tokens.accent}
                           size={20}
                           containerStyle={{ display: 'inline-flex' }}
                         />

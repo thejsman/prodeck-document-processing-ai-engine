@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { ArrowUp, Brain, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
@@ -430,10 +431,10 @@ export default function ChatPage() {
     if (!generatedDoc) return null;
     const m = generatedDoc.metadata as Record<string, unknown>;
     const outputFile = (m.output_file ?? m.output_path) as string | undefined;
-    if (!outputFile) return '/proposal';
+    if (!outputFile) return `/proposal?from=chat`;
     const parts = outputFile.replace(/\\/g, '/').split('/');
     const fileName = parts.pop();
-    if (!fileName) return '/proposal';
+    if (!fileName) return `/proposal?from=chat`;
     const proposalsIdx = parts.lastIndexOf('proposals');
     const ns = namespace || '';
     const artifactNs =
@@ -580,7 +581,8 @@ export default function ChatPage() {
                           const artifactId = m.metadata?.proposalArtifactId as string | undefined;
                           if (artifactId) {
                             const historyClient = m.content?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'Proposal';
-                            const historyHref = `/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(namespace || 'default')}&from=chat`;
+                            const artifactNs = (m.metadata?.proposalNamespace as string | undefined) || namespace || 'default';
+                            const historyHref = `/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(artifactNs)}&from=chat`;
                             return (
                               <div style={{ maxWidth: '33.33%' }}>
                                 <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>Proposal generated</span>
@@ -596,7 +598,7 @@ export default function ChatPage() {
                                       <span className="proposal-card-ns">{namespace || 'default'}</span>
                                       <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
                                     </div>
-                                    <a href={historyHref} className="proposal-card-view-btn">View →</a>
+                                    <Link href={historyHref} className="proposal-card-view-btn">View →</Link>
                                   </div>
                                 </div>
                               </div>
@@ -648,7 +650,7 @@ export default function ChatPage() {
                               <span className="proposal-card-ns">{namespace || 'default'}</span>
                               <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
                             </div>
-                            <a href={generatedProposalHref ?? '/proposal'} className="proposal-card-view-btn">View →</a>
+                            <Link href={generatedProposalHref ?? '/proposal'} className="proposal-card-view-btn">View →</Link>
                           </div>
                         </div>
                       </div>
@@ -731,9 +733,12 @@ export default function ChatPage() {
                           );
                         }
                         const clientName = chunks?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'New Proposal';
+                        const fallbackArtifact = sections[0]?.artifactId;
                         const proposalHref = doneActions?.openProposalUrl
                           ? `${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`
-                          : '/proposal';
+                          : fallbackArtifact
+                            ? `/proposal?artifact=${encodeURIComponent(fallbackArtifact)}&namespace=${encodeURIComponent(namespace || 'default')}&from=chat`
+                            : `/proposal?from=chat`;
                         const dateLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                         return (
                           <div style={{ marginTop: 12, maxWidth: '33.33%' }}>
@@ -751,7 +756,7 @@ export default function ChatPage() {
                                   <span className="proposal-card-ns">{namespace || 'default'}</span>
                                   <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
                                 </div>
-                                <a href={proposalHref} className="proposal-card-view-btn">View →</a>
+                                <Link href={proposalHref} className="proposal-card-view-btn">View →</Link>
                               </div>
                             </div>
                           </div>
