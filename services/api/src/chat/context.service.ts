@@ -43,16 +43,43 @@ const ARRAY_FIELDS: RequirementKey[] = [
 // Pure merge helpers (module-level, exported for testing)
 // ---------------------------------------------------------------------------
 
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.trim().toLowerCase() === b.trim().toLowerCase();
+  }
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function mergeField<T>(
   existing: RequirementField<T> | undefined,
   incoming: RequirementField<T>,
 ): RequirementField<T> {
-  if (!existing) return incoming;
-  // User-stated always wins over document-extracted (both directions)
-  if (incoming.source === 'user' && existing.source === 'document') return incoming;
+  if (!existing) {
+    // Auto-confirm user-stated values at high confidence
+    if (incoming.source === 'user' && incoming.confidence >= 0.85 && !incoming.confirmedByUser) {
+      return { ...incoming, confirmedByUser: { at: incoming.updatedAt } };
+    }
+    return incoming;
+  }
+  // User-stated always wins over document-extracted — mark confirmed if high-confidence
+  if (incoming.source === 'user' && existing.source === 'document') {
+    if (incoming.confidence >= 0.85 && !incoming.confirmedByUser) {
+      return { ...incoming, confirmedByUser: { at: incoming.updatedAt } };
+    }
+    if (existing.confirmedByUser && !incoming.confirmedByUser) {
+      return { ...incoming, confirmedByUser: existing.confirmedByUser };
+    }
+    return incoming;
+  }
   if (incoming.source === 'document' && existing.source === 'user') return existing;
-  // Same source → higher confidence wins
-  if (incoming.confidence >= existing.confidence) return incoming;
+  // Same source → higher confidence wins; clear confirmedByUser if the value changed
+  if (incoming.confidence >= existing.confidence) {
+    const valueChanged = !valuesEqual(incoming.value, existing.value);
+    if (valueChanged) return incoming; // value changed — discard prior confirmation
+    const confirmedByUser = existing.confirmedByUser ?? incoming.confirmedByUser;
+    if (confirmedByUser) return { ...incoming, confirmedByUser }; // preserve blessing
+    return incoming; // nothing to annotate — return same reference
+  }
   return existing;
 }
 
@@ -333,6 +360,34 @@ export class ContextService {
     current.version += 1;
     current.updatedAt = new Date().toISOString();
 
+    await this.save(namespace, current);
+    return current;
+  }
+
+  async confirmEntities(namespace: string): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    const now = new Date().toISOString();
+    const entityFields: RequirementKey[] = ['clientName', 'industry'];
+    for (const key of entityFields) {
+      const field = current.requirements.fields[key];
+      if (field && !field.confirmedByUser) {
+        current.requirements.fields[key] = { ...field, confirmedByUser: { at: now } };
+      }
+    }
+    current.version += 1;
+    current.updatedAt = now;
+    await this.save(namespace, current);
+    return current;
+  }
+
+  async setSelectedTemplate(
+    namespace: string,
+    selected: import('./context.types.js').SelectedTemplate,
+  ): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    current.selectedTemplate = selected;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
     await this.save(namespace, current);
     return current;
   }
