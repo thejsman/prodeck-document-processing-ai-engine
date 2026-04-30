@@ -2,7 +2,7 @@
  * Route handlers — thin delegation to @ai-engine/runtime.
  */
 
-import { readFile, readdir, stat, mkdir } from 'node:fs/promises';
+import { readFile, readdir, stat, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
@@ -400,5 +400,23 @@ export function registerRoutes(
     await mkdir(path.join(nsDir, 'index'), { recursive: true });
 
     return reply.code(201).send({ namespace: name });
+  });
+
+  // DELETE /namespaces/:namespace
+  app.delete('/namespaces/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const nsDir = path.join(workdir, 'namespaces', namespace);
+
+    try {
+      const s = await stat(nsDir);
+      if (!s.isDirectory()) {
+        return reply.code(404).send({ error: `Namespace "${namespace}" not found` });
+      }
+    } catch {
+      return reply.code(404).send({ error: `Namespace "${namespace}" not found` });
+    }
+
+    await rm(nsDir, { recursive: true, force: true });
+    return reply.code(200).send({ deleted: namespace });
   });
 }
