@@ -83,7 +83,17 @@ function setDeep(
   value: unknown,
 ): Record<string, unknown> {
   const dot = path.indexOf('.');
-  if (dot === -1) return { ...obj, [path]: value };
+  if (dot === -1) {
+    // When obj is an array (e.g. a row like ['label','amount']) and path is a
+    // numeric index, return a new array — not an object spread. Object spread
+    // on an array produces {0:'a',1:'b',...} which loses Array.isArray and .length.
+    if (Array.isArray(obj) && /^\d+$/.test(path)) {
+      const arr = [...(obj as unknown[])];
+      arr[parseInt(path)] = value;
+      return arr as unknown as Record<string, unknown>;
+    }
+    return { ...obj, [path]: value };
+  }
   const key = path.slice(0, dot);
   const rest = path.slice(dot + 1);
   const child = (obj[key] ?? {}) as Record<string, unknown>;

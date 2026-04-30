@@ -49,10 +49,6 @@ interface Props {
 }
 
 
-function isPaymentRow(label: string) {
-  return /upon|signing|milestone|complet|launch|deposit|50%|phase\s*\d/i.test(label);
-}
-
 export function PricingSection({ content, tokens, sections = [] }: Props) {
   const ctx = useEditContext();
   const sectionId = useSectionId();
@@ -62,8 +58,14 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
   const isGenericHeader = /^(service|deliverable|item|scope|description|investment)$/i.test((firstRow[0] ?? '').trim());
   const dataRows = isGenericHeader ? rows.slice(1) : rows;
 
-  const paymentRows = dataRows.filter((r) => r.length >= 2 && isPaymentRow(r[0] ?? ''));
-  const deliverableRows = dataRows.filter((r) => !isPaymentRow(r[0] ?? ''));
+  // Split at the blank separator row ["", ""] that the AI always inserts between
+  // deliverables and the payment schedule. Using position is stable — regex on the
+  // label breaks whenever the user edits a milestone name to something custom.
+  const separatorIdx = dataRows.findIndex(
+    (r) => (r[0] ?? '').trim() === '' && (r[1] ?? '').trim() === '',
+  );
+  const deliverableRows = separatorIdx === -1 ? dataRows : dataRows.slice(0, separatorIdx);
+  const paymentRows = separatorIdx === -1 ? [] : dataRows.slice(separatorIdx + 1).filter(r => r.length >= 1);
 
   const isTotalRow = (label: string) => /total|subtotal/i.test(label);
   const isAnnualRow = (label: string) => /annual/i.test(label);
@@ -77,8 +79,9 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
     const firstR = allRows[0] ?? [];
     const hasHeader = /^(service|deliverable|item|scope|description|investment)$/i.test((firstR[0] ?? '').trim());
     const dataR = hasHeader ? allRows.slice(1) : allRows;
-    const pricedRows = dataR.filter(r =>
-      !isPaymentRow(r[0] ?? '') &&
+    const sepIdx = dataR.findIndex(r => (r[0] ?? '').trim() === '' && (r[1] ?? '').trim() === '');
+    const delivRows = sepIdx === -1 ? dataR : dataR.slice(0, sepIdx);
+    const pricedRows = delivRows.filter(r =>
       !/total|subtotal/i.test(r[0] ?? '') &&
       !/annual/i.test(r[0] ?? ''),
     );
@@ -448,22 +451,37 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                     </span>
                   </div>
 
+                  {/* Responsive grid: 3 cols for ≤3 items, 2 cols for 4, wrap for 5+ */}
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: `repeat(${Math.min(paymentRows.length, 3)}, 1fr)`,
+                      gridTemplateColumns: paymentRows.length <= 3
+                        ? `repeat(${paymentRows.length}, 1fr)`
+                        : paymentRows.length === 4
+                          ? 'repeat(2, 1fr)'
+                          : 'repeat(3, 1fr)',
                     }}
                   >
                     {paymentRows.map((row, ri) => {
                       const globalIdx = dataRows.indexOf(row) + (isGenericHeader ? 1 : 0);
+                      const cols = paymentRows.length <= 3
+                        ? paymentRows.length
+                        : paymentRows.length === 4 ? 2 : 3;
+                      const colPos = ri % cols; // 0-based column position in the row
+                      const isLastInRow = colPos === cols - 1;
+                      const isLastItem = ri === paymentRows.length - 1;
+                      const isLastRow = ri >= paymentRows.length - (paymentRows.length % cols || cols);
+                      const hasAmount = !!(row[1] ?? '').trim();
                       return (
                         <div
                           key={ri}
                           style={{
                             padding: '18px 22px',
-                            borderRight: ri < paymentRows.length - 1 ? `1px solid ${tokens.border}` : undefined,
+                            borderRight: !isLastInRow && !isLastItem ? `1px solid ${tokens.border}` : undefined,
+                            borderBottom: !isLastRow ? `1px solid ${tokens.border}` : undefined,
                           }}
                         >
+                          {/* Step number */}
                           <div
                             style={{
                               width: 20,
@@ -483,6 +501,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                             {ri + 1}
                           </div>
 
+                          {/* Milestone label */}
                           <div
                             style={{
                               fontFamily: `'${tokens.bodyFont}', sans-serif`,
@@ -491,30 +510,56 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               letterSpacing: '0.11em',
                               textTransform: 'uppercase' as const,
                               color: tokens.textSubtle,
-                              marginBottom: 6,
+                              marginBottom: 8,
                             }}
                           >
                             <InlineEditable field={`rows.${globalIdx}.0`} label="Milestone" value={row[0] ?? ''}>
-                              {row[0]}
+                              {row[0] || <span style={{ opacity: 0.4, fontStyle: 'italic' }}>Milestone name…</span>}
                             </InlineEditable>
                           </div>
 
-                          <div
-                            style={{
-                              fontFamily: `'${tokens.heroFont}', serif`,
-                              fontWeight: 700,
-                              fontSize: 'clamp(1.1rem, 2vw, 1.5rem)',
-                              color: tokens.accent,
-                              letterSpacing: '-0.02em',
-                              lineHeight: 1,
-                              marginBottom: row[2] ? 6 : 0,
-                            }}
-                          >
-                            <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={row[1] ?? ''}>
-                              {row[1]}
-                            </InlineEditable>
-                          </div>
+                          {/* Amount — always rendered, shows placeholder when empty */}
+                          <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={row[1] ?? ''}>
+                            {hasAmount ? (
+                              <div
+                                style={{
+                                  fontFamily: `'${tokens.heroFont}', serif`,
+                                  fontWeight: 700,
+                                  fontSize: 'clamp(1.1rem, 2vw, 1.5rem)',
+                                  color: tokens.accent,
+                                  letterSpacing: '-0.02em',
+                                  lineHeight: 1,
+                                  marginBottom: row[2] ? 6 : 0,
+                                }}
+                              >
+                                {row[1]}
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  padding: '5px 10px',
+                                  borderRadius: 6,
+                                  border: `1.5px dashed ${tokens.accent}55`,
+                                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  color: `${tokens.accent}99`,
+                                  cursor: 'pointer',
+                                  marginBottom: row[2] ? 6 : 0,
+                                }}
+                              >
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                  <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                                Add amount
+                              </div>
+                            )}
+                          </InlineEditable>
 
+                          {/* Optional note */}
                           {row[2] && (
                             <div
                               style={{
@@ -533,6 +578,57 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                       );
                     })}
                   </div>
+
+                  {/* Add milestone button — only shown in edit mode */}
+                  {ctx && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        padding: '10px 0',
+                        borderTop: `1px solid ${tokens.border}`,
+                        background: tokens.surface,
+                      }}
+                    >
+                      <button
+                        onClick={() => {
+                          if (!ctx || !sectionId) return;
+                          const currentRows = content.rows ?? [];
+                          const hasSep = currentRows.some(
+                            r => (r[0] ?? '').trim() === '' && (r[1] ?? '').trim() === '',
+                          );
+                          // Ensure the blank separator exists before adding a payment row
+                          if (!hasSep) {
+                            ctx.updateField(sectionId, 'rows', [...currentRows, ['', '', ''], ['Upon Milestone', '', '']]);
+                          } else {
+                            ctx.addArrayItem(sectionId, 'rows', ['Upon Milestone', '', '']);
+                          }
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '5px 14px',
+                          borderRadius: 7,
+                          border: `1.5px dashed ${tokens.accent}66`,
+                          background: 'transparent',
+                          color: tokens.accent,
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                          cursor: 'pointer',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${tokens.accent}15`; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                        Add payment milestone
+                      </button>
+                    </div>
+                  )}
 
                   {content.footnote && (
                     <div
