@@ -87,12 +87,34 @@ export function ColorPaletteEditor({ tokens, onClose }: Props) {
 
   if (!ctx) return null;
 
+  // CSS variable keys that correspond to each editable token.
+  // When a microsite is created from a URL, brand.extractedCssVariables
+  // override customTokens in Microsite.tsx. Clearing the relevant CSS vars
+  // here ensures the user's explicit color choice takes effect.
+  const CSS_VAR_KEYS_FOR_TOKEN: Record<string, string[]> = {
+    accent:  ['--ms-accent', '--ms-hero-accent', '--ms-accent2'],
+    bg:      ['--ms-bg'],
+    surface: ['--ms-bg2', '--ms-bg3', '--ms-surface'],
+    text:    ['--ms-text', '--ms-text2', '--ms-text3'],
+  };
+
   function handleChange(key: string, value: string) {
     const next = { ...localTokens, [key]: value };
     setLocalTokens(next);
+
+    // Strip the CSS vars that correspond to this token so they no longer
+    // override the user's new customTokens value.
+    let updatedCssVars = { ...(ctx!.ast.brand?.extractedCssVariables ?? {}) };
+    const keysToRemove = CSS_VAR_KEYS_FOR_TOKEN[key] ?? [];
+    for (const k of keysToRemove) delete updatedCssVars[k];
+
     const newAst: LayoutAST = {
       ...ctx!.ast,
       customTokens: { ...ctx!.ast.customTokens, [key]: value },
+      brand: {
+        ...ctx!.ast.brand,
+        extractedCssVariables: Object.keys(updatedCssVars).length > 0 ? updatedCssVars : undefined,
+      },
     };
     ctx!.replaceAst(newAst);
   }
