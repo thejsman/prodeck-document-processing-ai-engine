@@ -3,7 +3,7 @@
 import type { PluginTokens, TeamContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
@@ -142,14 +142,14 @@ export function TeamSection({ content, tokens }: Props) {
 
                       <div style={{ flex: 1 }}>
                         <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
-                          <div style={{
+                          <div {...rt(member.name ?? '')} style={{
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
                             fontWeight: 700, fontSize: '0.9rem',
                             color: tokens.text, marginBottom: 4, lineHeight: 1.3,
-                          }}>{member.name}</div>
+                          }} />
                         </InlineEditable>
                         <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
-                          <span style={{
+                          <span {...rt(member.role ?? '')} style={{
                             display: 'inline-block',
                             padding: '2px 10px',
                             borderRadius: 100,
@@ -160,7 +160,7 @@ export function TeamSection({ content, tokens }: Props) {
                             color: tokens.accent, letterSpacing: '0.06em',
                             textTransform: 'uppercase' as const,
                             marginBottom: 10,
-                          }}>{member.role}</span>
+                          }} />
                         </InlineEditable>
                         <InlineEditable field={`members.${i}.bio`} label="Bio" value={member.bio ?? ''} multiline display="block">
                           <Body tokens={tokens} style={{ fontSize: '0.825rem', lineHeight: 1.65 }}>{member.bio}</Body>
@@ -213,15 +213,15 @@ export function TeamSection({ content, tokens }: Props) {
                       </div>
 
                       <InlineEditable field={`members.${i}.name`} label="Name" value={member.name ?? ''}>
-                        <div style={{
+                        <div {...rt(member.name ?? '')} style={{
                           fontFamily: `'${tokens.bodyFont}', sans-serif`,
                           fontWeight: 700, fontSize: '0.9rem',
                           color: tokens.text, marginBottom: 6, lineHeight: 1.3,
-                        }}>{member.name}</div>
+                        }} />
                       </InlineEditable>
 
                       <InlineEditable field={`members.${i}.role`} label="Role" value={member.role ?? ''}>
-                        <span style={{
+                        <span {...rt(member.role ?? '')} style={{
                           display: 'inline-block',
                           padding: '3px 12px',
                           borderRadius: 100,
@@ -232,7 +232,7 @@ export function TeamSection({ content, tokens }: Props) {
                           color: tokens.accent, letterSpacing: '0.08em',
                           textTransform: 'uppercase' as const,
                           marginBottom: 14,
-                        }}>{member.role}</span>
+                        }} />
                       </InlineEditable>
 
                       {/* Divider */}

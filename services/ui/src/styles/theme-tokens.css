@@ -49,27 +49,54 @@
 /* ── Light ──────────────────────────────────────────────────────── */
 
 .light {
-  /* Surface */
-  --bg:         #f7f9fc;
-  --panel:      #ffffff;
-  --panel-soft: #f1f5f9;
-  --panel-item: #edf2f7;
-  --border:     #e5e7eb;
+  /* Backgrounds */
+  --bg:         #f5f4f0;   /* Warm parchment page bg */
+  --panel:      #ffffff;   /* Primary surface — pure white cards */
+  --panel-soft: #f0efe9;   /* Soft warm surface — sidebars, secondary panels */
+  --panel-item: #eae9e3;   /* Item rows, list hover backgrounds */
 
   /* Text */
-  --text:       #111827;
-  --muted:      #6b7280;
+  --text:   #1a1917;       /* Near-black warm primary text */
+  --muted:  #706f6b;       /* Warm medium gray — secondary text */
+  --subtle: #a09f9b;       /* Placeholder, disabled, hints */
 
-  /* Accent */
-  --primary:      #3b82f6;
-  --primary-soft: #dbeafe;
-  --primary-dim:  #e0ecfd;
+  /* Borders & Dividers */
+  --border:        #e3e2dc; /* Soft warm border */
+  --border-strong: #c8c7c1; /* Emphasized dividers, input outlines */
 
-  /* Status */
-  --success: #16a34a;
-  --danger:  #dc2626;
-  --warning: #d97706;
+  /* Primary Accent */
+  --primary:       #2563eb; /* Primary action blue */
+  --primary-hover: #1d4ed8; /* Hover state */
+  --primary-soft:  #eff6ff; /* Chip backgrounds, tag fills */
+  --primary-dim:   #dbeafe; /* Soft selected state */
+  --primary-tint:  #f0eeff; /* Light purple hover/active rows */
+  --primary-alpha: color-mix(in srgb, var(--primary) 20%, transparent); /* Semi-transparent primary */
 
-  /* Bridge alias overrides — derived automatically via var() */
-  --color-primary-hover: #2563eb;
+  /* Alpha utility tokens */
+  --muted-alpha-low: color-mix(in srgb, var(--muted) 10%, transparent); /* ≈ ${color}18 */
+  --muted-alpha-mid: color-mix(in srgb, var(--muted) 15%, transparent); /* ≈ ${color}22 */
+
+  /* Semantic */
+  --success:      #16a34a;
+  --success-soft: #f0fdf4; /* Copy/success state backgrounds */
+  --danger:       #dc2626;
+  --warning:      #d97706;
+  --info:         #2563eb; /* Mirrors --primary */
+
+  /* Elevation shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04);
+
+  /* Bridge aliases — dual-system compatibility */
+  --color-bg:           var(--bg);
+  --color-surface:      var(--panel);
+  --color-text:         var(--text);
+  --color-text-muted:   var(--muted);
+  --color-primary:      var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-border:       var(--border);
+  --color-accent:       var(--primary);
+  --color-error:        var(--danger);
+  --color-success:      var(--success);
 }

@@ -3,7 +3,7 @@
 import type { PluginTokens, OverviewContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Display, Body, Label } from '../shared/Typography';
+import { Display, Body, Label, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -155,14 +155,14 @@ export function OverviewSection({ content, tokens }: Props) {
                                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                                 fontSize: '0.875rem', fontWeight: 700, lineHeight: 1.3,
                                 color: tokens.text, margin: '0 0 3px',
-                              }}>{h.value}</p>
+                              }} {...rt(h.value ?? '')} />
                             </InlineEditable>
                             <InlineEditable field={`highlights.${i}.label`} label="Subtitle" value={h.label ?? ''}>
                               <p style={{
                                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                                 fontSize: '0.75rem', lineHeight: 1.5,
                                 color: tokens.textMuted, margin: 0,
-                              }}>{h.label}</p>
+                              }} {...rt(h.label ?? '')} />
                             </InlineEditable>
                           </div>
                         </div>

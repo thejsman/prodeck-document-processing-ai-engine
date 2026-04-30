@@ -96,21 +96,21 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div style={{
-        background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480,
+        background: 'var(--panel)', borderRadius: 14, width: '100%', maxWidth: 480,
         boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden',
         fontFamily: 'system-ui, -apple-system, sans-serif',
       }}>
         {/* Header */}
-        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>💾 Snapshots</p>
-            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>Save named checkpoints and restore anytime</p>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>💾 Snapshots</p>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--subtle)' }}>Save named checkpoints and restore anytime</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, padding: 4, lineHeight: 1 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', fontSize: 18, padding: 4, lineHeight: 1 }}>✕</button>
         </div>
 
         {/* Save new snapshot */}
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8 }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8 }}>
           <input
             value={newName}
             onChange={e => setNewName(e.target.value)}
@@ -118,17 +118,17 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
             placeholder={`Snapshot name (e.g. "Before client call")`}
             style={{
               flex: 1, padding: '8px 10px', borderRadius: 7,
-              border: '1px solid #e2e8f0', fontSize: 12, outline: 'none',
-              color: '#1e293b',
+              border: '1px solid var(--border)', fontSize: 12, outline: 'none',
+              color: 'var(--text)',
             }}
-            onFocus={e => (e.currentTarget.style.borderColor = '#6366f1')}
-            onBlur={e => (e.currentTarget.style.borderColor = '#e2e8f0')}
+            onFocus={e => (e.currentTarget.style.borderColor = 'var(--primary)')}
+            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
           />
           <button
             onClick={handleSave}
             style={{
               padding: '8px 16px', borderRadius: 7, border: 'none',
-              background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700,
+              background: 'var(--primary)', color: '#fff', fontSize: 12, fontWeight: 700,
               cursor: 'pointer', whiteSpace: 'nowrap',
             }}
           >Save now</button>
@@ -137,7 +137,7 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
         {/* Snapshot list */}
         <div style={{ maxHeight: 320, overflowY: 'auto' }}>
           {snapshots.length === 0 ? (
-            <div style={{ padding: '32px 20px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>
               No snapshots yet. Save one above to get started.
             </div>
           ) : (
@@ -146,12 +146,12 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
                 key={snap.id}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 20px', borderBottom: '1px solid #f1f5f9',
+                  padding: '10px 20px', borderBottom: '1px solid var(--panel-soft)',
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginBottom: 2 }}>{snap.name}</div>
-                  <div style={{ fontSize: 10, color: '#94a3b8' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{snap.name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--subtle)' }}>
                     {formatTime(snap.timestamp)} · {snap.sectionCount} sections
                   </div>
                 </div>
@@ -160,22 +160,22 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={() => handleRestore(snap)}
-                      style={{ padding: '5px 10px', borderRadius: 5, border: 'none', background: '#6366f1', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      style={{ padding: '5px 10px', borderRadius: 5, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                     >Restore</button>
                     <button
                       onClick={() => setConfirmRestore(null)}
-                      style={{ padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 11, cursor: 'pointer' }}
+                      style={{ padding: '5px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' }}
                     >Cancel</button>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={() => setConfirmRestore(snap.id)}
-                      style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                      style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--muted)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                     >Restore</button>
                     <button
                       onClick={() => handleDelete(snap.id)}
-                      style={{ padding: '5px 8px', borderRadius: 5, border: 'none', background: 'transparent', color: '#cbd5e1', fontSize: 13, cursor: 'pointer' }}
+                      style={{ padding: '5px 8px', borderRadius: 5, border: 'none', background: 'transparent', color: 'var(--border-strong)', fontSize: 13, cursor: 'pointer' }}
                       title="Delete snapshot"
                     >✕</button>
                   </div>
@@ -185,8 +185,8 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
           )}
         </div>
 
-        <div style={{ padding: '10px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
-          <p style={{ margin: 0, fontSize: 10, color: '#94a3b8' }}>
+        <div style={{ padding: '10px 20px', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
+          <p style={{ margin: 0, fontSize: 10, color: 'var(--subtle)' }}>
             Stored locally in browser · Up to 20 snapshots · Restoring replaces current content
           </p>
         </div>

@@ -3,7 +3,7 @@
 import type { PluginTokens, ShowcaseContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -92,9 +92,8 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
               color: imageUrl ? (tokens.dark ? '#fff' : '#111') : tokens.accent,
               letterSpacing: '0.05em',
             }}
-          >
-            {pill}
-          </span>
+            {...rt(pill ?? '')}
+          />
         ))}
       </div>
 
@@ -181,9 +180,8 @@ export function ShowcaseSection({ content, tokens, imageUrl, index, sectionId }:
                       fontWeight: 500,
                       color: tokens.text,
                     }}
-                  >
-                    {h}
-                  </span>
+                    {...rt(h ?? '')}
+                  />
                 </InlineEditable>
               </div>
             </InlineArrayItem>

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Globe, ImageIcon, Paperclip, X } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
+import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 import { useNamespace } from "@/lib/namespace-context";
 import { useExecutionStore } from "@/core/execution/execution-store";
@@ -1271,7 +1272,10 @@ export function PresentationPage() {
 
   // ── Wizard steps ─────────────────────────────────────────────────────────
   return (
-    <>
+    <div style={{ position: "relative", height: "100%" }}>
+      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 10 }}>
+        <ThemeToggle />
+      </div>
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "59px 24px 0" }}>
         {/* ── Header — same style as Proposals page ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 14 }}>
@@ -2193,6 +2197,66 @@ export function PresentationPage() {
                     })()}
                   </div>
 
+                  {/* ── Selected theme confirmation ── */}
+                  {(() => {
+                    if (!selectedPlugin) return null;
+                    const activeTheme = THEME_REGISTRY.find(t => t.id === selectedPlugin);
+                    if (!activeTheme) return null;
+                    const isFromModal = !DEFAULT_PLUGIN_IDS.includes(selectedPlugin);
+                    const c = activeTheme.previewColors;
+                    return (
+                      <>
+                        <style>{`
+                          ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} {
+                            background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+                            border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+                          }
+                          ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} ._tc_label { color: var(--color-primary); }
+                          ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} ._tc_desc { color: var(--color-text-muted); }
+                          .light ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} {
+                            background: ${c.background};
+                            border: 1px solid ${c.border ?? c.accent + '55'};
+                          }
+                          .light ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} ._tc_label { color: ${c.accent}; }
+                          .light ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} ._tc_desc { color: ${c.text}; opacity: 0.6; }
+                        `}</style>
+                        <div
+                          className={`_theme_confirm_${activeTheme.id.replace(/-/g, '_')}`}
+                          style={{
+                            marginTop: 12,
+                            padding: '10px 14px',
+                            borderRadius: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                          }}
+                        >
+                          <div style={{
+                            width: 28, height: 28, borderRadius: 6, flexShrink: 0, overflow: 'hidden',
+                            border: `1px solid ${c.border ?? c.accent + '55'}`,
+                            background: c.background,
+                            display: 'flex', alignItems: 'flex-end',
+                          }}>
+                            <div style={{ height: 3, width: '100%', display: 'flex' }}>
+                              <div style={{ flex: 1, background: c.background }} />
+                              <div style={{ flex: 1, background: c.accent }} />
+                              <div style={{ flex: 1, background: c.text }} />
+                            </div>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p className="_tc_label" style={{ margin: 0, fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}>
+                              <Check size={12} strokeWidth={3} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+                              {activeTheme.label}
+                            </p>
+                            <p className="_tc_desc" style={{ margin: 0, fontSize: 11, marginTop: 1 }}>
+                              {isFromModal ? 'Selected from all themes · ' : ''}{activeTheme.description}
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+
                   {/* Custom prompt */}
                   <div
                     className="form-group"
@@ -2433,7 +2497,7 @@ export function PresentationPage() {
                       }}
                     />
                     {/* ── Attach + URL in one row ── */}
-                    <div style={{ display: "flex", alignItems: "stretch", gap: 8, marginTop: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                       {/* Attach button */}
                       <button
                         type="button"
@@ -3282,6 +3346,6 @@ export function PresentationPage() {
           onClose={() => setPreviewTheme(null)}
         />
       )}
-    </>
+    </div>
   );
 }

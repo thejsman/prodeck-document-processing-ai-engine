@@ -37,6 +37,20 @@ export function hasMarkdown(text: string): boolean {
   return /\*\*|_[^_]|<br|\[c=/.test(text);
 }
 
+/**
+ * Spread onto any JSX element whose only child is a text field that may contain color/bold/italic markup.
+ * Always returns { children } (never dangerouslySetInnerHTML on the outer element) so that
+ * Editable.cloneElement can safely inject its own children without conflict.
+ */
+export function rt(value: string | undefined | null): { children: React.ReactNode } {
+  const v = value ?? '';
+  return {
+    children: hasMarkdown(v)
+      ? React.createElement('span', { dangerouslySetInnerHTML: { __html: inlineMarkdownToHtml(v) } })
+      : v,
+  };
+}
+
 /** Renders a string that may contain inline markup as a React element with dangerouslySetInnerHTML. */
 function RichChild({
   children,

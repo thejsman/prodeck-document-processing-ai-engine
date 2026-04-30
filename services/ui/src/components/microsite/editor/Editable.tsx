@@ -32,7 +32,7 @@ const COLOR_SWATCHES = [
   { label: 'Pink',    value: '#ec4899' },
   { label: 'Purple',  value: '#8b5cf6' },
   { label: 'Blue',    value: '#3b82f6' },
-  { label: 'White',   value: '#f1f5f9' },
+  { label: 'White',   value: '#f0efe9' },
   { label: 'Muted',   value: '#64748b' },
 ];
 
@@ -207,6 +207,11 @@ export function Editable({
   // Saved selection — updated on every selection/key/mouse event so that
   // clicking a toolbar button (which causes onBlur) doesn't lose the range.
   const savedSelRef = useRef({ start: 0, end: 0 });
+  // Tracks whether commit was triggered by a key (Enter/Esc) so onBlur doesn't
+  // fire a second commit after the input unmounts, which causes a double undo
+  // entry and a spurious re-render that makes the outer role="button" div receive
+  // a browser-synthesised click from the still-held Enter key.
+  const committedByKeyRef = useRef(false);
   const filteredCmdsRef = useRef<typeof SLASH_COMMANDS>([]);
   const applySlashCommandRef = useRef<(cmdId: string) => void>(() => {});
   const toolbarWidth = 380; // estimated toolbar width for clamping
@@ -304,6 +309,18 @@ export function Editable({
     setColorVersion(v => v + 1);
     setEditing(false);
     setSlashOpen(false);
+  };
+
+  const handleBlur = () => {
+    // Skip blur-triggered commit when Enter/Esc already handled it.
+    // The flag must be cleared HERE (not inside commit/cancel) because
+    // commit() runs synchronously before the blur fires — resetting it
+    // there would make handleBlur always see false.
+    if (committedByKeyRef.current) {
+      committedByKeyRef.current = false;
+      return;
+    }
+    commit();
   };
 
   const handleClick = (e: React.MouseEvent) => {
@@ -521,7 +538,6 @@ export function Editable({
 
   return (
     <div
-      role={editing ? undefined : 'button'}
       tabIndex={editing ? undefined : 0}
       title={editing ? undefined : `Click to edit: ${label}`}
       onClick={editing ? undefined : handleClick}
@@ -808,17 +824,17 @@ export function Editable({
               value={draft}
               rows={Math.max(2, draft.split('\n').length)}
               onChange={handleChange}
-              onBlur={commit}
+              onBlur={handleBlur}
               onSelect={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onKeyUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onMouseUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onKeyDown={e => {
                 handleSlashKeyDown(e);
-                if (e.key === 'Escape' && !slashOpen) { e.preventDefault(); cancel(); }
+                if (e.key === 'Escape' && !slashOpen) { e.stopPropagation(); e.preventDefault(); committedByKeyRef.current = true; cancel(); }
                 if (e.ctrlKey || e.metaKey) {
                   if (e.key === 'b') { e.preventDefault(); applyFormat('bold'); }
                   if (e.key === 'i') { e.preventDefault(); applyFormat('italic'); }
-                  if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                  if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); committedByKeyRef.current = true; commit(); }
                 }
               }}
               style={{ ...editorBaseStyle, minHeight: 48, overflowY: 'hidden' }}
@@ -828,13 +844,13 @@ export function Editable({
               ref={inputRef as React.RefObject<HTMLInputElement>}
               value={draft}
               onChange={handleChange}
-              onBlur={commit}
+              onBlur={handleBlur}
               onSelect={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onKeyUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onMouseUp={e => { const t = e.currentTarget; savedSelRef.current = { start: t.selectionStart ?? 0, end: t.selectionEnd ?? 0 }; }}
               onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); commit(); }
-                if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); committedByKeyRef.current = true; commit(); }
+                if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); committedByKeyRef.current = true; cancel(); }
                 if (e.ctrlKey || e.metaKey) {
                   if (e.key === 'b') { e.preventDefault(); applyFormat('bold'); }
                   if (e.key === 'i') { e.preventDefault(); applyFormat('italic'); }

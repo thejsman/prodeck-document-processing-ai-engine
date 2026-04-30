@@ -4,7 +4,7 @@ import type { PluginTokens, MetricsContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, rt } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
@@ -92,7 +92,7 @@ export function MetricsSection({ content, tokens }: Props) {
                     }}
                   >
                     <InlineEditable field={`stats.${si}.label`} label="Label" value={stat.label ?? ''}>
-                      {stat.label}
+                      <span {...rt(stat.label ?? '')} />
                     </InlineEditable>
                   </div>
 
@@ -154,7 +154,7 @@ export function MetricsSection({ content, tokens }: Props) {
                         }}
                       />
                       <InlineEditable field={`strategies.${si}`} label="Strategy" value={strategy ?? ''}>
-                        {strategy}
+                        <span {...rt(strategy ?? '')} />
                       </InlineEditable>
                     </li>
                   </InlineArrayItem>
