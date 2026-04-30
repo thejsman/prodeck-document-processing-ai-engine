@@ -392,6 +392,26 @@ export class ContextService {
     return current;
   }
 
+  async setPendingTemplateApproval(
+    namespace: string,
+    data: { kind: 'approve_generated_template'; templateSlug: string },
+  ): Promise<void> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    current.pendingTemplateApproval = data;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+  }
+
+  async clearPendingTemplateApproval(namespace: string): Promise<void> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    if (!current.pendingTemplateApproval) return;
+    delete current.pendingTemplateApproval;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+  }
+
   async reset(namespace: string): Promise<void> {
     await this.save(namespace, this.createEmpty(namespace));
   }

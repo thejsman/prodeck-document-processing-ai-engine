@@ -261,12 +261,20 @@ async function buildChatContext(
   chatSessionId: string,
   workdir: string,
 ): Promise<ChatContext> {
-  const [proposals, templates, ingestedDocuments, lastAssistantMeta] = await Promise.all([
+  const [proposals, templates, ingestedDocuments, lastAssistantMeta, pendingTemplateApproval] = await Promise.all([
     loadProposals(workdir, namespace),
     loadTemplates(workdir),
     loadIngestedDocuments(workdir, namespace),
     loadLastAssistantMeta(workdir, namespace, chatSessionId),
+    loadPendingTemplateApproval(workdir, namespace),
   ]);
+
+  // Chat history is the primary source for awaitingConfirmation.
+  // context.json pendingTemplateApproval is a persistent fallback — it survives
+  // page navigations that lose the in-memory confirmationRequest state.
+  const awaitingConfirmation =
+    (lastAssistantMeta.meta?.awaitingConfirmation as ChatContext['awaitingConfirmation'] | undefined)
+    ?? pendingTemplateApproval;
 
   return {
     namespace,
@@ -275,7 +283,7 @@ async function buildChatContext(
     ingestedDocuments,
     recentTopic: (lastAssistantMeta.meta?.recentTopic as string | undefined) ?? undefined,
     awaitingInput: lastAssistantMeta.meta?.awaitingInput as { intent: string } | undefined,
-    awaitingConfirmation: lastAssistantMeta.meta?.awaitingConfirmation as ChatContext['awaitingConfirmation'] | undefined,
+    awaitingConfirmation,
     lastAssistantMessage: lastAssistantMeta.content ?? undefined,
   };
 }
@@ -326,6 +334,21 @@ async function loadIngestedDocuments(
     return (ctx.sources ?? []).map((s) => ({ fileName: s.fileName }));
   } catch {
     return [];
+  }
+}
+
+async function loadPendingTemplateApproval(
+  workdir: string,
+  namespace: string,
+): Promise<ChatContext['awaitingConfirmation'] | undefined> {
+  const contextPath = path.join(workdir, 'namespaces', namespace, 'context.json');
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const raw = await readFile(contextPath, 'utf-8');
+    const ctx = JSON.parse(raw) as NamespaceContext;
+    return ctx.pendingTemplateApproval ?? undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -578,10 +601,15 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
 
     if (!gateResultAfterConfirm.confirmed) {
       const response = buildConfirmationResponse(gateResultAfterConfirm.request, extraction);
+      const pendingKind = gateResultAfterConfirm.request.kind;
+      const pendingSlug = (gateResultAfterConfirm.request as { templateSlug?: string }).templateSlug;
+      if (pendingKind === 'approve_generated_template' && pendingSlug) {
+        await contextService.setPendingTemplateApproval(namespace, { kind: 'approve_generated_template', templateSlug: pendingSlug }).catch(() => { /* non-fatal */ });
+      }
       await persistState(
         workdir, namespace, chatSessionId, message, response, classification,
         undefined,
-        { kind: gateResultAfterConfirm.request.kind, templateSlug: (gateResultAfterConfirm.request as { templateSlug?: string }).templateSlug },
+        { kind: pendingKind, templateSlug: pendingSlug },
       );
       onDone(response);
       return response;
@@ -647,6 +675,9 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
         });
       }
 
+      // Clear the persistent pending approval now that the user has confirmed
+      await contextService.clearPendingTemplateApproval(namespace).catch(() => { /* non-fatal */ });
+
       // All confirmations done — now run as GENERATE_PROPOSAL
       classification = { ...classification, intent: 'GENERATE_PROPOSAL' };
     } else {
@@ -706,10 +737,15 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     if (!gateResult.confirmed) {
       onPhase('Confirming details...');
       const response = buildConfirmationResponse(gateResult.request, extraction);
+      const pendingKind = gateResult.request.kind;
+      const pendingSlug = (gateResult.request as { templateSlug?: string }).templateSlug;
+      if (pendingKind === 'approve_generated_template' && pendingSlug) {
+        await contextService.setPendingTemplateApproval(namespace, { kind: 'approve_generated_template', templateSlug: pendingSlug }).catch(() => { /* non-fatal */ });
+      }
       await persistState(
         workdir, namespace, chatSessionId, message, response, classification,
         undefined,
-        { kind: gateResult.request.kind, templateSlug: (gateResult.request as { templateSlug?: string }).templateSlug },
+        { kind: pendingKind, templateSlug: pendingSlug },
       );
       onDone(response);
       return response;
