@@ -83,6 +83,12 @@ function authHeaders(apiKey: string): HeadersInit {
   };
 }
 
+function authHeadersNoBody(apiKey: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
@@ -116,7 +122,7 @@ export async function createNamespace(apiKey: string, name: string): Promise<str
 export async function deleteNamespace(apiKey: string, namespace: string): Promise<void> {
   const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<unknown>(res);
 }
@@ -181,7 +187,7 @@ export async function modifyTemplate(apiKey: string, templateYaml: string, instr
 export async function deleteTemplate(apiKey: string, name: string): Promise<void> {
   const res = await fetch(`/api/templates/${encodeURIComponent(name)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<{ deleted: string }>(res);
 }
@@ -189,7 +195,7 @@ export async function deleteTemplate(apiKey: string, name: string): Promise<void
 export async function deleteProposal(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(`/api/proposals/${encodeURIComponent(namespace)}/${encodeURIComponent(fileName)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<{ deleted: string }>(res);
 }
@@ -618,7 +624,7 @@ export async function saveMicrositeHistoryToServer(apiKey: string, namespace: st
 export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
   const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<{ ok: boolean }>(res);
 }
