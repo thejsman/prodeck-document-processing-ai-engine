@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import type { PluginTokens, PricingContent, LayoutSection } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
@@ -37,6 +37,65 @@ function detectCurrency(rows: string[][]): string {
     if (m) return m[1];
   }
   return '$';
+}
+
+/** Grid cell for a single payment milestone. Uses its own hover state so the
+ *  delete button never interferes with InlineEditable inside the cell. */
+function PaymentCell({
+  children,
+  borderRight,
+  borderBottom,
+  onDelete,
+}: {
+  children: React.ReactNode;
+  borderRight?: string;
+  borderBottom?: string;
+  onDelete?: () => void;
+}) {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'relative',
+        padding: '18px 22px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        borderRight,
+        borderBottom,
+      }}
+    >
+      {children}
+      {onDelete && hovered && (
+        <button
+          title="Remove milestone"
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 20,
+            height: 20,
+            borderRadius: 4,
+            border: '1px solid rgba(0,0,0,0.12)',
+            background: 'rgba(255,255,255,0.92)',
+            color: '#dc2626',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            lineHeight: 1,
+            padding: 0,
+            zIndex: 10,
+          }}
+        >×</button>
+      )}
+    </div>
+  );
 }
 
 interface Props {
@@ -503,22 +562,17 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                       const cols = paymentRows.length <= 3
                         ? paymentRows.length
                         : paymentRows.length === 4 ? 2 : 3;
-                      const colPos = ri % cols; // 0-based column position in the row
+                      const colPos = ri % cols;
                       const isLastInRow = colPos === cols - 1;
                       const isLastItem = ri === paymentRows.length - 1;
                       const isLastRow = ri >= paymentRows.length - (paymentRows.length % cols || cols);
                       const hasAmount = !!(row[1] ?? '').trim();
                       return (
-                        <InlineArrayItem
+                        <PaymentCell
                           key={ri}
-                          arrayPath="rows"
-                          index={globalIdx}
-                          total={rows.length}
-                          style={{
-                            padding: '18px 22px',
-                            borderRight: !isLastInRow && !isLastItem ? `1px solid ${tokens.border}` : undefined,
-                            borderBottom: !isLastRow ? `1px solid ${tokens.border}` : undefined,
-                          }}
+                          borderRight={!isLastInRow && !isLastItem ? `1px solid ${tokens.border}` : undefined}
+                          borderBottom={!isLastRow ? `1px solid ${tokens.border}` : undefined}
+                          onDelete={ctx && sectionId ? () => ctx.removeArrayItem(sectionId, 'rows', globalIdx) : undefined}
                         >
                           {/* Step number */}
                           <div
@@ -534,7 +588,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               fontSize: '0.58rem',
                               fontWeight: 700,
                               color: tokens.textSubtle,
-                              marginBottom: 10,
+                              flexShrink: 0,
                             }}
                           >
                             {ri + 1}
@@ -549,7 +603,6 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               letterSpacing: '0.11em',
                               textTransform: 'uppercase' as const,
                               color: tokens.textSubtle,
-                              marginBottom: 8,
                             }}
                           >
                             <InlineEditable field={`rows.${globalIdx}.0`} label="Milestone" value={row[0] ?? ''}>
@@ -557,7 +610,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                             </InlineEditable>
                           </div>
 
-                          {/* Amount — always rendered, shows placeholder when empty */}
+                          {/* Amount */}
                           <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={row[1] ?? ''}>
                             {hasAmount ? (
                               <div
@@ -568,7 +621,6 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                                   color: tokens.accent,
                                   letterSpacing: '-0.02em',
                                   lineHeight: 1,
-                                  marginBottom: row[2] ? 6 : 0,
                                 }}
                               >
                                 {row[1]}
@@ -587,7 +639,6 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                                   fontWeight: 600,
                                   color: `${tokens.accent}99`,
                                   cursor: 'pointer',
-                                  marginBottom: row[2] ? 6 : 0,
                                 }}
                               >
                                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -613,7 +664,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               </InlineEditable>
                             </div>
                           )}
-                        </InlineArrayItem>
+                        </PaymentCell>
                       );
                     })}
                   </div>
