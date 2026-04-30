@@ -502,8 +502,8 @@ Return ONLY valid JSON array. No markdown, no explanation, no code fences.
 
 Format (add/remove optional rows as needed — testimonials row is REQUIRED when source contains a testimonials/client feedback heading):
 [
-  { "type": "hero", "sourceHeading": "Executive Summary", "rationale": "Maps directly", "aiGenerated": false },
-  { "type": "overview", "sourceHeading": "Project Summary", "rationale": "Project summary with scope items", "aiGenerated": false },
+  { "type": "hero", "sourceHeading": "Project Brief", "rationale": "Cover / intro — hero is synthesised from the proposal, not sourced from Executive Summary (which goes to overview)", "aiGenerated": false },
+  { "type": "overview", "sourceHeading": "Executive Summary", "rationale": "Executive Summary always maps to overview per consolidation rules", "aiGenerated": false },
   { "type": "challenge", "sourceHeading": "The Problem", "rationale": "Client challenge section", "aiGenerated": false },
   { "type": "approach", "sourceHeading": "Proposed Solution", "rationale": "Solution methodology", "aiGenerated": false },
   { "type": "deliverables", "sourceHeading": "Scope of Work", "rationale": "Tangible outputs", "aiGenerated": false },
@@ -1466,7 +1466,7 @@ Transform into an Overview / Executive Summary section. This is a content-first 
 
 Return:
 {
-  "eyebrow": "4-8 words e.g. 'Executive Summary'",
+  "eyebrow": "4-8 words e.g. 'Project Overview' or 'Engagement Summary' — never 'Executive Summary' (hero already covers that label)",
   "headline": "8-14 words — the core value proposition or engagement theme",
   "subheadline": "1-2 sentences — optional lead-in, max 24 words",
   "body": "3-5 sentences — what this engagement is, why it matters, what success looks like. Use specific details from the source.",
