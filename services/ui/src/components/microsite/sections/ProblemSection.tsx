@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
+import { Label, Body, rt, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -159,9 +159,8 @@ export function ProblemSection({ content, tokens, sectionId }: Props) {
                         color: tokens.text,
                         lineHeight: 1.6,
                       }}
-                    >
-                      {point}
-                    </span>
+                      {...rt(point ?? '')}
+                    />
                   </InlineEditable>
                 </div>
               </InlineArrayItem>

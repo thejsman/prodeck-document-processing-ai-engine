@@ -600,7 +600,10 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                             }}
                           >
                             <InlineEditable field={`rows.${globalIdx}.0`} label="Milestone" value={row[0] ?? ''}>
-                              {row[0] || <span style={{ opacity: 0.4, fontStyle: 'italic' }}>Milestone name…</span>}
+                              {row[0]
+                                ? <span {...rt(row[0])} />
+                                : <span style={{ opacity: 0.4, fontStyle: 'italic' }}>Milestone name…</span>
+                              }
                             </InlineEditable>
                           </div>
 
@@ -616,9 +619,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                                   letterSpacing: '-0.02em',
                                   lineHeight: 1,
                                 }}
-                              >
-                                {row[1]}
-                              </div>
+                                {...rt(row[1] ?? '')}
+                              />
                             ) : (
                               <div
                                 style={{
@@ -654,7 +656,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               }}
                             >
                               <InlineEditable field={`rows.${globalIdx}.2`} label="Note" value={row[2] ?? ''}>
-                                {row[2]}
+                                <span {...rt(row[2] ?? '')} />
                               </InlineEditable>
                             </div>
                           )}
