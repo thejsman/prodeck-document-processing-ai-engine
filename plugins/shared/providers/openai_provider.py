@@ -58,6 +58,12 @@ class OpenAIProvider(LLMProvider):
             return {"max_completion_tokens": 8000}
         return {"max_tokens": 8000}
 
+    def _temperature_param(self) -> dict:
+        """o1/o3 reasoning models do not accept temperature — omit it for those."""
+        if self._generation_model in _COMPLETION_TOKENS_MODELS:
+            return {}
+        return {"temperature": 0}
+
     def generate(self, prompt: str) -> str:
         try:
             response = self._client.chat.completions.create(
@@ -65,6 +71,7 @@ class OpenAIProvider(LLMProvider):
                 messages=[{"role": "user", "content": prompt}],
                 timeout=60,
                 **self._token_param(),
+                **self._temperature_param(),
             )
         except Exception as exc:
             raise RuntimeError(f"OpenAI chat completion failed: {exc}") from exc
@@ -81,6 +88,7 @@ class OpenAIProvider(LLMProvider):
                 model=self._generation_model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
+                **self._temperature_param(),
             )
         except Exception as exc:
             raise RuntimeError(f"OpenAI streaming completion failed: {exc}") from exc
@@ -106,6 +114,7 @@ class OpenAIProvider(LLMProvider):
                 model=vision_model,
                 messages=messages,
                 **self._token_param(),
+                **self._temperature_param(),
             )
         except Exception:
             return self.generate(prompt)

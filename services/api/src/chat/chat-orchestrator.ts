@@ -291,7 +291,9 @@ async function answerFromKnowledge(
 
   const context = allChunks.map((t, i) => `[${i + 1}] ${t}`).join('\n\n');
   const prompt = [
-    "You are an AI assistant. Answer the user's question using the document context below.",
+    "You are an AI assistant. Answer the user's question using ONLY the document excerpts provided below.",
+    'Do NOT use general knowledge, make assumptions, or introduce information not present in the excerpts.',
+    'If the excerpts do not contain enough information to answer, respond with: "I could not find that information in the uploaded documents."',
     ...(extraContext ? ['', '## Current Session Context', extraContext] : []),
     '',
     '## Document Excerpts',
@@ -300,7 +302,7 @@ async function answerFromKnowledge(
     '## User Question',
     message,
     '',
-    'Answer clearly and concisely based on the document excerpts.',
+    'Answer based solely on the document excerpts above.',
   ].join('\n');
 
   return generateFn(prompt);
