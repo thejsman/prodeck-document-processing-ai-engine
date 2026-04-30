@@ -51,9 +51,11 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         embedding_model = os.environ.get(
             "OPENAI_EMBEDDING_MODEL", "text-embedding-3-large"
         )
+        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0"))
         return OpenAIProvider(
             generation_model=generation_model,
             embedding_model=embedding_model,
+            temperature=temperature,
         )
 
     supported = ", ".join(sorted(_PROVIDERS))

@@ -29,7 +29,7 @@ import {
   buildInterruptContext,
 } from './context-builder.js';
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
-import { llmGenerateFn } from '../agent-routes.js';
+import { llmGenerateFn, withLlmTemperature } from '../agent-routes.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
 import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
@@ -333,6 +333,24 @@ export class ChatOrchestrator {
    *     7. If "completed" → mark instance complete, emit final message (STEP 7)
    */
   async processMessage(params: ProcessMessageParams): Promise<OrchestratorResult> {
+    const temperature = await this._readNamespaceTemperature(params.namespace);
+    return withLlmTemperature(temperature, () => this._processMessageInner(params));
+  }
+
+  private async _readNamespaceTemperature(namespace: string): Promise<number | undefined> {
+    try {
+      const configFile = path.join(this.workdir, 'config', 'namespaces', `${namespace}.json`);
+      const raw = await readFile(configFile, 'utf-8');
+      const cfg = JSON.parse(raw) as { temperature?: unknown };
+      const t = cfg.temperature;
+      if (typeof t === 'number' && Number.isFinite(t) && t >= 0 && t <= 2) return t;
+    } catch {
+      // Config file absent or unreadable — use provider default
+    }
+    return undefined;
+  }
+
+  private async _processMessageInner(params: ProcessMessageParams): Promise<OrchestratorResult> {
     const { message, namespace, chatSessionId, onPhase = () => {}, onChunk = () => {}, onSection } = params;
 
     // ── Load or create workflow instance ─────────────────────────

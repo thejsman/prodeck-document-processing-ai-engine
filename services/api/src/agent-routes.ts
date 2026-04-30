@@ -1,5 +1,6 @@
 import { appendFile, mkdir, writeFile as fsWriteFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -141,11 +142,27 @@ const LLM_BRIDGE_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.ur
 const LLM_BRIDGE_SERVER_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'llm_bridge_server.py');
 
 // ---------------------------------------------------------------------------
+// Per-request temperature context (AsyncLocalStorage — thread-safe)
+// ---------------------------------------------------------------------------
+
+const _temperatureStore = new AsyncLocalStorage<number | undefined>();
+
+/**
+ * Run fn within a context where llmGenerateFn uses the given temperature.
+ * Handlers and utilities don't need to be modified — they read the temperature
+ * transparently from the async context.
+ */
+export function withLlmTemperature<T>(temperature: number | undefined, fn: () => Promise<T>): Promise<T> {
+  return _temperatureStore.run(temperature, fn);
+}
+
+// ---------------------------------------------------------------------------
 // Persistent Python bridge pool (opt-in via LLM_BRIDGE_PERSISTENT=true)
 // ---------------------------------------------------------------------------
 
 type PendingReq = {
   prompt: string;
+  temperature?: number;
   resolve: (result: string) => void;
   reject: (err: Error) => void;
 };
@@ -222,7 +239,9 @@ class PythonWorker {
 
   send(id: string, req: PendingReq): void {
     this.inflight = { ...req, id };
-    this.proc.stdin!.write(JSON.stringify({ id, prompt: req.prompt }) + '\n');
+    const payload: Record<string, unknown> = { id, prompt: req.prompt };
+    if (req.temperature !== undefined) payload.temperature = req.temperature;
+    this.proc.stdin!.write(JSON.stringify(payload) + '\n');
   }
 
   close(): void {
@@ -250,9 +269,9 @@ class PythonBridgePool {
     free.send(crypto.randomUUID(), next);
   }
 
-  generate(prompt: string): Promise<string> {
+  generate(prompt: string, temperature?: number): Promise<string> {
     return new Promise<string>((resolve, reject) => {
-      const req: PendingReq = { prompt, resolve, reject };
+      const req: PendingReq = { prompt, temperature, resolve, reject };
       const free = this.workers.find((w) => w.isFree);
       if (free) {
         free.send(crypto.randomUUID(), req);
@@ -313,8 +332,10 @@ export const llmGenerateFn: GenerateFn = async (prompt: string): Promise<string>
 
   let result: string;
 
+  const temperature = _temperatureStore.getStore();
+
   if (_persistentPool) {
-    result = await _persistentPool.generate(safePrompt);
+    result = await _persistentPool.generate(safePrompt, temperature);
   } else {
     result = await new Promise<string>((resolve, reject) => {
       const child = spawn(PYTHON_BIN, [LLM_BRIDGE_SCRIPT], {
@@ -361,7 +382,9 @@ export const llmGenerateFn: GenerateFn = async (prompt: string): Promise<string>
         }
       });
 
-      child.stdin.write(JSON.stringify({ prompt: safePrompt }));
+      const payload: Record<string, unknown> = { prompt: safePrompt };
+      if (temperature !== undefined) payload.temperature = temperature;
+      child.stdin.write(JSON.stringify(payload));
       child.stdin.end();
     });
   }

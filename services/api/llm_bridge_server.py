@@ -61,12 +61,16 @@ def main() -> None:
             if not raw_prompt:
                 raise ValueError("prompt is required")
 
+            temperature = request.get("temperature")
+            if temperature is not None:
+                temperature = float(temperature)
+
             prompt, image_data = extract_image_from_prompt(raw_prompt)
 
             if image_data and hasattr(provider, "generate_with_image"):
                 result = provider.generate_with_image(prompt, image_data)
             else:
-                result = provider.generate(prompt)
+                result = provider.generate(prompt, temperature=temperature)
 
             response = {"id": request_id, "result": result.strip()}
 

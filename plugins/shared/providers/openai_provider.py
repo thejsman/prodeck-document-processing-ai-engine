@@ -29,6 +29,7 @@ class OpenAIProvider(LLMProvider):
         api_key: Optional[str] = None,
         generation_model: str = "gpt-5.2",
         embedding_model: str = "text-embedding-3-large",
+        temperature: float = 0,
     ):
         resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not resolved_key:
@@ -48,6 +49,7 @@ class OpenAIProvider(LLMProvider):
         self._client = openai.OpenAI(api_key=resolved_key)
         self._generation_model = generation_model
         self._embedding_model = embedding_model
+        self._default_temperature = temperature
 
     def _token_param(self) -> dict:
         """Return the correct token-limit param for the active generation model."""
@@ -58,20 +60,21 @@ class OpenAIProvider(LLMProvider):
             return {"max_completion_tokens": 8000}
         return {"max_tokens": 8000}
 
-    def _temperature_param(self) -> dict:
+    def _temperature_param(self, override: Optional[float] = None) -> dict:
         """o1/o3 reasoning models do not accept temperature — omit it for those."""
         if self._generation_model in _COMPLETION_TOKENS_MODELS:
             return {}
-        return {"temperature": 0}
+        value = override if override is not None else self._default_temperature
+        return {"temperature": value}
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, temperature: Optional[float] = None) -> str:
         try:
             response = self._client.chat.completions.create(
                 model=self._generation_model,
                 messages=[{"role": "user", "content": prompt}],
                 timeout=60,
                 **self._token_param(),
-                **self._temperature_param(),
+                **self._temperature_param(temperature),
             )
         except Exception as exc:
             raise RuntimeError(f"OpenAI chat completion failed: {exc}") from exc
@@ -81,14 +84,14 @@ class OpenAIProvider(LLMProvider):
             raise RuntimeError("OpenAI returned an empty response")
         return choice.message.content
 
-    def generate_stream(self, prompt: str):
+    def generate_stream(self, prompt: str, temperature: Optional[float] = None):
         """Yield tokens from OpenAI chat completion using the streaming API."""
         try:
             stream = self._client.chat.completions.create(
                 model=self._generation_model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
-                **self._temperature_param(),
+                **self._temperature_param(temperature),
             )
         except Exception as exc:
             raise RuntimeError(f"OpenAI streaming completion failed: {exc}") from exc
@@ -114,7 +117,7 @@ class OpenAIProvider(LLMProvider):
                 model=vision_model,
                 messages=messages,
                 **self._token_param(),
-                **self._temperature_param(),
+                **self._temperature_param(),  # vision calls always use instance default
             )
         except Exception:
             return self.generate(prompt)
