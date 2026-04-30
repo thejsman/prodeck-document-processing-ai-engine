@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { FolderOpen, X, MoreHorizontal, Trash2 } from "lucide-react";
+import { Globe, X, MoreHorizontal, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
 import { Microsite } from "./Microsite";
@@ -48,7 +48,7 @@ function formatDate(iso: string): string {
   }
 }
 
-export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: number) => void }) {
+export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChange?: (count: number) => void; onGenerateNew?: () => void }) {
   const { apiKey } = useAuth();
   const { namespaces } = useNamespace();
   // All local history (no namespace filter)
@@ -195,27 +195,23 @@ export function MicrositeHistory({ onCountChange }: { onCountChange?: (count: nu
 
   if (!loadingServer && combined.length === 0) {
     return (
-      <div
-        style={{
-          textAlign: "center",
-          padding: "56px 24px",
-          color: "var(--color-text-muted)",
-        }}
-      >
-        <div style={{ marginBottom: 12, opacity: 0.35 }}><Icon icon={FolderOpen} size="xl" /></div>
-        <p
-          style={{
-            fontSize: 14,
-            fontWeight: 400,
-            margin: "0 0 4px",
-            color: "var(--color-text)",
-          }}
-        >
-          No microsites generated yet
-        </p>
-        <p style={{ fontSize: 12, margin: 0 }}>
-          Use Generate Microsite to create your first one
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240, padding: '40px 20px' }}>
+        <div style={{ maxWidth: 320, textAlign: 'center' }}>
+          <Globe size={40} strokeWidth={1.5} style={{ color: 'var(--subtle)', marginBottom: 14 }} />
+          <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
+            No microsites yet
+          </p>
+          <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
+            Publish your first microsite.
+          </p>
+          <button
+            onClick={() => onGenerateNew?.()}
+            className="btn btn-primary btn-sm"
+            style={{ marginTop: 20, width: 'auto' }}
+          >
+            New Microsite
+          </button>
+        </div>
       </div>
     );
   }

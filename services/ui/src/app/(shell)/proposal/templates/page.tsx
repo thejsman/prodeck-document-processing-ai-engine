@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronRight, X, MoreHorizontal, Trash2, RotateCcw } from 'lucide-react';
+import { ChevronRight, X, MoreHorizontal, Trash2, RotateCcw, Layout } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
 import { TemplateEditor, TEMPLATE_SCAFFOLD } from '@/components/TemplateEditor';
@@ -236,7 +236,24 @@ export default function TemplatesPage() {
                 ) : listError ? (
                   <p className="error" style={{ fontSize: 12 }}>{listError}</p>
                 ) : templates.length === 0 ? (
-                  <p className="muted" style={{ opacity: 0.4 }}>No templates yet</p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
+                    <div style={{ maxWidth: 320, textAlign: 'center' }}>
+                      <Layout size={40} strokeWidth={1.5} style={{ color: 'var(--subtle)', marginBottom: 14 }} />
+                      <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
+                        No pages yet
+                      </p>
+                      <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
+                        Start building your first page.
+                      </p>
+                      <button
+                        onClick={() => setShowNewModal(true)}
+                        className="btn btn-primary btn-sm"
+                        style={{ marginTop: 20, width: 'auto' }}
+                      >
+                        New Page
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {templates.map(t => {

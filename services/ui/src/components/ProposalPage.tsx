@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X, ChevronDown, Check, MoreHorizontal, Trash2 } from 'lucide-react';
+import { X, ChevronDown, Check, MoreHorizontal, Trash2, FileText } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
@@ -1034,9 +1034,23 @@ export function ProposalPage() {
                 Loading…
               </div>
             ) : filteredProposals.length === 0 && !pending ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--muted)' }}>
-                <span style={{ fontSize: 14 }}>No proposals yet</span>
-                <span style={{ fontSize: 12, opacity: 0.6 }}>Tap "Generate Proposal" to create one</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '40px 20px' }}>
+                <div style={{ maxWidth: 320, textAlign: 'center' }}>
+                  <FileText size={40} strokeWidth={1.5} style={{ color: 'var(--subtle)', marginBottom: 14 }} />
+                  <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
+                    No proposals yet
+                  </p>
+                  <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
+                    Create your first one to get started.
+                  </p>
+                  <button
+                    onClick={() => setShowGenerateModal(true)}
+                    className="btn btn-primary btn-sm"
+                    style={{ marginTop: 20, width: 'auto' }}
+                  >
+                    New Proposal
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="proposal-cards-grid">
