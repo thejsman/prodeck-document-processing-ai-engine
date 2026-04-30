@@ -5,7 +5,7 @@ import type { PluginTokens, TestimonialsContent } from '../../../types/presentat
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
-import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown } from '../shared/Typography';
+import { Headline, Label, Body, inlineMarkdownToHtml, hasMarkdown, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -200,9 +200,8 @@ export function TestimonialsSection({ content, tokens, sectionId }: Props) {
                         <div style={{
                           fontFamily: `'${tokens.bodyFont}', sans-serif`,
                           fontWeight: 600, fontSize: '0.875rem', color: tokens.text,
-                        }}>
-                          {item.name}
-                        </div>
+                        }}
+                          {...rt(item.name ?? '')} />
                       </InlineEditable>
                       <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
                         <Body tokens={tokens} style={{ fontSize: '0.75rem', marginTop: 2 }}>

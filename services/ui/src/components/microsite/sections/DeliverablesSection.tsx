@@ -6,6 +6,7 @@ import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
+import { rt } from '../shared/Typography';
 
 interface Props {
   content: DeliverablesContent;
@@ -51,25 +52,21 @@ export function DeliverablesSection({ content, tokens }: Props) {
           }}>
             <div>
               <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-                <span style={{
+                <span {...rt(content.eyebrow ?? '')} style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '0.62rem', fontWeight: 700,
                   letterSpacing: '0.18em', textTransform: 'uppercase' as const,
                   color: tokens.accent, display: 'block', marginBottom: 16,
-                }}>
-                  {content.eyebrow}
-                </span>
+                }} />
               </InlineEditable>
               <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-                <h2 style={{
+                <h2 {...rt(content.headline ?? '')} style={{
                   fontFamily: `'${tokens.heroFont}', serif`,
                   fontWeight: Number(tokens.heroWeight) || 700,
                   fontSize: 'clamp(2rem, 4vw, 3rem)',
                   lineHeight: 1.1, letterSpacing: '-0.03em',
                   color: tokens.text, margin: 0,
-                }}>
-                  {content.headline}
-                </h2>
+                }} />
               </InlineEditable>
             </div>
 
@@ -84,14 +81,12 @@ export function DeliverablesSection({ content, tokens }: Props) {
                 }}>
                   {String(items.length).padStart(2, '0')}
                 </div>
-                <div style={{
+                <div {...rt(content.eyebrow ?? '')} style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '0.58rem', fontWeight: 700,
                   letterSpacing: '0.14em', textTransform: 'uppercase' as const,
                   color: tokens.textSubtle,
-                }}>
-                  {content.eyebrow}
-                </div>
+                }} />
               </div>
             )}
           </div>
@@ -176,7 +171,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
 
                     {/* Tag */}
                     {item.tag && (
-                      <span style={{
+                      <span {...rt(item.tag ?? '')} style={{
                         alignSelf: 'flex-start' as const,
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.58rem', fontWeight: 700,
@@ -184,22 +179,18 @@ export function DeliverablesSection({ content, tokens }: Props) {
                         color: tokens.accent,
                         background: `rgba(${accentRgb},0.1)`,
                         borderRadius: 4, padding: '3px 8px',
-                      }}>
-                        {item.tag}
-                      </span>
+                      }} />
                     )}
 
                     {/* Name */}
                     <InlineEditable field={`items.${ii}.name`} label="Name" value={item.name ?? ''}>
-                      <h4 style={{
+                      <h4 {...rt(item.name ?? '')} style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontWeight: 700,
                         fontSize: '0.95rem',
                         color: tokens.text,
                         margin: 0, lineHeight: 1.35,
-                      }}>
-                        {item.name}
-                      </h4>
+                      }} />
                     </InlineEditable>
 
                     {/* Divider */}
@@ -212,14 +203,12 @@ export function DeliverablesSection({ content, tokens }: Props) {
 
                     {/* Detail */}
                     <InlineEditable field={`items.${ii}.detail`} label="Detail" value={item.detail ?? ''} multiline>
-                      <p style={{
+                      <p {...rt(item.detail ?? '')} style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.85rem', lineHeight: 1.75,
                         color: tokens.textMuted, margin: 0,
                         flex: 1,
-                      }}>
-                        {item.detail}
-                      </p>
+                      }} />
                     </InlineEditable>
                   </div>
                 </InlineArrayItem>

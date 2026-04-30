@@ -3,6 +3,7 @@
 import type { PluginTokens, GenericContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
+import { rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 
 /** Pick white or near-black, whichever has better WCAG contrast against bgHex */
@@ -40,7 +41,7 @@ function Eyebrow({ text, tokens, light }: { text: string; tokens: PluginTokens; 
       textTransform: 'uppercase' as const,
       color: light ? 'rgba(255,255,255,0.65)' : tokens.accent,
       display: 'block', marginBottom: '0.9rem',
-    }}>{text}</span>
+    }} {...rt(text ?? '')} />
   );
 }
 
@@ -54,7 +55,7 @@ function SectionHeadline({ text, tokens, align = 'left', light }: { text: string
         lineHeight: 1.08, letterSpacing: '-0.03em',
         color: light ? '#fff' : tokens.text,
         margin: 0, textAlign: align,
-      }}>{text}</h2>
+      }} {...rt(text ?? '')} />
     </InlineEditable>
   );
 }
@@ -152,13 +153,13 @@ function VariantBento({ content, tokens, listItems, imageUrl }: { content: Gener
                     fontWeight: 700, fontSize: 'clamp(0.9rem, 1.4vw, 1.05rem)',
                     color: isAccent ? textOnBg(tokens.accent) : tokens.text,
                     margin: '0 0 0.6rem', lineHeight: 1.3,
-                  }}>{item.title}</h3>
+                  }} {...rt(item.title ?? '')} />
                   {item.subtitle && (
                     <p style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
                       fontSize: '0.83rem', lineHeight: 1.75, margin: 0,
                       color: isAccent ? `${textOnBg(tokens.accent)}bb` : tokens.textMuted,
-                    }}>{item.subtitle}</p>
+                    }} {...rt(item.subtitle ?? '')} />
                   )}
                 </div>
               </Reveal>
@@ -210,13 +211,13 @@ function VariantEditorial({ content, tokens, listItems }: { content: GenericCont
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontWeight: 700, fontSize: 'clamp(0.95rem, 1.5vw, 1.1rem)',
                 color: tokens.text, margin: 0, lineHeight: 1.35, paddingTop: '0.25rem',
-              }}>{item.title}</h3>
+              }} {...rt(item.title ?? '')} />
               {item.subtitle && (
                 <p style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '0.875rem', color: tokens.textMuted,
                   margin: 0, lineHeight: 1.8,
-                }}>{item.subtitle}</p>
+                }} {...rt(item.subtitle ?? '')} />
               )}
             </div>
           </Reveal>
@@ -299,13 +300,13 @@ function VariantIconCards({ content, tokens, listItems, imageUrl }: { content: G
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontWeight: 700, fontSize: 'clamp(0.9rem, 1.4vw, 1.02rem)',
                     color: tokens.text, margin: '0 0 0.65rem', lineHeight: 1.35,
-                  }}>{item.title}</h3>
+                  }} {...rt(item.title ?? '')} />
                   {item.subtitle && (
                     <p style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
                       fontSize: '0.83rem', color: tokens.textMuted,
                       margin: 0, lineHeight: 1.75, flex: 1,
-                    }}>{item.subtitle}</p>
+                    }} {...rt(item.subtitle ?? '')} />
                   )}
                 </div>
               </div>
@@ -343,7 +344,7 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
                 fontSize: 'clamp(1.4rem, 3vw, 2.2rem)',
                 lineHeight: 1.1, letterSpacing: '-0.02em',
                 color: onAccent, margin: '0 0 1.25rem',
-              }}>{content.headline}</h2>
+              }} {...rt(content.headline ?? '')} />
             </InlineEditable>
             {content.body && (
               <InlineEditable field="body" label="Body" value={content.body} multiline>
@@ -351,7 +352,7 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '0.875rem', lineHeight: 1.8,
                   color: `${onAccent}bb`, margin: 0,
-                }}>{content.body}</p>
+                }} {...rt(content.body ?? '')} />
               </InlineEditable>
             )}
             {listItems.length > 0 && (
@@ -399,13 +400,13 @@ function VariantTwoPanel({ content, tokens, listItems }: { content: GenericConte
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontWeight: 700, fontSize: '0.9rem',
                   color: tokens.text, margin: 0, lineHeight: 1.35,
-                }}>{item.title}</h3>
+                }} {...rt(item.title ?? '')} />
                 {item.subtitle && (
                   <p style={{
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontSize: '0.8rem', color: tokens.textMuted,
                     margin: 0, lineHeight: 1.75, flex: 1,
-                  }}>{item.subtitle}</p>
+                  }} {...rt(item.subtitle ?? '')} />
                 )}
               </div>
             </Reveal>
@@ -446,9 +447,9 @@ function VariantSplit({ content, tokens, listItems, imageUrl }: { content: Gener
                       <span style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.62rem', fontWeight: 800, color: tokens.accent }}>{String(i + 1).padStart(2, '0')}</span>
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.9rem', color: tokens.text, lineHeight: 1.3, marginBottom: item.subtitle ? '0.3rem' : 0 }}>{item.title}</div>
+                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.9rem', color: tokens.text, lineHeight: 1.3, marginBottom: item.subtitle ? '0.3rem' : 0 }} {...rt(item.title ?? '')} />
                       {item.subtitle && (
-                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.82rem', color: tokens.textMuted, lineHeight: 1.7 }}>{item.subtitle}</div>
+                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontSize: '0.82rem', color: tokens.textMuted, lineHeight: 1.7 }} {...rt(item.subtitle ?? '')} />
                       )}
                     </div>
                   </div>
@@ -546,13 +547,13 @@ function VariantTimelineSteps({ content, tokens, listItems }: { content: Generic
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontWeight: 700, fontSize: 'clamp(0.85rem, 1.3vw, 0.95rem)',
                     color: tokens.text, margin: '0 0 0.5rem', lineHeight: 1.3,
-                  }}>{item.title}</h3>
+                  }} {...rt(item.title ?? '')} />
                   {item.subtitle && (
                     <p style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
                       fontSize: '0.78rem', color: tokens.textMuted,
                       margin: 0, lineHeight: 1.7,
-                    }}>{item.subtitle}</p>
+                    }} {...rt(item.subtitle ?? '')} />
                   )}
                 </div>
               </div>

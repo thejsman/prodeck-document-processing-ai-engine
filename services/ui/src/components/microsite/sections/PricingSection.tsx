@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import type { PluginTokens, PricingContent, LayoutSection } from '../../../types/presentation';
+import { rt } from '../shared/Typography';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { InlineEditable } from '../editor/InlineEditable';
@@ -238,9 +239,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                   display: 'block',
                   marginBottom: 12,
                 }}
-              >
-                {content.eyebrow || 'Investment'}
-              </span>
+                {...rt(content.eyebrow || 'Investment')}
+              />
             </InlineEditable>
             <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
               <h2
@@ -253,9 +253,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                   color: tokens.text,
                   margin: 0,
                 }}
-              >
-                {content.headline || 'Total project investment.'}
-              </h2>
+                {...rt(content.headline || 'Total project investment.')}
+              />
             </InlineEditable>
             {content.subheadline && (
               <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
@@ -268,9 +267,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                     margin: '10px 0 0',
                     maxWidth: 520,
                   }}
-                >
-                  {content.subheadline}
-                </p>
+                  {...rt(content.subheadline ?? '')}
+                />
               </InlineEditable>
             )}
           </div>
@@ -430,9 +428,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                                       fontSize: isTotal ? '0.875rem' : '0.825rem',
                                       fontWeight: isTotal ? 700 : 400,
                                       color: isAnnual ? tokens.textSubtle : tokens.textMuted,
-                                    }}>
-                                      {label}
-                                    </span>
+                                    }} {...rt(label ?? '')} />
                                   </InlineEditable>
                                 </td>
                                 <td style={{ padding: '10px 0', textAlign: 'right', width: '35%' }}>
@@ -443,9 +439,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                                       fontWeight: isTotal ? 700 : 500,
                                       color: isTotal ? tokens.accent : (isAnnual ? tokens.textSubtle : tokens.text),
                                       fontVariantNumeric: 'tabular-nums',
-                                    }}>
-                                      {amount}
-                                    </span>
+                                    }} {...rt(amount ?? '')} />
                                   </InlineEditable>
                                 </td>
                               </tr>
@@ -738,9 +732,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                             margin: 0,
                             fontStyle: 'italic',
                           }}
-                        >
-                          {content.footnote}
-                        </p>
+                          {...rt(content.footnote ?? '')}
+                        />
                       </InlineEditable>
                     </div>
                   )}
@@ -761,9 +754,8 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                       paddingLeft: 14,
                       borderLeft: `2px solid ${tokens.accent}40`,
                     }}
-                  >
-                    {content.footnote}
-                  </p>
+                    {...rt(content.footnote ?? '')}
+                  />
                 </InlineEditable>
               </Reveal>
             )}

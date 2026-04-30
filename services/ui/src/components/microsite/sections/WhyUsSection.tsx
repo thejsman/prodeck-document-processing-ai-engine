@@ -7,6 +7,7 @@ import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
+import { rt } from '../shared/Typography';
 
 interface Props {
   content: WhyUsContent;
@@ -38,14 +39,12 @@ export function WhyUsSection({ content, tokens }: Props) {
         <Reveal>
           <div style={{ marginBottom: 'clamp(3rem, 6vw, 5rem)' }}>
             <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
-              <span style={{
+              <span {...rt(content.eyebrow ?? '')} style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.62rem', fontWeight: 700,
                 letterSpacing: '0.18em', textTransform: 'uppercase' as const,
                 color: tokens.accent, display: 'block', marginBottom: 20,
-              }}>
-                {content.eyebrow}
-              </span>
+              }} />
             </InlineEditable>
 
             <div style={{
@@ -55,25 +54,21 @@ export function WhyUsSection({ content, tokens }: Props) {
               alignItems: 'end',
             }}>
               <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-                <h2 style={{
+                <h2 {...rt(content.headline ?? '')} style={{
                   fontFamily: `'${tokens.heroFont}', serif`,
                   fontWeight: Number(tokens.heroWeight) || 700,
                   fontSize: 'clamp(2rem, 4vw, 3.2rem)',
                   lineHeight: 1.1, letterSpacing: '-0.03em',
                   color: tokens.text, margin: 0,
-                }}>
-                  {content.headline}
-                </h2>
+                }} />
               </InlineEditable>
 
               <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
-                <p style={{
+                <p {...rt(content.body ?? '')} style={{
                   fontFamily: `'${tokens.bodyFont}', sans-serif`,
                   fontSize: '1rem', lineHeight: 1.75,
                   color: tokens.textMuted, margin: 0,
-                }}>
-                  {content.body}
-                </p>
+                }} />
               </InlineEditable>
             </div>
           </div>
@@ -125,27 +120,23 @@ export function WhyUsSection({ content, tokens }: Props) {
                       </div>
                     </InlineEditable>
                     <InlineEditable field={`stats.${si}.label`} label="Label" value={stat.label ?? ''}>
-                      <div style={{
+                      <div {...rt(stat.label ?? '')} style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontWeight: 600, fontSize: '0.75rem',
                         letterSpacing: '0.1em', textTransform: 'uppercase' as const,
                         color: tokens.accent,
-                      }}>
-                        {stat.label}
-                      </div>
+                      }} />
                     </InlineEditable>
                   </div>
 
                   {/* Right: context */}
                   <InlineEditable field={`stats.${si}.context`} label="Context" value={stat.context ?? ''} multiline>
-                    <p style={{
+                    <p {...rt(stat.context ?? '')} style={{
                       fontFamily: `'${tokens.bodyFont}', sans-serif`,
                       fontSize: '0.95rem', lineHeight: 1.75,
                       color: tokens.textMuted, margin: 0,
                       paddingTop: 6,
-                    }}>
-                      {stat.context}
-                    </p>
+                    }} />
                   </InlineEditable>
                 </div>
               </InlineArrayItem>

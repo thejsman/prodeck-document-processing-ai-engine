@@ -4,7 +4,7 @@ import type { PluginTokens, BenefitsContent } from '../../../types/presentation'
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { GlassCard } from '../shared/GlassCard';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 import { InlineIconEdit } from '../editor/InlineIconEdit';
@@ -106,9 +106,8 @@ export function BenefitsSection({ content, tokens }: Props) {
                     />
                     <div style={{ flex: 1 }}>
                       <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
-                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.875rem', color: tokens.text, marginBottom: 6 }}>
-                          {item.title}
-                        </div>
+                        <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.875rem', color: tokens.text, marginBottom: 6 }}
+                          {...rt(item.title ?? '')} />
                       </InlineEditable>
                       <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>
                         <Body tokens={tokens} style={{ fontSize: '0.825rem', lineHeight: 1.7 }}>{item.description}</Body>
@@ -151,9 +150,8 @@ export function BenefitsSection({ content, tokens }: Props) {
                       }}
                     />
                     <InlineEditable field={`items.${i}.title`} label="Title" value={item.title ?? ''}>
-                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.9rem', color: tokens.text, marginBottom: 10 }}>
-                        {item.title}
-                      </div>
+                      <div style={{ fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700, fontSize: '0.9rem', color: tokens.text, marginBottom: 10 }}
+                        {...rt(item.title ?? '')} />
                     </InlineEditable>
                     <div style={{ height: 1, background: `${tokens.accent}20`, marginBottom: 12 }} />
                     <InlineEditable field={`items.${i}.description`} label="Description" value={item.description ?? ''} multiline>

@@ -3,7 +3,7 @@
 import type { PluginTokens, TimelineContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Body } from '../shared/Typography';
+import { Body, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -50,28 +50,24 @@ export function TimelineSection({ content, tokens, index }: Props) {
 
         {/* Header */}
         <Reveal>
-          <span style={{
+          <span {...rt(content.eyebrow ?? '')} style={{
             fontFamily: `'${tokens.bodyFont}', sans-serif`,
             fontSize: '0.68rem', fontWeight: 600,
             letterSpacing: '0.14em', textTransform: 'uppercase' as const,
             color: tokens.accent, display: 'block',
             marginBottom: 'clamp(0.75rem, 1.5vw, 1rem)',
-          }}>
-            {content.eyebrow}
-          </span>
+          }} />
         </Reveal>
 
         <Reveal delay={60}>
           <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
-            <h2 style={{
+            <h2 {...rt(content.headline ?? '')} style={{
               fontFamily: `'${tokens.heroFont}', serif`,
               fontWeight: Number(tokens.heroWeight) || 700,
               fontSize: 'clamp(1.2rem, 3vw, 2rem)',
               lineHeight: 1.1, letterSpacing: '-0.02em',
               color: tokens.text, margin: 0,
-            }}>
-              {content.headline}
-            </h2>
+            }} />
           </InlineEditable>
         </Reveal>
 
@@ -87,14 +83,12 @@ export function TimelineSection({ content, tokens, index }: Props) {
         {content.subheadline && (
           <Reveal delay={130}>
             <InlineEditable field="subheadline" label="Subheadline" value={content.subheadline ?? ''} multiline>
-              <p style={{
+              <p {...rt(content.subheadline ?? '')} style={{
                 fontFamily: `'${tokens.bodyFont}', sans-serif`,
                 fontSize: '0.875rem', lineHeight: 1.8,
                 color: tokens.textMuted, margin: '0 0 clamp(2rem, 4vw, 3.5rem)',
                 maxWidth: 640,
-              }}>
-                {content.subheadline}
-              </p>
+              }} />
             </InlineEditable>
           </Reveal>
         )}
@@ -108,16 +102,16 @@ export function TimelineSection({ content, tokens, index }: Props) {
             }}>
               {(content.summary ?? []).map((s, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
-                  <div style={{
+                  <div {...rt(s.number ?? '')} style={{
                     fontSize: 'clamp(2rem,4vw,2.8rem)', fontWeight: 800,
                     color: tokens.accent, lineHeight: 1,
                     fontFamily: `'${tokens.heroFont}', sans-serif`,
-                  }}>{s.number}</div>
-                  <div style={{
+                  }} />
+                  <div {...rt(s.label ?? '')} style={{
                     fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.1em',
                     textTransform: 'uppercase' as const, color: tokens.textMuted, marginTop: 6,
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                  }}>{s.label}</div>
+                  }} />
                 </div>
               ))}
             </div>
@@ -181,17 +175,15 @@ export function TimelineSection({ content, tokens, index }: Props) {
                         marginBottom: 12, flexWrap: 'wrap' as const,
                       }}>
                         <InlineEditable field={`phases.${pi}.name`} label="Phase Name" value={phase.name ?? ''}>
-                          <h3 style={{
+                          <h3 {...rt(phase.name ?? '')} style={{
                             fontFamily: `'${tokens.bodyFont}', sans-serif`,
                             fontWeight: 700, fontSize: '0.925rem',
                             color: tokens.text, margin: 0, lineHeight: 1.3,
-                          }}>
-                            {phase.name}
-                          </h3>
+                          }} />
                         </InlineEditable>
                         {phase.duration && (
                           <InlineEditable field={`phases.${pi}.duration`} label="Duration" value={phase.duration ?? ''}>
-                            <span style={{
+                            <span {...rt(phase.duration ?? '')} style={{
                               fontFamily: `'${tokens.bodyFont}', sans-serif`,
                               fontSize: '0.68rem', fontWeight: 700,
                               color: tokens.accent,
@@ -201,9 +193,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
                               border: `1px solid ${tokens.accent}30`,
                               whiteSpace: 'nowrap' as const,
                               flexShrink: 0,
-                            }}>
-                              {phase.duration}
-                            </span>
+                            }} />
                           </InlineEditable>
                         )}
                       </div>
@@ -240,7 +230,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
                                   }}>Outcomes</p>
                                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
                                     {outcomes.map((outcome, oi) => (
-                                      <div key={oi} style={{
+                                      <div key={oi} {...rt(outcome ?? '')} style={{
                                         padding: '9px 12px',
                                         borderRadius: 8,
                                         border: `1px solid ${tokens.border}`,
@@ -248,9 +238,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
                                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                                         fontSize: '0.8rem',
                                         color: tokens.textMuted, lineHeight: 1.4,
-                                      }}>
-                                        {outcome}
-                                      </div>
+                                      }} />
                                     ))}
                                   </div>
                                 </>
@@ -276,10 +264,10 @@ export function TimelineSection({ content, tokens, index }: Props) {
                                       }}>
                                         <CheckIcon color={tokens.accent} />
                                       </div>
-                                      <span style={{
+                                      <span {...rt(d ?? '')} style={{
                                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                                         fontSize: '0.85rem', color: tokens.textMuted, lineHeight: 1.5,
-                                      }}>{d}</span>
+                                      }} />
                                     </div>
                                   ))}
                                 </div>

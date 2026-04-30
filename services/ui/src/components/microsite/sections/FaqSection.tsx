@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { PluginTokens, FaqContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -113,7 +113,7 @@ export function FaqSection({ content, tokens }: Props) {
                         fontFamily: `'${tokens.bodyFont}', sans-serif`, fontWeight: 700,
                         fontSize: '0.875rem', color: tokens.text, marginBottom: 12,
                         lineHeight: 1.4, paddingRight: 36,
-                      }}>{item.question}</div>
+                      }} {...rt(item.question ?? '')} />
                     </InlineEditable>
                     <div style={{ width: 28, height: 2, background: `linear-gradient(90deg, ${tokens.accent}, transparent)`, borderRadius: 2, marginBottom: 14 }} />
                     <InlineEditable field={`items.${i}.answer`} label="Answer" value={item.answer ?? ''} multiline>
@@ -170,9 +170,7 @@ export function FaqSection({ content, tokens }: Props) {
                               fontWeight: 600, fontSize: '0.875rem',
                               color: isOpen ? tokens.text : tokens.text,
                               flex: 1, lineHeight: 1.4,
-                            }}>
-                              {item.question}
-                            </span>
+                            }} {...rt(item.question ?? '')} />
                           </InlineEditable>
                         </div>
 
