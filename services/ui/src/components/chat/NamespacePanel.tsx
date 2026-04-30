@@ -60,7 +60,7 @@ function Section({ label, loading, children }: SectionProps) {
         onMouseLeave={() => setHovered(false)}
         style={{ cursor: 'pointer' }}
       >
-        <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>{label}</span>
+        <span className="sidebar-label ns-section-title" style={{ flex: 1 }}>{label}</span>
         <Icon
           icon={ChevronDown}
           size="sm"

@@ -9,7 +9,7 @@ const ALL_CATEGORIES: Array<ThemeCategory | 'all'> = ['all', 'dark', 'light', 'b
 const CATEGORY_COLORS: Record<ThemeCategory | 'all', string> = {
   all:     'var(--color-primary)',
   dark:    '#3b82f6',
-  light:   '#6b7280',
+  light:   'var(--muted)',
   bold:    '#ef4444',
   minimal: '#8b5cf6',
   nature:  '#22c55e',
@@ -73,7 +73,7 @@ export function ThemeExpandedPanel({ selectedPlugin, onSelect, onPreview, onClos
               style={{
                 padding: '4px 12px', borderRadius: 100,
                 border: active ? `1px solid ${color}` : '1px solid var(--color-border)',
-                background: active ? `${color}18` : 'transparent',
+                background: active ? `color-mix(in srgb, ${color} 10%, transparent)` : 'transparent',
                 color: active ? color : 'var(--color-text-muted)',
                 fontSize: 11, fontWeight: active ? 700 : 500,
                 cursor: 'pointer', textTransform: 'capitalize',

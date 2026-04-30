@@ -75,7 +75,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
     >
       <div
         style={{
-          background: '#fff',
+          background: 'var(--panel)',
           borderRadius: 12,
           width: '100%',
           maxWidth: 440,
@@ -84,14 +84,14 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
         }}
       >
         {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <p style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', margin: 0, lineHeight: 1.5, letterSpacing: '0em' }}>Publish Microsite</p>
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>Export as a self-contained HTML file</p>
+            <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0, lineHeight: 1.5, letterSpacing: '0em' }}>Publish Microsite</p>
+            <p style={{ fontSize: 12, color: 'var(--subtle)', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>Export as a self-contained HTML file</p>
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', padding: 4 }}
           ><Icon icon={X} size="md" /></button>
         </div>
 
@@ -102,7 +102,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
             style={{
               padding: '16px 18px',
               borderRadius: 8,
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border)',
               marginBottom: 12,
               display: 'flex',
               alignItems: 'center',
@@ -111,8 +111,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
             }}
           >
             <div>
-              <p style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', margin: 0, lineHeight: 1.5, letterSpacing: '0.01em' }}>Download HTML</p>
-              <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>
+              <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.5, letterSpacing: '0.01em' }}>Download HTML</p>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>
                 {status === 'done'
                   ? `Ready — ${formatBytes(fileSize)}`
                   : 'Single file, no external dependencies'}
@@ -125,8 +125,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                 padding: '8px 16px',
                 borderRadius: 6,
                 border: 'none',
-                background: status === 'loading' ? '#e2e8f0' : '#6366f1',
-                color: status === 'loading' ? '#94a3b8' : '#fff',
+                background: status === 'loading' ? 'var(--border)' : 'var(--primary)',
+                color: status === 'loading' ? 'var(--subtle)' : '#fff',
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: status === 'loading' ? 'not-allowed' : 'pointer',
@@ -145,23 +145,23 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
             style={{
               padding: '16px 18px',
               borderRadius: 8,
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border)',
               marginBottom: 12,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div>
-                <p style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', margin: 0, lineHeight: 1.5, letterSpacing: '0.01em' }}>Preview URL</p>
-                <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>Share with your team (requires local server)</p>
+                <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.5, letterSpacing: '0.01em' }}>Preview URL</p>
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, letterSpacing: '0.01em' }}>Share with your team (requires local server)</p>
               </div>
               <button
                 onClick={handleCopyUrl}
                 style={{
                   padding: '6px 12px',
                   borderRadius: 6,
-                  border: '1px solid #e2e8f0',
-                  background: copied ? '#f0fdf4' : '#fff',
-                  color: copied ? '#166534' : '#475569',
+                  border: '1px solid var(--border)',
+                  background: copied ? 'var(--success-soft)' : 'var(--panel)',
+                  color: copied ? 'var(--success)' : 'var(--muted)',
                   fontSize: 12,
                   fontWeight: 400,
                   cursor: 'pointer',
@@ -182,10 +182,10 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                 width: '100%',
                 padding: '7px 10px',
                 borderRadius: 6,
-                border: '1px solid #e2e8f0',
-                background: '#f8fafc',
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
                 fontSize: 11,
-                color: '#475569',
+                color: 'var(--muted)',
                 fontFamily: 'monospace',
                 boxSizing: 'border-box',
               }}
@@ -201,8 +201,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '14px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
-          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0, lineHeight: 1.4, letterSpacing: '0.01em' }}>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: 'var(--bg)' }}>
+          <p style={{ fontSize: 11, color: 'var(--subtle)', margin: 0, lineHeight: 1.4, letterSpacing: '0.01em' }}>
             The HTML export includes all fonts and styles inline. It works offline and can be hosted anywhere.
           </p>
         </div>

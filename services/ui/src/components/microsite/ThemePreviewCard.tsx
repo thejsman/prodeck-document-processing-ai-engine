@@ -6,7 +6,7 @@ import type { ThemeDefinition, ThemeCategory } from '../../lib/presentation/plug
 
 const CATEGORY_COLORS: Record<ThemeCategory, string> = {
   dark:    '#3b82f6',
-  light:   '#6b7280',
+  light:   'var(--muted)',
   bold:    '#ef4444',
   minimal: '#8b5cf6',
   nature:  '#22c55e',
@@ -180,7 +180,7 @@ export function ThemePreviewCard({ theme, selected, onSelect, onPreview, size = 
           </p>
           <span style={{
             fontSize: cfg.badgeSize, fontWeight: 600, padding: cfg.badgePadding, borderRadius: 100,
-            background: `${categoryColor}22`, color: categoryColor,
+            background: `color-mix(in srgb, ${categoryColor} 15%, transparent)`, color: categoryColor,
             letterSpacing: '0.05em', textTransform: 'uppercase',
             whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 4,
           }}>
