@@ -44,9 +44,7 @@ export function ChallengeSection({ content, tokens, imageUrl }: Props) {
                 fontSize: '0.6rem', fontWeight: 700,
                 letterSpacing: '0.18em', textTransform: 'uppercase' as const,
                 color: tokens.accent,
-              }}>
-                {content.eyebrow}
-              </span>
+              }} {...rt(content.eyebrow ?? '')} />
               <div style={{ width: 28, height: 1, background: tokens.accent, flexShrink: 0 }} />
             </div>
           </InlineEditable>
@@ -64,9 +62,7 @@ export function ChallengeSection({ content, tokens, imageUrl }: Props) {
               color: tokens.text,
               margin: '0 0 36px',
               maxWidth: hasRightCol ? '60%' : '100%',
-            }}>
-              {content.headline}
-            </h2>
+            }} {...rt(content.headline ?? '')} />
           </InlineEditable>
         </Reveal>
 

@@ -3,7 +3,7 @@
 import type { PluginTokens, ComparisonContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -152,9 +152,7 @@ export function ComparisonSection({ content, tokens }: Props) {
                     fontWeight: 700, fontSize: '0.9rem',
                     color: tokens.accent,
                     display: 'block', marginTop: 8,
-                  }}>
-                    {content.usLabel || 'Us'}
-                  </span>
+                  }} {...rt(content.usLabel || 'Us')} />
                 </InlineEditable>
               </div>
 
@@ -164,9 +162,7 @@ export function ComparisonSection({ content, tokens }: Props) {
                     fontFamily: `'${tokens.bodyFont}', sans-serif`,
                     fontWeight: 600, fontSize: '0.875rem',
                     color: tokens.textMuted,
-                  }}>
-                    {content.themLabel || 'Others'}
-                  </span>
+                  }} {...rt(content.themLabel || 'Others')} />
                 </InlineEditable>
               </div>
             </div>
@@ -186,9 +182,7 @@ export function ComparisonSection({ content, tokens }: Props) {
                       <span style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.825rem', color: tokens.text, fontWeight: 500,
-                      }}>
-                        {row.feature}
-                      </span>
+                      }} {...rt(row.feature ?? '')} />
                     </InlineEditable>
                   </div>
 
@@ -209,9 +203,7 @@ export function ComparisonSection({ content, tokens }: Props) {
                         fontSize: '0.825rem',
                         color: isNegative(row.us) ? tokens.textMuted : tokens.text,
                         fontWeight: isPositive(row.us) ? 600 : 400,
-                      }}>
-                        {row.us}
-                      </span>
+                      }} {...rt(row.us ?? '')} />
                     </InlineEditable>
                   </div>
 
@@ -228,9 +220,7 @@ export function ComparisonSection({ content, tokens }: Props) {
                       <span style={{
                         fontFamily: `'${tokens.bodyFont}', sans-serif`,
                         fontSize: '0.825rem', color: tokens.textMuted,
-                      }}>
-                        {row.them}
-                      </span>
+                      }} {...rt(row.them ?? '')} />
                     </InlineEditable>
                   </div>
                 </div>

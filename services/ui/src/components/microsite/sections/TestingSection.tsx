@@ -3,7 +3,7 @@
 import type { PluginTokens, TestingContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Body, Label } from '../shared/Typography';
+import { Headline, Body, Label, rt } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
@@ -95,9 +95,8 @@ export function TestingSection({ content, tokens }: Props) {
                           color: tokens.accent,
                           letterSpacing: '-0.02em',
                         }}
-                      >
-                        {numericValue > 0 ? `${numericValue}%` : layer.coverage}
-                      </span>
+                        {...rt(numericValue > 0 ? `${numericValue}%` : (layer.coverage ?? ''))}
+                      />
                     </InlineEditable>
 
                     {/* Layer name */}
@@ -111,9 +110,8 @@ export function TestingSection({ content, tokens }: Props) {
                           textTransform: 'uppercase' as const,
                           color: tokens.text,
                         }}
-                      >
-                        {layer.name}
-                      </span>
+                        {...rt(layer.name ?? '')}
+                      />
                     </InlineEditable>
 
                     {/* Description */}
@@ -125,9 +123,8 @@ export function TestingSection({ content, tokens }: Props) {
                           color: tokens.textMuted,
                           lineHeight: 1.55,
                         }}
-                      >
-                        {layer.description}
-                      </span>
+                        {...rt(layer.description ?? '')}
+                      />
                     </InlineEditable>
 
                     {/* Progress bar */}
@@ -197,9 +194,8 @@ export function TestingSection({ content, tokens }: Props) {
                           color: tokens.text,
                           marginBottom: 8,
                         }}
-                      >
-                        {info.heading}
-                      </p>
+                        {...rt(info.heading ?? '')}
+                      />
                     </InlineEditable>
                     <InlineEditable field={`additionalInfo.${ai}.body`} label="Body" value={info.body ?? ''} multiline>
                       <Body tokens={tokens} style={{ fontSize: '0.875rem' }}>

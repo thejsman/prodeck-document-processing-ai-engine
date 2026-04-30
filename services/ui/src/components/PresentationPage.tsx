@@ -1299,7 +1299,7 @@ export function PresentationPage() {
         <div style={{ height: 1, background: "var(--border)", marginBottom: 24 }} />
 
         {/* History — always visible */}
-        <MicrositeHistory onCountChange={setTotalHistoryCount} />
+        <MicrositeHistory onCountChange={setTotalHistoryCount} onGenerateNew={() => setShowGenerateModal(true)} />
       </div>
 
       {/* Generate Microsite modal — always mounted so wizard state persists */}

@@ -3,7 +3,7 @@
 import type { PluginTokens, CaseStudyContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Label, Body } from '../shared/Typography';
+import { Headline, Label, Body, rt } from '../shared/Typography';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -119,9 +119,7 @@ export function CaseStudySection({ content, tokens, imageUrl }: Props) {
                         lineHeight: 1,
                         marginBottom: 6,
                         letterSpacing: '-0.02em',
-                      }}>
-                        {m.value}
-                      </div>
+                      }} {...rt(m.value ?? '')} />
                     </InlineEditable>
                     <InlineEditable field={`metrics.${i}.label`} label="Label" value={m.label ?? ''}>
                       <div style={{
@@ -131,9 +129,7 @@ export function CaseStudySection({ content, tokens, imageUrl }: Props) {
                         letterSpacing: '0.1em',
                         textTransform: 'uppercase' as const,
                         color: tokens.textMuted,
-                      }}>
-                        {m.label}
-                      </div>
+                      }} {...rt(m.label ?? '')} />
                     </InlineEditable>
                   </div>
                 </InlineArrayItem>
