@@ -445,10 +445,46 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                         letterSpacing: '0.13em',
                         textTransform: 'uppercase' as const,
                         color: tokens.textSubtle,
+                        flex: 1,
                       }}
                     >
                       Payment Schedule
                     </span>
+                    {ctx && sectionId && (
+                      <button
+                        title="Remove payment schedule"
+                        onClick={e => {
+                          e.stopPropagation();
+                          // Strip the blank separator and all rows after it
+                          const kept = (content.rows ?? []).slice(0, separatorIdx === -1
+                            ? undefined
+                            : (isGenericHeader ? separatorIdx + 1 : separatorIdx));
+                          ctx.updateField(sectionId, 'rows', kept);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: tokens.textSubtle,
+                          fontSize: 14,
+                          lineHeight: 1,
+                          padding: '2px 4px',
+                          borderRadius: 4,
+                          opacity: 0.5,
+                          transition: 'opacity 0.15s, color 0.15s',
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLElement).style.opacity = '1';
+                          (e.currentTarget as HTMLElement).style.color = '#ef4444';
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLElement).style.opacity = '0.5';
+                          (e.currentTarget as HTMLElement).style.color = tokens.textSubtle as string;
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
 
                   {/* Responsive grid: 3 cols for ≤3 items, 2 cols for 4, wrap for 5+ */}
@@ -473,8 +509,11 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                       const isLastRow = ri >= paymentRows.length - (paymentRows.length % cols || cols);
                       const hasAmount = !!(row[1] ?? '').trim();
                       return (
-                        <div
+                        <InlineArrayItem
                           key={ri}
+                          arrayPath="rows"
+                          index={globalIdx}
+                          total={rows.length}
                           style={{
                             padding: '18px 22px',
                             borderRight: !isLastInRow && !isLastItem ? `1px solid ${tokens.border}` : undefined,
@@ -574,7 +613,7 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                               </InlineEditable>
                             </div>
                           )}
-                        </div>
+                        </InlineArrayItem>
                       );
                     })}
                   </div>
