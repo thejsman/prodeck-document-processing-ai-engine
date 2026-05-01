@@ -29,6 +29,8 @@ export type ToolName =
   | 'get_proposal_status'
   | 'set_proposal_status'
   | 'recommend_template'
+  | 'create_skill'
+  | 'list_skills'
 
 export type AgentAction =
   | { type: 'ASK'; question: string }
@@ -76,6 +78,9 @@ const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
   UNKNOWN: [],
   CONFIRM_ENTITIES: ['context'],
   CONFIRM_TEMPLATE: ['context'],
+  CREATE_SKILL: ['context'],
+  MODIFY_SKILL: ['context'],
+  LIST_SKILLS: [],
 }
 
 function selectRelevantKnowledge(intent: Intent, knowledge: KnowledgeEntry[]): KnowledgeEntry[] {
@@ -105,7 +110,7 @@ Produce an action plan as strict JSON. Nothing else.
 ## User Message: "${message}"
 
 ## Available Tools
-- generate_proposal: params { client, industry, template?, teamSize?, duration?, ratePerWeek? }
+- generate_proposal: params { client, industry, template?, skill?, teamSize?, duration?, ratePerWeek? }
 - generate_template: params { description, name? }
 - modify_template: params { templateName, instruction }
 - generate_microsite: params { proposalFileName, companyName?, tagline?, primaryColor?, secondaryColor?, theme?, customInstructions? }
@@ -116,6 +121,8 @@ Produce an action plan as strict JSON. Nothing else.
 - get_proposal_status: params { proposalFileName }
 - set_proposal_status: params { proposalFileName, status }
 - recommend_template: params {} — recommends the best template for this namespace
+- create_skill: params { description, industries?, pricingModel?, tone? } — create a reusable proposal skill
+- list_skills: params {} — list available skills
 
 ## Current Requirements
 ${JSON.stringify(nsContext.requirements.fields)}
@@ -127,6 +134,7 @@ ${relevantKnowledge.map((k) => `[${k.category}] ${k.content}`).join('\n')}
 - Proposals: ${JSON.stringify(chatContext.proposals)}
 - Templates: ${JSON.stringify(chatContext.templates)}
 - Documents: ${chatContext.ingestedDocuments.map((d) => d.fileName).join(', ') || 'none'}
+${chatContext.skills?.length ? `\n## Available Skills\n${chatContext.skills.map((s) => `- ${s.slug}: ${s.displayName}`).join('\n')}` : ''}
 ${nsContext.selectedTemplate ? `\n## Confirmed Template\nThe user has already confirmed the template to use: "${nsContext.selectedTemplate.templateId}" (${nsContext.selectedTemplate.name}). Use this template ID when calling generate_proposal.` : ''}
 
 ## Rules

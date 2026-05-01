@@ -30,6 +30,8 @@ import { createVersionFromEdit } from '../proposals/proposal-version.service.js'
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from '../provider-policy.js';
 import { buildRunner } from '../agent-routes.js';
 import type { ToolName } from './planner.js';
+import { listSkills as listSkillsFromDisk, createSkill, loadSkill } from '../skills/skill.service.js';
+import { generateSkillFromDescription } from '../skills/skill-generator.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -191,7 +193,24 @@ export async function handleGenerateProposal(
   const client = ((params.client as string | undefined) ?? '').trim();
   const industry = ((params.industry as string | undefined) ?? 'General').trim();
   const template = ((params.template as string | undefined) ?? 'default').trim();
+  const skillSlug = ((params.skill as string | undefined) ?? '').trim();
   const { workdir, namespace, policyConfig, generateFn } = ctx;
+
+  // Load skill context if specified
+  let skillTone: string | null = null;
+  let skillMemoryLessons: string[] = [];
+  if (skillSlug) {
+    try {
+      const loaded = await loadSkill(workdir, skillSlug);
+      skillTone = loaded.skill.toneDescription || null;
+      skillMemoryLessons = [
+        `SKILL INSTRUCTIONS:\n${loaded.instructionsMd}`,
+        ...loaded.sections.map((s) => `SECTION HINT [${s.title}]: ${s.promptHint}`),
+      ];
+    } catch {
+      // Skill not found — proceed without skill context
+    }
+  }
 
   // Auto-generate a missing template rather than letting Python fail.
   const tplDir = templateDir(workdir);
@@ -260,8 +279,10 @@ export async function handleGenerateProposal(
     templateDir: templateDir(workdir),
     overwrite: false,
     pricing: null,
-    tone: null,
-    memory: null,
+    tone: skillTone,
+    memory: skillMemoryLessons.length > 0
+      ? { pastLessons: skillMemoryLessons, avoidPhrases: [] }
+      : null,
   };
 
   let doc: Awaited<ReturnType<typeof spawnProposalGenerator>>;
@@ -299,7 +320,7 @@ export async function handleGenerateProposal(
   return {
     success: true,
     message: `Proposal for "${client}" generated successfully.`,
-    data: { fileName: namespacedFile, client, industry, template },
+    data: { fileName: namespacedFile, client, industry, template, skill: skillSlug || undefined },
     artifacts: [namespacedFile],
     actionCards: [
       {
@@ -882,5 +903,110 @@ export async function handleRecommendTemplate(
         href: `/template?artifact=${encodeURIComponent(template.id + '.yaml')}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 12. create_skill
+//     Generates a new skill from a natural-language description and saves it.
+// ---------------------------------------------------------------------------
+
+export async function handleCreateSkill(
+  params: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<PartialResult> {
+  const description = ((params.description as string | undefined) ?? '').trim();
+  if (!description) {
+    return { success: false, message: 'A description is required to create a skill.' };
+  }
+
+  const { workdir, generateFn } = ctx;
+
+  let generated;
+  try {
+    generated = await generateSkillFromDescription(description, generateFn);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, message: `Failed to generate skill: ${msg}` };
+  }
+
+  const slug = generated.displayName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'new-skill';
+
+  try {
+    await createSkill(workdir, {
+      slug,
+      displayName: generated.displayName,
+      description: generated.description,
+      industries: generated.industries,
+      projectTypes: generated.projectTypes,
+      tags: generated.tags,
+      toneDescription: generated.toneDescription,
+      micrositeDefaults: generated.micrositeDefaults ?? {},
+      pricingDefaults: generated.pricingDefaults,
+      scope: 'global',
+      author: 'chat',
+      version: '1.0',
+      instructionsMd: generated.instructions,
+      sections: generated.sections,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, message: `Failed to save skill: ${msg}` };
+  }
+
+  // Save suggested assets
+  if (generated.suggestedAssets?.length) {
+    await Promise.allSettled(
+      generated.suggestedAssets.map((asset) =>
+        import('../skills/skill.service.js').then(({ uploadAsset }) =>
+          uploadAsset(workdir, slug, asset.fileName, Buffer.from(asset.content, 'utf-8')),
+        ),
+      ),
+    );
+  }
+
+  return {
+    success: true,
+    message: `Skill **${generated.displayName}** created with ${generated.sections.length} sections.${generated.pricingDefaults ? ` Pricing model: ${generated.pricingDefaults.model}.` : ''}`,
+    data: { slug, displayName: generated.displayName, sectionCount: generated.sections.length },
+    actionCards: [
+      {
+        type: 'view_skill',
+        label: 'View & Edit Skill',
+        href: `/skills?skill=${slug}`,
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 13. list_skills
+//     Lists all available skills in the workdir.
+// ---------------------------------------------------------------------------
+
+export async function handleListSkills(
+  _params: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<PartialResult> {
+  const skills = await listSkillsFromDisk(ctx.workdir);
+  if (skills.length === 0) {
+    return {
+      success: true,
+      message: 'No skills found. Visit the Skills page to create one, or say "create a skill for [your use case]".',
+      data: { skills: [] },
+    };
+  }
+  const lines = skills.map(
+    (s) => `- **${s.displayName}** (\`${s.slug}\`) v${s.version} — ${s.description || s.industries.join(', ')}`,
+  );
+  return {
+    success: true,
+    message: `**${skills.length} skill${skills.length !== 1 ? 's' : ''} available:**\n\n${lines.join('\n')}`,
+    data: { skills },
+    actionCards: [{ type: 'view_skills', label: 'Manage Skills', href: '/skills' }],
   };
 }

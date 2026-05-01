@@ -135,6 +135,18 @@ const READINESS_RULES: Record<Intent, ReadinessCheck> = {
   // Confirmation intents are always "ready" — the gate handles them directly
   CONFIRM_ENTITIES: { required: [], optional: [], customCheck: null },
   CONFIRM_TEMPLATE: { required: [], optional: [], customCheck: null },
+  CREATE_SKILL: { required: [], optional: [], customCheck: null },
+  MODIFY_SKILL: {
+    required: [],
+    optional: [],
+    customCheck: (ctx) => {
+      if (!ctx.skills?.length) {
+        return { ready: false, blockers: ['No skills exist. Create one first on the Skills page or say "create a skill".'] }
+      }
+      return { ready: true, blockers: [] }
+    },
+  },
+  LIST_SKILLS: { required: [], optional: [], customCheck: null },
 }
 
 // ---------------------------------------------------------------------------

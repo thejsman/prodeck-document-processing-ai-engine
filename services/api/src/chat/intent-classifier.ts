@@ -74,6 +74,24 @@ const INTENT_RULES: Array<{
     confidence: 0.88,
   },
   {
+    id: 'kw_skill_create',
+    test: (msg) => /\b(create|build|make|new)\b.*\bskill\b/i.test(msg),
+    intent: 'CREATE_SKILL',
+    confidence: 0.90,
+  },
+  {
+    id: 'kw_skill_modify',
+    test: (msg) => /\b(edit|modify|change|update)\b.*\bskill\b/i.test(msg),
+    intent: 'MODIFY_SKILL',
+    confidence: 0.90,
+  },
+  {
+    id: 'kw_skill_list',
+    test: (msg) => /\b(list|show|which)\b.*\bskills?\b/i.test(msg),
+    intent: 'LIST_SKILLS',
+    confidence: 0.85,
+  },
+  {
     id: 'kw_status',
     test: (msg) => /\b(status|version|history|list\s+proposals?|show\s+me)\b/i.test(msg),
     intent: 'STATUS_CHECK',
@@ -176,9 +194,10 @@ function buildLLMPrompt(message: string, context: ChatContext): string {
 
   return `Classify the user's intent into exactly one category:
 
-PROJECT-RELATED (about proposals, templates, microsites, documents, client work):
+PROJECT-RELATED (about proposals, templates, microsites, documents, client work, skills):
   GENERATE_PROPOSAL, MODIFY_PROPOSAL, GENERATE_TEMPLATE, MODIFY_TEMPLATE,
-  GENERATE_MICROSITE, UPDATE_REQUIREMENTS, QUERY, STATUS_CHECK, INGEST_GUIDANCE
+  GENERATE_MICROSITE, UPDATE_REQUIREMENTS, QUERY, STATUS_CHECK, INGEST_GUIDANCE,
+  CREATE_SKILL, MODIFY_SKILL, LIST_SKILLS
 
 NON-PROJECT:
   GREETING — hello, hi, good morning (short social opener)

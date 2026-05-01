@@ -21,6 +21,8 @@ import {
   handleGetProposalStatus,
   handleSetProposalStatus,
   handleRecommendTemplate,
+  handleCreateSkill,
+  handleListSkills,
 } from './tool-handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,8 @@ const TOOL_HANDLERS: Record<ToolName, ToolHandler> = {
   get_proposal_status: handleGetProposalStatus,
   set_proposal_status: handleSetProposalStatus,
   recommend_template: handleRecommendTemplate,
+  create_skill: handleCreateSkill,
+  list_skills: handleListSkills,
 };
 
 // ---------------------------------------------------------------------------

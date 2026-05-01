@@ -16,6 +16,9 @@ export type Intent =
   | 'UNKNOWN'          // gibberish, unparseable
   | 'CONFIRM_ENTITIES' // user confirming/correcting extracted client name & industry
   | 'CONFIRM_TEMPLATE' // user approving the recommended or generated template
+  | 'CREATE_SKILL'     // create a new reusable proposal skill
+  | 'MODIFY_SKILL'     // edit an existing skill
+  | 'LIST_SKILLS'      // list available skills
 
 export const VALID_INTENTS: readonly Intent[] = [
   'GENERATE_PROPOSAL',
@@ -32,6 +35,9 @@ export const VALID_INTENTS: readonly Intent[] = [
   'UNKNOWN',
   'CONFIRM_ENTITIES',
   'CONFIRM_TEMPLATE',
+  'CREATE_SKILL',
+  'MODIFY_SKILL',
+  'LIST_SKILLS',
 ] as const
 
 export interface ClassificationResult {
@@ -72,4 +78,6 @@ export interface ChatContext {
    *  context about which field was most recently asked for, so it can correctly
    *  map short user replies (e.g. "Software") to the right requirement key. */
   lastAssistantMessage?: string
+  /** Available skills — populated by chat-agent for planner context. */
+  skills?: Array<{ slug: string; displayName: string }>
 }
