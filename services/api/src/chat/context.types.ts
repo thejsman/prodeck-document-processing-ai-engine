@@ -10,7 +10,7 @@ export interface RequirementField<T> {
 
 export type RequirementKey =
   | 'clientName'
-  | 'industry'
+  | 'clientIndustry'
   | 'projectType'
   | 'budget'
   | 'timeline'

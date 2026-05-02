@@ -367,7 +367,7 @@ export class ContextService {
   async confirmEntities(namespace: string): Promise<NamespaceContext> {
     const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
     const now = new Date().toISOString();
-    const entityFields: RequirementKey[] = ['clientName', 'industry'];
+    const entityFields: RequirementKey[] = ['clientName', 'clientIndustry'];
     for (const key of entityFields) {
       const field = current.requirements.fields[key];
       if (field && !field.confirmedByUser) {

@@ -128,7 +128,7 @@ export async function generateConversationSummary(messages: ChatMessage[], gener
 // ---------------------------------------------------------------------------
 
 const REQUIREMENT_FIELDS: Array<{ key: string; label: string }> = [
-  { key: 'industry', label: 'industry' },
+  { key: 'clientIndustry', label: 'client industry' },
   { key: 'timeline', label: 'timeline' },
   { key: 'budget', label: 'budget' },
   { key: 'teamSize', label: 'team size' },
@@ -255,7 +255,7 @@ const GENERATING_STATES = new Set([
 
 const REVIEW_STATES = new Set(['recommend_template', 'review_template', 'name_template', 'qa_review', 'reviewing']);
 
-const REQUIRED_FIELDS = ['industry', 'projectType', 'timeline', 'budget', 'teamSize', 'clientName'];
+const REQUIRED_FIELDS = ['clientIndustry', 'projectType', 'timeline', 'budget', 'teamSize', 'clientName'];
 
 /**
  * Return a structured MODE/ACTION instruction for the current turn.
