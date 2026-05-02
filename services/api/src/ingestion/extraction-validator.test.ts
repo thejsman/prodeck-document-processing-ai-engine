@@ -177,9 +177,9 @@ describe('validateExtractionResults — requirement fields', () => {
   });
 
   it('drops fields with undefined value and records an error', () => {
-    const fields = { industry: makeField({ value: undefined }) };
+    const fields = { clientIndustry: makeField({ value: undefined }) };
     const { validFields, errors } = validateExtractionResults(fields, []);
-    expect(validFields.industry).toBeUndefined();
+    expect(validFields.clientIndustry).toBeUndefined();
     expect(errors.some((e) => e.includes('Empty value'))).toBe(true);
   });
 

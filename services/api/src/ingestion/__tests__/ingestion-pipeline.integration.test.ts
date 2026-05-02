@@ -260,9 +260,9 @@ John Smith: yeah sounds good. Okay so I think we're good um.
     const ctx = await readContext(workdir, NS);
     expect(ctx).not.toBeNull();
 
-    // Requirements layer: clientName and industry must be present
+    // Requirements layer: clientName and clientIndustry must be present
     expect(ctx!.requirements.fields.clientName?.value).toBeTruthy();
-    expect(ctx!.requirements.fields.industry?.value).toBeTruthy();
+    expect(ctx!.requirements.fields.clientIndustry?.value).toBeTruthy();
 
     // Knowledge layer: at least one entry
     const activeKnowledge = ctx!.knowledge.filter((k) => !k.supersededBy);
