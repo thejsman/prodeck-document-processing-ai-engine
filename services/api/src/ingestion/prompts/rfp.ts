@@ -3,6 +3,8 @@ export function rfpPrompt(content: string): string {
 RFPs are already structured, so your job is to normalize the structure and
 extract key fields.
 
+Note: distinguish between (1) what industry the CLIENT is in (clientIndustry) and (2) what service/project is being requested (projectType). These are usually different — e.g. a healthcare company issuing an RFP for a website means clientIndustry = "healthcare", projectType = "web development".
+
 Extract:
 1. Client/issuing organization details
 2. Project scope and objectives

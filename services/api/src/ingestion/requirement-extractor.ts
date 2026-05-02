@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 const ExtractionSchema = z.object({
   clientName: z.string().optional(),
-  industry: z.string().optional(),
+  clientIndustry: z.string().optional(),
   projectType: z.string().optional(),
   budget: z.string().optional(),
   timeline: z.string().optional(),
@@ -48,7 +48,7 @@ function computeFieldConfidence(value: unknown, base: number) {
 
 export const VALID_REQUIREMENT_KEYS: RequirementKey[] = [
   'clientName',
-  'industry',
+  'clientIndustry',
   'projectType',
   'budget',
   'timeline',
@@ -146,10 +146,18 @@ DO NOT infer, guess, or assume missing values.
 
 Return STRICT JSON only. No explanations.
 
+CRITICAL DISTINCTION — these two fields are different:
+- clientIndustry: What business is the CLIENT in? (their domain, e.g. "real estate", "healthcare", "fintech")
+  Determine from: who the client is, what market they operate in, who their customers are.
+- projectType: What SERVICE is being proposed or delivered TO the client?
+  (e.g. "digital marketing", "web development", "software development", "brand strategy", "IT consulting")
+  Determine from: what work is being discussed — deliverables, services offered, scope of work.
+These are USUALLY different: a real estate company hiring for marketing → clientIndustry: "real estate", projectType: "digital marketing".
+
 Schema:
 {
   "clientName": string,
-  "industry": string,
+  "clientIndustry": string,
   "projectType": string,
   "budget": string,
   "timeline": string,
@@ -337,7 +345,7 @@ Return a SINGLE JSON object with exactly two top-level keys: "fields" and "summa
 --- "fields" schema ---
 {
   "clientName": string,
-  "industry": string,
+  "clientIndustry": string,
   "projectType": string,
   "budget": string,
   "timeline": string,
@@ -354,6 +362,8 @@ Rules for "fields":
 - teamSize MUST be a number
 - Arrays MUST be arrays
 - DO NOT hallucinate
+- clientIndustry = the CLIENT's business domain (e.g. "real estate", "healthcare")
+- projectType = the SERVICE being delivered (e.g. "digital marketing", "web development") — usually DIFFERENT from clientIndustry
 
 --- "summary" schema ---
 {
@@ -594,7 +604,7 @@ function promoteMeetingSummaryFields(
     promoteField(fields, 'clientName', summary.clientOrganization.name, baseConfidence, now);
   }
   if (summary.clientOrganization?.industry) {
-    promoteField(fields, 'industry', summary.clientOrganization.industry, baseConfidence, now);
+    promoteField(fields, 'clientIndustry', summary.clientOrganization.industry, baseConfidence, now);
   }
   if (summary.clientOrganization?.roles?.length) {
     promoteField(fields, 'stakeholders', summary.clientOrganization.roles, baseConfidence, now);

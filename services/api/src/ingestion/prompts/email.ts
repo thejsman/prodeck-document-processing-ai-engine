@@ -1,6 +1,8 @@
 export function emailPrompt(content: string): string {
   return `You are analyzing a business email or email thread.
 
+Note: distinguish between (1) what industry the CLIENT is in (clientIndustry) and (2) what service is being requested (projectType). These are usually different — e.g. a restaurant asking for brand work means clientIndustry = "restaurant", projectType = "brand strategy".
+
 Extract:
 1. Sender and recipients (names/roles)
 2. Key requests or asks

@@ -14,6 +14,10 @@ EXTRACT and preserve:
 2. STATED REQUIREMENTS — anything the client says they need, want, or must have. Include specific details (quantities, formats, outcomes).
 3. BUSINESS METRICS — every number mentioned: budgets, lead counts, conversion rates, traffic numbers, team headcount, project counts, revenue figures, competitor data.
 4. CLIENT CONTEXT — who the client is, what their company does, their current situation, their team size, their pain points with previous vendors.
+   Pay special attention to TWO distinct dimensions:
+   - What business the CLIENT is in (clientIndustry: their market/domain, e.g. "real estate", "landscaping")
+   - What SERVICES are being discussed or proposed (projectType: the work scope, e.g. "digital marketing", "web development")
+   These are usually DIFFERENT — a landscaping company discussing marketing means clientIndustry = "landscaping", projectType = "digital marketing".
 5. AGENCY/VENDOR CAPABILITIES — what the other party presented about their services, approach, or portfolio.
 6. COMMITMENTS — what each party agreed to deliver after this meeting, with deadlines if stated.
 7. OPEN QUESTIONS — anything explicitly left unresolved.
