@@ -174,16 +174,34 @@ async function generateDraftTemplate(
   workdir: string,
   generateFn: GenerateFn,
 ): Promise<{ slug: string; name: string; sections: string[] } | null> {
+  const projectType = (context.requirements?.fields?.projectType?.value as string | undefined) ?? '';
   const clientIndustry = (context.requirements?.fields?.clientIndustry?.value as string | undefined) ?? 'general';
   const clientName = (context.requirements?.fields?.clientName?.value as string | undefined) ?? '';
 
-  const displayName = `${clientIndustry.replace(/\b\w/g, (c) => c.toUpperCase())} Proposal`;
-  const description = `A tailored proposal template for the ${clientIndustry} industry${clientName ? ` — generated for ${clientName}` : ''}.`;
+  // projectType drives STRUCTURE (what we're delivering); clientIndustry drives CONTENT (who the client is)
+  const serviceLabel = projectType || clientIndustry;
+  const displayName = `${serviceLabel.replace(/\b\w/g, (c) => c.toUpperCase())} Proposal`;
+  const description = [
+    `A ${serviceLabel} proposal`,
+    clientName ? ` for ${clientName}` : '',
+    clientIndustry && projectType ? ` (client industry: ${clientIndustry})` : '',
+    '.',
+  ].join('');
 
   const prompt = [
     'You are a proposal architect. Generate a reusable proposal template structure.',
     '',
     `Template description: ${description}`,
+    ...(projectType ? [
+      '',
+      `PROJECT TYPE: ${projectType}`,
+      'This determines the STRUCTURE — what sections to include, what deliverables to list, what expertise to emphasise.',
+    ] : []),
+    ...(clientIndustry && projectType ? [
+      '',
+      `CLIENT INDUSTRY: ${clientIndustry}`,
+      'This determines the CONTENT within each section — use industry-specific terminology and examples.',
+    ] : []),
     '',
     'Output a single JSON object:',
     '```json',
@@ -201,7 +219,7 @@ async function generateDraftTemplate(
     '```',
     '',
     'Requirements:',
-    '- Include 6–10 sections covering the full proposal scope for this industry',
+    `- Include 6–10 sections covering the full scope of a ${serviceLabel} engagement`,
     '- Professional, proposal-appropriate section titles',
     `- Use the display name: "${displayName}"`,
     '- Output ONLY the JSON block — no explanation',

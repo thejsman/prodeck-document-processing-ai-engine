@@ -224,7 +224,7 @@ export async function handleGenerateProposal(
     // exact path the Python processor expects, so this and future calls succeed.
     const displayName =
       template === 'default'
-        ? `${industry} Proposal`
+        ? `${(projectType || clientIndustry).replace(/\b\w/g, (c) => c.toUpperCase())} Proposal`
         : template.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
     const description = `A ${projectType || industry} proposal template${client ? ` for ${client}` : ''}${clientIndustry !== 'General' ? ` in the ${clientIndustry} industry` : ''}.`;
