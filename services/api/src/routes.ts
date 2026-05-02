@@ -417,6 +417,18 @@ export function registerRoutes(
     }
 
     await rm(nsDir, { recursive: true, force: true });
+
+    // Clean up all other namespace-keyed data outside the namespaces/ folder
+    await Promise.all([
+      rm(path.join(workdir, 'chat-history', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'assets', 'presentations', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'presentations', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'data', 'namespaces', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'memory', 'namespaces', `${namespace}.json`), { force: true }),
+      rm(path.join(workdir, 'exports', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'workflows', namespace), { recursive: true, force: true }),
+    ]);
+
     return reply.code(200).send({ deleted: namespace });
   });
 }
