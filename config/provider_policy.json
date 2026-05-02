@@ -2,13 +2,13 @@
   "version": "1.0",
   "default": {
     "ingest": {
-      "provider": "ollama",
+      "provider": "openai",
       "models": {},
       "options": {},
       "fallback": null
     },
     "query": {
-      "provider": "ollama",
+      "provider": "openai",
       "models": {},
       "options": {},
       "fallback": null

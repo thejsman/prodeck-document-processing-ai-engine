@@ -16,6 +16,9 @@ export interface TemplateSection {
 }
 
 export interface TemplateInfo {
+  /** Filename slug — used for API routing (GET/POST /templates/:id). */
+  id: string;
+  /** Human-readable display name from the YAML `name:` field. */
   name: string;
   version: string;
   description: string;
@@ -58,7 +61,8 @@ export interface ProposalDocument {
 
 export interface GenerateProposalRequest {
   client: string;
-  industry?: string;
+  projectType?: string;
+  clientIndustry?: string;
   namespace?: string;
   template?: string;
   overwrite?: boolean;
@@ -76,6 +80,12 @@ export interface GenerateProposalRequest {
 function authHeaders(apiKey: string): HeadersInit {
   return {
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
+
+function authHeadersNoBody(apiKey: string): HeadersInit {
+  return {
     Authorization: `Bearer ${apiKey}`,
   };
 }
@@ -108,6 +118,23 @@ export async function createNamespace(apiKey: string, name: string): Promise<str
   });
   const data = await handleResponse<{ namespace: string }>(res);
   return data.namespace;
+}
+
+export async function deleteNamespace(apiKey: string, namespace: string): Promise<void> {
+  const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<unknown>(res);
+}
+
+export async function renameNamespace(apiKey: string, oldName: string, newName: string): Promise<void> {
+  const res = await fetch(`/api/namespaces/${encodeURIComponent(oldName)}/rename`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ name: newName }),
+  });
+  await handleResponse<unknown>(res);
 }
 
 export async function fetchTemplates(apiKey: string): Promise<TemplateInfo[]> {
@@ -156,6 +183,22 @@ export async function modifyTemplate(apiKey: string, templateYaml: string, instr
   });
   const data = await handleResponse<{ yaml: string }>(res);
   return data.yaml;
+}
+
+export async function deleteTemplate(apiKey: string, name: string): Promise<void> {
+  const res = await fetch(`/api/templates/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
+export async function deleteProposal(apiKey: string, namespace: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/proposals/${encodeURIComponent(namespace)}/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
 }
 
 export async function fetchProposals(apiKey: string): Promise<ProposalFile[]> {
@@ -274,7 +317,7 @@ export async function fetchNamespaceFiles(apiKey: string, namespace: string): Pr
 export async function deleteNamespaceFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}/files/${encodeURIComponent(fileName)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: { Authorization: `Bearer ${apiKey}` },
   });
   await handleResponse<{ ok: boolean }>(res);
 }
@@ -283,7 +326,7 @@ export async function deleteNamespaceFile(apiKey: string, namespace: string, fil
 // Knowledge / Async Ingestion
 // ---------------------------------------------------------------------------
 
-export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'failed';
+export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extracting' | 'extracted' | 'failed';
 
 export interface IngestionFile {
   fileName: string;
@@ -350,6 +393,14 @@ export async function fetchKnowledgeFiles(apiKey: string, namespace: string): Pr
   });
   const data = await handleResponse<{ files: IngestionFile[] }>(res);
   return data.files;
+}
+
+export async function deleteKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
+  const res = await fetch(
+    `/api/knowledge/files/${encodeURIComponent(fileName)}?namespace=${encodeURIComponent(namespace)}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
+  );
+  await handleResponse<{ ok: boolean }>(res);
 }
 
 export async function reindexKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
@@ -488,17 +539,30 @@ export async function savePresentationConfig(
   return data.presentation;
 }
 
-export async function generateMicrosite(apiKey: string, namespace: string, proposalId: string): Promise<string[]> {
+export interface GenerateMicrositeOptions {
+  proposalMarkdown: string;
+  plugin?: string;
+  brand?: Record<string, unknown>;
+  customInstructions?: string;
+  preSynthesizedDesignSystem?: Record<string, unknown>;
+}
+
+export async function generateMicrosite(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  options: GenerateMicrositeOptions,
+): Promise<{ ast: unknown; assets: string[] }> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate`,
     {
       method: 'POST',
       headers: authHeaders(apiKey),
-      body: JSON.stringify({}),
+      body: JSON.stringify(options),
     },
   );
-  const data = await handleResponse<{ assets: string[] }>(res);
-  return data.assets ?? [];
+  const data = await handleResponse<{ ast: unknown; assets: string[] }>(res);
+  return { ast: data.ast ?? null, assets: data.assets ?? [] };
 }
 
 export interface SynthesizedDesignSystem {
@@ -525,13 +589,85 @@ export async function fetchMicrositeContent(
   apiKey: string,
   namespace: string,
   proposalId: string,
-): Promise<unknown | null> {
+): Promise<{ ast: unknown | null; savedAt: string | null }> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`,
     { headers: authHeaders(apiKey) },
   );
-  const data = await handleResponse<{ ast: unknown | null }>(res);
-  return data.ast;
+  const data = await handleResponse<{ ast: unknown | null; savedAt: string | null }>(res);
+  return { ast: data.ast ?? null, savedAt: data.savedAt ?? null };
+}
+
+export async function saveMicrositeAst(apiKey: string, namespace: string, proposalId: string, ast: unknown): Promise<void> {
+  const res = await fetch(`/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`, {
+    method: 'PUT',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ast }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export interface MicrositeHistoryServerEntry {
+  namespace: string;
+  savedAt: string;
+  ast: unknown;
+}
+
+export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<void> {
+  const res = await fetch('/api/presentations/history/save', {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ namespace, ast }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
+  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function fetchAllMicrositeHistory(apiKey: string): Promise<MicrositeHistoryServerEntry[]> {
+  const res = await fetch('/api/presentations/history', { headers: authHeaders(apiKey) });
+  const data = await handleResponse<{ entries: MicrositeHistoryServerEntry[] }>(res);
+  return data.entries;
+}
+
+export async function designEditMicrosite(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { instruction: string; targetSectionId?: string; currentAst?: unknown; commit?: boolean },
+): Promise<{ ast: unknown; mode: string; changed: string[]; summary: string }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/design-edit`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  return handleResponse<{ ast: unknown; mode: string; changed: string[]; summary: string }>(res);
+}
+
+export async function publishMicrosite(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  ast?: unknown,
+): Promise<{ downloadUrl: string; size: number }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ast, format: 'html' }),
+    },
+  );
+  return handleResponse<{ downloadUrl: string; size: number }>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +714,105 @@ export interface AgentRunResult {
   markdown?: string;
   json?: unknown;
   assets?: string[];
+}
+
+export type StreamEvent =
+  | { type: 'start'; message: string }
+  | { type: 'plan'; totalSections: number; sectionTypes: string[] }
+  | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
+  | { type: 'image'; sectionId: string; url: string }
+  | { type: 'complete'; ast: unknown }
+  | { type: 'error'; message: string };
+
+export interface ReferenceDesign {
+  colors: {
+    primary: string; secondary: string; accent: string;
+    background: string; surface: string; text: string; textMuted: string;
+  };
+  typography: {
+    headingFont: string; bodyFont: string;
+    headingWeight: string; bodyWeight: string;
+    headingStyle: 'serif' | 'sans-serif' | 'display';
+    mood: 'modern' | 'classic' | 'bold' | 'minimal' | 'playful';
+  };
+  style: {
+    borderRadius: 'sharp' | 'soft' | 'rounded';
+    spacing: 'compact' | 'comfortable' | 'spacious';
+    vibe: string;
+  };
+  heroImageUrl?: string | null;
+}
+
+export interface GenerateStreamOptions {
+  proposalMarkdown: string;
+  plugin?: string | null;
+  brand?: Record<string, unknown>;
+  customInstructions?: string;
+  fullDesignPrompt?: string;
+  designBrief?: string;
+  preSynthesizedDesignSystem?: Record<string, unknown>;
+  pdfFriendly?: boolean;
+  referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
+  urlReferenceDesign?: ReferenceDesign | null;
+  urlLayout?: Record<string, unknown> | null;
+  urlImages?: string[];
+  onEvent: (event: StreamEvent) => void;
+  signal?: AbortSignal;
+}
+
+export async function generateMicrositeStream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: GenerateStreamOptions,
+): Promise<void> {
+  const res = await fetch(`/api/presentations/${namespace}/${proposalId}/generate-stream`, {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      proposalMarkdown: opts.proposalMarkdown,
+      plugin: opts.plugin ?? 'cobalt',
+      brand: opts.brand ?? {},
+      ...(opts.customInstructions ? { customInstructions: opts.customInstructions } : {}),
+      ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
+      ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
+      ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
+      ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
+      ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
+      ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
+      ...(opts.urlLayout ? { urlLayout: opts.urlLayout } : {}),
+      ...(opts.urlImages?.length ? { urlImages: opts.urlImages } : {}),
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as StreamEvent;
+          opts.onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export async function runAgent(apiKey: string, request: AgentRunRequest): Promise<AgentRunResult> {
@@ -639,13 +874,19 @@ export async function generateSectionImage(
   sectionTitle: string,
   style: string,
   keywords: string[],
+  namespace?: string,
+  sectionId?: string,
 ): Promise<string> {
   const res = await fetch('/api/images/generate', {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ sectionTitle, style, keywords }),
+    body: JSON.stringify({ sectionTitle, style, keywords, namespace, sectionId }),
   });
   const data = await handleResponse<{ url: string }>(res);
+  // Rewrite root-relative local paths through the Next.js proxy
+  if (data.url.startsWith('/presentation-images/')) {
+    return `/api${data.url}`;
+  }
   return data.url;
 }
 
@@ -661,4 +902,277 @@ export async function fetchProposalDiff(apiKey: string, fileA: string, fileB: st
   });
   const data = await handleResponse<{ diffs: SectionDiff[] }>(res);
   return data.diffs;
+}
+
+// ---------------------------------------------------------------------------
+// Proposal section editing (chat inline)
+// ---------------------------------------------------------------------------
+
+export interface ProposalSectionEditRequest {
+  namespace: string;
+  artifactId: string;
+  section: string;
+  /** Instruction-based rewrite via LLM. */
+  instruction?: string;
+  /** Verbatim replacement (direct user edit). */
+  newContent?: string;
+}
+
+export interface ProposalSectionEditResult {
+  content: string;
+  versionLabel: string;
+}
+
+export async function editProposalSection(
+  apiKey: string,
+  req: ProposalSectionEditRequest,
+): Promise<ProposalSectionEditResult> {
+  const res = await fetch('/api/chat/proposal/section/edit', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(req),
+  });
+  return handleResponse<ProposalSectionEditResult>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+
+export interface SectionConditionApi {
+  field: string;
+  operator: 'exists' | 'equals' | 'contains';
+  value?: string;
+}
+
+export interface SectionDefinitionApi {
+  id: string;
+  title: string;
+  order: number;
+  required: boolean;
+  promptHint: string;
+  maxWords?: number;
+  minWords?: number;
+  assetRef?: string;
+  useRagContext: boolean;
+  ragQuery?: string;
+  condition?: SectionConditionApi;
+}
+
+export interface PricingTierApi {
+  name: string;
+  description: string;
+  priceRange?: string;
+  features: string[];
+  duration?: string;
+}
+
+export interface PricingDefaultsApi {
+  model: 'hourly' | 'fixed' | 'tiered' | 'retainer';
+  rates?: Record<string, number>;
+  tiers?: PricingTierApi[];
+  discounts?: string[];
+  currency: string;
+}
+
+export interface MicrositeDefaultsApi {
+  theme?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  tagline?: string;
+  logoAsset?: string;
+}
+
+export interface SkillApi {
+  slug: string;
+  displayName: string;
+  description: string;
+  industries: string[];
+  projectTypes: string[];
+  tags: string[];
+  defaultTemplate?: string;
+  toneDescription: string;
+  micrositeDefaults: MicrositeDefaultsApi;
+  pricingDefaults?: PricingDefaultsApi;
+  author: string;
+  version: string;
+  createdAt: string;
+  updatedAt: string;
+  scope: 'global' | 'namespace';
+  namespace?: string;
+}
+
+export interface SkillSummaryApi {
+  slug: string;
+  displayName: string;
+  description: string;
+  industries: string[];
+  version: string;
+  updatedAt: string;
+}
+
+export interface SkillDetailApi {
+  skill: SkillApi;
+  instructionsMd: string;
+  sections: SectionDefinitionApi[];
+}
+
+export interface GeneratedSkillApi {
+  displayName: string;
+  description: string;
+  industries: string[];
+  projectTypes: string[];
+  tags: string[];
+  toneDescription: string;
+  instructions: string;
+  sections: SectionDefinitionApi[];
+  pricingDefaults?: PricingDefaultsApi;
+  micrositeDefaults?: MicrositeDefaultsApi;
+  suggestedAssets?: Array<{ fileName: string; description: string; content: string }>;
+}
+
+export interface AssetInfoApi {
+  fileName: string;
+  sizeBytes: number;
+  mimeType: string;
+  referencedBySections: string[];
+}
+
+export async function listSkills(apiKey: string): Promise<SkillSummaryApi[]> {
+  const res = await fetch('/api/skills', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ skills: SkillSummaryApi[] }>(res);
+  return data.skills;
+}
+
+export async function getSkillDetail(apiKey: string, slug: string): Promise<SkillDetailApi> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, { headers: authHeadersNoBody(apiKey) });
+  return handleResponse<SkillDetailApi>(res);
+}
+
+export async function createSkillApi(
+  apiKey: string,
+  skill: Partial<SkillApi> & { instructionsMd?: string; sections?: SectionDefinitionApi[] },
+): Promise<SkillApi> {
+  const res = await fetch('/api/skills', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(skill),
+  });
+  const data = await handleResponse<{ skill: SkillApi }>(res);
+  return data.skill;
+}
+
+export async function updateSkillApi(
+  apiKey: string,
+  slug: string,
+  updates: Partial<SkillApi> & { instructionsMd?: string; sections?: SectionDefinitionApi[] },
+): Promise<SkillApi> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(updates),
+  });
+  const data = await handleResponse<{ skill: SkillApi }>(res);
+  return data.skill;
+}
+
+export async function deleteSkillApi(apiKey: string, slug: string): Promise<void> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
+export async function generateSkillApi(apiKey: string, description: string): Promise<GeneratedSkillApi> {
+  const res = await fetch('/api/skills/generate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ description }),
+  });
+  const data = await handleResponse<{ generated: GeneratedSkillApi }>(res);
+  return data.generated;
+}
+
+export async function generateSkillFromProposalApi(
+  apiKey: string,
+  namespace: string,
+  proposalFileName: string,
+): Promise<GeneratedSkillApi> {
+  const res = await fetch('/api/skills/generate-from-proposal', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ namespace, proposalFileName }),
+  });
+  const data = await handleResponse<{ generated: GeneratedSkillApi }>(res);
+  return data.generated;
+}
+
+export async function applySkillAssistApi(
+  apiKey: string,
+  slug: string,
+  tab: string,
+  currentContent: unknown,
+  instruction: string,
+): Promise<Partial<GeneratedSkillApi>> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assist`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ tab, currentContent, instruction }),
+  });
+  const data = await handleResponse<{ result: Partial<GeneratedSkillApi> }>(res);
+  return data.result;
+}
+
+export async function uploadSkillAssetApi(
+  apiKey: string,
+  slug: string,
+  file: File,
+): Promise<{ fileName: string; sizeBytes: number }> {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: formData,
+  });
+  const data = await handleResponse<{ asset: { fileName: string; sizeBytes: number } }>(res);
+  return data.asset;
+}
+
+export async function deleteSkillAssetApi(apiKey: string, slug: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assets/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
+export async function listSkillAssetsApi(apiKey: string, slug: string): Promise<AssetInfoApi[]> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assets`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ assets: AssetInfoApi[] }>(res);
+  return data.assets;
+}
+
+// ---------------------------------------------------------------------------
+// URL Design Extraction
+// ---------------------------------------------------------------------------
+
+export async function extractUrlDesign(
+  apiKey: string,
+  url: string,
+): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }> {
+  try {
+    const res = await fetch('/api/microsite/extract-url-design', {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) return { tokens: null, error: 'request_failed' };
+    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }>;
+  } catch {
+    return { tokens: null, error: 'network_error' };
+  }
 }

@@ -52,7 +52,7 @@ function buildThemeVariables(tokens: PluginTokens) {
     pieSectionTextColor:    tokens.text,
     pieOpacity:             '1',
     // Typography
-    fontFamily: `'${tokens.bodyFont}', system-ui, sans-serif`,
+    fontFamily: `'${tokens.bodyFont}', sans-serif`,
     fontSize:   '13px',
   };
 }
@@ -67,7 +67,7 @@ export function MermaidChart({ chart, tokens }: Props) {
   const lastThemeRef = useRef<string>('');
 
   useEffect(() => {
-    if (!chart.trim()) return;
+    if (!chart || !chart.trim()) return;
     let cancelled = false;
 
     (async () => {
@@ -82,27 +82,89 @@ export function MermaidChart({ chart, tokens }: Props) {
             startOnLoad: false,
             theme: 'base',
             themeVariables: themeVars,
-            flowchart: { curve: 'basis', padding: 20, htmlLabels: true },
-            gantt: { barHeight: 20, barGap: 8, topPadding: 50, fontSize: 13 },
-            pie: { textPosition: 0.5 },
+            flowchart: { curve: 'basis', padding: 20, htmlLabels: true, nodeSpacing: 50, rankSpacing: 60, useMaxWidth: true },
+            gantt: { barHeight: 20, barGap: 8, topPadding: 50, fontSize: 13, useMaxWidth: true },
+            pie: { textPosition: 0.5, useMaxWidth: true },
+            sequence: {
+              diagramMarginX: 50, diagramMarginY: 10,
+              actorMargin: 50, width: 150, height: 65,
+              boxMargin: 10, messageMargin: 35,
+              mirrorActors: true, bottomMarginAdj: 2,
+              useMaxWidth: true,
+            },
+            quadrantChart: { chartWidth: 400, chartHeight: 400, pointRadius: 5, pointLabelFontSize: 12 },
             securityLevel: 'loose',
           });
           lastThemeRef.current = themeKey;
         }
 
+        // Normalize diagram string from agent output:
+        // 1. Unescape literal \\n sequences → real newlines (agent JSON-encodes newlines)
+        // 2. Strip inner quotes from node labels: A["Foo Bar"] → A[Foo Bar]
+        // 3. Gantt charts must have dateFormat — inject it if missing
+        let normalizedChart = chart.trim()
+          .replace(/\\n/g, '\n')
+          .replace(/\["([^"]*)"\]/g, '[$1]');
+
+        if (/^gantt\b/i.test(normalizedChart) && !/dateFormat\s/i.test(normalizedChart)) {
+          normalizedChart = normalizedChart.replace(/^(gantt\s*\n)/i, '$1    dateFormat YYYY-MM-DD\n');
+        }
+
+        // Gantt-specific: remove blank lines inside task sections and fix
+        // malformed task entries — Mermaid v11's compileTask crashes with
+        // "Cannot read properties of undefined (reading 'type')" when the
+        // tasks array contains undefined entries from empty/invalid lines.
+        if (/^gantt\b/i.test(normalizedChart)) {
+          normalizedChart = normalizedChart
+            .split('\n')
+            .filter(line => {
+              const trimmed = line.trim();
+              // Keep gantt header, dateFormat, title, section headers,
+              // and non-empty task lines. Drop blank lines and lone colons.
+              if (trimmed === '' || trimmed === ':') return false;
+              return true;
+            })
+            .join('\n');
+        }
+
+        // Pre-validate before render — catches internal Mermaid crashes early
+        try {
+          await mermaid.parse(normalizedChart);
+        } catch {
+          if (!cancelled) setError('render-failed');
+          return;
+        }
+
         const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const { svg: rendered } = await mermaid.render(id, chart.trim());
+        let rendered: string;
+        try {
+          const result = await mermaid.render(id, normalizedChart);
+          rendered = result.svg;
+        } catch (renderErr) {
+          // Mermaid v11 Gantt/other renderers can throw synchronously inside
+          // the render pipeline (e.g. compileTask undefined.type). Treat as
+          // a render failure rather than letting it propagate to React.
+          console.warn('[MermaidChart] render threw (diagram suppressed):', renderErr);
+          if (!cancelled) setError('render-failed');
+          return;
+        }
 
         // Mermaid v11 may leave a hidden error div in body — clean it up
         document.getElementById(`${id}-error`)?.remove();
 
+        // Make SVG fill its container width instead of rendering at fixed pixel size
+        const responsiveSvg = (rendered ?? '')
+          .replace(/(<svg[^>]*)\s+width="[^"]*"/, '$1 width="100%"')
+          .replace(/(<svg[^>]*)\s+height="[^"]*"/, '$1 style="height:auto"');
+
         if (!cancelled) {
-          setSvg(rendered);
+          setSvg(responsiveSvg);
           setError('');
         }
       } catch (err) {
+        console.error('[MermaidChart] render failed:', err);
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to render diagram');
+          setError('render-failed');
           setSvg('');
         }
         // Mermaid v11 injects error text into the DOM before throwing — remove it
@@ -116,39 +178,11 @@ export function MermaidChart({ chart, tokens }: Props) {
   }, [chart, tokens]);
 
   if (error) {
-    return (
-      <div
-        style={{
-          padding: '12px 16px',
-          borderRadius: 6,
-          background: tokens.surfaceAlt,
-          border: `1px solid ${tokens.border}`,
-          fontSize: 11,
-          color: tokens.textMuted,
-          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-        }}
-      >
-        Diagram unavailable
-      </div>
-    );
+    return null;
   }
 
   if (!svg) {
-    return (
-      <div
-        style={{
-          padding: '32px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 12,
-          color: tokens.textSubtle,
-          fontFamily: `'${tokens.bodyFont}', sans-serif`,
-        }}
-      >
-        Rendering diagram…
-      </div>
-    );
+    return null;
   }
 
   return (

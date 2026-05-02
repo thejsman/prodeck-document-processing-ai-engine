@@ -22,7 +22,10 @@ export function NamespaceSelector({ value, onChange }: Props) {
 
     fetchNamespaces(apiKey)
       .then((ns) => {
-        if (!cancelled) setNamespaces(ns);
+        if (!cancelled) {
+          setNamespaces(ns);
+          if (!value && ns.length > 0) onChange(ns[0]);
+        }
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -38,9 +41,9 @@ export function NamespaceSelector({ value, onChange }: Props) {
 
   return (
     <div className="form-group">
-      <label>Namespace (for RAG context)</label>
+      <label>Namespace</label>
       {loading ? (
-        <p className="loading">Loading namespaces...</p>
+        <p className="loading">Loading projects...</p>
       ) : error ? (
         <p className="error">{error}</p>
       ) : (

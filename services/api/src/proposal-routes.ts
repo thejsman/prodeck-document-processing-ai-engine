@@ -9,13 +9,14 @@
  *   POST /proposals/:fileName/lock-section   — lock a section
  *   POST /proposals/:fileName/unlock-section — unlock a section
  *   POST /proposals/:fileName/set-status     — transition workflow status
- *   GET  /templates/:name                  — read a single template (raw YAML + parsed)
- *   POST /templates/:name                  — create or update a template
+ *   GET    /templates/:name                — read a single template (raw YAML + parsed)
+ *   POST   /templates/:name               — create or update a template
+ *   DELETE /templates/:name               — delete a template
  *   PUT  /proposals/:fileName/content      — update proposal content
  *   POST /proposal-diff                   — diff two proposal versions
  */
 
-import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile, mkdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
@@ -41,6 +42,9 @@ import {
   validateTransition,
   type ProposalStatus,
 } from './proposal-meta.js';
+import { createVersionFromEdit } from './proposals/proposal-version.service.js';
+import { recommendTemplate } from './templates/template-recommendation.service.js';
+import { extractRfpRequirements } from './ingestion/extract-rfp-requirements.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,7 +58,23 @@ function attachProviderInfo(req: FastifyRequest, info: ProviderInfo): void {
 const TEMPLATE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function sanitizeFileName(name: string): boolean {
-  return /^[\w\s\-().]+\.md$/.test(name);
+  // Allow plain filenames and namespace-prefixed ones: "ns::file.md"
+  return /^[\w\s\-().]+\.md$/.test(name) || /^[\w-]+::[\w\s\-().]+\.md$/.test(name);
+}
+
+/**
+ * Resolve a fileName (plain or "namespace::file.md") to an absolute path.
+ * All proposals now live under workdir/namespaces/<ns>/proposals/.
+ * Plain filenames (no namespace prefix) fall back to the legacy output dir.
+ */
+function resolveProposalPath(fileName: string, workdir: string, legacyOutputDir: string): string {
+  const sep = fileName.indexOf('::');
+  if (sep !== -1) {
+    const ns = fileName.slice(0, sep);
+    const file = fileName.slice(sep + 2);
+    return path.join(workdir, 'namespaces', ns, 'proposals', file);
+  }
+  return path.join(legacyOutputDir, fileName);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +88,9 @@ interface TemplateSection {
 }
 
 interface TemplateInfo {
+  /** Filename slug (without extension) — used for API routing. */
+  readonly id: string;
+  /** Human-readable display name from the YAML `name:` field. */
   readonly name: string;
   readonly version: string;
   readonly description: string;
@@ -93,7 +116,12 @@ export function registerProposalRoutes(
   workdir: string,
   policyConfig: ProviderPolicyConfig | null,
 ): void {
-  const outputDir = path.join(workdir, 'output');
+  // Canonical proposal storage: workdir/namespaces/<ns>/proposals/
+  // All routes that need a per-namespace output dir call proposalDir(ns).
+  const proposalDir = (ns: string) =>
+    path.join(workdir, 'namespaces', ns, 'proposals');
+  // Legacy path kept only for the diff endpoint (backward compat during transition)
+  const legacyOutputDir = path.join(workdir, 'output');
   const templateDir = path.join(workdir, 'data', 'templates');
 
   // POST /generate-proposal
@@ -121,12 +149,15 @@ export function registerProposalRoutes(
 
       const client = body.client;
       const industry = body.industry ?? 'General';
-      const namespace = body.namespace ?? null;
+      const namespace = body.namespace ?? 'default';
       const template = body.template ?? 'default';
       const overwrite = body.overwrite ?? false;
       const pricing = body.pricing ?? null;
       const tone = body.tone ?? null;
       const memory = body.memory ?? null;
+
+      const outputDir = proposalDir(namespace);
+      await mkdir(outputDir, { recursive: true });
 
       // Determine expected output file path for finalized / lock checks
       const safeName = client
@@ -219,6 +250,20 @@ export function registerProposalRoutes(
         }
       }
 
+      // Auto-snapshot: create version for the generated proposal (fire-and-forget)
+      if (namespace && outputFile) {
+        const generatedFileName = path.basename(outputFile);
+        void createVersionFromEdit(
+          workdir,
+          namespace,
+          generatedFileName,
+          document.content,
+          null,
+          'system',
+          `Generated proposal for "${client}"`,
+        ).catch(() => { /* non-fatal */ });
+      }
+
       // Append episodic entry to namespace memory (fire-and-forget)
       if (namespace) {
         void appendEpisodicEntry(workdir, namespace, {
@@ -235,6 +280,45 @@ export function registerProposalRoutes(
     },
   );
 
+  // GET /templates/recommend?namespace=<ns>
+  //
+  // Returns the best-matching template for the documents indexed in the given
+  // namespace.  Requires an RFP document to be indexed — returns a low-
+  // confidence result with fallbackGenerate=true when no RFP is present.
+  app.get(
+    '/templates/recommend',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace } = req.query as { namespace?: string };
+
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing required query param: namespace' });
+      }
+
+      const ns = namespace.trim();
+
+      try {
+        // Build requirement context from whatever is indexed in the namespace.
+        // Falls back to empty categories when no RFP is present.
+        const requirementMatrix = await extractRfpRequirements(workdir, ns).catch(() => ({
+          functional: [],
+          compliance: [],
+          timeline: [],
+          pricing: [],
+        }));
+
+        const recommendation = await recommendTemplate(
+          { requirementMatrix, namespace: ns },
+          workdir,
+        );
+
+        return reply.send({ recommendation });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.code(502).send({ error: `Recommendation failed: ${message}` });
+      }
+    },
+  );
+
   // GET /templates
   app.get(
     '/templates',
@@ -248,15 +332,22 @@ export function registerProposalRoutes(
 
         for (const file of yamlFiles) {
           const filePath = path.join(templateDir, file);
-          const raw = await readFile(filePath, 'utf-8');
-          const parsed = yaml.load(raw) as Record<string, unknown>;
-
-          templates.push({
-            name: (parsed.name as string) ?? path.basename(file, '.yaml'),
-            version: (parsed.version as string) ?? 'unknown',
-            description: (parsed.description as string) ?? '',
-            sections: (parsed.sections as TemplateSection[]) ?? [],
-          });
+          const id = path.basename(file, path.extname(file));
+          try {
+            const raw = await readFile(filePath, 'utf-8');
+            const parsed = yaml.load(raw) as Record<string, unknown>;
+            if (!parsed || typeof parsed !== 'object') continue;
+            templates.push({
+              id,
+              name: (parsed.name as string) ?? id,
+              version: (parsed.version as string) ?? 'unknown',
+              description: (parsed.description as string) ?? '',
+              sections: (parsed.sections as TemplateSection[]) ?? [],
+            });
+          } catch {
+            // Skip malformed files — don't let one bad file hide all templates
+            process.stderr.write(`[templates] Skipping invalid YAML: ${file}\n`);
+          }
         }
 
         return reply.send({ templates });
@@ -283,9 +374,11 @@ export function registerProposalRoutes(
         const parsed = yaml.load(content) as Record<string, unknown>;
 
         return reply.send({
+          id: name,
           name,
           content,
           parsed: {
+            id: name,
             name: (parsed.name as string) ?? name,
             version: (parsed.version as string) ?? 'unknown',
             description: (parsed.description as string) ?? '',
@@ -347,6 +440,7 @@ export function registerProposalRoutes(
       await writeFile(filePath, body.content, 'utf-8');
 
       return reply.code(201).send({
+        id: name,
         name: (parsed.name as string) ?? name,
         version: (parsed.version as string) ?? 'unknown',
         description: (parsed.description as string) ?? '',
@@ -355,37 +449,99 @@ export function registerProposalRoutes(
     },
   );
 
+  // DELETE /templates/:name
+  app.delete(
+    '/templates/:name',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { name } = req.params as { name: string };
+
+      if (!TEMPLATE_NAME_PATTERN.test(name)) {
+        return reply.code(400).send({ error: 'Invalid template name.' });
+      }
+
+      const filePath = path.join(templateDir, `${name}.yaml`);
+      try {
+        await unlink(filePath);
+        return reply.code(200).send({ deleted: name });
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply.code(404).send({ error: `Template "${name}" not found` });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // DELETE /proposals/:namespace/:fileName — permanently remove a proposal file
+  app.delete(
+    '/proposals/:namespace/:fileName',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace, fileName } = req.params as { namespace: string; fileName: string };
+      const filePath = path.join(workdir, 'namespaces', namespace, 'proposals', fileName);
+      try {
+        await unlink(filePath);
+        // Remove the meta sidecar if it exists
+        try { await unlink(filePath.replace(/\.md$/, '.meta.json')); } catch { /* ignore */ }
+        return reply.send({ deleted: fileName });
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply.code(404).send({ error: 'Proposal not found' });
+        }
+        throw err;
+      }
+    },
+  );
+
   // GET /proposals
   app.get(
     '/proposals',
     async (_req: FastifyRequest, reply: FastifyReply) => {
       try {
-        const entries = await readdir(outputDir);
-        const mdFiles = entries.filter((f) => f.endsWith('.md'));
         const proposals: ProposalFile[] = [];
 
-        for (const file of mdFiles) {
-          const filePath = path.join(outputDir, file);
-          const fileStat = await stat(filePath);
-
-          const match = file.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
-          const clientName = match
-            ? match[1].replace(/_/g, ' ')
-            : file.replace(/\.md$/, '');
-          const version = match?.[2] ? parseInt(match[2], 10) : null;
-
-          const meta = await readMeta(filePath);
-
-          proposals.push({
-            fileName: file,
-            client: clientName,
-            version,
-            createdAt: fileStat.mtime.toISOString(),
-            sizeBytes: fileStat.size,
-            status: meta?.status ?? null,
-            lockedSections: meta?.lockedSections ?? [],
-          });
+        // Helper: scan one directory for proposal .md files
+        async function scanProposalDir(dir: string, namespace?: string): Promise<void> {
+          let entries: string[];
+          try {
+            entries = await readdir(dir);
+          } catch {
+            return; // directory doesn't exist yet
+          }
+          const mdFiles = entries.filter(
+            (f) => f.endsWith('.md') && !f.startsWith('.'),
+          );
+          for (const file of mdFiles) {
+            const filePath = path.join(dir, file);
+            const fileStat = await stat(filePath);
+            const match = file.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
+            const clientName = match
+              ? match[1].replace(/_/g, ' ')
+              : file.replace(/\.md$/, '');
+            const version = match?.[2] ? parseInt(match[2], 10) : null;
+            const meta = await readMeta(filePath);
+            proposals.push({
+              fileName: namespace ? `${namespace}::${file}` : file,
+              client: clientName,
+              version,
+              createdAt: fileStat.mtime.toISOString(),
+              sizeBytes: fileStat.size,
+              status: meta?.status ?? null,
+              lockedSections: meta?.lockedSections ?? [],
+            });
+          }
         }
+
+        // Scan all namespace proposal dirs: workdir/namespaces/*/proposals/
+        const nsRoot = path.join(workdir, 'namespaces');
+        let namespaces: string[] = [];
+        try { namespaces = await readdir(nsRoot); } catch { /* not yet created */ }
+        for (const ns of namespaces) {
+          const nsProposalsDir = path.join(nsRoot, ns, 'proposals');
+          await scanProposalDir(nsProposalsDir, ns);
+        }
+
+        // Also scan legacy output dir so old proposals remain accessible during transition
+        await scanProposalDir(legacyOutputDir);
 
         proposals.sort(
           (a, b) =>
@@ -408,7 +564,7 @@ export function registerProposalRoutes(
         return reply.code(400).send({ error: 'Invalid file name' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await readMeta(filePath);
       if (!meta) {
         return reply.code(404).send({ error: 'No metadata found' });
@@ -433,7 +589,7 @@ export function registerProposalRoutes(
           .send({ error: 'Missing required field: section' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await ensureMeta(filePath);
 
       if (meta.status === 'finalized') {
@@ -467,7 +623,7 @@ export function registerProposalRoutes(
           .send({ error: 'Missing required field: section' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await ensureMeta(filePath);
 
       if (meta.status === 'finalized') {
@@ -501,7 +657,7 @@ export function registerProposalRoutes(
           .send({ error: 'Missing required field: status' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
       const meta = await ensureMeta(filePath);
       const newStatus = body.status as ProposalStatus;
 
@@ -527,7 +683,7 @@ export function registerProposalRoutes(
         return reply.code(400).send({ error: 'Invalid file name' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
 
       try {
         const [content, fileStat] = await Promise.all([
@@ -535,10 +691,12 @@ export function registerProposalRoutes(
           stat(filePath),
         ]);
 
-        const match = fileName.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
+        // Strip optional namespace prefix before extracting client name
+        const baseName = fileName.includes('::') ? fileName.split('::')[1] : fileName;
+        const match = baseName.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
         const client = match
           ? match[1].replace(/_/g, ' ')
-          : fileName.replace(/\.md$/, '');
+          : baseName.replace(/\.md$/, '');
 
         return reply.send({
           document: {
@@ -569,7 +727,7 @@ export function registerProposalRoutes(
         return reply.code(400).send({ error: 'Missing required field: content' });
       }
 
-      const filePath = path.join(outputDir, fileName);
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
 
       // Verify the file exists
       try {
@@ -593,6 +751,21 @@ export function registerProposalRoutes(
       const updated = await ensureMeta(filePath);
       updated.updatedAt = new Date().toISOString();
       await writeMeta(filePath, updated);
+
+      // Auto-snapshot: create version from user edit (fire-and-forget)
+      // Derive namespace from the request if available
+      const editNamespace = (req.query as Record<string, string>)?.namespace;
+      if (editNamespace) {
+        void createVersionFromEdit(
+          workdir,
+          editNamespace,
+          fileName,
+          body.content,
+          null,
+          'user',
+          'Manual edit',
+        ).catch(() => { /* non-fatal */ });
+      }
 
       return reply.send({ ok: true });
     },
@@ -618,11 +791,11 @@ export function registerProposalRoutes(
 
       try {
         const contentA = await readFile(
-          path.join(outputDir, body.fileA),
+          resolveProposalPath(body.fileA, workdir, legacyOutputDir),
           'utf-8',
         );
         const contentB = await readFile(
-          path.join(outputDir, body.fileB),
+          resolveProposalPath(body.fileB, workdir, legacyOutputDir),
           'utf-8',
         );
         const diffs = diffSections(contentA, contentB);

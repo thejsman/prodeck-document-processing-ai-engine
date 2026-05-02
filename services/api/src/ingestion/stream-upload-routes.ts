@@ -58,13 +58,16 @@ function denyNamespace(
 /** Map files.json status strings to the execution status vocabulary. */
 function mapJobStatus(status: string): string {
   switch (status) {
-    case 'uploaded':   return 'queued';
-    case 'processing': return 'running';
-    case 'indexed':    return 'completed';
-    case 'failed':     return 'failed';
-    default:           return status;
+    case 'uploaded':    return 'queued';
+    case 'processing':  return 'running';
+    case 'extracting':  return 'running';
+    case 'indexed':     return 'completed';
+    case 'extracted':   return 'completed';
+    case 'failed':      return 'failed';
+    default:            return status;
   }
 }
+
 
 // ── Route registration ────────────────────────────────────────────
 
@@ -210,4 +213,6 @@ export function registerStreamUploadRoutes(
       error:      entry.error,
     });
   });
+
 }
+

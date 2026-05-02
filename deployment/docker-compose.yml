@@ -4,6 +4,9 @@
 # Start everything:  docker compose up
 # Stop everything:   docker compose down
 # Rebuild:           docker compose up --build
+#
+# To use local Ollama instead of OpenAI:
+#   docker compose --profile ollama up
 # -------------------------------------------------------------------
 
 services:
@@ -11,6 +14,7 @@ services:
   # ── Local LLM ────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
+    profiles: ["ollama"]
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
@@ -26,6 +30,7 @@ services:
   # ── One-shot: pull models on first boot ──────────────────────────
   ollama-init:
     image: ollama/ollama:latest
+    profiles: ["ollama"]
     depends_on:
       ollama:
         condition: service_healthy
@@ -59,11 +64,6 @@ services:
     volumes:
       - engine_data:/data
       - ${API_KEYS_PATH:-../config/api_keys.example.json}:/app/config/api_keys.json:ro
-    depends_on:
-      ollama:
-        condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))\""]
       interval: 15s

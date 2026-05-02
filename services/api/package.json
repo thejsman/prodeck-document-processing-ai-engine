@@ -8,11 +8,14 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node --env-file=../../deployment/.env dist/index.js",
     "dev": "node --env-file=../../deployment/.env dist/index.js",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run"
   },
   "dependencies": {
+    "zod": "^3.23.8",
+    "@ai-engine/agent-design-editor": "workspace:*",
     "@ai-engine/agent-microsite-generator": "workspace:*",
     "@ai-engine/agent-proposal-section": "workspace:*",
     "@ai-engine/core": "workspace:*",
@@ -21,14 +24,20 @@
     "@ai-engine/runtime": "workspace:*",
     "@ai-engine/tool-extract-section": "workspace:*",
     "@ai-engine/tool-generate-content": "workspace:*",
-    "@ai-engine/tool-search-documents": "workspace:*",
     "@ai-engine/tool-generate-mermaid": "workspace:*",
     "@ai-engine/tool-save-asset": "workspace:*",
+    "@ai-engine/tool-search-documents": "workspace:*",
     "@fastify/multipart": "^9.4.0",
     "fastify": "^5.2.1",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1",
+    "pptxgenjs": "^4.0.1",
+    "puppeteer": "^24.40.0"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9"
+    "@types/js-yaml": "^4.0.9",
+    "@types/pdf-parse": "^1.1.4",
+    "vitest": "^4.0.18"
   }
 }

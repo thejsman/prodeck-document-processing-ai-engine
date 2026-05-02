@@ -6,8 +6,8 @@ export default function NamespacesPage() {
   return (
     <>
       <div className="page-header">
-        <h1>Namespaces</h1>
-        <p className="muted">Create and view namespaces for organizing documents and memory.</p>
+        <h1>Projects</h1>
+        <p className="muted">Create and view projects for organizing documents and memory.</p>
       </div>
       <NamespaceManager />
     </>

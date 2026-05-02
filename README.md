@@ -52,6 +52,8 @@ docs/                 Architecture and feature documentation
 examples/             Runnable pipeline examples
 ```
 
+---
+
 ## Quick start
 
 ```bash
@@ -101,18 +103,18 @@ node packages/cli/dist/index.js
 
 ## CLI commands
 
-| Command | Description |
-|---------|-------------|
-| `ai-engine run <pipeline> <input>` | Execute a pipeline |
-| `ai-engine ingest <path>` | Ingest documents into FAISS index |
-| `ai-engine query "<question>"` | Query the knowledge base |
-| `ai-engine eval --dataset <file>` | Evaluate retrieval & generation quality |
-| `ai-engine generate-proposal --client <n>` | Generate a structured proposal |
-| `ai-engine namespaces` | List available namespaces |
-| `ai-engine agent run <name> --namespace <ns>` | Run a named agent |
-| `ai-engine tools list` | List all registered tools |
-| `ai-engine planner simulate --task <desc>` | Simulate a multi-step tool execution plan |
-| `ai-engine` (no args) | Enter interactive REPL mode |
+| Command                                       | Description                               |
+| --------------------------------------------- | ----------------------------------------- |
+| `ai-engine run <pipeline> <input>`            | Execute a pipeline                        |
+| `ai-engine ingest <path>`                     | Ingest documents into FAISS index         |
+| `ai-engine query "<question>"`                | Query the knowledge base                  |
+| `ai-engine eval --dataset <file>`             | Evaluate retrieval & generation quality   |
+| `ai-engine generate-proposal --client <n>`    | Generate a structured proposal            |
+| `ai-engine namespaces`                        | List available namespaces                 |
+| `ai-engine agent run <name> --namespace <ns>` | Run a named agent                         |
+| `ai-engine tools list`                        | List all registered tools                 |
+| `ai-engine planner simulate --task <desc>`    | Simulate a multi-step tool execution plan |
+| `ai-engine` (no args)                         | Enter interactive REPL mode               |
 
 ## Agent system
 
@@ -123,22 +125,22 @@ Agents are task workers that orchestrate tools to accomplish goals. Each agent:
 - Accesses side effects exclusively through tools (no direct I/O)
 - Supports both planner-driven and manual tool execution
 
-| Agent | Package | Description |
-|-------|---------|-------------|
-| `proposal-section-agent` | `@ai-engine/agent-proposal-section` | Regenerate a named section of a proposal |
+| Agent                       | Package                                | Description                                                            |
+| --------------------------- | -------------------------------------- | ---------------------------------------------------------------------- |
+| `proposal-section-agent`    | `@ai-engine/agent-proposal-section`    | Regenerate a named section of a proposal                               |
 | `microsite-generator-agent` | `@ai-engine/agent-microsite-generator` | Convert proposal markdown to a presentation microsite (MDX + diagrams) |
 
 ## Tool system
 
 Tools are deterministic, single-purpose operations registered in `ToolRegistry`. Side effects are injected via constructor — tools never access the filesystem or network directly.
 
-| Tool | Package | Side Effects | Purpose |
-|------|---------|-------------|---------|
-| `extract-section` | `@ai-engine/tool-extract-section` | None (pure) | Extract named sections from markdown |
-| `search-documents` | `@ai-engine/tool-search-documents` | `queryFn` injected | FAISS RAG document search |
-| `generate-mermaid` | `@ai-engine/tool-generate-mermaid` | `generateFn` injected | LLM-based Mermaid diagram generation |
-| `generate-content` | `@ai-engine/tool-generate-content` | `generateFn` injected | LLM-based content generation |
-| `save-asset` | `@ai-engine/tool-save-asset` | `storageProviderFn` injected | Persist files to local or S3 storage |
+| Tool               | Package                            | Side Effects                 | Purpose                              |
+| ------------------ | ---------------------------------- | ---------------------------- | ------------------------------------ |
+| `extract-section`  | `@ai-engine/tool-extract-section`  | None (pure)                  | Extract named sections from markdown |
+| `search-documents` | `@ai-engine/tool-search-documents` | `queryFn` injected           | FAISS RAG document search            |
+| `generate-mermaid` | `@ai-engine/tool-generate-mermaid` | `generateFn` injected        | LLM-based Mermaid diagram generation |
+| `generate-content` | `@ai-engine/tool-generate-content` | `generateFn` injected        | LLM-based content generation         |
+| `save-asset`       | `@ai-engine/tool-save-asset`       | `storageProviderFn` injected | Persist files to local or S3 storage |
 
 ## API service
 
@@ -155,15 +157,44 @@ node services/api/dist/index.js
 PROVIDER_POLICY_PATH=config/provider_policy.json node services/api/dist/index.js
 ```
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET`  | `/health` | Health check |
-| `POST` | `/ingest` | Ingest documents into a namespace |
-| `POST` | `/query` | Query a namespace |
-| `GET`  | `/namespaces` | List accessible namespaces |
-| `POST` | `/agent/run` | Run a named agent |
-| `GET`  | `/agent/list` | List registered agents |
-| `GET`  | `/tools/list` | List registered tools |
+Namespace config is loaded from `config/namespaces/<namespace>.json`.
+
+To store generated assets in S3 and use Qdrant for vector search, create a namespace config like:
+
+```json
+{
+  "storage": {
+    "type": "s3",
+    "bucket": "your-assets-bucket",
+    "region": "ap-south-1",
+    "basePrefix": "ai-engine"
+  },
+  "vectorStore": {
+    "type": "qdrant",
+    "url": "http://localhost:6333"
+  }
+}
+```
+
+Example file:
+
+- `config/namespaces/default.s3-qdrant.example.json`
+
+Runtime env required for this setup:
+
+- `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for S3, unless your runtime uses an IAM role
+- `QDRANT_URL` optionally, if you want a global default instead of setting `vectorStore.url` per namespace
+- `OPENAI_API_KEY` or Ollama settings for embeddings and generation, depending on your LLM provider
+
+| Method | Path          | Description                       |
+| ------ | ------------- | --------------------------------- |
+| `GET`  | `/health`     | Health check                      |
+| `POST` | `/ingest`     | Ingest documents into a namespace |
+| `POST` | `/query`      | Query a namespace                 |
+| `GET`  | `/namespaces` | List accessible namespaces        |
+| `POST` | `/agent/run`  | Run a named agent                 |
+| `GET`  | `/agent/list` | List registered agents            |
+| `GET`  | `/tools/list` | List registered tools             |
 
 ## UI service
 

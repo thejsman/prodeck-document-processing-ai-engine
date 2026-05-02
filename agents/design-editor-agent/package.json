@@ -1,0 +1,17 @@
+{
+  "name": "@ai-engine/agent-design-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-driven design and content editor for presentation microsites",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ai-engine/core": "workspace:*",
+    "@ai-engine/agent-microsite-generator": "workspace:*"
+  }
+}

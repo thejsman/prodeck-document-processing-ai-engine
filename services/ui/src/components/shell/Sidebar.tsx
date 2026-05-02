@@ -1,63 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { NamespacesSection } from './NamespacesSection';
+import { Globe, FileText, MoreVertical, Layers } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 
-// ── Nav structure ─────────────────────────────────────────────────
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: string;
-}
-
-interface NavGroup {
-  /** Undefined = no label (top-level items) */
-  label?: string;
-  items: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    items: [{ href: '/', label: 'Dashboard', icon: '⊞' }],
-  },
-  {
-    label: 'WORKSPACE',
-    items: [
-      { href: '/proposal', label: 'Proposals', icon: '◧' },
-      { href: '/proposal/templates', label: 'Templates', icon: '☰' },
-      { href: '/presentation', label: 'Presentation', icon: '▣' },
-      { href: '/ingest', label: 'Ingest', icon: '⬆' },
-    ],
-  },
-  {
-    label: 'AI',
-    items: [{ href: '/chat', label: 'Chat', icon: '⌥' }],
-  },
-  {
-    label: 'ADMIN',
-    items: [{ href: '/admin', label: 'Admin', icon: '⚙' }],
-  },
+const OVERFLOW_ITEMS = [
+  { href: '/proposal/templates', label: 'Templates' },
+  { href: '/chat',               label: 'Chat' },
+  { href: '/dashboard',          label: 'Dashboard' },
 ];
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
-
-function getIsActive(href: string, pathname: string): boolean {
-  if (href === '/') return pathname === '/';
-  const matches = pathname === href || pathname.startsWith(href + '/');
-  const hasMoreSpecificChild = ALL_ITEMS.some(
-    (item) =>
-      item.href !== href &&
-      item.href.startsWith(href + '/') &&
-      (pathname === item.href || pathname.startsWith(item.href + '/')),
-  );
-  return matches && !hasMoreSpecificChild;
-}
-
-// ── Component ─────────────────────────────────────────────────────
 
 interface SidebarProps {
   mobileOpen: boolean;
@@ -65,79 +20,119 @@ interface SidebarProps {
 }
 
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
+  const { clearApiKey } = useAuth();
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  // Restore collapse preference from localStorage (client-only)
   useEffect(() => {
-    try {
-      if (localStorage.getItem('sidebar-collapsed') === 'true') {
-        setCollapsed(true);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
 
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('sidebar-collapsed', String(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-
-  const sidebarClass = ['sidebar', collapsed ? 'sidebar--collapsed' : '', mobileOpen ? 'sidebar--mobile-open' : '']
+  const sidebarClass = ['sidebar', mobileOpen ? 'sidebar--mobile-open' : '']
     .filter(Boolean)
     .join(' ');
 
   return (
     <aside className={sidebarClass}>
-      {/* Header */}
-      <div className="sidebar-header">
-        {collapsed ? <span className="sidebar-brand-icon">P</span> : <span className="sidebar-brand">ProDeck</span>}
+
+      {/* ── Header ── */}
+      <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center' }}>
+        <Link href="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>ProDeck</Link>
       </div>
 
-      {/* Navigation */}
+      {/* ── Navigation ── */}
       <nav className="sidebar-nav">
-        {NAV_GROUPS.map((group, gi) => (
-          <div key={gi} className="sidebar-group">
-            {group.label && !collapsed && <span className="sidebar-group-label">{group.label}</span>}
-            {group.items.map((item) => {
-              const active = getIsActive(item.href, pathname);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`sidebar-link${active ? ' sidebar-link--active' : ''}`}
-                  title={collapsed ? item.label : undefined}
-                  onClick={onMobileClose}
-                >
-                  <span className="sidebar-icon">{item.icon}</span>
-                  {!collapsed && <span className="sidebar-label">{item.label}</span>}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+        <div className="sidebar-group">
+          <Link
+            href="/proposal"
+            className={`sidebar-link${pathname?.startsWith('/proposal') ? ' sidebar-link--active' : ''}`}
+            onClick={onMobileClose}
+          >
+            <Icon icon={FileText} size="md" className="sidebar-icon" />
+            <span className="sidebar-label">Proposals</span>
+          </Link>
+          <Link
+            href="/presentation"
+            className={`sidebar-link${pathname?.startsWith('/presentation') ? ' sidebar-link--active' : ''}`}
+            onClick={onMobileClose}
+          >
+            <Icon icon={Globe} size="md" className="sidebar-icon" />
+            <span className="sidebar-label">Microsites</span>
+          </Link>
+          <Link
+            href="/skills"
+            className={`sidebar-link${pathname?.startsWith('/skills') ? ' sidebar-link--active' : ''}`}
+            onClick={onMobileClose}
+          >
+            <Icon icon={Layers} size="md" className="sidebar-icon" />
+            <span className="sidebar-label">Skills</span>
+          </Link>
+        </div>
+
+        <NamespacesSection onMobileClose={onMobileClose} />
       </nav>
 
-      {/* Footer toggle */}
-      <div className="sidebar-footer">
-        <button
-          className="sidebar-toggle"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand' : 'Collapse'}
-        >
-          <span className="sidebar-icon">{collapsed ? '▸' : '◂'}</span>
-          {!collapsed && <span className="sidebar-label">Collapse</span>}
-        </button>
+      {/* ── Footer ── */}
+      <div className="sidebar-footer" ref={menuRef} style={{ position: 'relative' }}>
+
+        {/* Overflow menu */}
+        {menuOpen && (
+          <div style={{
+            position: 'absolute', bottom: 'calc(100% + 4px)',
+            left: 0, right: 0,
+            background: 'var(--panel)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '4px 0', zIndex: 200,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+          }}>
+            {OVERFLOW_ITEMS.map(item => (
+              <button
+                key={item.href}
+                className="sidebar-link"
+                style={{ borderRadius: 0, height: 36, paddingLeft: 12, width: '100%', border: 'none', background: 'none', cursor: 'pointer' }}
+                onClick={() => { setMenuOpen(false); onMobileClose(); router.push(item.href); }}
+              >
+                <span className="sidebar-label" style={{ fontSize: 13 }}>{item.label}</span>
+              </button>
+            ))}
+            <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+            <button
+              className="sidebar-link"
+              style={{ borderRadius: 0, height: 36, paddingLeft: 12, width: '100%', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--danger)' }}
+              onClick={() => { setMenuOpen(false); clearApiKey(); }}
+            >
+              <span className="sidebar-label" style={{ fontSize: 13, color: 'var(--danger)' }}>Disconnect</span>
+            </button>
+          </div>
+        )}
+
+        {/* User row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--primary)', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 600, lineHeight: 1.5, letterSpacing: '0.01em',
+          }}>A</div>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 400, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            Admin
+          </span>
+          <button
+            onClick={() => setMenuOpen(v => !v)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 'auto' }}
+            aria-label="User menu"
+          >
+            <Icon icon={MoreVertical} size="md" />
+          </button>
+        </div>
       </div>
+
     </aside>
   );
 }

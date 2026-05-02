@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 interface Props {
   refreshKey: number;
   onSelect?: (file: ProposalFile) => void;
+  namespace?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -33,9 +34,9 @@ const STATUS_LABELS: Record<ProposalStatus, string> = {
   finalized: 'Final',
 };
 
-export function VersionHistory({ refreshKey, onSelect }: Props) {
+export function VersionHistory({ refreshKey, onSelect, namespace }: Props) {
   const { apiKey } = useAuth();
-  const [proposals, setProposals] = useState<ProposalFile[]>([]);
+  const [allProposals, setAllProposals] = useState<ProposalFile[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,10 +45,10 @@ export function VersionHistory({ refreshKey, onSelect }: Props) {
 
     fetchProposals(apiKey)
       .then((p) => {
-        if (!cancelled) setProposals(p);
+        if (!cancelled) setAllProposals(p);
       })
       .catch(() => {
-        if (!cancelled) setProposals([]);
+        if (!cancelled) setAllProposals([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -57,6 +58,10 @@ export function VersionHistory({ refreshKey, onSelect }: Props) {
       cancelled = true;
     };
   }, [apiKey, refreshKey]);
+
+  const proposals = namespace
+    ? allProposals.filter((p) => p.fileName.startsWith(`${namespace}::`))
+    : allProposals;
 
   return (
     <div className="card">

@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-engine/types": "workspace:*",
     "@ai-engine/core": "workspace:*",
+    "@ai-engine/plugin-sdk": "workspace:*",
     "yaml": "^2.7.0",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",

@@ -15,7 +15,7 @@ import {
 } from '@/lib/api';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 const POLL_INTERVAL_MS = 5000;
 
 function formatSize(bytes: number): string {
@@ -30,7 +30,7 @@ function isAcceptedFile(file: File): boolean {
 }
 
 function hasActiveJobs(files: IngestionFile[]): boolean {
-  return files.some((f) => f.status === 'uploaded' || f.status === 'processing');
+  return files.some((f) => f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting');
 }
 
 function StatusBadge({ status }: { status: IngestionStatus }) {
@@ -40,6 +40,16 @@ function StatusBadge({ status }: { status: IngestionStatus }) {
         <span className="spinner" style={{ width: 10, height: 10 }} /> Processing
       </span>
     );
+  }
+  if (status === 'extracting') {
+    return (
+      <span className="ingestion-badge ingestion-badge--processing">
+        <span className="spinner" style={{ width: 10, height: 10 }} /> Extracting
+      </span>
+    );
+  }
+  if (status === 'extracted') {
+    return <span className="ingestion-badge ingestion-badge--indexed">Extracted</span>;
   }
   if (status === 'indexed') {
     return <span className="ingestion-badge ingestion-badge--indexed">Indexed</span>;
@@ -169,7 +179,7 @@ export function FileUploader() {
       if (!isAcceptedFile(file)) {
         rejected.push(`${file.name} (unsupported type)`);
       } else if (file.size > MAX_FILE_SIZE) {
-        rejected.push(`${file.name} (exceeds 25 MB)`);
+        rejected.push(`${file.name} (exceeds 200 MB)`);
       } else {
         valid.push(file);
       }
@@ -265,7 +275,7 @@ export function FileUploader() {
       {/* Namespace selector */}
       <div className="card">
         <div className="form-group">
-          <label>Namespace</label>
+          <label>Project</label>
           <select
             className="select"
             value={namespace}
@@ -301,7 +311,7 @@ export function FileUploader() {
         <div className="upload-zone-content">
           <span className="upload-zone-icon">&#x21EA;</span>
           <p>Drag and drop files here, or click to browse</p>
-          <p className="muted">Accepted: .pdf, .txt, .md &mdash; Max 25 MB per file</p>
+          <p className="muted">Accepted: .pdf, .txt, .md &mdash; Max 200 MB per file</p>
         </div>
       </div>
 

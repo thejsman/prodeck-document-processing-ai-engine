@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useExecutionStore } from '@/core/execution/execution-store';
@@ -9,6 +11,8 @@ import { useAuth } from '@/lib/auth-context';
 
 interface Props {
   namespace: string;
+  /** Dynamic suggestions from the namespace intelligence scan. */
+  insights?: string[];
 }
 
 function formatAgo(ts: number): string {
@@ -18,7 +22,7 @@ function formatAgo(ts: number): string {
   return `${Math.round(diff / 3_600_000)}h ago`;
 }
 
-export function ChatContextPanel({ namespace }: Props) {
+export function ChatContextPanel({ namespace, insights }: Props) {
   const { apiKey } = useAuth();
   const router = useRouter();
   const executions = useExecutionStore((s) => s.executions);
@@ -103,15 +107,27 @@ export function ChatContextPanel({ namespace }: Props) {
           </span>
           <span className="chat-ctx-stat-label">total</span>
         </div>
-        <Link href="/proposal" className="chat-ctx-link">View all →</Link>
+        <Link href="/proposal" className="chat-ctx-link">View all <Icon icon={ArrowRight} size="xs" /></Link>
       </div>
+
+      {/* Namespace insights */}
+      {insights && insights.length > 0 && (
+        <div className="chat-ctx-section">
+          <h4 className="chat-ctx-title">Insights</h4>
+          <ul className="chat-ctx-insights-list">
+            {insights.map((s) => (
+              <li key={s} className="chat-ctx-insights-item">{s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Namespace */}
       <div className="chat-ctx-section">
-        <h4 className="chat-ctx-title">Namespace</h4>
+        <h4 className="chat-ctx-title">Project</h4>
         <span className="chat-ctx-ns-badge">{namespace || 'default'}</span>
         <Link href="/ingest" className="chat-ctx-link" style={{ display: 'block', marginTop: 8 }}>
-          Add documents →
+          Add documents <Icon icon={ArrowRight} size="xs" />
         </Link>
       </div>
     </aside>

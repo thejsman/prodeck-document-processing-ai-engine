@@ -5,6 +5,7 @@
     "rootDir": "src"
   },
   "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"],
   "references": [
     { "path": "../../packages/core" },
     { "path": "../../packages/planner" },
@@ -15,6 +16,7 @@
     { "path": "../../packages/tools/generate-mermaid" },
     { "path": "../../packages/tools/save-asset" },
     { "path": "../../agents/proposal-section-agent" },
-    { "path": "../../agents/microsite-generator-agent" }
+    { "path": "../../agents/microsite-generator-agent" },
+    { "path": "../../agents/design-editor-agent" }
   ]
 }

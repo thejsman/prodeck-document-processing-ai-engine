@@ -35,13 +35,30 @@ def extract_image_from_prompt(prompt: str):
     return prompt, None
 
 
+def strip_surrogates(text: str) -> str:
+    """Remove lone Unicode surrogates (U+D800–U+DFFF) that cannot be UTF-8 encoded.
+
+    Lone surrogates appear when the source document contains invalid UTF-8 bytes
+    decoded by Node.js as surrogate pairs.  Python's UTF-8 encoder (used by the
+    OpenAI SDK's httpx HTTP client) rejects them, causing every LLM call to fail.
+    """
+    return ''.join(c for c in text if not ('\ud800' <= c <= '\udfff'))
+
+
 def main() -> None:
     try:
-        input_data = json.load(sys.stdin)
-        raw_prompt = input_data.get("prompt", "").strip()
+        # Read stdin as binary and decode explicitly as UTF-8 (replacing bad bytes)
+        # so Windows cp1252 default encoding never causes a read-time failure.
+        raw_bytes = sys.stdin.buffer.read()
+        input_data = json.loads(raw_bytes.decode('utf-8', errors='replace'))
+        raw_prompt = strip_surrogates(input_data.get("prompt", "").strip())
 
         if not raw_prompt:
             raise ValueError("prompt is required")
+
+        temperature = input_data.get("temperature")
+        if temperature is not None:
+            temperature = float(temperature)
 
         prompt, image_data = extract_image_from_prompt(raw_prompt)
         provider = create_provider()
@@ -49,7 +66,7 @@ def main() -> None:
         if image_data and hasattr(provider, "generate_with_image"):
             result = provider.generate_with_image(prompt, image_data)
         else:
-            result = provider.generate(prompt)
+            result = provider.generate(prompt, temperature=temperature)
 
         json.dump({"result": result.strip()}, sys.stdout)
         sys.stdout.flush()

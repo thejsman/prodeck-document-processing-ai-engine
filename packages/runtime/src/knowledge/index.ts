@@ -1,9 +1,18 @@
 export {
   ingestDocuments,
   queryKnowledgeBase,
+  searchKnowledgeChunks,
   listNamespaces,
+  deleteNamespace,
+  namespaceStats,
+  type VectorStoreConfig,
   type IngestParams,
   type IngestResult,
   type QueryParams,
   type QueryResult,
+  type SearchChunksParams,
+  type SearchChunksResult,
+  type RetrievedChunk,
+  type DeleteNamespaceParams,
+  type NamespaceStatsParams,
 } from './knowledge-bridge.js';
