@@ -34,7 +34,8 @@ export function ProposalForm({
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const [client, setClient] = useState('');
-  const [industry, setIndustry] = useState('');
+  const [projectType, setProjectType] = useState('');
+  const [clientIndustry, setClientIndustry] = useState('');
   const [namespace, setNamespace] = useState('');
   const [template, setTemplate] = useState('default');
   const [overwrite, setOverwrite] = useState(false);
@@ -90,7 +91,8 @@ export function ProposalForm({
 
     const request: GenerateProposalRequest = {
       client: client.trim(),
-      industry: industry.trim() || undefined,
+      projectType: projectType.trim() || undefined,
+      clientIndustry: clientIndustry.trim() || undefined,
       namespace: namespace || undefined,
       template,
       overwrite,
@@ -136,13 +138,24 @@ export function ProposalForm({
           />
         </div>
         <div className="form-group">
-          <label>Industry</label>
+          <label>Service Type *</label>
           <input
             className="input"
             type="text"
-            placeholder="General"
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
+            placeholder="Digital Marketing"
+            value={projectType}
+            onChange={(e) => setProjectType(e.target.value)}
+            disabled={isGenerating}
+          />
+        </div>
+        <div className="form-group">
+          <label>Client Industry</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Real Estate"
+            value={clientIndustry}
+            onChange={(e) => setClientIndustry(e.target.value)}
             disabled={isGenerating}
           />
         </div>

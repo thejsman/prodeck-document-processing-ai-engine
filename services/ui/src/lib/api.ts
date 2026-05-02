@@ -61,7 +61,8 @@ export interface ProposalDocument {
 
 export interface GenerateProposalRequest {
   client: string;
-  industry?: string;
+  projectType?: string;
+  clientIndustry?: string;
   namespace?: string;
   template?: string;
   overwrite?: boolean;
