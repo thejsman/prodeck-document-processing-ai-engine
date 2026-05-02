@@ -318,12 +318,12 @@ describe('findBestMatch', () => {
     }
   });
 
-  it('matches by industry (+2 score)', async () => {
+  it('matches by clientIndustry (+1 score)', async () => {
     const result = await findBestMatch(workdir, 'Fintech');
     expect(result?.slug).toBe('fintech-skill');
   });
 
-  it('matches by projectType (+1 score)', async () => {
+  it('matches by projectType (+2 score)', async () => {
     const result = await findBestMatch(workdir, undefined, 'SaaS');
     expect(result?.slug).toBe('healthcare-skill');
   });
@@ -333,10 +333,10 @@ describe('findBestMatch', () => {
     expect(result).toBeNull();
   });
 
-  it('prefers industry match over projectType match (2 > 1)', async () => {
-    // healthcare-skill has SaaS projectType (+1), but fintech-skill has Fintech industry (+2)
+  it('prefers projectType match over clientIndustry match (2 > 1)', async () => {
+    // healthcare-skill has SaaS projectType (+2), fintech-skill has Fintech industry (+1)
     const result = await findBestMatch(workdir, 'Fintech', 'SaaS');
-    expect(result?.slug).toBe('fintech-skill');
+    expect(result?.slug).toBe('healthcare-skill');
   });
 });
 

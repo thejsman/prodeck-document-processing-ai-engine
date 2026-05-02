@@ -271,14 +271,14 @@ export async function deleteSkill(workdir: string, slug: string): Promise<void> 
 
 export async function findBestMatch(
   workdir: string,
-  industry?: string,
+  clientIndustry?: string,
   projectType?: string,
 ): Promise<Skill | null> {
   const skills = await listSkills(workdir);
   if (skills.length === 0) return null;
 
   const norm = (s: string) => s.toLowerCase().trim();
-  const indNorm = industry ? norm(industry) : null;
+  const indNorm = clientIndustry ? norm(clientIndustry) : null;
   const ptNorm = projectType ? norm(projectType) : null;
 
   let bestSlug: string | null = null;
@@ -286,21 +286,21 @@ export async function findBestMatch(
 
   for (const summary of skills) {
     let score = 0;
-    if (indNorm) {
-      const match = summary.industries.some((i) => norm(i).includes(indNorm) || indNorm.includes(norm(i)));
-      if (match) score += 2;
-    }
     if (ptNorm) {
-      // We only have SkillSummary here — load full skill for projectTypes check
+      // projectType is the primary match — load full skill for projectTypes check
       try {
         const full = await getSkill(workdir, summary.slug);
         const ptMatch = full.projectTypes.some(
           (p) => norm(p).includes(ptNorm) || ptNorm.includes(norm(p)),
         );
-        if (ptMatch) score += 1;
+        if (ptMatch) score += 2;
       } catch {
         // skip
       }
+    }
+    if (indNorm) {
+      const match = summary.industries.some((i) => norm(i).includes(indNorm) || indNorm.includes(norm(i)));
+      if (match) score += 1;
     }
     if (score > bestScore) {
       bestScore = score;
