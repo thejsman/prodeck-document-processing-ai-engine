@@ -412,6 +412,37 @@ export class ContextService {
     await this.save(namespace, current);
   }
 
+  async removeFileContributions(namespace: string, fileName: string): Promise<void> {
+    const current = await this.get(namespace);
+    if (!current) return;
+
+    // Remove knowledge entries sourced from this file
+    current.knowledge = current.knowledge.filter(
+      (k) => k.source.fileName !== fileName,
+    );
+
+    // Remove sources record for this file
+    current.sources = current.sources.filter((s) => s.fileName !== fileName);
+
+    // Remove scalar/array requirement fields that came solely from this file
+    for (const key of Object.keys(current.requirements.fields) as RequirementKey[]) {
+      const field = current.requirements.fields[key];
+      if (field?.source === 'document' && field.sourceFile === fileName) {
+        delete current.requirements.fields[key];
+      }
+    }
+    for (const key of Object.keys(current.requirements.customFields)) {
+      const field = current.requirements.customFields[key];
+      if (field?.source === 'document' && field.sourceFile === fileName) {
+        delete current.requirements.customFields[key];
+      }
+    }
+
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+  }
+
   async reset(namespace: string): Promise<void> {
     await this.save(namespace, this.createEmpty(namespace));
   }
