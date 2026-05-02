@@ -14,7 +14,7 @@ import path from 'node:path';
 // Types
 // ---------------------------------------------------------------------------
 
-export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'failed';
+export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extracting' | 'extracted' | 'failed';
 
 export interface IngestionFile {
   fileName: string;
@@ -48,6 +48,7 @@ export async function loadFilesIndex(
 ): Promise<IngestionFile[]> {
   try {
     const raw = await readFile(filesIndexPath(workdir, namespace), 'utf-8');
+    if (!raw.trim()) return [];
     return JSON.parse(raw) as IngestionFile[];
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -137,7 +138,8 @@ export async function recoverInterruptedJobs(
   const nsRoot = path.join(workdir, 'namespaces');
   let namespaces: string[];
   try {
-    namespaces = await readdir(nsRoot);
+    const entries = await readdir(nsRoot, { withFileTypes: true });
+    namespaces = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
     return; // no namespaces dir yet
   }

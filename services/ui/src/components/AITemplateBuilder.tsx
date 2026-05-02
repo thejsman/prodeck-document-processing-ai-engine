@@ -2,22 +2,18 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { generateTemplate, modifyTemplate } from '@/lib/api';
+import { generateTemplate } from '@/lib/api';
 
 interface Props {
-  /** Current YAML content in the editor — used as context for modify. */
-  currentYaml: string;
   /** Called when the AI produces YAML to inject into the editor. */
   onYamlGenerated: (yaml: string) => void;
 }
 
-export function AITemplateBuilder({ currentYaml, onYamlGenerated }: Props) {
+export function AITemplateBuilder({ onYamlGenerated }: Props) {
   const { apiKey } = useAuth();
 
   const [prompt, setPrompt] = useState('');
-  const [instruction, setInstruction] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [modifying, setModifying] = useState(false);
   const [error, setError] = useState('');
 
   const handleGenerate = async () => {
@@ -33,31 +29,13 @@ export function AITemplateBuilder({ currentYaml, onYamlGenerated }: Props) {
       setGenerating(false);
     }
   };
-
-  const handleModify = async () => {
-    if (!apiKey || !instruction.trim()) return;
-    if (!currentYaml.trim()) {
-      setError('No template loaded in editor to modify');
-      return;
-    }
-    setModifying(true);
-    setError('');
-    try {
-      const yaml = await modifyTemplate(apiKey, currentYaml, instruction.trim());
-      onYamlGenerated(yaml);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setModifying(false);
-    }
-  };
-
+//test commit
   return (
     <div className="ai-builder card">
       <div className="ai-builder-header">
         <h3>AI Template Builder</h3>
         <p className="muted">
-          Describe what you need and let AI generate or modify a template.
+          Describe what you need and let AI generate a template.
         </p>
       </div>
 
@@ -77,34 +55,9 @@ export function AITemplateBuilder({ currentYaml, onYamlGenerated }: Props) {
         <button
           className="btn btn-primary ai-builder-btn"
           onClick={handleGenerate}
-          disabled={!prompt.trim() || generating || modifying}
+          disabled={!prompt.trim() || generating}
         >
           {generating ? <><span className="spinner" /> Generating…</> : 'Generate Template'}
-        </button>
-      </div>
-
-      {/* Divider */}
-      <div className="ai-builder-divider" />
-
-      {/* Modify section */}
-      <div className="ai-builder-section">
-        <label className="ai-builder-label" htmlFor="ai-instruction">
-          Modify current template
-        </label>
-        <textarea
-          id="ai-instruction"
-          className="ai-builder-textarea"
-          value={instruction}
-          onChange={(e) => setInstruction(e.target.value)}
-          placeholder='e.g. "Add a pricing section" or "Shorten all instructions"'
-          rows={2}
-        />
-        <button
-          className="btn ai-builder-btn"
-          onClick={handleModify}
-          disabled={!instruction.trim() || !currentYaml.trim() || generating || modifying}
-        >
-          {modifying ? <><span className="spinner" /> Applying…</> : 'Apply Change'}
         </button>
       </div>
 

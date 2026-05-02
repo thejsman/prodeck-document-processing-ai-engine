@@ -3,127 +3,154 @@
 import type { PluginTokens, WhyUsContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, Body, Label } from '../shared/Typography';
 import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
-import { ThemedMermaid } from '../shared/ThemedMermaid';
+import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
+import { rt } from '../shared/Typography';
 
 interface Props {
   content: WhyUsContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-export function WhyUsSection({ content, tokens, index }: Props) {
+export function WhyUsSection({ content, tokens }: Props) {
+  const stats = Array.isArray(content.stats) ? content.stats : content.stats ? [content.stats] : [];
+  const accentRgb = tokens.accentRgb ?? '99,179,237';
+
   return (
     <section
       id="whyus"
       style={{
         position: 'relative',
-        padding: 'clamp(4rem, 8vw, 7rem) 2rem',
+        padding: 'clamp(5rem, 10vw, 8rem) 2rem',
         background: getSectionGradient('whyus', tokens),
         overflow: 'hidden',
       }}
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div style={{ position: 'absolute', right: '-3%', bottom: '5%', fontFamily: `'${tokens.heroFont}', serif`, fontSize: 'clamp(8rem, 18vw, 16rem)', fontWeight: tokens.heroWeight, color: tokens.text, opacity: 0.02, lineHeight: 1, pointerEvents: 'none', zIndex: 1 }}>
-        {String(index + 1).padStart(2, '0')}
-      </div>
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 880, margin: '0 auto' }}>
 
-      <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
+        {/* Section header — left-aligned, typographic */}
         <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
-        </Reveal>
+          <div style={{ marginBottom: 'clamp(3rem, 6vw, 5rem)' }}>
+            <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+              <span {...rt(content.eyebrow ?? '')} style={{
+                fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                fontSize: '0.62rem', fontWeight: 700,
+                letterSpacing: '0.18em', textTransform: 'uppercase' as const,
+                color: tokens.accent, display: 'block', marginBottom: 20,
+              }} />
+            </InlineEditable>
 
-        <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 12 }}>
-            {content.headline}
-          </Headline>
-        </Reveal>
-
-        <Reveal delay={160}>
-          <Body tokens={tokens} style={{ maxWidth: 640, marginBottom: 48 }}>
-            {content.body}
-          </Body>
-        </Reveal>
-
-        {/* Stats grid with AnimatedCounter */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min((content.stats ?? []).length, 4)}, 1fr)`,
-            gap: 'clamp(1rem, 2vw, 2rem)',
-          }}
-        >
-          {(content.stats ?? []).map((stat, si) => (
-            <Reveal key={si} delay={240 + si * 80}>
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '32px 20px',
-                  borderRadius: 12,
-                  border: `1px solid ${tokens.border}`,
-                  background: tokens.surfaceCard,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Top accent line */}
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: '20%',
-                  right: '20%',
-                  height: 2,
-                  background: `linear-gradient(90deg, transparent, ${tokens.accent}, transparent)`,
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 'clamp(2rem, 5vw, 4rem)',
+              alignItems: 'end',
+            }}>
+              <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+                <h2 {...rt(content.headline ?? '')} style={{
+                  fontFamily: `'${tokens.heroFont}', serif`,
+                  fontWeight: Number(tokens.heroWeight) || 700,
+                  fontSize: 'clamp(2rem, 4vw, 3.2rem)',
+                  lineHeight: 1.1, letterSpacing: '-0.03em',
+                  color: tokens.text, margin: 0,
                 }} />
+              </InlineEditable>
 
-                <div
-                  style={{
+              <InlineEditable field="body" label="Body" value={content.body ?? ''} multiline>
+                <p {...rt(content.body ?? '')} style={{
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  fontSize: '1rem', lineHeight: 1.75,
+                  color: tokens.textMuted, margin: 0,
+                }} />
+              </InlineEditable>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: tokens.border, marginBottom: 'clamp(2.5rem, 5vw, 4rem)' }} />
+
+        {/* Stats — numbered list, open, no cards */}
+        <div>
+          {stats.map((stat, si) => (
+            <Reveal key={si} delay={100 + si * 80}>
+              <InlineArrayItem arrayPath="stats" index={si} total={stats.length}>
+                <div style={{
+                  position: 'relative',
+                  display: 'grid',
+                  gridTemplateColumns: '72px 1fr 1fr',
+                  gap: 'clamp(1rem, 3vw, 2.5rem)',
+                  alignItems: 'start',
+                  paddingBottom: 'clamp(1.5rem, 3vw, 2.5rem)',
+                  marginBottom: si < stats.length - 1 ? 'clamp(1.5rem, 3vw, 2.5rem)' : 0,
+                  borderBottom: si < stats.length - 1 ? `1px solid ${tokens.border}` : 'none',
+                }}>
+                  {/* Left: large ordinal number */}
+                  <div style={{
                     fontFamily: `'${tokens.heroFont}', serif`,
-                    fontWeight: tokens.heroWeight,
-                    fontSize: 'clamp(2rem, 4vw, 3rem)',
-                    lineHeight: 1,
-                    color: tokens.accent,
-                    marginBottom: 10,
-                  }}
-                >
-                  <AnimatedCounter value={stat.number} />
-                </div>
-                <div
-                  style={{
-                    fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                    fontSize: 'clamp(1.1rem, 2vw, 1.4rem)',
                     fontWeight: 700,
-                    fontSize: '0.8rem',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase' as const,
-                    color: tokens.text,
-                    marginBottom: 8,
-                  }}
-                >
-                  {stat.label}
+                    color: si === 0 ? tokens.accent : `rgba(${accentRgb},0.3)`,
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1,
+                    paddingTop: 4,
+                  }}>
+                    {String(si + 1).padStart(2, '0')}
+                  </div>
+
+                  {/* Centre: stat number + label */}
+                  <div>
+                    <InlineEditable field={`stats.${si}.number`} label="Number" value={stat.number ?? ''}>
+                      <div style={{
+                        fontFamily: `'${tokens.heroFont}', serif`,
+                        fontWeight: 800,
+                        fontSize: 'clamp(2.2rem, 4.5vw, 3.5rem)',
+                        lineHeight: 1, letterSpacing: '-0.04em',
+                        color: tokens.text,
+                        marginBottom: 8,
+                      }}>
+                        <AnimatedCounter value={stat.number} />
+                      </div>
+                    </InlineEditable>
+                    <InlineEditable field={`stats.${si}.label`} label="Label" value={stat.label ?? ''}>
+                      <div {...rt(stat.label ?? '')} style={{
+                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                        fontWeight: 600, fontSize: '0.75rem',
+                        letterSpacing: '0.1em', textTransform: 'uppercase' as const,
+                        color: tokens.accent,
+                      }} />
+                    </InlineEditable>
+                  </div>
+
+                  {/* Right: context */}
+                  <InlineEditable field={`stats.${si}.context`} label="Context" value={stat.context ?? ''} multiline>
+                    <p {...rt(stat.context ?? '')} style={{
+                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                      fontSize: '0.95rem', lineHeight: 1.75,
+                      color: tokens.textMuted, margin: 0,
+                      paddingTop: 6,
+                    }} />
+                  </InlineEditable>
                 </div>
-                <Body tokens={tokens} style={{ fontSize: '0.8rem' }}>
-                  {stat.context}
-                </Body>
-              </div>
+              </InlineArrayItem>
             </Reveal>
           ))}
         </div>
 
-        {content.diagram && (
-          <div style={{ marginTop: 'clamp(2.5rem, 5vw, 4rem)', maxWidth: 520, margin: 'clamp(2.5rem, 5vw, 4rem) auto 0' }}>
-            <ThemedMermaid
-              diagram={content.diagram}
-              tokens={tokens}
-              delay={240 + Math.min((content.stats?.length ?? 3), 4) * 80 + 80}
-            />
-          </div>
-        )}
+        <div style={{ marginTop: 16 }}>
+          <InlineAddItem
+            arrayPath="stats"
+            template={{ number: '0', label: 'New stat', context: 'Context…' }}
+            label="Add stat"
+          />
+        </div>
       </div>
     </section>
   );

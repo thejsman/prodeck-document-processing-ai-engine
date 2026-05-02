@@ -2,6 +2,7 @@
 
 export type SectionType =
   | 'hero'
+  | 'overview'
   | 'challenge'
   | 'approach'
   | 'deliverables'
@@ -14,6 +15,15 @@ export type SectionType =
   | 'benefits'
   | 'problem'
   | 'stats'
+  | 'metrics'
+  | 'security'
+  | 'techstack'
+  | 'testing'
+  | 'faq'
+  | 'team'
+  | 'comparison'
+  | 'casestudy'
+  | 'approval'
   | 'generic';
 
 // ── Parsed markdown structures ───────────────────────────────────────────────
@@ -52,6 +62,16 @@ export interface BrandConfig {
   logoText: string;
   primaryColor: string;
   secondaryColor: string;
+  // Design token override fields (populated by extractDesignTokens when fullDesignPrompt is present)
+  overrideTheme?: boolean;
+  extractedCssVariables?: Record<string, string>;
+  googleFontsUrl?: string | null;
+  fontFaceDeclarations?: string;
+  animationStyle?: string;
+  gradientsEnabled?: boolean;
+  decorativeEnabled?: boolean;
+  borderRadiusStyle?: string;
+  themeClass?: string;
 }
 
 // ── Plugin token schema ──────────────────────────────────────────────────────
@@ -83,10 +103,10 @@ export interface PluginTokens {
   cardShadow: string;
   cardShadowHover: string;
   // Design control tokens (LLM-synthesized, optional)
+  iconBg?: string;
   borderRadius?: string;
   buttonStyle?: string;
   density?: string;
-  iconBg?: string;
 }
 
 export interface PluginMeta {
@@ -117,6 +137,15 @@ export interface AIBrief {
 
 // ── Section content shapes (Pass 2 output) ───────────────────────────────────
 
+export interface OverviewContent {
+  eyebrow: string;
+  headline: string;
+  body: string;
+  subheadline?: string;
+  highlights: Array<{ label: string; value: string }>;
+  imageQuery: string;
+}
+
 export interface HeroContent {
   eyebrow: string;
   headline: string;
@@ -127,6 +156,7 @@ export interface HeroContent {
   imageQuery: string;
   ctaTarget?: string;           // section type or slug to scroll to on primary CTA tap
   ctaSecondaryTarget?: string;  // section type or slug for secondary CTA
+  diagram?: string;
 }
 
 export interface ChallengeContent {
@@ -136,6 +166,7 @@ export interface ChallengeContent {
   pullquote: string;
   imageQuery: string;
   diagram?: string;
+  highlights?: Array<{ title: string; subtitle?: string }>;
 }
 
 export interface ApproachPillar {
@@ -157,6 +188,7 @@ export interface DeliverableItem {
   iconHint: string;
   name: string;
   detail: string;
+  tag?: string;
 }
 
 export interface DeliverablesContent {
@@ -164,6 +196,7 @@ export interface DeliverablesContent {
   headline: string;
   items: DeliverableItem[];
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface TimelinePhase {
@@ -171,6 +204,8 @@ export interface TimelinePhase {
   duration: string;
   name: string;
   description: string;
+  outcomes?: string[];
+  deliverables?: string[];
 }
 
 export interface TimelineContent {
@@ -180,6 +215,7 @@ export interface TimelineContent {
   phases: TimelinePhase[];
   imageQuery: string;
   diagram?: string;
+  summary?: Array<{ number: string; label: string }>;
 }
 
 export interface PricingContent {
@@ -208,14 +244,22 @@ export interface WhyUsContent {
   diagram?: string;
 }
 
+export interface NextStep {
+  stepNumber: string;
+  title: string;
+  description: string;
+}
+
 export interface NextStepsContent {
   eyebrow: string;
   headline: string;
   body: string;
+  steps?: NextStep[];
   ctaPrimary: string;
   ctaSecondary: string;
   urgencyNote: string | null;
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface GenericContent {
@@ -223,6 +267,12 @@ export interface GenericContent {
   headline: string;
   body: string;
   imageQuery: string;
+  diagram?: string;
+  highlights?: Array<{ title: string; subtitle?: string }>;
+  items?: Array<{ name: string; detail?: string; iconHint?: string }>;
+  pillars?: Array<{ name: string; description?: string; iconHint?: string }>;
+  /** Layout variant hint from agent — overrides content-aware auto-selection */
+  layout?: 'bento' | 'editorial' | 'icon-cards' | 'two-panel' | 'split' | 'timeline-steps';
 }
 
 export interface TestimonialItem {
@@ -243,8 +293,9 @@ export interface ShowcaseContent {
   headline: string;
   subheadline: string;
   body: string;
-  highlights: string[];
+  highlights: string[] | Array<{ title: string; subtitle?: string }>;
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface BenefitItem {
@@ -257,6 +308,7 @@ export interface BenefitsContent {
   eyebrow: string;
   headline: string;
   items: BenefitItem[];
+  diagram?: string;
 }
 
 export interface ProblemContent {
@@ -265,6 +317,7 @@ export interface ProblemContent {
   body: string;
   painPoints: string[];
   imageQuery: string;
+  diagram?: string;
 }
 
 export interface StatItem {
@@ -277,6 +330,7 @@ export interface StatsContent {
   eyebrow: string;
   headline: string;
   stats: StatItem[];
+  diagram?: string;
 }
 
 export interface MetricsContent {
@@ -284,6 +338,7 @@ export interface MetricsContent {
   headline: string;
   stats: StatItem[];
   strategies?: string[];
+  diagram?: string;
 }
 
 export interface SecurityItem {
@@ -296,6 +351,7 @@ export interface SecurityContent {
   eyebrow: string;
   headline: string;
   items: SecurityItem[];
+  diagram?: string;
 }
 
 export interface TechStackCategory {
@@ -308,6 +364,7 @@ export interface TechStackContent {
   eyebrow: string;
   headline: string;
   categories: TechStackCategory[];
+  diagram?: string;
 }
 
 export interface TestingLayer {
@@ -327,10 +384,89 @@ export interface TestingContent {
   headline: string;
   layers: TestingLayer[];
   additionalInfo?: TestingAdditionalInfo[];
+  diagram?: string;
+}
+
+// ── FAQ ──────────────────────────────────────────────────────────────────────
+
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
+export interface FaqContent {
+  eyebrow: string;
+  headline: string;
+  subheadline?: string;
+  items: FaqItem[];
+}
+
+// ── Team ─────────────────────────────────────────────────────────────────────
+
+export interface TeamMember {
+  name: string;
+  role: string;
+  bio: string;
+  iconHint: string;
+}
+
+export interface TeamContent {
+  eyebrow: string;
+  headline: string;
+  subheadline?: string;
+  members: TeamMember[];
+  imageQuery: string;
+}
+
+// ── Comparison ───────────────────────────────────────────────────────────────
+
+export interface ComparisonRow {
+  feature: string;
+  us: string;
+  them: string;
+}
+
+export interface ComparisonContent {
+  eyebrow: string;
+  headline: string;
+  subheadline?: string;
+  usLabel: string;
+  themLabel: string;
+  rows: ComparisonRow[];
+  imageQuery: string;
+}
+
+// ── Case Study ───────────────────────────────────────────────────────────────
+
+export interface CaseStudyMetric {
+  value: string;
+  label: string;
+}
+
+export interface CaseStudyContent {
+  eyebrow: string;
+  headline: string;
+  challenge: string;
+  solution: string;
+  outcome: string;
+  metrics: CaseStudyMetric[];
+  imageQuery: string;
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+
+export interface ApprovalContent {
+  eyebrow: string;
+  headline: string;
+  subheadline: string;
+  termsText?: string;
+  ctaLabel?: string;
+  imageQuery: string;
 }
 
 export type SectionContent =
   | HeroContent
+  | OverviewContent
   | ChallengeContent
   | ApproachContent
   | DeliverablesContent
@@ -347,6 +483,11 @@ export type SectionContent =
   | SecurityContent
   | TechStackContent
   | TestingContent
+  | FaqContent
+  | TeamContent
+  | ComparisonContent
+  | CaseStudyContent
+  | ApprovalContent
   | GenericContent;
 
 // ── Layout AST ───────────────────────────────────────────────────────────────
@@ -357,10 +498,24 @@ export interface LayoutSection {
   sectionType: SectionType;
   content: SectionContent;
   image: {
-    source: 'unsplash' | 'gradient';
+    source: 'unsplash' | 'gradient' | 'custom';
     query: string;
     url: string | null;
     fallback: 'gradient-mesh';
+  };
+  /** Optional per-section background color override (set via inline editor) */
+  bgColor?: string;
+  /** Per-section title (h1/h2) font-size multiplier (0.5 – 2.0, default 1). */
+  titleScale?: number;
+  /** Per-section body text font-size multiplier (0.5 – 2.0, default 1). */
+  contentScale?: number;
+  /** Optional embedded media (YouTube, Loom, or custom iframe) */
+  embed?: { url: string; title?: string };
+  /** Optional image overlay effect applied on top of the background image */
+  imageOverlay?: {
+    type: 'gradient' | 'duotone' | 'vignette' | 'tint';
+    color?: string;
+    opacity?: number;
   };
   editable: boolean;
   version: number;
@@ -398,6 +553,19 @@ export interface LayoutAST {
     parallax?: boolean;
     scrollEffects?: 'none' | 'fade-in' | 'slide-up';
   };
+  /** Per-section animation overrides keyed by section.id */
+  sectionAnimations?: Record<string, 'fadeUp' | 'slideLeft' | 'scale' | 'staggerWave' | 'counterRollup' | 'none'>;
+  /** SVG divider shape rendered between sections */
+  dividerStyle?: 'none' | 'wave' | 'diagonal' | 'curve' | 'zigzag';
+  /** Floating decorative element layer applied to sections */
+  decorations?: {
+    style: 'orbs' | 'dots' | 'grid' | 'geometric' | 'none';
+    opacity?: number;
+    /** Section ids to apply decorations to; omit for all sections */
+    sections?: string[];
+  };
+  /** Hover micro-interaction tier for cards, stats, testimonials */
+  hoverStyle?: 'none' | 'subtle' | 'lift' | 'glow' | 'tilt';
 }
 
 // ── Icon hint type ───────────────────────────────────────────────────────────

@@ -1,17 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { FileText, Loader2, Upload, X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
-import {
-  uploadKnowledgeFiles,
-  fetchKnowledgeFiles,
-  type KnowledgeUploadResult,
-  type IngestionFile,
-} from '@/lib/api';
+import { uploadKnowledgeFiles } from '@/lib/api';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const POLL_INTERVAL_MS = 3000;
+const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,56 +21,28 @@ function isAcceptedFile(file: File): boolean {
   return ACCEPTED_EXTENSIONS.includes(ext);
 }
 
-function hasActiveJobs(files: IngestionFile[]): boolean {
-  return files.some((f) => f.status === 'uploaded' || f.status === 'processing');
-}
-
 interface Props {
   namespace: string;
   onClose: () => void;
+  onUploaded?: () => void;
 }
 
 type UploadState = 'idle' | 'uploading' | 'queued' | 'error';
 
-export function ChatUploadDrawer({ namespace, onClose }: Props) {
+export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
   const { apiKey } = useAuth();
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [state, setState] = useState<UploadState>('idle');
   const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState<KnowledgeUploadResult | null>(null);
   const [error, setError] = useState('');
-  const [indexingFiles, setIndexingFiles] = useState<IngestionFile[]>([]);
 
-  // Poll while indexing jobs are active
+  // Close the modal as soon as upload is queued — indexing is tracked in the right panel
   useEffect(() => {
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-
-    if (state === 'queued' && hasActiveJobs(indexingFiles)) {
-      pollTimerRef.current = setInterval(async () => {
-        if (!apiKey || !namespace) return;
-        try {
-          const fetched = await fetchKnowledgeFiles(apiKey, namespace);
-          setIndexingFiles(fetched);
-          if (!hasActiveJobs(fetched) && pollTimerRef.current) {
-            clearInterval(pollTimerRef.current);
-            pollTimerRef.current = null;
-          }
-        } catch { /* ignore */ }
-      }, POLL_INTERVAL_MS);
-    }
-
-    return () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-    };
-  }, [state, indexingFiles, apiKey, namespace]);
+    if (state === 'queued') onClose();
+  }, [state, onClose]);
 
   // File selection
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -81,7 +50,7 @@ export function ChatUploadDrawer({ namespace, onClose }: Props) {
     const rejected: string[] = [];
     for (const f of Array.from(incoming)) {
       if (!isAcceptedFile(f)) rejected.push(f.name);
-      else if (f.size > MAX_FILE_SIZE) rejected.push(`${f.name} (too large)`);
+      else if (f.size > MAX_FILE_SIZE) rejected.push(`${f.name} (exceeds 200 MB)`);
       else valid.push(f);
     }
     if (rejected.length) setError(`Rejected: ${rejected.join(', ')}`);
@@ -115,15 +84,11 @@ export function ChatUploadDrawer({ namespace, onClose }: Props) {
     setState('uploading');
     setProgress(0);
     setError('');
-    setResult(null);
     try {
-      const res = await uploadKnowledgeFiles(apiKey, namespace || 'default', files, setProgress);
-      setResult(res);
-      setState('queued');
+      await uploadKnowledgeFiles(apiKey, namespace || 'default', files, setProgress);
+      onUploaded?.();
+      setState('queued'); // triggers auto-close via useEffect
       setFiles([]);
-      // Fetch initial indexing state
-      const fetched = await fetchKnowledgeFiles(apiKey, namespace || 'default');
-      setIndexingFiles(fetched);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setState('error');
@@ -139,128 +104,230 @@ export function ChatUploadDrawer({ namespace, onClose }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const activeCount = indexingFiles.filter(
-    (f) => f.status === 'uploaded' || f.status === 'processing',
-  ).length;
-  const indexedCount = indexingFiles.filter((f) => f.status === 'indexed').length;
+  const modal = (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 20000,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+        backdropFilter: 'blur(4px)',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        background: 'var(--panel)',
+        border: '1px solid var(--border)',
+        borderRadius: 16,
+        width: 'min(480px, 92vw)',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
 
-  return (
-    <div className="chat-upload-drawer">
-      {/* Header */}
-      <div className="chat-upload-header">
-        <div>
-          <span className="chat-upload-title">Upload to namespace</span>
-          <code className="chat-upload-ns">{namespace || 'default'}</code>
-        </div>
-        <button className="chat-upload-close" onClick={onClose} aria-label="Close">
-          ×
-        </button>
-      </div>
-
-      {/* Drop zone */}
-      {state !== 'queued' && (
-        <div
-          className={`chat-upload-zone${dragActive ? ' chat-upload-zone--active' : ''}`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => inputRef.current?.click()}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept=".pdf,.txt,.md"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              if (e.target.files) addFiles(e.target.files);
-              e.target.value = '';
+        {/* ── Header ── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '18px 20px 16px',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: 'var(--primary-dim)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <Icon icon={Upload} size="sm" style={{ color: 'var(--primary)' }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>
+              Ingest Files
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
+              Namespace: <span style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", color: 'var(--text)', opacity: 0.8 }}>{namespace || 'default'}</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--muted)', padding: 6, borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
             }}
-          />
-          <span className="chat-upload-icon">&#x21EA;</span>
-          <p>Drop files here or <span className="chat-upload-link">browse</span></p>
-          <p className="muted" style={{ fontSize: 11 }}>.pdf .txt .md — max 25 MB</p>
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-dim)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+          >
+            <Icon icon={X} size="md" />
+          </button>
         </div>
-      )}
 
-      {/* File list */}
-      {files.length > 0 && state !== 'uploading' && (
-        <ul className="chat-upload-file-list">
-          {files.map((f) => (
-            <li key={f.name} className="chat-upload-file-item">
-              <span className="chat-upload-file-name">{f.name}</span>
-              <span className="muted" style={{ fontSize: 11 }}>{formatSize(f.size)}</span>
+        {/* ── Body ── */}
+        <div style={{ padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Drop zone */}
+          {state !== 'uploading' && (
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => inputRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: 12,
+                padding: '32px 20px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s, background 0.15s',
+                background: dragActive ? 'var(--primary-dim)' : 'transparent',
+              }}
+            >
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept=".pdf,.txt,.md"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  if (e.target.files) addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: 'var(--primary-dim)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 12px',
+              }}>
+                <Icon icon={Upload} size="md" style={{ color: 'var(--primary)' }} />
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
+                Drop files here or <span style={{ color: 'var(--primary)' }}>browse</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                .pdf, .txt, .md — up to 200 MB each
+              </div>
+            </div>
+          )}
+
+          {/* File list */}
+          {files.length > 0 && state === 'idle' && (
+            <div style={{
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              overflow: 'hidden',
+            }}>
+              {files.map((f, i) => (
+                <div
+                  key={f.name}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 12px',
+                    borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                    background: 'var(--panel)',
+                  }}
+                >
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 6,
+                    background: 'var(--primary-dim)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <Icon icon={FileText} size="sm" style={{ color: 'var(--primary)' }} />
+                  </div>
+                  <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                    {f.name}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
+                    {formatSize(f.size)}
+                  </span>
+                  <button
+                    onClick={() => removeFile(f.name)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--muted)', padding: 2, borderRadius: 4,
+                      display: 'flex', alignItems: 'center', flexShrink: 0,
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+                    aria-label={`Remove ${f.name}`}
+                  >
+                    <Icon icon={X} size="sm" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Upload progress */}
+          {state === 'uploading' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
+                <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+                Uploading…
+                <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{progress}%</span>
+              </div>
+              <div style={{ height: 4, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary)', borderRadius: 99, transition: 'width 0.2s ease' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div style={{
+              fontSize: 13, color: 'var(--danger)',
+              padding: '10px 12px', borderRadius: 8,
+              background: 'color-mix(in srgb, var(--danger) 10%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--danger) 25%, transparent)',
+            }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{
+          padding: '16px 20px 20px',
+          display: 'flex', gap: 8, justifyContent: 'flex-end',
+          marginTop: 6,
+        }}>
+          {(state === 'idle' || state === 'error') && (
+            <>
               <button
-                className="chat-upload-remove"
-                onClick={() => removeFile(f.name)}
+                className="btn btn-sm"
+                onClick={onClose}
+                style={{ height: 36, padding: '0 16px', fontSize: 13 }}
               >
-                ×
+                Cancel
               </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Upload progress */}
-      {state === 'uploading' && (
-        <div className="chat-upload-progress">
-          <p className="muted"><span className="spinner" style={{ width: 12, height: 12 }} /> Uploading…</p>
-          <div className="upload-progress-track" style={{ marginTop: 6 }}>
-            <div className="upload-progress-bar" style={{ width: `${progress}%` }} />
-          </div>
-          <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>{progress}%</p>
-        </div>
-      )}
-
-      {/* Queued state */}
-      {state === 'queued' && result && (
-        <div className="chat-upload-success">
-          <p>
-            <strong>{result.queued.length}</strong> file{result.queued.length !== 1 ? 's' : ''} queued for indexing.
-          </p>
-          {activeCount > 0 && (
-            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              <span className="spinner" style={{ width: 10, height: 10 }} /> {activeCount} indexing…
-            </p>
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={handleUpload}
+                disabled={files.length === 0}
+                style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: files.length === 0 ? 0.45 : 1, cursor: files.length === 0 ? 'not-allowed' : 'pointer' }}
+              >
+                {state === 'error' ? 'Retry' : `Upload${files.length > 0 ? ` (${files.length})` : ''}`}
+              </button>
+            </>
           )}
-          {activeCount === 0 && indexedCount > 0 && (
-            <p style={{ fontSize: 12, marginTop: 4, color: 'var(--color-success)' }}>
-              All files indexed.
-            </p>
+          {state === 'uploading' && (
+            <button
+              className="btn btn-sm"
+              disabled
+              style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: 0.5 }}
+            >
+              Uploading…
+            </button>
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button className="btn btn-sm" onClick={() => { setState('idle'); setResult(null); }}>
-              Upload more
-            </button>
-            <button className="btn btn-sm btn-primary" onClick={onClose} style={{ width: 'auto' }}>
-              Done
-            </button>
-          </div>
         </div>
-      )}
 
-      {/* Error */}
-      {error && <p className="error" style={{ marginTop: 6, fontSize: 12 }}>{error}</p>}
-
-      {/* Upload button */}
-      {files.length > 0 && state === 'idle' && (
-        <button
-          className="btn btn-primary"
-          onClick={handleUpload}
-          style={{ marginTop: 8, width: '100%' }}
-        >
-          Upload &amp; Index ({files.length} file{files.length !== 1 ? 's' : ''})
-        </button>
-      )}
-      {files.length > 0 && state === 'error' && (
-        <button
-          className="btn btn-primary"
-          onClick={handleUpload}
-          style={{ marginTop: 8, width: '100%' }}
-        >
-          Retry Upload
-        </button>
-      )}
+      </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }

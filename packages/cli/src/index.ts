@@ -6,6 +6,7 @@ import { query } from './commands/query.js';
 import { namespaces } from './commands/namespaces.js';
 import { evaluate } from './commands/eval.js';
 import { generateProposal } from './commands/generate-proposal.js';
+import { generateMicrosite } from './commands/generate-microsite.js';
 import { interactive } from './commands/interactive.js';
 import { agent } from './commands/agent-run.js';
 import { tools } from './commands/tools.js';
@@ -19,6 +20,7 @@ const COMMANDS: Readonly<Record<string, (args: readonly string[]) => Promise<voi
   namespaces,
   eval: evaluate,
   'generate-proposal': generateProposal,
+  'generate-microsite': generateMicrosite,
   agent,
   tools,
   planner,
@@ -47,6 +49,7 @@ async function main(): Promise<void> {
     process.stderr.write('  query "<question>"                Query the knowledge base\n');
     process.stderr.write('  eval --dataset <file>             Evaluate retrieval & generation quality\n');
     process.stderr.write('  generate-proposal --client <n>    Generate a structured proposal\n');
+    process.stderr.write('  generate-microsite --namespace <ns> Generate a microsite from a proposal\n');
     process.stderr.write('  namespaces                        List available namespaces\n');
     process.stderr.write('  agent run <name> --namespace <ns> Run a named agent\n');
     process.stderr.write('  tools list                        List available tools\n');

@@ -6,6 +6,7 @@ function serializeBlock(block: ProposalBlock): string {
       return block.text;
 
     case 'heading':
+      if (!block.text.trim()) return '';
       return `${'#'.repeat(Math.min(block.level, 6))} ${block.text}`;
 
     case 'bullet':

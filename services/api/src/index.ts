@@ -2,6 +2,7 @@
 
 import path from 'node:path';
 import { createServer } from './server.js';
+import { migrateAllNamespaces } from './chat/migrations/migrate-industry-field.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -16,7 +17,14 @@ const PROVIDER_POLICY_PATH = process.env.PROVIDER_POLICY_PATH
   ? path.resolve(process.env.PROVIDER_POLICY_PATH)
   : undefined;
 
+// Presenter plugins dir: defaults to <project-root>/plugins, configurable via env
+const PLUGINS_DIR = process.env.PLUGINS_DIR
+  ? path.resolve(process.env.PLUGINS_DIR)
+  : path.resolve(process.cwd(), '../../plugins');
+
 async function main(): Promise<void> {
+  await migrateAllNamespaces(WORKDIR);
+
   const app = await createServer({
     port: PORT,
     host: HOST,
@@ -24,6 +32,7 @@ async function main(): Promise<void> {
     apiKeysPath: API_KEYS_PATH,
     auditLogPath: AUDIT_LOG_PATH,
     providerPolicyPath: PROVIDER_POLICY_PATH,
+    pluginsDir: PLUGINS_DIR,
   });
 
   await app.listen({ port: PORT, host: HOST });

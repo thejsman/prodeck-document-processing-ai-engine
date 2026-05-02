@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Table } from '@tiptap/extension-table';
@@ -49,9 +49,9 @@ export function BlockEditor({
     [],
   );
 
-  // Build initial Tiptap JSON from markdown
-  const initialBlocks = markdownToBlocks(content);
-  const initialDoc = blocksToTiptapJson(initialBlocks);
+  // Build initial Tiptap JSON from markdown — only on mount, not on every re-render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initialDoc = useMemo(() => blocksToTiptapJson(markdownToBlocks(content)), []);
 
   const editor = useEditor({
     extensions: [

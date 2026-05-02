@@ -385,13 +385,24 @@ def generate_section(section_def, client, industry, context_text, provider, tone
     memory_block = build_memory_context(memory)
     memory_section = f"\n\nAdditional context from memory:\n{memory_block}" if memory_block else ""
 
+    if not context_text or not context_text.strip():
+        return (
+            f"## {section_def['title']}\n\n"
+            "*[No source data was available to generate this section. "
+            "Please upload the relevant documents and regenerate.]*"
+        )
+
     prompt = (
         f"{instruction}"
         f"{tone_line}"
         f"{avoid_line}\n\n"
-        f"Use the following source material as context. "
-        f"Do not invent facts that are not supported by the context.\n\n"
-        f"Context:\n{context_text}"
+        "IMPORTANT: Base your response EXCLUSIVELY on the source material below. "
+        "Do NOT use general knowledge, industry assumptions, or any information "
+        "not explicitly present in the source material. "
+        "If the source material does not contain enough information for part of "
+        "this section, write '[Information not available in provided documents]' "
+        "rather than assuming.\n\n"
+        f"Source material:\n{context_text}"
         f"{memory_section}"
     )
 
@@ -399,6 +410,14 @@ def generate_section(section_def, client, industry, context_text, provider, tone
     for attempt in range(1 + MAX_SECTION_RETRIES):
         try:
             body = provider.generate(prompt)
+            if not body or not body.strip():
+                body = (
+                    "*[No source data was available to generate this section. "
+                    "Please provide the missing details and regenerate.]*"
+                )
+            # Demote any ## headings in the body to ### so they nest under
+            # the ## section heading that generate_section prepends.
+            body = re.sub(r'^## ', '### ', body, flags=re.MULTILINE)
             return f"## {section_def['title']}\n\n{body}"
         except Exception as exc:
             last_error = exc

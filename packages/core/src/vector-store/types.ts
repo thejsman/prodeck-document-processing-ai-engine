@@ -1,0 +1,48 @@
+/**
+ * Vector store abstraction — core interface definitions.
+ *
+ * These types define the contract between the ingestion/retrieval pipelines
+ * and any concrete vector storage backend (FAISS, Qdrant, Pinecone, PGVector).
+ *
+ * Lives in core because it is pure (no I/O, no side effects).
+ */
+
+export type VectorChunk = {
+  id: string
+  embedding: number[]
+  text: string
+  metadata: {
+    namespace: string
+    docId: string
+    page?: number
+    section?: string
+  }
+}
+
+export type VectorSearchResult = {
+  id: string
+  score: number
+  text: string
+  metadata: Record<string, unknown>
+}
+
+export interface VectorStoreProvider {
+  upsertChunks(params: {
+    namespace: string
+    chunks: VectorChunk[]
+  }): Promise<void>
+
+  search(params: {
+    namespace: string
+    queryEmbedding: number[]
+    topK: number
+    filter?: Record<string, unknown>
+  }): Promise<VectorSearchResult[]>
+
+  deleteNamespace(namespace: string): Promise<void>
+
+  namespaceStats(namespace: string): Promise<{
+    vectorCount: number
+    sizeBytes?: number
+  }>
+}

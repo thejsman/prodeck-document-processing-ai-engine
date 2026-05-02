@@ -3,30 +3,22 @@
 import type { PluginTokens, TestingContent } from '../../../types/presentation';
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
-import { Headline, SubHeadline, Body, Label } from '../shared/Typography';
+import { Headline, Body, Label, rt } from '../shared/Typography';
 import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
+import { InlineEditable } from '../editor/InlineEditable';
+import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
 interface Props {
   content: TestingContent;
   tokens: PluginTokens;
   imageUrl: string | null;
   index: number;
+  sectionId?: string;
 }
 
-const PYRAMID_WIDTHS = ['40%', '55%', '70%', '85%', '100%'];
-const PYRAMID_OPACITIES = [0.3, 0.25, 0.2, 0.15, 0.1];
-
-function hexToRgba(hex: string, alpha: number): string {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  if (isNaN(r) || isNaN(g) || isNaN(b)) return `rgba(128, 128, 128, ${alpha})`;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-export function TestingSection({ content, tokens, index }: Props) {
+export function TestingSection({ content, tokens }: Props) {
   const sortedLayers = [...(content.layers ?? [])].sort((a, b) => a.level - b.level);
+  const additionalInfo = content.additionalInfo ?? [];
 
   return (
     <section
@@ -40,150 +32,190 @@ export function TestingSection({ content, tokens, index }: Props) {
     >
       <NoiseOverlay opacity={tokens.noiseOpacity} />
 
-      <div
-        style={{
-          position: 'absolute',
-          right: '-3%',
-          top: '5%',
-          fontFamily: `'${tokens.heroFont}', serif`,
-          fontSize: 'clamp(8rem, 18vw, 16rem)',
-          fontWeight: tokens.heroWeight,
-          color: tokens.text,
-          opacity: 0.02,
-          lineHeight: 1,
-          pointerEvents: 'none',
-          zIndex: 1,
-        }}
-      >
-        {String(index + 1).padStart(2, '0')}
-      </div>
+      <div style={{ position: 'relative', zIndex: 5, maxWidth: 900, margin: '0 auto' }}>
 
-      <div style={{ position: 'relative', zIndex: 5, maxWidth: 960, margin: '0 auto' }}>
-        <Reveal>
-          <Label tokens={tokens} style={{ display: 'block', marginBottom: 16 }}>
-            {content.eyebrow}
-          </Label>
-        </Reveal>
+        {/* ── Centered header ── */}
+        <div style={{ textAlign: 'center', marginBottom: 'clamp(2.5rem, 5vw, 4rem)' }}>
+          <Reveal>
+            <InlineEditable field="eyebrow" label="Eyebrow" value={content.eyebrow ?? ''}>
+              <Label tokens={tokens} style={{ display: 'block', marginBottom: 14 }}>
+                {content.eyebrow}
+              </Label>
+            </InlineEditable>
+          </Reveal>
+          <Reveal delay={80}>
+            <InlineEditable field="headline" label="Headline" value={content.headline ?? ''}>
+              <Headline tokens={tokens}>
+                {content.headline}
+              </Headline>
+            </InlineEditable>
+          </Reveal>
+        </div>
 
-        <Reveal delay={80}>
-          <Headline tokens={tokens} style={{ marginBottom: 48 }}>
-            {content.headline}
-          </Headline>
-        </Reveal>
-
-        {/* Pyramid visualization */}
+        {/* ── Testing layers as centered metric cards ── */}
         <div
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 'clamp(2.5rem, 5vw, 4rem)',
+            display: 'grid',
+            gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))`,
+            gap: 'clamp(1rem, 2.5vw, 1.5rem)',
+            marginBottom: 'clamp(2rem, 4vw, 3rem)',
+            alignItems: 'stretch',
           }}
         >
           {sortedLayers.map((layer, li) => {
-            const widthPercent = PYRAMID_WIDTHS[Math.min(li, PYRAMID_WIDTHS.length - 1)];
-            const bgOpacity = PYRAMID_OPACITIES[Math.min(li, PYRAMID_OPACITIES.length - 1)];
-
+            const numericMatch = layer.coverage.match(/(\d+)/);
+            const numericValue = numericMatch ? parseInt(numericMatch[1], 10) : 0;
+            const originalIndex = (content.layers ?? []).findIndex(l => l === layer);
             return (
-              <Reveal key={li} variant="scale" delay={160 + li * 100}>
-                <div
-                  style={{
-                    width: widthPercent,
-                    minWidth: 280,
-                    maxWidth: 800,
-                    margin: '0 auto',
-                    padding: '16px 24px',
-                    borderRadius: 8,
-                    background: hexToRgba(tokens.accent, bgOpacity),
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontFamily: `'${tokens.heroFont}', serif`,
-                        fontWeight: tokens.heroWeight,
-                        fontSize: '1.1rem',
-                        color: tokens.accent,
-                        flexShrink: 0,
-                      }}
-                    >
-                      L{layer.level}
-                    </span>
-
-                    <span
-                      style={{
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontWeight: 600,
-                        fontSize: '0.95rem',
-                        color: tokens.text,
-                      }}
-                    >
-                      {layer.name}
-                    </span>
-
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '2px 10px',
-                        borderRadius: 12,
-                        background: hexToRgba(tokens.accent, 0.2),
-                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        color: tokens.accent,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {layer.coverage}
-                    </span>
-                  </div>
-
-                  <span
+              <Reveal key={li} variant="fadeUp" delay={li * 80}>
+                <InlineArrayItem arrayPath="layers" index={originalIndex} total={sortedLayers.length}>
+                  <div
                     style={{
-                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                      fontSize: '0.85rem',
-                      fontWeight: 300,
-                      color: tokens.textMuted,
-                      lineHeight: 1.5,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      textAlign: 'center',
+                      padding: 'clamp(1.5rem, 3vw, 2rem) 1.25rem',
+                      borderRadius: 16,
+                      background: `${tokens.accent}0f`,
+                      border: `1px solid ${tokens.border}`,
+                      gap: 12,
+                      height: '100%',
+                      boxSizing: 'border-box',
                     }}
                   >
-                    {layer.description}
-                  </span>
-                </div>
+                    {/* Coverage number */}
+                    <InlineEditable field={`layers.${originalIndex}.coverage`} label="Coverage" value={layer.coverage ?? ''}>
+                      <span
+                        style={{
+                          fontFamily: `'${tokens.heroFont}', serif`,
+                          fontWeight: tokens.heroWeight,
+                          fontSize: 'clamp(2.2rem, 5vw, 3rem)',
+                          lineHeight: 1,
+                          color: tokens.accent,
+                          letterSpacing: '-0.02em',
+                        }}
+                        {...rt(numericValue > 0 ? `${numericValue}%` : (layer.coverage ?? ''))}
+                      />
+                    </InlineEditable>
+
+                    {/* Layer name */}
+                    <InlineEditable field={`layers.${originalIndex}.name`} label="Layer name" value={layer.name ?? ''}>
+                      <span
+                        style={{
+                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                          fontWeight: 700,
+                          fontSize: '0.85rem',
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase' as const,
+                          color: tokens.text,
+                        }}
+                        {...rt(layer.name ?? '')}
+                      />
+                    </InlineEditable>
+
+                    {/* Description */}
+                    <InlineEditable field={`layers.${originalIndex}.description`} label="Description" value={layer.description ?? ''} multiline>
+                      <span
+                        style={{
+                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                          fontSize: '0.8rem',
+                          color: tokens.textMuted,
+                          lineHeight: 1.55,
+                        }}
+                        {...rt(layer.description ?? '')}
+                      />
+                    </InlineEditable>
+
+                    {/* Progress bar */}
+                    <div
+                      style={{
+                        width: '100%',
+                        height: 4,
+                        borderRadius: 99,
+                        background: `${tokens.accent}20`,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${numericValue}%`,
+                          borderRadius: 99,
+                          background: tokens.gradientText ?? tokens.accent,
+                          transition: 'width 1s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </InlineArrayItem>
               </Reveal>
             );
           })}
         </div>
 
-        {/* Additional info grid */}
-        {(content.additionalInfo ?? []).length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'clamp(1.5rem, 3vw, 2.5rem)' }}>
+          <InlineAddItem
+            arrayPath="layers"
+            template={{ level: sortedLayers.length + 1, name: 'New layer', coverage: '80%', description: 'Description…' }}
+            label="Add layer"
+          />
+        </div>
+
+        {/* ── Additional info grid ── */}
+        {additionalInfo.length > 0 && (
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: 'clamp(1.5rem, 3vw, 2rem)',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gap: 'clamp(1rem, 2vw, 1.5rem)',
+              alignItems: 'stretch',
             }}
           >
-            {(content.additionalInfo ?? []).map((info, ai) => (
-              <Reveal key={ai} variant="fadeUp" delay={160 + sortedLayers.length * 100 + ai * 80}>
-                <div>
-                  <SubHeadline tokens={tokens} style={{ marginBottom: 10, fontSize: '1.1rem' }}>
-                    {info.heading}
-                  </SubHeadline>
-                  <Body tokens={tokens} style={{ fontSize: '0.9rem' }}>
-                    {info.body}
-                  </Body>
-                </div>
+            {additionalInfo.map((info, ai) => (
+              <Reveal key={ai} variant="fadeUp" delay={160 + sortedLayers.length * 80 + ai * 60}>
+                <InlineArrayItem arrayPath="additionalInfo" index={ai} total={additionalInfo.length}>
+                  <div
+                    style={{
+                      padding: 'clamp(1.25rem, 2vw, 1.75rem)',
+                      borderRadius: 12,
+                      border: `1px solid ${tokens.border}`,
+                      textAlign: 'center',
+                      height: '100%',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <InlineEditable field={`additionalInfo.${ai}.heading`} label="Heading" value={info.heading ?? ''}>
+                      <p
+                        style={{
+                          fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                          fontWeight: 700,
+                          fontSize: '0.95rem',
+                          color: tokens.text,
+                          marginBottom: 8,
+                        }}
+                        {...rt(info.heading ?? '')}
+                      />
+                    </InlineEditable>
+                    <InlineEditable field={`additionalInfo.${ai}.body`} label="Body" value={info.body ?? ''} multiline>
+                      <Body tokens={tokens} style={{ fontSize: '0.875rem' }}>
+                        {info.body}
+                      </Body>
+                    </InlineEditable>
+                  </div>
+                </InlineArrayItem>
               </Reveal>
             ))}
           </div>
         )}
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+          <InlineAddItem
+            arrayPath="additionalInfo"
+            template={{ heading: 'New section', body: 'Description…' }}
+            label="Add info"
+          />
+        </div>
       </div>
     </section>
   );

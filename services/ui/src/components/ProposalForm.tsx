@@ -13,20 +13,29 @@ import { TemplateSelector } from './TemplateSelector';
 
 interface Props {
   onGenerate: (doc: ProposalDocument, request: GenerateProposalRequest) => void;
+  onGenerateStart?: (request: GenerateProposalRequest) => void;
+  onGenerateFail?: (error: string) => void;
   isGenerating: boolean;
   setIsGenerating: (v: boolean) => void;
+  onNamespaceChange?: (ns: string) => void;
+  modalMode?: boolean;
 }
 
 export function ProposalForm({
   onGenerate,
+  onGenerateStart,
+  onGenerateFail,
   isGenerating,
   setIsGenerating,
+  onNamespaceChange,
+  modalMode = false,
 }: Props) {
   const { apiKey } = useAuth();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
   const [client, setClient] = useState('');
-  const [industry, setIndustry] = useState('');
+  const [projectType, setProjectType] = useState('');
+  const [clientIndustry, setClientIndustry] = useState('');
   const [namespace, setNamespace] = useState('');
   const [template, setTemplate] = useState('default');
   const [overwrite, setOverwrite] = useState(false);
@@ -82,7 +91,8 @@ export function ProposalForm({
 
     const request: GenerateProposalRequest = {
       client: client.trim(),
-      industry: industry.trim() || undefined,
+      projectType: projectType.trim() || undefined,
+      clientIndustry: clientIndustry.trim() || undefined,
       namespace: namespace || undefined,
       template,
       overwrite,
@@ -90,6 +100,7 @@ export function ProposalForm({
     };
 
     const execId = crypto.randomUUID();
+    onGenerateStart?.(request);
     setIsGenerating(true);
     addExecution({ id: execId, type: 'proposal', status: 'running', title: client.trim() });
     try {
@@ -97,16 +108,22 @@ export function ProposalForm({
       updateExecution(execId, { status: 'completed' });
       onGenerate(doc, request);
     } catch (err) {
-      setError((err as Error).message);
-      updateExecution(execId, { status: 'failed', errorMessage: (err as Error).message });
+      const msg = (err as Error).message;
+      setError(msg);
+      onGenerateFail?.(msg);
+      updateExecution(execId, { status: 'failed', errorMessage: msg });
     } finally {
       setIsGenerating(false);
     }
   }
 
   return (
-    <form className="card" onSubmit={handleSubmit}>
-      <h2>Generate Proposal</h2>
+    <form
+      id={modalMode ? 'generate-proposal-form' : undefined}
+      className={modalMode ? undefined : 'card'}
+      onSubmit={handleSubmit}
+    >
+      {!modalMode && <h2>Generate Proposal</h2>}
 
       <div className="form-row">
         <div className="form-group">
@@ -121,21 +138,35 @@ export function ProposalForm({
           />
         </div>
         <div className="form-group">
-          <label>Industry</label>
+          <label>Service Type *</label>
           <input
             className="input"
             type="text"
-            placeholder="General"
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
+            placeholder="Digital Marketing"
+            value={projectType}
+            onChange={(e) => setProjectType(e.target.value)}
+            disabled={isGenerating}
+          />
+        </div>
+        <div className="form-group">
+          <label>Client Industry</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Real Estate"
+            value={clientIndustry}
+            onChange={(e) => setClientIndustry(e.target.value)}
             disabled={isGenerating}
           />
         </div>
       </div>
 
-      <NamespaceSelector value={namespace} onChange={setNamespace} />
+      <NamespaceSelector
+        value={namespace}
+        onChange={(ns) => { setNamespace(ns); onNamespaceChange?.(ns); }}
+      />
 
-      <TemplateSelector value={template} onChange={setTemplate} />
+      <TemplateSelector value={template} onChange={setTemplate} namespace={namespace} />
 
       <fieldset className="fieldset">
         <legend>Deterministic Pricing (optional)</legend>
@@ -193,15 +224,11 @@ export function ProposalForm({
 
       {error && <p className="error">{error}</p>}
 
-      <button type="submit" className="btn btn-primary" disabled={isGenerating}>
-        {isGenerating ? (
-          <>
-            <span className="spinner" /> Generating...
-          </>
-        ) : (
-          'Generate Proposal'
-        )}
-      </button>
+      {!modalMode && (
+        <button type="submit" className="btn btn-primary" disabled={isGenerating}>
+          {isGenerating ? <><span className="spinner" /> Generating...</> : 'Generate Proposal'}
+        </button>
+      )}
     </form>
   );
 }

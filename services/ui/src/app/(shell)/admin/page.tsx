@@ -12,18 +12,23 @@ export default function AdminPage() {
       <nav className="admin-nav">
         <Link href="/admin/namespaces" className="admin-nav-card card">
           <span className="admin-nav-icon">&#x2630;</span>
-          <span className="admin-nav-label">Namespaces</span>
-          <span className="muted">Create and manage namespaces</span>
+          <span className="admin-nav-label">Projects</span>
+          <span className="muted">Create and manage projects</span>
         </Link>
         <Link href="/admin/memory" className="admin-nav-card card">
           <span className="admin-nav-icon">&#x1F9E0;</span>
           <span className="admin-nav-label">Memory</span>
-          <span className="muted">View and edit namespace memory</span>
+          <span className="muted">View and edit project memory</span>
         </Link>
         <Link href="/admin/config" className="admin-nav-card card">
           <span className="admin-nav-icon">&#x2699;</span>
           <span className="admin-nav-label">Configuration</span>
-          <span className="muted">Manage namespace pipeline configuration</span>
+          <span className="muted">Manage project pipeline configuration</span>
+        </Link>
+        <Link href="/admin/templates" className="admin-nav-card card">
+          <span className="admin-nav-icon">&#x1F4CB;</span>
+          <span className="admin-nav-label">Templates</span>
+          <span className="muted">Create and manage proposal templates</span>
         </Link>
       </nav>
     </>

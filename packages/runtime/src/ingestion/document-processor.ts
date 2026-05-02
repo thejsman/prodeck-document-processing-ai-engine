@@ -20,16 +20,15 @@
  */
 
 import { Readable } from 'node:stream';
-import type { StorageProvider } from '@ai-engine/core';
-import { ingestDocuments } from '../knowledge/knowledge-bridge.js';
+import type { StorageProvider, VectorStoreProvider, VectorChunk } from '@ai-engine/core';
 
 // ── Constants ──────────────────────────────────────────────────────
 
 /** Maximum text per chunk in bytes.  Splitting happens on newline boundaries. */
 const MAX_CHUNK_BYTES = 256 * 1024; // 256 KB
 
-/** Number of chunks to accumulate before calling ingestDocuments. */
-const BATCH_SIZE = 5;
+/** Number of chunks to accumulate before calling upsertChunks. */
+const BATCH_SIZE = 25;
 
 // ── Text chunker ───────────────────────────────────────────────────
 
@@ -69,10 +68,13 @@ export interface ProcessDocumentStreamParams {
   provider: StorageProvider;
   /** Path relative to the namespace root (e.g. "uploads/report.md"). */
   relativePath: string;
-  /** Namespace slug forwarded to FAISS for index isolation. */
+  /** Namespace slug forwarded to the vector store for index isolation. */
   namespace: string;
-  /** Absolute path to the FAISS storage directory for this namespace. */
-  storageDir: string;
+  /**
+   * Vector store provider to receive the ingested chunks.
+   * Created via `getVectorStoreProvider` from the namespace config.
+   */
+  vectorStore: VectorStoreProvider;
   /**
    * Called after each batch of chunks is successfully ingested.
    * Useful for progress tracking and job status updates.
@@ -97,14 +99,14 @@ export interface ProcessDocumentStreamResult {
  *   provider,
  *   relativePath: 'uploads/architecture.md',
  *   namespace: 'acme',
- *   storageDir: '/workdir/namespaces/acme',
+ *   vectorStore,
  *   onProgress: (n) => console.log(`[TraceLive] ${n} chunks ingested`),
  * });
  */
 export async function processDocumentStream(
   params: ProcessDocumentStreamParams,
 ): Promise<ProcessDocumentStreamResult> {
-  const { provider, relativePath, namespace, storageDir, onProgress } = params;
+  const { provider, relativePath, namespace, vectorStore, onProgress } = params;
 
   // ── Open read stream (with fallback) ─────────────────────────────
   let stream: Readable;
@@ -121,12 +123,12 @@ export async function processDocumentStream(
 
   const fileName = relativePath.split('/').pop() ?? relativePath;
   let globalChunkIdx = 0;
-  let batch: { fileName: string; content: string }[] = [];
+  let batch: VectorChunk[] = [];
 
   // ── Flush accumulated batch to vector store ───────────────────────
   const flush = async (): Promise<void> => {
     if (batch.length === 0) return;
-    await ingestDocuments({ documents: batch, storageDir, namespace });
+    await vectorStore.upsertChunks({ namespace, chunks: batch });
     globalChunkIdx += batch.length;
     onProgress?.(globalChunkIdx);
     console.log(`[TraceLive] ingested chunk batch — total so far: ${globalChunkIdx}`);
@@ -135,9 +137,14 @@ export async function processDocumentStream(
 
   // ── Chunk and ingest ─────────────────────────────────────────────
   for await (const text of textChunks(stream)) {
-    // Each chunk is stored with a unique name so FAISS can index it separately
-    const chunkName = `${fileName}#chunk-${globalChunkIdx + batch.length + 1}`;
-    batch.push({ fileName: chunkName, content: text });
+    // Each chunk is stored with a unique name so the vector store can index it separately
+    const chunkId = `${fileName}#chunk-${globalChunkIdx + batch.length + 1}`;
+    batch.push({
+      id: chunkId,
+      embedding: [], // provider handles embedding computation internally
+      text,
+      metadata: { namespace, docId: fileName },
+    });
 
     if (batch.length >= BATCH_SIZE) {
       await flush();

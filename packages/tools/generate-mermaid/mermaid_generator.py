@@ -35,10 +35,16 @@ Rules:
 """
 
 
+def strip_surrogates(text: str) -> str:
+    """Remove lone Unicode surrogates (U+D800–U+DFFF) that cannot be UTF-8 encoded."""
+    return ''.join(c for c in text if not ('\ud800' <= c <= '\udfff'))
+
+
 def main() -> None:
     try:
-        input_data = json.load(sys.stdin)
-        description = input_data.get("description", "").strip()
+        raw_bytes = sys.stdin.buffer.read()
+        input_data = json.loads(raw_bytes.decode('utf-8', errors='replace'))
+        description = strip_surrogates(input_data.get("description", "").strip())
 
         if not description:
             raise ValueError("description is required")

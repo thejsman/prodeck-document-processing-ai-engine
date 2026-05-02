@@ -5,8 +5,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Required for the Docker image — Dockerfile.ui copies .next/standalone into
+  // the runtime stage. Without this Next.js does not emit that directory.
   output: "standalone",
-  outputFileTracingRoot: path.resolve(__dirname, "../../"),
+  // Mermaid v11 is ESM-only — webpack must transpile it to avoid production
+  // build failures where the mermaid chunk loads but evaluates incorrectly.
+  transpilePackages: ["mermaid"],
   // LLM-backed routes (proposal generation, RAG query) can take several minutes
   // on local hardware. The default Next.js proxy timeout is 30s which causes
   // ECONNRESET before the Python subprocess finishes.
@@ -14,12 +18,19 @@ const nextConfig = {
     proxyTimeout: 600_000, // 10 minutes
   },
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${process.env.API_URL ?? "http://localhost:3000"}/:path*`,
-      },
-    ];
+    // Use `fallback` so Next.js Route Handlers (e.g. generate-stream SSE proxy)
+    // take precedence. fallback rewrites only apply when no matching route/handler
+    // is found in the filesystem.
+    return {
+      beforeFiles: [],
+      afterFiles: [],
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${process.env.API_URL ?? "http://localhost:3000"}/:path*`,
+        },
+      ],
+    };
   },
 };
 

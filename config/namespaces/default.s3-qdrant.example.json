@@ -1,0 +1,12 @@
+{
+  "storage": {
+    "type": "s3",
+    "bucket": "your-assets-bucket",
+    "region": "ap-south-1",
+    "basePrefix": "ai-engine"
+  },
+  "vectorStore": {
+    "type": "qdrant",
+    "url": "http://localhost:6333"
+  }
+}

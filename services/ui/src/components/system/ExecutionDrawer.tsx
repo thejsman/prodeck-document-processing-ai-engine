@@ -1,15 +1,23 @@
 'use client'
 
+import { Check, X, Zap } from "lucide-react"
+import { Icon } from "@/components/ui/Icon"
 import { useRouter } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 import { useExecutionStore } from "@/core/execution/execution-store"
-import type { ExecutionItem, ExecutionStatus, ExecutionType } from "@/core/execution/execution-types"
+import type { ExecutionItem, ExecutionType } from "@/core/execution/execution-types"
 
 // ── Helpers ───────────────────────────────────────────────────────
 
 const ARTIFACT_ROUTES: Partial<Record<ExecutionType, string>> = {
   proposal: "/proposals",
   microsite: "/microsites",
+}
+
+// Routes to use for active (in-progress) items that don't have an artifactId yet
+const ACTIVE_ROUTES: Partial<Record<ExecutionType, string>> = {
+  proposal: "/proposal",
+  microsite: "/presentation",
 }
 
 const RUNNING_LABELS: Partial<Record<ExecutionType, string>> = {
@@ -50,33 +58,41 @@ function formatRelativeTime(ts: number): string {
 function ActiveSection({
   items,
   onView,
+  onOpen,
 }: {
   items: ExecutionItem[]
   onView: (id: string) => void
+  onOpen: (route: string) => void
 }) {
   if (items.length === 0) return null
   return (
     <div className="exec-drawer-section">
       <div className="exec-drawer-section-title">Active</div>
-      {items.map((item) => (
-        <div key={item.id} className="exec-drawer-item">
-          <div className="exec-drawer-item-row">
-            <span className="exec-drawer-spinner" aria-hidden="true" />
-            <div className="exec-drawer-item-body">
-              <div className="exec-drawer-item-title">
-                {item.title ?? item.type}
+      {items.map((item) => {
+        const activeRoute = ACTIVE_ROUTES[item.type] ?? null
+        return (
+          <div key={item.id} className="exec-drawer-item">
+            <div className="exec-drawer-item-row">
+              <span className="exec-drawer-spinner" aria-hidden="true" />
+              <div className="exec-drawer-item-body">
+                <div className="exec-drawer-item-title">
+                  {item.title ?? item.type}
+                </div>
+                <div className="exec-drawer-item-sub">
+                  {activeStatusLabel(item)}
+                </div>
               </div>
-              <div className="exec-drawer-item-sub">
-                {activeStatusLabel(item)}
-              </div>
+              <button
+                className="btn btn-sm"
+                onClick={() => activeRoute ? onOpen(activeRoute) : onView(item.id)}
+              >
+                View
+              </button>
             </div>
-            <button className="btn btn-sm" onClick={() => onView(item.id)}>
-              View
-            </button>
+            <div className="exec-drawer-item-bar" aria-hidden="true" />
           </div>
-          <div className="exec-drawer-item-bar" aria-hidden="true" />
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -103,7 +119,7 @@ function CompletedSection({
                 className="exec-drawer-item-icon exec-drawer-item-icon--completed"
                 aria-hidden="true"
               >
-                ✓
+                <Icon icon={Check} size="sm" />
               </span>
               <div className="exec-drawer-item-body">
                 <div className="exec-drawer-item-title">
@@ -149,7 +165,7 @@ function FailedSection({
               className="exec-drawer-item-icon exec-drawer-item-icon--failed"
               aria-hidden="true"
             >
-              ✕
+              <Icon icon={X} size="sm" />
             </span>
             <div className="exec-drawer-item-body">
               <div className="exec-drawer-item-title">
@@ -219,7 +235,7 @@ export function ExecutionDrawer() {
             onClick={closeDrawer}
             aria-label="Close AI Activity panel"
           >
-            ✕
+            <Icon icon={X} size="md" />
           </button>
         </div>
 
@@ -227,13 +243,13 @@ export function ExecutionDrawer() {
           {isEmpty ? (
             <div className="exec-drawer-empty">
               <span className="exec-drawer-empty-icon" aria-hidden="true">
-                ⚡
+                <Icon icon={Zap} size="lg" />
               </span>
               <span>No AI tasks yet</span>
             </div>
           ) : (
             <>
-              <ActiveSection items={activeList} onView={handleView} />
+              <ActiveSection items={activeList} onView={handleView} onOpen={handleOpen} />
               <CompletedSection
                 items={completedList}
                 onOpen={handleOpen}

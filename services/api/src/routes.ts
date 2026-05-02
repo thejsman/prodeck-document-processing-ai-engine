@@ -2,16 +2,24 @@
  * Route handlers — thin delegation to @ai-engine/runtime.
  */
 
-import { readFile, readdir, stat, mkdir } from 'node:fs/promises';
+import { readFile, readdir, stat, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   ingestDocuments,
   queryKnowledgeBase,
   listNamespaces,
+  createNodeConfigLoader,
+  type VectorStoreConfig,
 } from '@ai-engine/runtime';
+import { ConfigResolver } from '@ai-engine/core';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
+import { appendChatTurn } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
+import { processDocument } from './ingestion/ingest-orchestrator.js';
+import { ContextService } from './chat/context.service.js';
+import { llmGenerateFn } from './agent-routes.js';
+import { emitExecution } from './execution-events.js';
 import {
   resolvePolicy,
   executeWithPolicy,
@@ -110,6 +118,23 @@ function attachProviderInfo(req: FastifyRequest, info: ProviderInfo): void {
   (req as FastifyRequest & { __providerInfo: ProviderInfo }).__providerInfo = info;
 }
 
+/** Read the vectorStore config for a namespace from workdir/config/namespaces/<ns>.json */
+async function resolveVectorStoreConfig(
+  workdir: string,
+  namespace: string,
+): Promise<VectorStoreConfig | undefined> {
+  try {
+    const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
+    const configResolver = new ConfigResolver(configLoader);
+    const config = await configResolver.resolve({ namespace });
+    const vs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+    if (!vs?.type || (vs.type !== 'faiss' && vs.type !== 'qdrant')) return undefined;
+    return { type: vs.type, url: vs.url };
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -138,19 +163,68 @@ export function registerRoutes(
       return reply.send({ documents: 0, chunks: 0 });
     }
 
+    let ingestResult: unknown;
+
     if (policyConfig) {
       const policy = resolvePolicy(policyConfig, namespace, 'ingest');
       const { result, usedFallback, provider } = await executeWithPolicy(
         policy,
         () => ingestDocuments({ documents, storageDir, namespace }),
       );
-
       attachProviderInfo(req, { provider, usedFallback, policySource: policy.source });
-      return reply.send(result);
+      ingestResult = result;
+    } else {
+      ingestResult = await ingestDocuments({ documents, storageDir, namespace });
     }
 
-    const result = await ingestDocuments({ documents, storageDir, namespace });
-    return reply.send(result);
+    // ── Ingest V2: run context enrichment pipeline after FAISS ──
+    if (process.env.INGEST_V2 === 'true') {
+      const contextService = new ContextService(workdir);
+      for (const doc of documents) {
+        try {
+          const v2Result = await processDocument(
+            namespace,
+            doc.fileName,
+            doc.content,
+            llmGenerateFn,
+            contextService,
+            // faissIndexFn omitted — FAISS already ran above
+          );
+
+          emitExecution({
+            executionId: `doc-processed-${namespace}-${doc.fileName}-${Date.now()}`,
+            status: 'COMPLETED',
+            type: 'document_processed',
+            title: doc.fileName,
+            message: JSON.stringify({
+              fileName: v2Result.fileName,
+              type: v2Result.documentType,
+              fieldsExtracted: v2Result.fieldsExtracted,
+              knowledgeEntries: v2Result.knowledgeEntriesCreated,
+              noiseRatio: 0,
+            }),
+          });
+
+          if (v2Result.fieldsExtracted.length > 0 || v2Result.knowledgeEntriesCreated > 0) {
+            emitExecution({
+              executionId: `ctx-updated-${namespace}-${doc.fileName}-${Date.now()}`,
+              status: 'COMPLETED',
+              type: 'context_updated',
+              title: namespace,
+              message: JSON.stringify({
+                fieldsUpdated: v2Result.fieldsExtracted,
+                knowledgeAdded: v2Result.knowledgeEntriesCreated,
+                source: doc.fileName,
+              }),
+            });
+          }
+        } catch (err) {
+          console.warn(`[IngestV2] processDocument failed for ${doc.fileName}:`, err);
+        }
+      }
+    }
+
+    return reply.send(ingestResult);
   });
 
   // POST /query
@@ -159,6 +233,7 @@ export function registerRoutes(
       question?: string;
       namespace?: string;
       stream?: boolean;
+      chatSessionId?: string;
     } | undefined;
 
     if (!body?.question) {
@@ -166,7 +241,9 @@ export function registerRoutes(
     }
 
     const namespace = body.namespace ?? 'default';
+    const chatSessionId = typeof body.chatSessionId === 'string' ? body.chatSessionId.trim() : undefined;
     const storageDir = path.join(workdir, 'namespaces', namespace);
+    const vectorStoreConfig = await resolveVectorStoreConfig(workdir, namespace);
 
     if (body.stream) {
       reply.raw.writeHead(200, {
@@ -188,6 +265,7 @@ export function registerRoutes(
               storageDir,
               namespace,
               stream: true,
+              vectorStoreConfig,
               onChunk: (chunk: string) => {
                 reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
               },
@@ -206,6 +284,9 @@ export function registerRoutes(
             source: 'chat-query',
             content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
           });
+          if (chatSessionId) {
+            void appendChatTurn(workdir, namespace, chatSessionId, body.question!, result.answer);
+          }
           reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
           reply.raw.end();
           return;
@@ -216,6 +297,7 @@ export function registerRoutes(
           storageDir,
           namespace,
           stream: true,
+          vectorStoreConfig,
           onChunk: (chunk: string) => {
             reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
           },
@@ -226,6 +308,9 @@ export function registerRoutes(
           source: 'chat-query',
           content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
         });
+        if (chatSessionId) {
+          void appendChatTurn(workdir, namespace, chatSessionId, body.question, result.answer);
+        }
         reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
         reply.raw.end();
       } catch (err) {
@@ -240,7 +325,7 @@ export function registerRoutes(
       const policy = resolvePolicy(policyConfig, namespace, 'query');
       const { result, usedFallback, provider } = await executeWithPolicy(
         policy,
-        () => queryKnowledgeBase({ question: body.question!, storageDir, namespace }),
+        () => queryKnowledgeBase({ question: body.question!, storageDir, namespace, vectorStoreConfig }),
       );
 
       attachProviderInfo(req, { provider, usedFallback, policySource: policy.source });
@@ -249,6 +334,9 @@ export function registerRoutes(
         source: 'chat-query',
         content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
       });
+      if (chatSessionId) {
+        void appendChatTurn(workdir, namespace, chatSessionId, body.question!, result.answer);
+      }
       return reply.send(result);
     }
 
@@ -256,6 +344,7 @@ export function registerRoutes(
       question: body.question,
       storageDir,
       namespace,
+      vectorStoreConfig,
     });
 
     void appendEpisodicEntry(workdir, namespace, {
@@ -263,6 +352,9 @@ export function registerRoutes(
       source: 'chat-query',
       content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
     });
+    if (chatSessionId) {
+      void appendChatTurn(workdir, namespace, chatSessionId, body.question, result.answer);
+    }
     return reply.send(result);
   });
 
@@ -308,5 +400,35 @@ export function registerRoutes(
     await mkdir(path.join(nsDir, 'index'), { recursive: true });
 
     return reply.code(201).send({ namespace: name });
+  });
+
+  // DELETE /namespaces/:namespace
+  app.delete('/namespaces/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const nsDir = path.join(workdir, 'namespaces', namespace);
+
+    try {
+      const s = await stat(nsDir);
+      if (!s.isDirectory()) {
+        return reply.code(404).send({ error: `Namespace "${namespace}" not found` });
+      }
+    } catch {
+      return reply.code(404).send({ error: `Namespace "${namespace}" not found` });
+    }
+
+    await rm(nsDir, { recursive: true, force: true });
+
+    // Clean up all other namespace-keyed data outside the namespaces/ folder
+    await Promise.all([
+      rm(path.join(workdir, 'chat-history', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'assets', 'presentations', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'presentations', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'data', 'namespaces', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'memory', 'namespaces', `${namespace}.json`), { force: true }),
+      rm(path.join(workdir, 'exports', namespace), { recursive: true, force: true }),
+      rm(path.join(workdir, 'workflows', namespace), { recursive: true, force: true }),
+    ]);
+
+    return reply.code(200).send({ deleted: namespace });
   });
 }
