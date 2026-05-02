@@ -2,6 +2,7 @@
 
 import path from 'node:path';
 import { createServer } from './server.js';
+import { migrateAllNamespaces } from './chat/migrations/migrate-industry-field.js';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -22,6 +23,8 @@ const PLUGINS_DIR = process.env.PLUGINS_DIR
   : path.resolve(process.cwd(), '../../plugins');
 
 async function main(): Promise<void> {
+  await migrateAllNamespaces(WORKDIR);
+
   const app = await createServer({
     port: PORT,
     host: HOST,
