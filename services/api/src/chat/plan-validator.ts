@@ -72,7 +72,8 @@ const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
 const TOOL_PARAM_SCHEMAS: Partial<Record<z.infer<typeof ToolNameEnum>, z.ZodTypeAny>> = {
   generate_proposal: z.object({
     client: z.string().min(1),
-    industry: z.string().min(1),
+    projectType: z.string().min(1),
+    clientIndustry: z.string().min(1),
     template: z.string().nullish(),
     skill: z.string().nullish(),
     teamSize: z.union([z.string(), z.number()]).nullish(),

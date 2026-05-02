@@ -191,7 +191,9 @@ export async function handleGenerateProposal(
   ctx: ToolContext,
 ): Promise<PartialResult> {
   const client = ((params.client as string | undefined) ?? '').trim();
-  const industry = ((params.industry as string | undefined) ?? 'General').trim();
+  const clientIndustry = ((params.clientIndustry as string | undefined) ?? 'General').trim();
+  const projectType = ((params.projectType as string | undefined) ?? '').trim();
+  const industry = clientIndustry; // processor payload field name kept for compatibility
   const template = ((params.template as string | undefined) ?? 'default').trim();
   const skillSlug = ((params.skill as string | undefined) ?? '').trim();
   const { workdir, namespace, policyConfig, generateFn } = ctx;
@@ -225,7 +227,7 @@ export async function handleGenerateProposal(
         ? `${industry} Proposal`
         : template.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-    const description = `A proposal template for the ${industry} industry${client ? ` tailored for ${client}` : ''}.`;
+    const description = `A ${projectType || industry} proposal template${client ? ` for ${client}` : ''}${clientIndustry !== 'General' ? ` in the ${clientIndustry} industry` : ''}.`;
 
     const autoGenPrompt = [
       'You are a proposal architect. Generate a reusable proposal template structure.',
@@ -320,7 +322,7 @@ export async function handleGenerateProposal(
   return {
     success: true,
     message: `Proposal for "${client}" generated successfully.`,
-    data: { fileName: namespacedFile, client, industry, template, skill: skillSlug || undefined },
+    data: { fileName: namespacedFile, client, projectType, clientIndustry, template, skill: skillSlug || undefined },
     artifacts: [namespacedFile],
     actionCards: [
       {
@@ -863,7 +865,7 @@ export async function handleRecommendTemplate(
       timeline: fields.timeline?.value ? [String(fields.timeline.value)] : [],
       pricing: fields.budget?.value ? [String(fields.budget.value)] : [],
     },
-    detectedIndustry: fields.industry?.value ? String(fields.industry.value) : undefined,
+    detectedIndustry: fields.clientIndustry?.value ? String(fields.clientIndustry.value) : undefined,
     keyCapabilities: [],
     namespace,
   };

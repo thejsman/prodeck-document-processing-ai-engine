@@ -91,7 +91,7 @@ export interface ChatAgentInput {
 
 const VALID_REQUIREMENT_KEYS: RequirementKey[] = [
   'clientName',
-  'industry',
+  'clientIndustry',
   'projectType',
   'budget',
   'timeline',
@@ -197,10 +197,15 @@ Return {} if nothing is extractable.
 
 Already known fields (do NOT re-extract unless the user is correcting them): ${existingKeys}
 
+IMPORTANT: Distinguish between these two fields:
+- clientIndustry: What business the CLIENT is in (their market/domain, e.g. "real estate", "healthcare")
+- projectType: What SERVICE we are delivering (the work/project type, e.g. "digital marketing", "web development")
+If the user says "proposal for a real estate company for their marketing", extract clientIndustry = "real estate" AND projectType = "digital marketing".
+
 Extractable fields (omit any not mentioned):
 - clientName (string)
-- industry (string)
-- projectType (string)
+- clientIndustry (string) — the client's business domain
+- projectType (string) — the service being delivered
 - budget (string, include currency and qualifiers)
 - timeline (string)
 - teamSize (number)
@@ -653,7 +658,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
               timeline: fields.timeline?.value ? [String(fields.timeline.value)] : [],
               pricing: fields.budget?.value ? [String(fields.budget.value)] : [],
             },
-            detectedIndustry: fields.industry?.value ? String(fields.industry.value) : undefined,
+            detectedIndustry: fields.clientIndustry?.value ? String(fields.clientIndustry.value) : undefined,
             keyCapabilities: [],
             namespace,
           };
@@ -712,7 +717,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
               timeline: fields.timeline?.value ? [String(fields.timeline.value)] : [],
               pricing: fields.budget?.value ? [String(fields.budget.value)] : [],
             },
-            detectedIndustry: fields.industry?.value ? String(fields.industry.value) : undefined,
+            detectedIndustry: fields.clientIndustry?.value ? String(fields.clientIndustry.value) : undefined,
             keyCapabilities: [],
             namespace,
           };

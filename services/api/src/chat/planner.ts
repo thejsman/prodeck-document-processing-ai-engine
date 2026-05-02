@@ -110,7 +110,7 @@ Produce an action plan as strict JSON. Nothing else.
 ## User Message: "${message}"
 
 ## Available Tools
-- generate_proposal: params { client, industry, template?, skill?, teamSize?, duration?, ratePerWeek? }
+- generate_proposal: params { client, projectType, clientIndustry, skill?, teamSize?, duration?, ratePerWeek? }
 - generate_template: params { description, name? }
 - modify_template: params { templateName, instruction }
 - generate_microsite: params { proposalFileName, companyName?, tagline?, primaryColor?, secondaryColor?, theme?, customInstructions? }
@@ -164,12 +164,14 @@ export function buildFallbackPlan(
 ): AgentPlan | null {
   const clientName =
     (context.requirements.fields.clientName?.value as string | undefined) ?? ''
-  const industry =
-    (context.requirements.fields.industry?.value as string | undefined) ?? ''
+  const clientIndustry =
+    (context.requirements.fields.clientIndustry?.value as string | undefined) ?? ''
+  const projectType =
+    (context.requirements.fields.projectType?.value as string | undefined) ?? ''
 
   switch (intent) {
     case 'GENERATE_PROPOSAL': {
-      const params: Record<string, unknown> = { client: clientName, industry };
+      const params: Record<string, unknown> = { client: clientName, projectType, clientIndustry };
       if (context.selectedTemplate) {
         params.template = context.selectedTemplate.templateId;
       }

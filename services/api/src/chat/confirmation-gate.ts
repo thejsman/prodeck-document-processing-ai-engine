@@ -79,7 +79,7 @@ const OPTIONAL_FIELD_QUESTIONS: Partial<Record<RequirementKey, string>> = {
 };
 
 // Entity fields that require user confirmation when sourced from documents
-const ENTITY_FIELDS_TO_CONFIRM: RequirementKey[] = ['clientName', 'industry'];
+const ENTITY_FIELDS_TO_CONFIRM: RequirementKey[] = ['clientName', 'clientIndustry'];
 
 // ---------------------------------------------------------------------------
 // Template YAML helpers (mirrors tool-handlers.ts)
@@ -159,7 +159,7 @@ function buildRecommendationContext(context: NamespaceContext): Parameters<typeo
       timeline: timelineValue ? [timelineValue] : [],
       pricing: budgetValue ? [budgetValue] : [],
     },
-    detectedIndustry: fields.industry?.value as string | undefined,
+    detectedIndustry: fields.clientIndustry?.value as string | undefined,
     keyCapabilities: [],
     namespace: context.namespace,
   };
@@ -174,11 +174,11 @@ async function generateDraftTemplate(
   workdir: string,
   generateFn: GenerateFn,
 ): Promise<{ slug: string; name: string; sections: string[] } | null> {
-  const industry = (context.requirements?.fields?.industry?.value as string | undefined) ?? 'general';
+  const clientIndustry = (context.requirements?.fields?.clientIndustry?.value as string | undefined) ?? 'general';
   const clientName = (context.requirements?.fields?.clientName?.value as string | undefined) ?? '';
 
-  const displayName = `${industry.replace(/\b\w/g, (c) => c.toUpperCase())} Proposal`;
-  const description = `A tailored proposal template for the ${industry} industry${clientName ? ` — generated for ${clientName}` : ''}.`;
+  const displayName = `${clientIndustry.replace(/\b\w/g, (c) => c.toUpperCase())} Proposal`;
+  const description = `A tailored proposal template for the ${clientIndustry} industry${clientName ? ` — generated for ${clientName}` : ''}.`;
 
   const prompt = [
     'You are a proposal architect. Generate a reusable proposal template structure.',
@@ -309,14 +309,14 @@ async function checkTemplateNeedsConfirmation(
       // Re-ask if confirmed more than 7 days ago
       const age = Date.now() - new Date(confirmedAt).getTime();
       if (age <= TEMPLATE_FRESHNESS_MS) {
-        // Re-ask if the industry changed after the template was confirmed
-        const industryUpdatedAt = context.requirements?.fields?.industry?.updatedAt;
+        // Re-ask if the clientIndustry changed after the template was confirmed
+        const industryUpdatedAt = context.requirements?.fields?.clientIndustry?.updatedAt;
         if (!industryUpdatedAt || industryUpdatedAt <= confirmedAt) {
-          return null; // Still fresh and industry unchanged
+          return null; // Still fresh and clientIndustry unchanged
         }
       }
     }
-    // File gone, stale, or industry changed — fall through to re-recommend
+    // File gone, stale, or clientIndustry changed — fall through to re-recommend
   }
 
   // Run the recommendation engine
