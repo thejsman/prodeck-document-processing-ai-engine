@@ -1,4 +1,4 @@
-import type { DocumentType, RequirementKey } from '../chat/context.types.js';
+import type { DocumentType, DocumentClassification, RequirementKey } from '../chat/context.types.js';
 import type { ContextService } from '../chat/context.service.js';
 import type { LLMGenerateFn } from './document-preprocessor.js';
 import { detectDocumentType } from './document-type-detector.js';
@@ -62,6 +62,12 @@ export type FaissIndexFn = (
  * If any LLM step fails, a warning is logged and ingestion continues with
  * whatever partial results are available. Ingestion is never blocked.
  */
+/** Classifications that prevent facts from being written to the Brief. */
+const BRIEF_EXCLUDED: Set<DocumentClassification> = new Set([
+  'provider_asset',
+  'reference_example',
+]);
+
 export async function processDocument(
   namespace: string,
   fileName: string,
@@ -69,6 +75,7 @@ export async function processDocument(
   llmFn: LLMGenerateFn,
   contextService: ContextService,
   faissIndexFn?: FaissIndexFn,
+  classification?: DocumentClassification,
 ): Promise<IngestionResult> {
   const startTime = Date.now();
   const warnings: string[] = [];
@@ -120,21 +127,38 @@ export async function processDocument(
   }
 
   // Step 7: Merge into namespace context (deterministic)
-  await contextService.mergeRequirements(namespace, validFields, {
+  // Provider assets and reference examples never write facts to the Brief.
+  const briefExcluded = classification !== undefined && BRIEF_EXCLUDED.has(classification);
+  const contextSource = {
     fileName,
     documentType: detection.type,
     extractedAt: new Date().toISOString(),
-    fieldsExtracted: Object.keys(validFields) as RequirementKey[],
-    knowledgeEntriesCreated: validKnowledge.length,
+    fieldsExtracted: briefExcluded ? [] as RequirementKey[] : Object.keys(validFields) as RequirementKey[],
+    knowledgeEntriesCreated: briefExcluded ? 0 : validKnowledge.length,
     preprocessConfidence: detection.confidence,
     warnings: warnings.length > 0 ? [...warnings] : undefined,
-  });
-  await contextService.mergeKnowledge(namespace, validKnowledge);
-  if (validMeetingSummary) {
-    await contextService.mergeMeetingSummary(namespace, {
-      ...validMeetingSummary,
-      sourceFile: fileName,
-    });
+    classification,
+  };
+
+  if (!briefExcluded) {
+    // Store as pending confirmation so the user sees an extraction card in chat
+    await contextService.storePendingExtraction(namespace, fileName, validFields, contextSource);
+    await contextService.mergeKnowledge(namespace, validKnowledge);
+    if (validMeetingSummary) {
+      await contextService.mergeMeetingSummary(namespace, {
+        ...validMeetingSummary,
+        sourceFile: fileName,
+      });
+    }
+  } else {
+    // Still record that this document was processed, but write no facts
+    const current = await contextService.get(namespace);
+    if (current) {
+      current.sources.push(contextSource);
+      current.version += 1;
+      current.updatedAt = new Date().toISOString();
+      await contextService.save(namespace, current);
+    }
   }
 
   // Step 8: FAISS indexing (existing — injected, not reimplemented)
