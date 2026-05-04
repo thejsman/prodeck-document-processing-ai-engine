@@ -347,10 +347,12 @@ export function uploadKnowledgeFiles(
   namespace: string,
   files: File[],
   onProgress?: (pct: number) => void,
+  classification?: DocumentClassification,
 ): Promise<KnowledgeUploadResult> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append('namespace', namespace);
+    if (classification) formData.append('classification', classification);
     for (const file of files) {
       formData.append('files', file, file.name);
     }
@@ -1154,6 +1156,131 @@ export async function listSkillAssetsApi(apiKey: string, slug: string): Promise<
   });
   const data = await handleResponse<{ assets: AssetInfoApi[] }>(res);
   return data.assets;
+}
+
+// ---------------------------------------------------------------------------
+// Brief Panel
+// ---------------------------------------------------------------------------
+
+export type DocumentClassification =
+  | 'client_source'
+  | 'conversation'
+  | 'provider_asset'
+  | 'reference_example'
+  | 'background';
+
+export type RequirementKey =
+  | 'clientName'
+  | 'clientIndustry'
+  | 'projectType'
+  | 'budget'
+  | 'timeline'
+  | 'teamSize'
+  | 'technicalStack'
+  | 'keyObjectives'
+  | 'constraints'
+  | 'deliverables'
+  | 'stakeholders'
+  | 'contactName';
+
+export interface RequirementField {
+  value: unknown;
+  confidence: number;
+  source: 'user' | 'document' | 'inferred';
+  updatedAt: string;
+  sourceFile?: string;
+  confirmedByUser?: { at: string };
+  pendingConfirmation?: boolean;
+}
+
+export interface BriefFieldStatus {
+  filled: boolean;
+  confidence?: number;
+  pendingConfirmation?: boolean;
+  sourceFile?: string;
+}
+
+export interface BriefReadiness {
+  tier1: {
+    complete: boolean;
+    fields: Record<'clientName' | 'clientIndustry' | 'projectType', BriefFieldStatus>;
+    missingFields: string[];
+  };
+  tier2: {
+    complete: boolean;
+    missingFields: string[];
+  };
+  canGenerate: boolean;
+  blockingField?: string;
+}
+
+export interface PendingExtraction {
+  documentId: string;
+  extractedAt: string;
+  fields: Partial<Record<RequirementKey, RequirementField>>;
+}
+
+export interface ContextSource {
+  fileName: string;
+  documentType: string;
+  extractedAt: string;
+  fieldsExtracted: RequirementKey[];
+  knowledgeEntriesCreated: number;
+  preprocessConfidence: number;
+  classification?: DocumentClassification;
+}
+
+export interface BriefContext {
+  requirements: {
+    fields: Partial<Record<RequirementKey, RequirementField>>;
+  };
+  sources: ContextSource[];
+  pendingExtractions?: PendingExtraction[];
+}
+
+export async function fetchBriefReadiness(
+  apiKey: string,
+  namespace: string,
+): Promise<{ readiness: BriefReadiness; context: BriefContext }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/context/readiness`,
+    { headers: authHeadersNoBody(apiKey) },
+  );
+  return handleResponse<{ readiness: BriefReadiness; context: BriefContext }>(res);
+}
+
+export async function updateContextField(
+  apiKey: string,
+  namespace: string,
+  key: RequirementKey,
+  value: unknown,
+): Promise<{ field: RequirementField; readiness: BriefReadiness }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/context/fields/${encodeURIComponent(key)}`,
+    {
+      method: 'PATCH',
+      headers: authHeaders(apiKey),
+      body: JSON.stringify({ value, source: 'user' }),
+    },
+  );
+  return handleResponse<{ field: RequirementField; readiness: BriefReadiness }>(res);
+}
+
+export async function confirmExtraction(
+  apiKey: string,
+  namespace: string,
+  fields: Partial<Record<RequirementKey, { value: unknown; confidence: number; source: 'user' | 'document' | 'inferred' }>>,
+  documentId?: string,
+): Promise<{ context: BriefContext; readiness: BriefReadiness }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/context/confirm`,
+    {
+      method: 'POST',
+      headers: authHeaders(apiKey),
+      body: JSON.stringify({ fields, documentId }),
+    },
+  );
+  return handleResponse<{ context: BriefContext; readiness: BriefReadiness }>(res);
 }
 
 // ---------------------------------------------------------------------------

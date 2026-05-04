@@ -5,7 +5,8 @@ import { createPortal } from 'react-dom';
 import { FileText, Loader2, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
-import { uploadKnowledgeFiles } from '@/lib/api';
+import { uploadKnowledgeFiles, type DocumentClassification } from '@/lib/api';
+import { ClassificationPicker } from '@/components/chat/ClassificationPicker';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
@@ -27,7 +28,7 @@ interface Props {
   onUploaded?: () => void;
 }
 
-type UploadState = 'idle' | 'uploading' | 'queued' | 'error';
+type UploadState = 'idle' | 'classifying' | 'uploading' | 'queued' | 'error';
 
 export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
   const { apiKey } = useAuth();
@@ -38,14 +39,36 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
   const [state, setState] = useState<UploadState>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
+  const [classification, setClassification] = useState<DocumentClassification | null>(null);
 
   // Close the modal as soon as upload is queued — indexing is tracked in the right panel
   useEffect(() => {
     if (state === 'queued') onClose();
   }, [state, onClose]);
 
-  // File selection
-  const addFiles = useCallback((incoming: FileList | File[]) => {
+  // File selection (old addFiles kept for remove only)
+  const removeFile = (name: string) => {
+    setFiles((prev) => {
+      const next = prev.filter((f) => f.name !== name);
+      if (next.length === 0) setState('idle');
+      return next;
+    });
+  };
+
+  // Drag and drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); setDragActive(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault(); setDragActive(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragActive(false);
+    if (e.dataTransfer.files.length) handleFilesSelected(e.dataTransfer.files);
+  };
+
+  // After file selection, move to classification step
+  const handleFilesSelected = useCallback((incoming: FileList | File[]) => {
     const valid: File[] = [];
     const rejected: string[] = [];
     for (const f of Array.from(incoming)) {
@@ -60,32 +83,18 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
         const names = new Set(prev.map((f) => f.name));
         return [...prev, ...valid.filter((f) => !names.has(f.name))];
       });
+      setState('classifying');
     }
   }, []);
 
-  const removeFile = (name: string) =>
-    setFiles((prev) => prev.filter((f) => f.name !== name));
-
-  // Drag and drop
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(true);
-  };
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(false);
-  };
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(false);
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-  };
-
   // Upload
   const handleUpload = useCallback(async () => {
-    if (!apiKey || !files.length) return;
+    if (!apiKey || !files.length || !classification) return;
     setState('uploading');
     setProgress(0);
     setError('');
     try {
-      await uploadKnowledgeFiles(apiKey, namespace || 'default', files, setProgress);
+      await uploadKnowledgeFiles(apiKey, namespace || 'default', files, setProgress, classification);
       onUploaded?.();
       setState('queued'); // triggers auto-close via useEffect
       setFiles([]);
@@ -93,7 +102,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
       setError(err instanceof Error ? err.message : String(err));
       setState('error');
     }
-  }, [apiKey, namespace, files]);
+  }, [apiKey, namespace, files, classification]);
 
   // Close on Escape
   useEffect(() => {
@@ -191,7 +200,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
                 accept=".pdf,.txt,.md"
                 style={{ display: 'none' }}
                 onChange={(e) => {
-                  if (e.target.files) addFiles(e.target.files);
+                  if (e.target.files) handleFilesSelected(e.target.files);
                   e.target.value = '';
                 }}
               />
@@ -213,7 +222,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
           )}
 
           {/* File list */}
-          {files.length > 0 && state === 'idle' && (
+          {files.length > 0 && (state === 'idle' || state === 'classifying' || state === 'error') && (
             <div style={{
               border: '1px solid var(--border)',
               borderRadius: 10,
@@ -261,6 +270,11 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
             </div>
           )}
 
+          {/* Classification step */}
+          {state === 'classifying' && (
+            <ClassificationPicker value={classification} onChange={setClassification} />
+          )}
+
           {/* Upload progress */}
           {state === 'uploading' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -294,7 +308,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
           display: 'flex', gap: 8, justifyContent: 'flex-end',
           marginTop: 6,
         }}>
-          {(state === 'idle' || state === 'error') && (
+          {(state === 'idle' || state === 'classifying' || state === 'error') && (
             <>
               <button
                 className="btn btn-sm"
@@ -303,13 +317,26 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
               >
                 Cancel
               </button>
+              {state === 'classifying' && (
+                <button
+                  className="btn btn-sm"
+                  onClick={() => { setState('idle'); setClassification(null); }}
+                  style={{ height: 36, padding: '0 16px', fontSize: 13 }}
+                >
+                  Back
+                </button>
+              )}
               <button
                 className="btn btn-sm btn-primary"
-                onClick={handleUpload}
-                disabled={files.length === 0}
-                style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: files.length === 0 ? 0.45 : 1, cursor: files.length === 0 ? 'not-allowed' : 'pointer' }}
+                onClick={state === 'classifying' ? handleUpload : () => setState('classifying')}
+                disabled={files.length === 0 || (state === 'classifying' && !classification)}
+                style={{
+                  height: 36, padding: '0 16px', fontSize: 13,
+                  opacity: (files.length === 0 || (state === 'classifying' && !classification)) ? 0.45 : 1,
+                  cursor: (files.length === 0 || (state === 'classifying' && !classification)) ? 'not-allowed' : 'pointer',
+                }}
               >
-                {state === 'error' ? 'Retry' : `Upload${files.length > 0 ? ` (${files.length})` : ''}`}
+                {state === 'error' ? 'Retry' : state === 'classifying' ? `Upload (${files.length})` : `Next${files.length > 0 ? ` (${files.length})` : ''}`}
               </button>
             </>
           )}

@@ -26,6 +26,10 @@ import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { startExecutionTransport } from '@/core/execution/execution-transport';
+import { BriefPanel } from '@/components/chat/BriefPanel';
+import { ExtractionConfirmationCard } from '@/components/chat/ExtractionConfirmationCard';
+import { useBrief } from '@/hooks/useBrief';
+import type { RequirementKey } from '@/lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -94,10 +98,18 @@ export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
 
+  const brief = useBrief(namespace || 'default', apiKey);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [fileRefreshTick, setFileRefreshTick] = useState(0);
+
+  // Refresh brief context after ingestion completes so extraction cards appear promptly
+  useEffect(() => {
+    if (fileRefreshTick > 0) brief.refresh();
+  }, [fileRefreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [traceOpen, setTraceOpen] = useState(false);
   const [panelVisible, setPanelVisible] = useState(true);
   const [panelHasContent, setPanelHasContent] = useState(true);
@@ -564,15 +576,49 @@ export default function ChatPage() {
           </div>
         </header>
 
+        {/* ── Brief Panel ── */}
+        <BriefPanel
+          namespace={namespace || 'default'}
+          apiKey={apiKey}
+          onAskField={(question) => {
+            setInput(question);
+            setTimeout(() => {
+              // Trigger submit after setting input — brief approach via textarea focus
+              (document.querySelector('.chat-v2-input') as HTMLTextAreaElement | null)?.focus();
+            }, 50);
+          }}
+          onGenerateProposal={() => setShowGenerateModal(true)}
+        />
+
         {/* ── Body ── */}
         <div className="chat-v2-body">
           <div className="chat-v2-main">
           {/* Messages */}
           <div className="chat-v2-messages">
             <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
-            {!hasContent ? (
+            {/* ── Extraction confirmation cards (Phase 3) ── */}
+            {brief.pendingExtractions.map((extraction) => (
+              <div key={extraction.documentId} className="chat-v2-message chat-v2-message--assistant">
+                <div className="chat-v2-avatar">AI</div>
+                <div className="chat-v2-bubble" style={{ padding: 0, background: 'none', border: 'none' }}>
+                  <ExtractionConfirmationCard
+                    extraction={extraction}
+                    apiKey={apiKey}
+                    namespace={namespace || 'default'}
+                    onConfirm={async (fields, documentId) => {
+                      await brief.confirm(fields as Parameters<typeof brief.confirm>[0], documentId);
+                    }}
+                    onDismiss={async (documentId) => {
+                      await brief.confirm({}, documentId);
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+
+            {!hasContent && brief.pendingExtractions.length === 0 ? (
               <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
-            ) : (
+            ) : hasContent ? (
               <>
                 {messages.map((m, i) => (
                   <div
@@ -862,7 +908,7 @@ export default function ChatPage() {
 
                 {error && <div className="chat-v2-error">{error}</div>}
               </>
-            )}
+            ) : null}
             <div ref={bottomRef} />
           </div>
 
