@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { NamespacesSection } from './NamespacesSection';
-import { Globe, FileText, MoreVertical } from 'lucide-react';
+import { Globe, FileText, MoreVertical, Layers } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 
 const OVERFLOW_ITEMS = [
@@ -65,6 +65,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           >
             <Icon icon={Globe} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Microsites</span>
+          </Link>
+          <Link
+            href="/skills"
+            className={`sidebar-link${pathname?.startsWith('/skills') ? ' sidebar-link--active' : ''}`}
+            onClick={onMobileClose}
+          >
+            <Icon icon={Layers} size="md" className="sidebar-icon" />
+            <span className="sidebar-label">Skills</span>
           </Link>
         </div>
 

@@ -24,6 +24,8 @@ const ToolNameEnum = z.enum([
   'list_templates',
   'get_proposal_status',
   'set_proposal_status',
+  'create_skill',
+  'list_skills',
 ]);
 
 const PlanSchema = z.object({
@@ -40,6 +42,9 @@ const PlanSchema = z.object({
     'GREETING',
     'GENERAL_CHAT',
     'UNKNOWN',
+    'CREATE_SKILL',
+    'MODIFY_SKILL',
+    'LIST_SKILLS',
   ]),
   actions: z
     .array(
@@ -67,8 +72,10 @@ const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
 const TOOL_PARAM_SCHEMAS: Partial<Record<z.infer<typeof ToolNameEnum>, z.ZodTypeAny>> = {
   generate_proposal: z.object({
     client: z.string().min(1),
-    industry: z.string().min(1),
+    projectType: z.string().min(1),
+    clientIndustry: z.string().min(1),
     template: z.string().nullish(),
+    skill: z.string().nullish(),
     teamSize: z.union([z.string(), z.number()]).nullish(),
     duration: z.union([z.string(), z.number()]).nullish(),
     ratePerWeek: z.union([z.string(), z.number()]).nullish(),
@@ -122,6 +129,15 @@ const TOOL_PARAM_SCHEMAS: Partial<Record<z.infer<typeof ToolNameEnum>, z.ZodType
     proposalFileName: z.string().min(1),
     status: z.string().min(1),
   }),
+
+  create_skill: z.object({
+    description: z.string().min(1),
+    industries: z.array(z.string()).optional(),
+    pricingModel: z.enum(['hourly', 'fixed', 'tiered', 'retainer']).optional(),
+    tone: z.string().optional(),
+  }),
+
+  list_skills: z.object({}),
 };
 
 // ---------------------------------------------------------------------------

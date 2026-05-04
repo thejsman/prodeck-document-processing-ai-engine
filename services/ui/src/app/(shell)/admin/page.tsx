@@ -25,6 +25,11 @@ export default function AdminPage() {
           <span className="admin-nav-label">Configuration</span>
           <span className="muted">Manage project pipeline configuration</span>
         </Link>
+        <Link href="/admin/templates" className="admin-nav-card card">
+          <span className="admin-nav-icon">&#x1F4CB;</span>
+          <span className="admin-nav-label">Templates</span>
+          <span className="muted">Create and manage proposal templates</span>
+        </Link>
       </nav>
     </>
   );

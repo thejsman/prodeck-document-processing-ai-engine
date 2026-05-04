@@ -22,6 +22,7 @@ import {
   updateFileStatus,
 } from './ingestion/ingestion-service.js';
 import { ingestionQueue } from './ingestion/ingestion-queue.js';
+import { ContextService } from './chat/context.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,6 +145,10 @@ export function registerUploadRoutes(
 
     // Remove from files.json
     await removeFileEntry(workdir, namespace, fileName);
+
+    // Remove this file's contributions from context.json
+    const contextService = new ContextService(workdir);
+    await contextService.removeFileContributions(namespace, fileName);
 
     // Re-queue all remaining files for a full index rebuild
     let remainingEntries: string[];

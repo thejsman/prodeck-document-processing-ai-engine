@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { fetchNamespaceConfig, saveNamespaceConfig } from '@/lib/api';
 
-const SUPPORTED_FIELDS = ['defaultTemplate', 'tone', 'chunkStrategy', 'pricingDefaults', 'llm'];
+const SUPPORTED_FIELDS = ['defaultTemplate', 'tone', 'chunkStrategy', 'pricingDefaults', 'llm', 'temperature'];
 
 interface Props {
   /** Hide the namespace selector (for modal use where namespace is already in context) */

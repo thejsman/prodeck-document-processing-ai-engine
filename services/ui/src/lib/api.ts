@@ -61,7 +61,8 @@ export interface ProposalDocument {
 
 export interface GenerateProposalRequest {
   client: string;
-  industry?: string;
+  projectType?: string;
+  clientIndustry?: string;
   namespace?: string;
   template?: string;
   overwrite?: boolean;
@@ -79,6 +80,12 @@ export interface GenerateProposalRequest {
 function authHeaders(apiKey: string): HeadersInit {
   return {
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
+
+function authHeadersNoBody(apiKey: string): HeadersInit {
+  return {
     Authorization: `Bearer ${apiKey}`,
   };
 }
@@ -116,7 +123,7 @@ export async function createNamespace(apiKey: string, name: string): Promise<str
 export async function deleteNamespace(apiKey: string, namespace: string): Promise<void> {
   const res = await fetch(`/api/namespaces/${encodeURIComponent(namespace)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<unknown>(res);
 }
@@ -181,7 +188,7 @@ export async function modifyTemplate(apiKey: string, templateYaml: string, instr
 export async function deleteTemplate(apiKey: string, name: string): Promise<void> {
   const res = await fetch(`/api/templates/${encodeURIComponent(name)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<{ deleted: string }>(res);
 }
@@ -189,7 +196,7 @@ export async function deleteTemplate(apiKey: string, name: string): Promise<void
 export async function deleteProposal(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(`/api/proposals/${encodeURIComponent(namespace)}/${encodeURIComponent(fileName)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<{ deleted: string }>(res);
 }
@@ -618,7 +625,7 @@ export async function saveMicrositeHistoryToServer(apiKey: string, namespace: st
 export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
   const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
     method: 'DELETE',
-    headers: authHeaders(apiKey),
+    headers: authHeadersNoBody(apiKey),
   });
   await handleResponse<{ ok: boolean }>(res);
 }
@@ -926,6 +933,227 @@ export async function editProposalSection(
     body: JSON.stringify(req),
   });
   return handleResponse<ProposalSectionEditResult>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------------
+
+export interface SectionConditionApi {
+  field: string;
+  operator: 'exists' | 'equals' | 'contains';
+  value?: string;
+}
+
+export interface SectionDefinitionApi {
+  id: string;
+  title: string;
+  order: number;
+  required: boolean;
+  promptHint: string;
+  maxWords?: number;
+  minWords?: number;
+  assetRef?: string;
+  useRagContext: boolean;
+  ragQuery?: string;
+  condition?: SectionConditionApi;
+}
+
+export interface PricingTierApi {
+  name: string;
+  description: string;
+  priceRange?: string;
+  features: string[];
+  duration?: string;
+}
+
+export interface PricingDefaultsApi {
+  model: 'hourly' | 'fixed' | 'tiered' | 'retainer';
+  rates?: Record<string, number>;
+  tiers?: PricingTierApi[];
+  discounts?: string[];
+  currency: string;
+}
+
+export interface MicrositeDefaultsApi {
+  theme?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  tagline?: string;
+  logoAsset?: string;
+}
+
+export interface SkillApi {
+  slug: string;
+  displayName: string;
+  description: string;
+  industries: string[];
+  projectTypes: string[];
+  tags: string[];
+  defaultTemplate?: string;
+  toneDescription: string;
+  micrositeDefaults: MicrositeDefaultsApi;
+  pricingDefaults?: PricingDefaultsApi;
+  author: string;
+  version: string;
+  createdAt: string;
+  updatedAt: string;
+  scope: 'global' | 'namespace';
+  namespace?: string;
+}
+
+export interface SkillSummaryApi {
+  slug: string;
+  displayName: string;
+  description: string;
+  industries: string[];
+  version: string;
+  updatedAt: string;
+}
+
+export interface SkillDetailApi {
+  skill: SkillApi;
+  instructionsMd: string;
+  sections: SectionDefinitionApi[];
+}
+
+export interface GeneratedSkillApi {
+  displayName: string;
+  description: string;
+  industries: string[];
+  projectTypes: string[];
+  tags: string[];
+  toneDescription: string;
+  instructions: string;
+  sections: SectionDefinitionApi[];
+  pricingDefaults?: PricingDefaultsApi;
+  micrositeDefaults?: MicrositeDefaultsApi;
+  suggestedAssets?: Array<{ fileName: string; description: string; content: string }>;
+}
+
+export interface AssetInfoApi {
+  fileName: string;
+  sizeBytes: number;
+  mimeType: string;
+  referencedBySections: string[];
+}
+
+export async function listSkills(apiKey: string): Promise<SkillSummaryApi[]> {
+  const res = await fetch('/api/skills', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ skills: SkillSummaryApi[] }>(res);
+  return data.skills;
+}
+
+export async function getSkillDetail(apiKey: string, slug: string): Promise<SkillDetailApi> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, { headers: authHeadersNoBody(apiKey) });
+  return handleResponse<SkillDetailApi>(res);
+}
+
+export async function createSkillApi(
+  apiKey: string,
+  skill: Partial<SkillApi> & { instructionsMd?: string; sections?: SectionDefinitionApi[] },
+): Promise<SkillApi> {
+  const res = await fetch('/api/skills', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(skill),
+  });
+  const data = await handleResponse<{ skill: SkillApi }>(res);
+  return data.skill;
+}
+
+export async function updateSkillApi(
+  apiKey: string,
+  slug: string,
+  updates: Partial<SkillApi> & { instructionsMd?: string; sections?: SectionDefinitionApi[] },
+): Promise<SkillApi> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(updates),
+  });
+  const data = await handleResponse<{ skill: SkillApi }>(res);
+  return data.skill;
+}
+
+export async function deleteSkillApi(apiKey: string, slug: string): Promise<void> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
+export async function generateSkillApi(apiKey: string, description: string): Promise<GeneratedSkillApi> {
+  const res = await fetch('/api/skills/generate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ description }),
+  });
+  const data = await handleResponse<{ generated: GeneratedSkillApi }>(res);
+  return data.generated;
+}
+
+export async function generateSkillFromProposalApi(
+  apiKey: string,
+  namespace: string,
+  proposalFileName: string,
+): Promise<GeneratedSkillApi> {
+  const res = await fetch('/api/skills/generate-from-proposal', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ namespace, proposalFileName }),
+  });
+  const data = await handleResponse<{ generated: GeneratedSkillApi }>(res);
+  return data.generated;
+}
+
+export async function applySkillAssistApi(
+  apiKey: string,
+  slug: string,
+  tab: string,
+  currentContent: unknown,
+  instruction: string,
+): Promise<Partial<GeneratedSkillApi>> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assist`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ tab, currentContent, instruction }),
+  });
+  const data = await handleResponse<{ result: Partial<GeneratedSkillApi> }>(res);
+  return data.result;
+}
+
+export async function uploadSkillAssetApi(
+  apiKey: string,
+  slug: string,
+  file: File,
+): Promise<{ fileName: string; sizeBytes: number }> {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: formData,
+  });
+  const data = await handleResponse<{ asset: { fileName: string; sizeBytes: number } }>(res);
+  return data.asset;
+}
+
+export async function deleteSkillAssetApi(apiKey: string, slug: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assets/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
+export async function listSkillAssetsApi(apiKey: string, slug: string): Promise<AssetInfoApi[]> {
+  const res = await fetch(`/api/skills/${encodeURIComponent(slug)}/assets`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ assets: AssetInfoApi[] }>(res);
+  return data.assets;
 }
 
 // ---------------------------------------------------------------------------

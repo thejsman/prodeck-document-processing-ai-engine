@@ -21,6 +21,7 @@ import { registerAssetRoutes } from './asset-routes.js';
 import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
+import { registerSkillRoutes } from './skills/skill-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
 import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
@@ -113,6 +114,7 @@ export async function createServer(opts: ServerOptions) {
   registerStreamUploadRoutes(app, opts.workdir);
   registerImageRoutes(app, opts.workdir);
   registerPluginRoutes(app, presenterRegistry);
+  registerSkillRoutes(app, opts.workdir, policyConfig);
 
   // ── Static exports (HTML downloads) ──────────────────────────
   app.get('/exports/:namespace/:filename', async (req, reply) => {

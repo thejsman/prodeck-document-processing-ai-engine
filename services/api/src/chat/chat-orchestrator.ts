@@ -29,7 +29,7 @@ import {
   buildInterruptContext,
 } from './context-builder.js';
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
-import { llmGenerateFn } from '../agent-routes.js';
+import { llmGenerateFn, withLlmTemperature } from '../agent-routes.js';
 import { ProposalWorkflow } from '../workflows/proposal-generation.workflow.js';
 import type { WorkflowDefinition } from '../workflows/proposal-generation.workflow.js';
 import { RfpAnalysisWorkflow } from '../workflows/rfp-analysis.workflow.js';
@@ -291,7 +291,9 @@ async function answerFromKnowledge(
 
   const context = allChunks.map((t, i) => `[${i + 1}] ${t}`).join('\n\n');
   const prompt = [
-    "You are an AI assistant. Answer the user's question using the document context below.",
+    "You are an AI assistant. Answer the user's question using ONLY the document excerpts provided below.",
+    'Do NOT use general knowledge, make assumptions, or introduce information not present in the excerpts.',
+    'If the excerpts do not contain enough information to answer, respond with: "I could not find that information in the uploaded documents."',
     ...(extraContext ? ['', '## Current Session Context', extraContext] : []),
     '',
     '## Document Excerpts',
@@ -300,7 +302,7 @@ async function answerFromKnowledge(
     '## User Question',
     message,
     '',
-    'Answer clearly and concisely based on the document excerpts.',
+    'Answer based solely on the document excerpts above.',
   ].join('\n');
 
   return generateFn(prompt);
@@ -331,6 +333,24 @@ export class ChatOrchestrator {
    *     7. If "completed" → mark instance complete, emit final message (STEP 7)
    */
   async processMessage(params: ProcessMessageParams): Promise<OrchestratorResult> {
+    const temperature = await this._readNamespaceTemperature(params.namespace);
+    return withLlmTemperature(temperature, () => this._processMessageInner(params));
+  }
+
+  private async _readNamespaceTemperature(namespace: string): Promise<number | undefined> {
+    try {
+      const configFile = path.join(this.workdir, 'config', 'namespaces', `${namespace}.json`);
+      const raw = await readFile(configFile, 'utf-8');
+      const cfg = JSON.parse(raw) as { temperature?: unknown };
+      const t = cfg.temperature;
+      if (typeof t === 'number' && Number.isFinite(t) && t >= 0 && t <= 2) return t;
+    } catch {
+      // Config file absent or unreadable — use provider default
+    }
+    return undefined;
+  }
+
+  private async _processMessageInner(params: ProcessMessageParams): Promise<OrchestratorResult> {
     const { message, namespace, chatSessionId, onPhase = () => {}, onChunk = () => {}, onSection } = params;
 
     // ── Load or create workflow instance ─────────────────────────

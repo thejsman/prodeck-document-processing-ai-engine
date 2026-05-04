@@ -166,7 +166,11 @@ export function buildConfirmationResponse(
     );
     for (const entity of request.entities) {
       const sourceLabel = entity.source === 'inferred' ? 'inferred' : 'from documents';
-      const fieldLabel = entity.field === 'clientName' ? 'Client' : 'Industry';
+      const fieldLabel =
+        entity.field === 'clientName' ? 'Client' :
+        entity.field === 'clientIndustry' ? 'Client Industry' :
+        entity.field === 'projectType' ? 'Service Type' :
+        entity.field;
       lines.push(`- **${fieldLabel}:** ${entity.value} *(${sourceLabel})*`);
     }
 

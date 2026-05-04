@@ -10,7 +10,7 @@ export interface RequirementField<T> {
 
 export type RequirementKey =
   | 'clientName'
-  | 'industry'
+  | 'clientIndustry'
   | 'projectType'
   | 'budget'
   | 'timeline'
@@ -151,6 +151,15 @@ export interface NamespaceContext {
   sources: ContextSource[];
   /** Template the user confirmed to use for the next proposal generation. */
   selectedTemplate?: SelectedTemplate;
+  /**
+   * Persisted fallback for awaitingConfirmation when the pipeline halted waiting
+   * for the user to approve a generated template. Cleared once the user confirms.
+   * Stored here so it survives page navigations that lose in-memory state.
+   */
+  pendingTemplateApproval?: {
+    kind: 'approve_generated_template';
+    templateSlug: string;
+  };
   version: number;
   updatedAt: string;
 }
