@@ -23,6 +23,7 @@ import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { registerSkillRoutes } from './skills/skill-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
+import { registerContextRoutes } from './context-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
 import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
 import {
@@ -108,6 +109,7 @@ export async function createServer(opts: ServerOptions) {
   registerTemplateAgentRoutes(app);
   registerAgentRoutes(app, opts.workdir, policyConfig);
   registerChatRoutes(app, opts.workdir, policyConfig);
+  registerContextRoutes(app, opts.workdir);
   registerTraceRoutes(app);
   registerExecutionStreamRoutes(app);
   registerAssetRoutes(app, opts.workdir);
