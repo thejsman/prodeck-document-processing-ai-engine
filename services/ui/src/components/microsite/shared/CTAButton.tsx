@@ -47,13 +47,17 @@ export function CTAButton({ children, tokens, variant = 'primary', style, onClic
         lineHeight: 1.5,
         cursor: 'pointer',
         minHeight: 44,
+        // When hovered: override with strong directional shadow. When idle: breathing glow animation.
         boxShadow: isPrimary && hovered
           ? `0 0 0 1px ${tokens.accent}40, 0 4px 20px ${tokens.glowColor}`
-          : 'none',
+          : undefined,
+        animation: isPrimary && !hovered ? `ms-cta-glow 2.5s ease-in-out infinite` : undefined,
+        // @ts-ignore CSS variable
+        '--ms-accent-glow': `${tokens.accent}55`,
         transform: hovered ? 'scale(1.03) translateY(-1px)' : 'scale(1) translateY(0)',
         transition: 'transform 0.25s ease, box-shadow 0.25s ease, color 0.2s ease, border-color 0.2s ease, background 0.2s ease',
         ...style,
-      }}
+      } as React.CSSProperties}
     >
       {children}
       {showArrow && (

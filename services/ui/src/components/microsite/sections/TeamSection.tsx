@@ -106,13 +106,12 @@ export function TeamSection({ content, tokens }: Props) {
               <Reveal key={i} delay={160 + i * 80} style={variant !== 'list' ? { height: '100%' } : undefined}>
                 <InlineArrayItem arrayPath="members" index={i} total={members.length} style={variant !== 'list' ? { height: '100%' } : undefined}>
                   {variant === 'list' ? (
-                    <div style={{
+                    <div className="ms-card" style={{
                       display: 'flex', alignItems: 'flex-start', gap: 20,
                       padding: '20px 24px',
                       borderRadius: tokens.borderRadius ?? '12px',
                       border: `1px solid ${tokens.border}`,
                       background: tokens.surfaceCard,
-                      transition: 'border-color 0.2s, box-shadow 0.2s',
                     }}>
                       {/* Avatar with initials */}
                       <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -168,7 +167,7 @@ export function TeamSection({ content, tokens }: Props) {
                       </div>
                     </div>
                   ) : (
-                    <div style={{
+                    <div className="ms-card" style={{
                       position: 'relative',
                       padding: 'clamp(1.25rem, 2.5vw, 1.75rem)',
                       borderRadius: tokens.borderRadius ?? '16px',
