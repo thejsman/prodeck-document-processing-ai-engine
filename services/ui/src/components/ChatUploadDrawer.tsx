@@ -25,11 +25,14 @@ interface Props {
   namespace: string;
   onClose: () => void;
   onUploaded?: () => void;
+  onUploadStart?: (files: File[]) => void;
+  onProgress?: (progress: number) => void;
+  onUploadError?: () => void;
 }
 
 type UploadState = 'idle' | 'uploading' | 'queued' | 'error';
 
-export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
+export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart, onProgress, onUploadError }: Props) {
   const { apiKey } = useAuth();
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,19 +84,24 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded }: Props) {
   // Upload
   const handleUpload = useCallback(async () => {
     if (!apiKey || !files.length) return;
+    onUploadStart?.(files);
     setState('uploading');
     setProgress(0);
     setError('');
     try {
-      await uploadKnowledgeFiles(apiKey, namespace || 'default', files, setProgress);
+      await uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
+        setProgress(p);
+        onProgress?.(p);
+      });
       onUploaded?.();
       setState('queued'); // triggers auto-close via useEffect
       setFiles([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setState('error');
+      onUploadError?.();
     }
-  }, [apiKey, namespace, files]);
+  }, [apiKey, namespace, files, onUploadStart, onProgress, onUploadError]);
 
   // Close on Escape
   useEffect(() => {

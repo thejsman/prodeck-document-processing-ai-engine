@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { useSSE, type ProposalSection, type ConfirmationRequest } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
+import { ChatFileUpload } from '@/components/chat/ChatFileUpload';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { NamespacePanel, parseMicrositeInfo } from '@/components/chat/NamespacePanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
@@ -31,13 +32,20 @@ import { startExecutionTransport } from '@/core/execution/execution-transport';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'upload';
   content: string;
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
   metadata?: { proposalArtifactId?: string; proposalNamespace?: string };
   /** Populated when the pipeline halted at Stage 4.5 for user confirmation. */
   confirmation?: ConfirmationRequest;
+  /** Populated for inline file upload progress entries. */
+  uploadData?: {
+    fileName: string;
+    fileSize: number;
+    progress: number;
+    status: 'uploading' | 'processing' | 'done' | 'error';
+  };
 }
 
 
@@ -119,6 +127,7 @@ export default function ChatPage() {
   const msSentinelRef = useRef<HTMLDivElement>(null);
 
   const chatSessionIdRef = useRef<string | null>(null);
+  const uploadMsgIdRef = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -405,6 +414,57 @@ export default function ChatPage() {
     });
   }, [input, isStreaming, chunks, sections, confirmationRequest, namespace, apiKey, reset, startStream, removeExecution]);
 
+  // ── File upload inline progress callbacks ─────────────────────────
+
+  const handleUploadStart = useCallback((files: File[]) => {
+    const id = crypto.randomUUID();
+    const displayName = files.length > 1
+      ? `${files[0].name} +${files.length - 1} more`
+      : files[0].name;
+    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    uploadMsgIdRef.current = id;
+    setMessages((prev) => [
+      ...prev,
+      { id, role: 'upload', content: '', uploadData: { fileName: displayName, fileSize: totalSize, progress: 0, status: 'uploading' } },
+    ]);
+  }, []);
+
+  const handleUploadProgress = useCallback((progress: number) => {
+    const id = uploadMsgIdRef.current;
+    if (!id) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, progress } } : m,
+      ),
+    );
+  }, []);
+
+  const handleUploadDone = useCallback(() => {
+    const id = uploadMsgIdRef.current;
+    if (id) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id && m.uploadData
+            ? { ...m, uploadData: { ...m.uploadData, progress: 100, status: 'done' } }
+            : m,
+        ),
+      );
+      uploadMsgIdRef.current = null;
+    }
+    setFileRefreshTick((t) => t + 1);
+  }, []);
+
+  const handleUploadError = useCallback(() => {
+    const id = uploadMsgIdRef.current;
+    if (!id) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, status: 'error' } } : m,
+      ),
+    );
+    uploadMsgIdRef.current = null;
+  }, []);
+
   const sendConfirmation = useCallback((msg: string) => {
     if (isStreaming) return;
     // Commit current stream to history first
@@ -574,7 +634,19 @@ export default function ChatPage() {
               <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
             ) : (
               <>
-                {messages.map((m, i) => (
+                {messages.map((m, i) => {
+                  if (m.role === 'upload' && m.uploadData) {
+                    return (
+                      <div
+                        key={m.id}
+                        className="chat-v2-message chat-v2-message--user"
+                        style={{ '--msg-i': i } as React.CSSProperties}
+                      >
+                        <ChatFileUpload {...m.uploadData} />
+                      </div>
+                    );
+                  }
+                  return (
                   <div
                     key={m.id}
                     className={`chat-v2-message chat-v2-message--${m.role}`}
@@ -648,7 +720,8 @@ export default function ChatPage() {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
 
                 {/* ── Modal-triggered generation: loading + done card ── */}
                 {isGeneratingFromModal && (
@@ -870,7 +943,10 @@ export default function ChatPage() {
           {showUpload && (
             <ChatUploadDrawer
               namespace={namespace}
-              onUploaded={() => setFileRefreshTick(t => t + 1)}
+              onUploadStart={handleUploadStart}
+              onProgress={handleUploadProgress}
+              onUploaded={handleUploadDone}
+              onUploadError={handleUploadError}
               onClose={() => {
                 setShowUpload(false);
                 textareaRef.current?.focus();
@@ -989,7 +1065,7 @@ export default function ChatPage() {
             <div style={{ height: 1, background: 'var(--border)' }} />
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-                Clear all messages in the <strong>"{namespace || 'default'}"</strong> session? This action cannot be undone.
+                Clear all messages in the <strong>"{namespace || 'default'}"</strong> session?
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button

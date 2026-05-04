@@ -7182,3 +7182,112 @@ body {
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/* ── Chat File Upload ────────────────────────────────────────────────
+   Renders on the user side of the chat (right-aligned) while a file
+   is uploading, then collapses to a compact pill when done.
+   All color references use existing tokens — dark/light handled
+   automatically by the token system; no explicit dark overrides needed.
+───────────────────────────────────────────────────────────────────── */
+
+.chat-file-upload {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  padding: 12px 14px;
+  max-width: 280px;
+  width: fit-content;
+  margin-left: auto;
+}
+
+/* Collapsed done pill */
+.chat-file-upload--done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+/* Header row: icon + filename + size */
+.chat-file-upload__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-file-upload__icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.chat-file-upload__icon--primary {
+  color: var(--primary);
+}
+
+.chat-file-upload__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  flex: 1;
+}
+
+/* Single-line variant used in the done pill */
+.chat-file-upload__name--inline {
+  max-width: 170px;
+  flex: unset;
+}
+
+.chat-file-upload__size {
+  font-size: 12px;
+  color: var(--subtle, var(--muted));
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Progress bar */
+.chat-file-upload__track {
+  background: var(--panel-item);
+  border-radius: 99px;
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.chat-file-upload__fill {
+  background: var(--primary);
+  border-radius: 99px;
+  height: 4px;
+  transition: width 0.3s ease;
+}
+
+.chat-file-upload__fill--error {
+  background: var(--danger);
+}
+
+/* Status label */
+.chat-file-upload__status {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.chat-file-upload__status--error {
+  color: var(--danger);
+}
+
+.chat-file-upload__status--done {
+  color: var(--success);
+}
+
+/* Check mark in done pill */
+.chat-file-upload__check {
+  font-size: 12px;
+  color: var(--success);
+  flex-shrink: 0;
+  margin-left: auto;
+}
