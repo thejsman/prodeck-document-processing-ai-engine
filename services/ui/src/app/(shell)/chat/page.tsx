@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { ArrowUp, Brain, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
@@ -29,19 +29,23 @@ import { startExecutionTransport } from '@/core/execution/execution-transport';
 import { BriefPanel } from '@/components/chat/BriefPanel';
 import { ExtractionConfirmationCard } from '@/components/chat/ExtractionConfirmationCard';
 import { useBrief } from '@/hooks/useBrief';
-import type { RequirementKey } from '@/lib/api';
+import type { RequirementKey, DocumentClassification } from '@/lib/api';
+import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
+import { confirmExtractionCard, discardExtractionCard, reclassifyExtractionCard, fetchPendingExtractions } from '@/lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'extraction_card';
   content: string;
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
   metadata?: { proposalArtifactId?: string; proposalNamespace?: string };
   /** Populated when the pipeline halted at Stage 4.5 for user confirmation. */
   confirmation?: ConfirmationRequest;
+  /** Present when role === 'extraction_card'. */
+  extractionCardId?: string;
 }
 
 
@@ -105,10 +109,36 @@ export default function ChatPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [fileRefreshTick, setFileRefreshTick] = useState(0);
 
+  // ── Extraction card store integration ───────────────────────────
+  const allExtractionCards = useExtractionCardStore((s) => s.cards);
+  const extractionCards = useMemo(
+    () => Object.values(allExtractionCards).filter((c) => c.namespace === (namespace ?? 'default')),
+    [allExtractionCards, namespace],
+  );
+  const seenCardIdsRef = useRef<Set<string>>(new Set());
+
   // Refresh brief context after ingestion completes so extraction cards appear promptly
   useEffect(() => {
     if (fileRefreshTick > 0) brief.refresh();
   }, [fileRefreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync new extraction cards from the store into the chat messages array
+  useEffect(() => {
+    for (const card of extractionCards) {
+      if (!seenCardIdsRef.current.has(card.cardId)) {
+        seenCardIdsRef.current.add(card.cardId);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `extraction-${card.cardId}`,
+            role: 'extraction_card',
+            content: '',
+            extractionCardId: card.cardId,
+          },
+        ]);
+      }
+    }
+  }, [extractionCards]);
 
   const [traceOpen, setTraceOpen] = useState(false);
   const [panelVisible, setPanelVisible] = useState(true);
@@ -261,6 +291,33 @@ export default function ChatPage() {
         setMessages(data.messages);
       })
       .catch(() => { /* history unavailable — start fresh */ });
+
+    // Page-load recovery: restore pending extraction cards from previous session
+    fetchPendingExtractions(apiKey, ns)
+      .then(({ pending }) => {
+        useExtractionCardStore.getState().loadRecoveryCards(
+          pending.map((p) => ({
+            cardId: p.cardId,
+            namespace: ns,
+            fileName: p.fileName ?? p.documentId,
+            classification: p.classification ?? 'client_source',
+            extractedFields: Object.entries(p.fields ?? {}).map(([key, field]) => ({
+              key: key as RequirementKey,
+              value: field?.value,
+              confidence: field?.confidence ?? 0,
+              conflict: p.conflicts?.find((c) => c.key === key),
+            })),
+            knowledgeEntryCount: p.knowledgeEntries?.length ?? 0,
+            highConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) >= 0.8).length,
+            lowConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) < 0.8).length,
+            notFoundFields: [],
+            expiresAt: p.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            cardState: 'pending' as const,
+            addedAt: Date.now(),
+          })),
+        );
+      })
+      .catch(() => { /* pending extractions unavailable */ });
 
     fetchInsights(ns);
     setTimeout(() => textareaRef.current?.focus(), 0);
@@ -416,6 +473,52 @@ export default function ChatPage() {
       startStream({ message: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     });
   }, [input, isStreaming, chunks, sections, confirmationRequest, namespace, apiKey, reset, startStream, removeExecution]);
+
+  // ── Extraction card handlers ───────────────────────────────────
+
+  const handleCardConfirm = useCallback(async (
+    cardId: string,
+    overrides?: Record<string, { value: string }>,
+    resolvedConflicts?: Record<string, string>,
+  ) => {
+    const ns = namespace ?? 'default';
+    try {
+      const result = await confirmExtractionCard(apiKey, ns, cardId, overrides, resolvedConflicts);
+      useExtractionCardStore.getState().updateCardState(cardId, 'confirmed', {
+        fieldsWritten: result.fieldsWritten.length,
+      });
+      brief.refresh();
+    } catch (err) {
+      console.error('[Chat] failed to confirm extraction card', err);
+    }
+  }, [apiKey, namespace, brief]);
+
+  const handleCardDiscard = useCallback(async (cardId: string) => {
+    const ns = namespace ?? 'default';
+    try {
+      await discardExtractionCard(apiKey, ns, cardId);
+      useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
+    } catch (err) {
+      console.error('[Chat] failed to discard extraction card', err);
+    }
+  }, [apiKey, namespace]);
+
+  const handleCardReclassify = useCallback(async (cardId: string, newClassification: DocumentClassification) => {
+    const ns = namespace ?? 'default';
+    try {
+      await reclassifyExtractionCard(apiKey, ns, cardId, newClassification);
+      useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
+      // A new extraction_ready SSE event will fire when re-extraction completes
+    } catch (err) {
+      console.error('[Chat] failed to reclassify extraction card', err);
+    }
+  }, [apiKey, namespace]);
+
+  const handleCardFill = useCallback((cardId: string, fieldKey: RequirementKey) => {
+    const label = fieldKey.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+    setInput(`What is the ${label} for this engagement?`);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
 
   const sendConfirmation = useCallback((msg: string) => {
     if (isStreaming) return;
@@ -596,39 +699,29 @@ export default function ChatPage() {
           {/* Messages */}
           <div className="chat-v2-messages">
             <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
-            {/* ── Extraction confirmation cards (Phase 3) ── */}
-            {brief.pendingExtractions.map((extraction) => (
-              <div key={extraction.documentId} className="chat-v2-message chat-v2-message--assistant">
-                <div className="chat-v2-avatar">AI</div>
-                <div className="chat-v2-bubble" style={{ padding: 0, background: 'none', border: 'none' }}>
-                  <ExtractionConfirmationCard
-                    extraction={extraction}
-                    apiKey={apiKey}
-                    namespace={namespace || 'default'}
-                    onConfirm={async (fields, documentId) => {
-                      await brief.confirm(fields as Parameters<typeof brief.confirm>[0], documentId);
-                    }}
-                    onDismiss={async (documentId) => {
-                      await brief.confirm({}, documentId);
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-
-            {!hasContent && brief.pendingExtractions.length === 0 ? (
+            {!hasContent && extractionCards.filter((c) => c.cardState === 'pending').length === 0 ? (
               <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
             ) : hasContent ? (
               <>
                 {messages.map((m, i) => (
                   <div
                     key={m.id}
-                    className={`chat-v2-message chat-v2-message--${m.role}`}
+                    className={`chat-v2-message chat-v2-message--${m.role === 'extraction_card' ? 'assistant' : m.role}`}
                     style={{ '--msg-i': i } as React.CSSProperties}
                   >
-                    {m.role === 'assistant' && <div className="chat-v2-avatar">AI</div>}
-                    <div className="chat-v2-bubble">
-                      {m.role === 'assistant' ? (
+                    {(m.role === 'assistant' || m.role === 'extraction_card') && <div className="chat-v2-avatar">AI</div>}
+                    <div className="chat-v2-bubble" style={m.role === 'extraction_card' ? { padding: 0, background: 'none', border: 'none' } : undefined}>
+                      {m.role === 'extraction_card' && m.extractionCardId ? (
+                        <ExtractionConfirmationCard
+                          cardId={m.extractionCardId}
+                          namespace={namespace ?? 'default'}
+                          apiKey={apiKey}
+                          onConfirm={handleCardConfirm}
+                          onDiscard={handleCardDiscard}
+                          onReclassify={handleCardReclassify}
+                          onFill={handleCardFill}
+                        />
+                      ) : m.role === 'assistant' ? (
                         (() => {
                           // In-memory sections from active stream
                           if (m.sections?.length) {

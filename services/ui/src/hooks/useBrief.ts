@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   fetchBriefReadiness,
   updateContextField,
   confirmExtraction,
+  confirmExtractionCard,
   updateKnowledgeEntry,
   deleteKnowledgeEntry,
   type BriefReadiness,
@@ -12,6 +13,7 @@ import {
   type RequirementKey,
   type PendingExtraction,
 } from '@/lib/api';
+import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
 
 export type { BriefReadiness, BriefContext, RequirementKey, PendingExtraction };
 
@@ -22,6 +24,11 @@ export function useBrief(namespace: string, apiKey: string) {
   const [readiness, setReadiness] = useState<BriefReadiness | null>(null);
   const [loading, setLoading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const allCards = useExtractionCardStore((s) => s.cards);
+  const pendingCards = useMemo(
+    () => Object.values(allCards).filter((c) => c.namespace === namespace),
+    [allCards, namespace],
+  );
 
   const refresh = useCallback(async () => {
     if (!namespace || !apiKey) return;
@@ -103,13 +110,55 @@ export function useBrief(namespace: string, apiKey: string) {
     [apiKey, namespace],
   );
 
+  const confirmCard = useCallback(
+    async (
+      cardId: string,
+      overrides?: Record<string, { value: string }>,
+      resolvedConflicts?: Record<RequirementKey, string>,
+    ) => {
+      if (!apiKey || !namespace) return;
+      const data = await confirmExtractionCard(apiKey, namespace, cardId, overrides, resolvedConflicts);
+      setContext(data.context);
+      setReadiness(data.readiness);
+    },
+    [apiKey, namespace],
+  );
+
+  // Merge pending card fields as pendingConfirmation entries so Brief Panel shows ◐
+  const mergedContext = useMemo<BriefContext | null>(() => {
+    if (!context) return context;
+    const pendingFields: BriefContext['requirements']['fields'] = {};
+    for (const card of pendingCards) {
+      if (card.cardState !== 'pending') continue;
+      for (const field of card.extractedFields) {
+        if (pendingFields[field.key] || context.requirements.fields[field.key]) continue;
+        pendingFields[field.key] = {
+          value: field.value,
+          confidence: field.confidence,
+          source: 'document',
+          updatedAt: new Date(card.addedAt).toISOString(),
+          pendingConfirmation: true,
+        };
+      }
+    }
+    if (Object.keys(pendingFields).length === 0) return context;
+    return {
+      ...context,
+      requirements: {
+        ...context.requirements,
+        fields: { ...pendingFields, ...context.requirements.fields },
+      },
+    };
+  }, [context, pendingCards]);
+
   return {
-    context,
+    context: mergedContext,
     readiness,
     loading,
     refresh,
     updateField,
     confirm,
+    confirmCard,
     updateKnowledge,
     deleteKnowledge,
     canGenerate: readiness?.canGenerate ?? false,

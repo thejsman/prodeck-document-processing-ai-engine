@@ -1214,10 +1214,27 @@ export interface BriefReadiness {
   blockingField?: string;
 }
 
+export interface ConflictRecord {
+  key: RequirementKey;
+  incomingValue: unknown;
+  incomingConfidence: number;
+  incomingSourceFile: string;
+  existingValue: unknown;
+  existingConfidence: number;
+  existingSourceFile?: string;
+}
+
 export interface PendingExtraction {
+  cardId: string;
   documentId: string;
+  fileName: string;
   extractedAt: string;
+  expiresAt?: string;
+  status?: 'pending' | 'confirmed' | 'discarded';
+  classification?: DocumentClassification;
   fields: Partial<Record<RequirementKey, RequirementField>>;
+  knowledgeEntries?: KnowledgeEntry[];
+  conflicts?: ConflictRecord[];
 }
 
 export interface ContextSource {
@@ -1300,6 +1317,64 @@ export async function confirmExtraction(
     },
   );
   return handleResponse<{ context: BriefContext; readiness: BriefReadiness }>(res);
+}
+
+export async function confirmExtractionCard(
+  apiKey: string,
+  namespace: string,
+  cardId: string,
+  overrides?: Record<string, { value: string }>,
+  resolvedConflicts?: Record<string, string>,
+): Promise<{ fieldsWritten: RequirementKey[]; context: BriefContext; readiness: BriefReadiness }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/extractions/${encodeURIComponent(cardId)}/confirm`,
+    {
+      method: 'POST',
+      headers: authHeaders(apiKey),
+      body: JSON.stringify({ overrides, resolvedConflicts }),
+    },
+  );
+  return handleResponse<{ fieldsWritten: RequirementKey[]; context: BriefContext; readiness: BriefReadiness }>(res);
+}
+
+export async function discardExtractionCard(
+  apiKey: string,
+  namespace: string,
+  cardId: string,
+): Promise<{ discarded: boolean }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/extractions/${encodeURIComponent(cardId)}/discard`,
+    { method: 'POST', headers: authHeadersNoBody(apiKey) },
+  );
+  return handleResponse<{ discarded: boolean }>(res);
+}
+
+export async function reclassifyExtractionCard(
+  apiKey: string,
+  namespace: string,
+  cardId: string,
+  newClassification: DocumentClassification,
+): Promise<{ newCardId: string }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/extractions/${encodeURIComponent(cardId)}/reclassify`,
+    {
+      method: 'POST',
+      headers: authHeaders(apiKey),
+      body: JSON.stringify({ newClassification }),
+    },
+  );
+  return handleResponse<{ newCardId: string }>(res);
+}
+
+export async function fetchPendingExtractions(
+  apiKey: string,
+  namespace: string,
+): Promise<{ pending: PendingExtraction[] }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/extractions/pending`,
+    { headers: authHeadersNoBody(apiKey) },
+  );
+  return handleResponse<{ pending: PendingExtraction[] }>(res);
 }
 
 export async function updateKnowledgeEntry(
