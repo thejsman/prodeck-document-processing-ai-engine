@@ -1302,6 +1302,31 @@ export async function confirmExtraction(
   return handleResponse<{ context: BriefContext; readiness: BriefReadiness }>(res);
 }
 
+export async function updateKnowledgeEntry(
+  apiKey: string,
+  namespace: string,
+  id: string,
+  content: string,
+): Promise<{ context: BriefContext }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/context/knowledge/${encodeURIComponent(id)}`,
+    { method: 'PATCH', headers: authHeaders(apiKey), body: JSON.stringify({ content }) },
+  );
+  return handleResponse<{ context: BriefContext }>(res);
+}
+
+export async function deleteKnowledgeEntry(
+  apiKey: string,
+  namespace: string,
+  id: string,
+): Promise<{ context: BriefContext }> {
+  const res = await fetch(
+    `/api/namespaces/${encodeURIComponent(namespace)}/context/knowledge/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: authHeadersNoBody(apiKey) },
+  );
+  return handleResponse<{ context: BriefContext }>(res);
+}
+
 // ---------------------------------------------------------------------------
 // URL Design Extraction
 // ---------------------------------------------------------------------------

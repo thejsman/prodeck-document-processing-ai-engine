@@ -108,4 +108,37 @@ export function registerContextRoutes(
       return reply.send({ field, readiness });
     },
   );
+
+  // PATCH /namespaces/:namespace/context/knowledge/:id
+  app.patch(
+    '/namespaces/:namespace/context/knowledge/:id',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace, id } = req.params as { namespace: string; id: string };
+      const auth = getAuth(req);
+      if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+      const body = req.body as { content?: string };
+      if (typeof body?.content !== 'string' || body.content.trim() === '') {
+        return reply.code(400).send({ error: 'content is required and must be a non-empty string' });
+      }
+
+      const context = await contextService.updateKnowledge(namespace, id, body.content.trim());
+      if (!context) return reply.code(404).send({ error: `Knowledge entry not found: ${id}` });
+      return reply.send({ context });
+    },
+  );
+
+  // DELETE /namespaces/:namespace/context/knowledge/:id
+  app.delete(
+    '/namespaces/:namespace/context/knowledge/:id',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace, id } = req.params as { namespace: string; id: string };
+      const auth = getAuth(req);
+      if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+      const context = await contextService.deleteKnowledge(namespace, id);
+      if (!context) return reply.code(404).send({ error: `Knowledge entry not found: ${id}` });
+      return reply.send({ context });
+    },
+  );
 }

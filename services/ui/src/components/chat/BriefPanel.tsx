@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { ChevronDown, ChevronUp, FileText, MessageSquare } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, MessageSquare, Pencil, Trash2 } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useBrief } from '@/hooks/useBrief';
 import { BriefField, FIELD_LABELS } from './BriefField';
@@ -48,7 +48,9 @@ interface Props {
 export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [showAllKnowledge, setShowAllKnowledge] = useState(false);
-  const { context, readiness, updateField, confirm, canGenerate, blockingField } = useBrief(namespace, apiKey);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const { context, readiness, updateField, confirm, updateKnowledge, deleteKnowledge, canGenerate, blockingField } = useBrief(namespace, apiKey);
 
   const fields = context?.requirements?.fields ?? {};
 
@@ -72,6 +74,27 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
     },
     [confirm],
   );
+
+  const handleKnowledgeEditStart = useCallback((entry: KnowledgeEntry) => {
+    setEditingId(entry.id);
+    setEditValue(entry.content);
+  }, []);
+
+  const handleKnowledgeSave = useCallback(async (id: string) => {
+    await updateKnowledge(id, editValue);
+    setEditingId(null);
+    setEditValue('');
+  }, [updateKnowledge, editValue]);
+
+  const handleKnowledgeCancel = useCallback(() => {
+    setEditingId(null);
+    setEditValue('');
+  }, []);
+
+  const handleKnowledgeDelete = useCallback(async (id: string) => {
+    if (editingId === id) { setEditingId(null); setEditValue(''); }
+    await deleteKnowledge(id);
+  }, [deleteKnowledge, editingId]);
 
   // Collapsed strip — show filled Tier 1 fields inline
   const filledTier1 = TIER1_KEYS
@@ -205,9 +228,54 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
                     }}>
                       {KNOWLEDGE_CATEGORY_LABELS[entry.category] ?? entry.category}
                     </span>
-                    <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>
-                      {entry.content}
-                    </span>
+                    {editingId === entry.id ? (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <textarea
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          rows={3}
+                          style={{ fontSize: 12, width: '100%', resize: 'vertical', padding: '4px 6px', border: '1px solid var(--primary)', borderRadius: 4, background: 'var(--input-bg, var(--panel-soft))', color: 'var(--text)' }}
+                        />
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            onClick={() => handleKnowledgeSave(entry.id)}
+                            disabled={editValue.trim() === ''}
+                            style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 3 }}
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={handleKnowledgeCancel}
+                            style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', background: 'none', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text)' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5, flex: 1 }}>
+                        {entry.content}
+                      </span>
+                    )}
+                    {editingId !== entry.id && (
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0, paddingTop: 1 }}>
+                        <button
+                          onClick={() => handleKnowledgeEditStart(entry)}
+                          title="Edit"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', lineHeight: 1 }}
+                        >
+                          <Icon icon={Pencil} size="sm" />
+                        </button>
+                        <button
+                          onClick={() => handleKnowledgeDelete(entry.id)}
+                          title="Delete"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', lineHeight: 1 }}
+                        >
+                          <Icon icon={Trash2} size="sm" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {allEntries.length > 5 && (

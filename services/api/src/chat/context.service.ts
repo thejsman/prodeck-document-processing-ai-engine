@@ -568,6 +568,30 @@ export class ContextService {
     return current;
   }
 
+  async updateKnowledge(namespace: string, id: string, content: string): Promise<NamespaceContext | null> {
+    const current = await this.get(namespace);
+    if (!current) return null;
+    const entry = current.knowledge.find((e) => e.id === id);
+    if (!entry) return null;
+    entry.content = content;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
+  }
+
+  async deleteKnowledge(namespace: string, id: string): Promise<NamespaceContext | null> {
+    const current = await this.get(namespace);
+    if (!current) return null;
+    const idx = current.knowledge.findIndex((e) => e.id === id);
+    if (idx === -1) return null;
+    current.knowledge.splice(idx, 1);
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
+  }
+
   private isSemanticallyDuplicate(a: string, b: string): boolean {
     const wordsA = tokenizeWords(a);
     const wordsB = tokenizeWords(b);

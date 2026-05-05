@@ -5,6 +5,8 @@ import {
   fetchBriefReadiness,
   updateContextField,
   confirmExtraction,
+  updateKnowledgeEntry,
+  deleteKnowledgeEntry,
   type BriefReadiness,
   type BriefContext,
   type RequirementKey,
@@ -83,6 +85,24 @@ export function useBrief(namespace: string, apiKey: string) {
     [apiKey, namespace],
   );
 
+  const updateKnowledge = useCallback(
+    async (id: string, content: string) => {
+      if (!apiKey || !namespace) return;
+      const data = await updateKnowledgeEntry(apiKey, namespace, id, content);
+      setContext(data.context);
+    },
+    [apiKey, namespace],
+  );
+
+  const deleteKnowledge = useCallback(
+    async (id: string) => {
+      if (!apiKey || !namespace) return;
+      const data = await deleteKnowledgeEntry(apiKey, namespace, id);
+      setContext(data.context);
+    },
+    [apiKey, namespace],
+  );
+
   return {
     context,
     readiness,
@@ -90,6 +110,8 @@ export function useBrief(namespace: string, apiKey: string) {
     refresh,
     updateField,
     confirm,
+    updateKnowledge,
+    deleteKnowledge,
     canGenerate: readiness?.canGenerate ?? false,
     blockingField: readiness?.blockingField ?? null,
     pendingExtractions: context?.pendingExtractions ?? [],
