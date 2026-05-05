@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, Loader2, Upload, X } from 'lucide-react';
+import { FileText, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
 import { uploadKnowledgeFiles } from '@/lib/api';
@@ -30,22 +30,13 @@ interface Props {
   onUploadError?: () => void;
 }
 
-type UploadState = 'idle' | 'uploading' | 'queued' | 'error';
-
 export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart, onProgress, onUploadError }: Props) {
   const { apiKey } = useAuth();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
-  const [state, setState] = useState<UploadState>('idle');
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
-
-  // Close the modal as soon as upload is queued — indexing is tracked in the right panel
-  useEffect(() => {
-    if (state === 'queued') onClose();
-  }, [state, onClose]);
 
   // File selection
   const addFiles = useCallback((incoming: FileList | File[]) => {
@@ -81,27 +72,20 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
     if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
   };
 
-  // Upload
+  // Upload — close modal immediately, track progress in chat area
   const handleUpload = useCallback(async () => {
     if (!apiKey || !files.length) return;
     onUploadStart?.(files);
-    setState('uploading');
-    setProgress(0);
-    setError('');
+    onClose(); // dismiss modal before upload starts; progress shows in chat
     try {
       await uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
-        setProgress(p);
         onProgress?.(p);
       });
       onUploaded?.();
-      setState('queued'); // triggers auto-close via useEffect
-      setFiles([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setState('error');
+    } catch {
       onUploadError?.();
     }
-  }, [apiKey, namespace, files, onUploadStart, onProgress, onUploadError]);
+  }, [apiKey, namespace, files, onUploadStart, onProgress, onUploadError, onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -176,52 +160,50 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
         <div style={{ padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           {/* Drop zone */}
-          {state !== 'uploading' && (
-            <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => inputRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
-                borderRadius: 12,
-                padding: '32px 20px',
-                textAlign: 'center',
-                cursor: 'pointer',
-                transition: 'border-color 0.15s, background 0.15s',
-                background: dragActive ? 'var(--primary-dim)' : 'transparent',
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => inputRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
+              borderRadius: 12,
+              padding: '32px 20px',
+              textAlign: 'center',
+              cursor: 'pointer',
+              transition: 'border-color 0.15s, background 0.15s',
+              background: dragActive ? 'var(--primary-dim)' : 'transparent',
+            }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept=".pdf,.txt,.md"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = '';
               }}
-            >
-              <input
-                ref={inputRef}
-                type="file"
-                multiple
-                accept=".pdf,.txt,.md"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  if (e.target.files) addFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-              <div style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: 'var(--primary-dim)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                margin: '0 auto 12px',
-              }}>
-                <Icon icon={Upload} size="md" style={{ color: 'var(--primary)' }} />
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
-                Drop files here or <span style={{ color: 'var(--primary)' }}>browse</span>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                .pdf, .txt, .md — up to 200 MB each
-              </div>
+            />
+            <div style={{
+              width: 44, height: 44, borderRadius: 12,
+              background: 'var(--primary-dim)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 12px',
+            }}>
+              <Icon icon={Upload} size="md" style={{ color: 'var(--primary)' }} />
             </div>
-          )}
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
+              Drop files here or <span style={{ color: 'var(--primary)' }}>browse</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              .pdf, .txt, .md — up to 200 MB each
+            </div>
+          </div>
 
           {/* File list */}
-          {files.length > 0 && state === 'idle' && (
+          {files.length > 0 && (
             <div style={{
               border: '1px solid var(--border)',
               borderRadius: 10,
@@ -269,21 +251,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
             </div>
           )}
 
-          {/* Upload progress */}
-          {state === 'uploading' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
-                <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
-                Uploading…
-                <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{progress}%</span>
-              </div>
-              <div style={{ height: 4, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary)', borderRadius: 99, transition: 'width 0.2s ease' }} />
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
+          {/* Validation error */}
           {error && (
             <div style={{
               fontSize: 13, color: 'var(--danger)',
@@ -302,34 +270,21 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
           display: 'flex', gap: 8, justifyContent: 'flex-end',
           marginTop: 6,
         }}>
-          {(state === 'idle' || state === 'error') && (
-            <>
-              <button
-                className="btn btn-sm"
-                onClick={onClose}
-                style={{ height: 36, padding: '0 16px', fontSize: 13 }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={handleUpload}
-                disabled={files.length === 0}
-                style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: files.length === 0 ? 0.45 : 1, cursor: files.length === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                {state === 'error' ? 'Retry' : `Upload${files.length > 0 ? ` (${files.length})` : ''}`}
-              </button>
-            </>
-          )}
-          {state === 'uploading' && (
-            <button
-              className="btn btn-sm"
-              disabled
-              style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: 0.5 }}
-            >
-              Uploading…
-            </button>
-          )}
+          <button
+            className="btn btn-sm"
+            onClick={onClose}
+            style={{ height: 36, padding: '0 16px', fontSize: 13 }}
+          >
+            Cancel
+          </button>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={handleUpload}
+            disabled={files.length === 0}
+            style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: files.length === 0 ? 0.45 : 1, cursor: files.length === 0 ? 'not-allowed' : 'pointer' }}
+          >
+            {`Upload${files.length > 0 ? ` (${files.length})` : ''}`}
+          </button>
         </div>
 
       </div>

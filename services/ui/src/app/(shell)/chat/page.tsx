@@ -20,7 +20,7 @@ import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
 import { ProposalForm } from '@/components/ProposalForm';
-import { fetchMicrositeContent, type ProposalDocument, type Presentation } from '@/lib/api';
+import { fetchMicrositeContent, fetchKnowledgeFiles, type ProposalDocument, type Presentation } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
 import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
@@ -45,6 +45,7 @@ interface Message {
     fileSize: number;
     progress: number;
     status: 'uploading' | 'processing' | 'done' | 'error';
+    stage?: string;
   };
 }
 
@@ -128,7 +129,11 @@ export default function ChatPage() {
 
   const chatSessionIdRef = useRef<string | null>(null);
   const uploadMsgIdRef = useRef<string | null>(null);
+  const uploadedFileNamesRef = useRef<string[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Tracks active ingestion polling: set after upload completes, cleared when processing done
+  const [activeUploadPoll, setActiveUploadPoll] = useState<{ msgId: string; fileNames: string[] } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -423,6 +428,7 @@ export default function ChatPage() {
       : files[0].name;
     const totalSize = files.reduce((acc, f) => acc + f.size, 0);
     uploadMsgIdRef.current = id;
+    uploadedFileNamesRef.current = files.map((f) => f.name);
     setMessages((prev) => [
       ...prev,
       { id, role: 'upload', content: '', uploadData: { fileName: displayName, fileSize: totalSize, progress: 0, status: 'uploading' } },
@@ -439,19 +445,18 @@ export default function ChatPage() {
     );
   }, []);
 
+  // After the XHR completes, transition to processing and start polling file status
   const handleUploadDone = useCallback(() => {
     const id = uploadMsgIdRef.current;
-    if (id) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id && m.uploadData
-            ? { ...m, uploadData: { ...m.uploadData, progress: 100, status: 'done' } }
-            : m,
-        ),
-      );
-      uploadMsgIdRef.current = null;
-    }
-    setFileRefreshTick((t) => t + 1);
+    if (!id) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.uploadData
+          ? { ...m, uploadData: { ...m.uploadData, progress: 100, status: 'processing', stage: 'Queued' } }
+          : m,
+      ),
+    );
+    setActiveUploadPoll({ msgId: id, fileNames: uploadedFileNamesRef.current });
   }, []);
 
   const handleUploadError = useCallback(() => {
@@ -463,7 +468,58 @@ export default function ChatPage() {
       ),
     );
     uploadMsgIdRef.current = null;
+    uploadedFileNamesRef.current = [];
   }, []);
+
+  // ── Poll file processing status and update chat message ───────────
+  useEffect(() => {
+    if (!activeUploadPoll || !apiKey || !namespace) return;
+    const { msgId, fileNames } = activeUploadPoll;
+
+    const interval = setInterval(async () => {
+      try {
+        const fetched = await fetchKnowledgeFiles(apiKey, namespace || 'default');
+        const relevant = fetched.filter((f) => fileNames.includes(f.fileName));
+
+        if (relevant.length === 0) return; // not visible yet — keep waiting
+
+        const allTerminal = relevant.every((f) =>
+          f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed',
+        );
+
+        if (allTerminal) {
+          clearInterval(interval);
+          setActiveUploadPoll(null);
+          uploadMsgIdRef.current = null;
+          uploadedFileNamesRef.current = [];
+
+          const anySuccess = relevant.some((f) => f.status === 'indexed' || f.status === 'extracted');
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId && m.uploadData
+                ? { ...m, uploadData: { ...m.uploadData, status: anySuccess ? 'done' : 'error' } }
+                : m,
+            ),
+          );
+          // Only now make the file visible in the right panel
+          setFileRefreshTick((t) => t + 1);
+        } else {
+          const hasExtracting = relevant.some((f) => f.status === 'extracting');
+          const hasProcessing = relevant.some((f) => f.status === 'processing');
+          const stage = hasExtracting ? 'Extracting…' : hasProcessing ? 'Indexing…' : 'Queued';
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId && m.uploadData
+                ? { ...m, uploadData: { ...m.uploadData, stage } }
+                : m,
+            ),
+          );
+        }
+      } catch { /* ignore transient errors */ }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [activeUploadPoll, apiKey, namespace]);
 
   const sendConfirmation = useCallback((msg: string) => {
     if (isStreaming) return;
