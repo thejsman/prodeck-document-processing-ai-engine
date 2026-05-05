@@ -208,6 +208,16 @@ export function EditProvider({ initialAst, children, onChange }: ProviderProps) 
             content: setDeep(sec.content as unknown as Record<string, unknown>, fieldPath, value) as unknown as typeof sec.content,
           };
         }) as typeof prev.sections;
+        // __brief.<path> routes to the top-level AST brief object
+        if (fieldPath.startsWith('__brief.')) {
+          const briefPath = fieldPath.slice('__brief.'.length);
+          const next: LayoutAST = {
+            ...prev,
+            brief: setDeep(prev.brief as unknown as Record<string, unknown>, briefPath, value) as unknown as typeof prev.brief,
+          };
+          notify(next);
+          return next;
+        }
         const next: LayoutAST = { ...prev, sections };
         notify(next);
         return next;
