@@ -1555,6 +1555,41 @@ ${layoutSummary}`;
     return reply.send({ ok: true, proposalId });
   });
 
+  // POST /presentations/:namespace/logo
+  // Upload a logo image for a namespace. Saves to workdir/assets/presentations/:namespace/logo.<ext>
+  // Returns { url } — a server-relative path clients can use directly in <img> tags.
+  app.post('/presentations/:namespace/logo', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const data = await req.file();
+    if (!data) return reply.code(400).send({ error: 'No file uploaded' });
+
+    const mime = data.mimetype ?? '';
+    const allowed = ['image/png', 'image/svg+xml', 'image/jpeg', 'image/webp', 'image/x-icon'];
+    if (!allowed.includes(mime)) {
+      return reply.code(400).send({ error: `Unsupported image type: ${mime}` });
+    }
+
+    const extMap: Record<string, string> = {
+      'image/png': 'png', 'image/svg+xml': 'svg', 'image/jpeg': 'jpg',
+      'image/webp': 'webp', 'image/x-icon': 'ico',
+    };
+    const ext = extMap[mime] ?? 'png';
+    const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+    await mkdir(imagesDir, { recursive: true });
+    const logoFilename = `brand-logo.${ext}`;
+    const logoPath = path.join(imagesDir, logoFilename);
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of data.file) chunks.push(chunk as Buffer);
+    await writeFile(logoPath, Buffer.concat(chunks));
+
+    const url = `/presentation-images/${namespace}/${logoFilename}`;
+    return reply.send({ url });
+  });
+
   // POST /presentations/:namespace/:proposalId/design-edit
   // Apply AI-driven design or content edits to an existing microsite AST.
   // Body: { instruction, targetSectionId?, currentAst, commit?: boolean }
