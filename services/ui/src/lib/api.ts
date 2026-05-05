@@ -1230,12 +1230,31 @@ export interface ContextSource {
   classification?: DocumentClassification;
 }
 
+export type KnowledgeCategory =
+  | 'context' | 'metric' | 'problem' | 'priority' | 'requirement'
+  | 'opportunity' | 'constraint' | 'decision' | 'action_item' | 'preference';
+
+export interface KnowledgeEntry {
+  id: string;
+  content: string;
+  category: KnowledgeCategory;
+  importance: number;
+  source: {
+    type: 'document' | 'chat' | 'manual';
+    fileName?: string;
+  };
+  extractedAt: string;
+  confidence: number;
+  supersededBy?: string;
+}
+
 export interface BriefContext {
   requirements: {
     fields: Partial<Record<RequirementKey, RequirementField>>;
   };
   sources: ContextSource[];
   pendingExtractions?: PendingExtraction[];
+  knowledge?: KnowledgeEntry[];
 }
 
 export async function fetchBriefReadiness(

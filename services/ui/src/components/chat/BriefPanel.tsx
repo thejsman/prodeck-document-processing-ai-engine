@@ -5,11 +5,30 @@ import { ChevronDown, ChevronUp, FileText, MessageSquare } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useBrief } from '@/hooks/useBrief';
 import { BriefField, FIELD_LABELS } from './BriefField';
-import type { RequirementKey, RequirementField } from '@/lib/api';
+import type { RequirementKey, RequirementField, KnowledgeEntry } from '@/lib/api';
 
 const TIER1_KEYS: RequirementKey[] = ['clientName', 'clientIndustry', 'projectType'];
 const TIER2_KEYS: RequirementKey[] = ['budget', 'timeline', 'keyObjectives', 'contactName'];
 const TIER3_KEYS: RequirementKey[] = ['technicalStack', 'constraints', 'deliverables', 'teamSize', 'stakeholders'];
+
+const KNOWLEDGE_CATEGORY_LABELS: Record<string, string> = {
+  priority: 'Priority', problem: 'Problem', requirement: 'Requirement',
+  opportunity: 'Opportunity', constraint: 'Constraint', metric: 'Metric',
+  decision: 'Decision', action_item: 'Action', context: 'Context', preference: 'Preference',
+};
+
+const KNOWLEDGE_CATEGORY_COLORS: Record<string, string> = {
+  priority: 'var(--primary)',
+  problem: 'var(--danger, #ef4444)',
+  requirement: 'var(--primary)',
+  opportunity: 'var(--success, #22c55e)',
+  constraint: 'var(--warning, #f59e0b)',
+  metric: 'var(--muted)',
+  decision: 'var(--success, #22c55e)',
+  action_item: 'var(--warning, #f59e0b)',
+  context: 'var(--muted)',
+  preference: 'var(--muted)',
+};
 
 const SOURCE_ICONS: Record<string, string> = {
   client_source: '📄',
@@ -28,6 +47,7 @@ interface Props {
 
 export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [showAllKnowledge, setShowAllKnowledge] = useState(false);
   const { context, readiness, updateField, confirm, canGenerate, blockingField } = useBrief(namespace, apiKey);
 
   const fields = context?.requirements?.fields ?? {};
@@ -164,6 +184,44 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
             ))}
           </div>
 
+          {/* Knowledge */}
+          {(() => {
+            const allEntries = (context?.knowledge ?? []).filter((e: KnowledgeEntry) => !e.supersededBy);
+            if (allEntries.length === 0) return null;
+            const sorted = [...allEntries].sort((a: KnowledgeEntry, b: KnowledgeEntry) => b.importance - a.importance);
+            const visible = showAllKnowledge ? sorted : sorted.slice(0, 5);
+            return (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
+                  Knowledge ({allEntries.length})
+                </div>
+                {visible.map((entry: KnowledgeEntry) => (
+                  <div key={entry.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', alignItems: 'flex-start' }}>
+                    <span style={{
+                      flexShrink: 0, fontSize: 10, fontWeight: 600,
+                      color: KNOWLEDGE_CATEGORY_COLORS[entry.category] ?? 'var(--muted)',
+                      textTransform: 'uppercase', letterSpacing: '0.04em',
+                      paddingTop: 1, minWidth: 72,
+                    }}>
+                      {KNOWLEDGE_CATEGORY_LABELS[entry.category] ?? entry.category}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>
+                      {entry.content}
+                    </span>
+                  </div>
+                ))}
+                {allEntries.length > 5 && (
+                  <button
+                    onClick={() => setShowAllKnowledge((v) => !v)}
+                    style={{ fontSize: 11, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 2 }}
+                  >
+                    {showAllKnowledge ? 'Show fewer' : `Show all (${allEntries.length})`}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Source pool */}
           {(context?.sources ?? []).length > 0 && (
             <div style={{ marginBottom: 12 }}>
@@ -179,7 +237,10 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
                     {src.fileName}
                   </span>
                   <span style={{ flexShrink: 0, color: 'var(--muted)', fontSize: 11 }}>
-                    {src.fieldsExtracted.length} fields
+                    {[
+                      src.fieldsExtracted.length > 0 ? `${src.fieldsExtracted.length} fields` : null,
+                      src.knowledgeEntriesCreated > 0 ? `${src.knowledgeEntriesCreated} knowledge` : null,
+                    ].filter(Boolean).join(' · ') || '—'}
                   </span>
                 </div>
               ))}
