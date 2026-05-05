@@ -39,7 +39,9 @@ import {
   executeWithPolicy,
   type ProviderPolicyConfig,
 } from '../provider-policy.js';
-import { emitExecution } from '../execution-events.js';
+import { emitExecution, emitExtractionReady, type ExtractionReadyPayload } from '../execution-events.js';
+import { PendingExtractionService } from './pending-extraction.service.js';
+import { detectConflicts } from './conflict-detector.js';
 import {
   workflowEventBus,
   type IngestionCompletedEvent,
@@ -48,9 +50,40 @@ import {
 import type { IngestionJob } from './ingestion-queue.js';
 import { processDocument } from './ingest-orchestrator.js';
 import { ContextService } from '../chat/context.service.js';
+import type { PendingExtraction, RequirementKey } from '../chat/context.types.js';
 import { llmGenerateFn } from '../agent-routes.js';
 
 const MAX_RETRIES = 2;
+
+const TIER_1_KEYS: RequirementKey[] = ['clientName', 'clientIndustry', 'projectType'];
+
+function buildExtractionReadyPayload(namespace: string, pending: PendingExtraction): ExtractionReadyPayload {
+  const fields = pending.fields ?? {};
+  const conflicts = pending.conflicts ?? [];
+
+  const extractedFields = Object.entries(fields).map(([rawKey, field]) => {
+    const key = rawKey as RequirementKey;
+    const conflict = conflicts.find((c) => c.key === key);
+    return { key, value: field?.value, confidence: field?.confidence ?? 0, ...(conflict ? { conflict } : {}) };
+  });
+
+  const highCount = extractedFields.filter((f) => f.confidence >= 0.8).length;
+  const lowCount = extractedFields.filter((f) => f.confidence < 0.8).length;
+  const notFoundFields = TIER_1_KEYS.filter((k) => !fields[k]);
+
+  return {
+    cardId: pending.cardId,
+    namespace,
+    fileName: pending.fileName,
+    classification: pending.classification ?? 'client_source',
+    extractedFields,
+    knowledgeEntryCount: pending.knowledgeEntries?.length ?? 0,
+    highConfidenceCount: highCount,
+    lowConfidenceCount: lowCount,
+    notFoundFields,
+    expiresAt: pending.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -190,7 +223,8 @@ export async function processJob(
             const content = await readFile(path.join(uploadsDir, f), 'utf-8');
             console.log(`[IngestV2] starting pipeline — ${namespace}/${f} (${content.length} chars)`);
             const v2t0 = Date.now();
-            const v2Result = await processDocument(namespace, f, content, llmGenerateFn, contextService, undefined, job.classification);
+            const deferConfirmation = process.env.EXTRACTION_CONFIRMATION === 'true';
+            const v2Result = await processDocument(namespace, f, content, llmGenerateFn, contextService, undefined, job.classification, deferConfirmation);
             console.log(`[IngestV2] finished pipeline — ${namespace}/${f} | type=${v2Result.documentType} fields=${v2Result.fieldsExtracted.length} knowledge=${v2Result.knowledgeEntriesCreated} duration=${v2Result.durationMs}ms total=${Date.now() - v2t0}ms`);
 
             await updateFileStatus(workdir, namespace, f, 'extracted');
@@ -208,7 +242,26 @@ export async function processJob(
               }),
             });
 
-            if (v2Result.fieldsExtracted.length > 0 || v2Result.knowledgeEntriesCreated > 0) {
+            if (deferConfirmation) {
+              // EXTRACTION_CONFIRMATION=true: store pending + emit extraction_ready
+              // Nothing written to context.json until user confirms.
+              const pendingService = new PendingExtractionService(workdir);
+              const existing = await contextService.get(namespace);
+              const conflicts = detectConflicts(v2Result.extractedFields, existing, f);
+
+              const pendingRecord = await pendingService.store(namespace, {
+                documentId: f,
+                fileName: f,
+                classification: job.classification ?? 'client_source',
+                extractedAt: new Date().toISOString(),
+                fields: v2Result.extractedFields,
+                knowledgeEntries: v2Result.knowledgeEntries,
+                conflicts,
+              });
+
+              emitExtractionReady(buildExtractionReadyPayload(namespace, pendingRecord));
+              console.log(`[IngestV2] extraction_ready emitted — cardId=${pendingRecord.cardId} namespace=${namespace}/${f} fields=${v2Result.fieldsExtracted.length} conflicts=${conflicts.length}`);
+            } else if (v2Result.fieldsExtracted.length > 0 || v2Result.knowledgeEntriesCreated > 0) {
               emitExecution({
                 executionId: `ctx-updated-${namespace}-${f}-${Date.now()}`,
                 status: 'COMPLETED',

@@ -24,6 +24,7 @@ import { registerPluginRoutes } from './plugin-routes.js';
 import { registerSkillRoutes } from './skills/skill-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
 import { registerContextRoutes } from './context-routes.js';
+import { registerExtractionRoutes } from './ingestion/extraction-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
 import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
 import {
@@ -110,6 +111,7 @@ export async function createServer(opts: ServerOptions) {
   registerAgentRoutes(app, opts.workdir, policyConfig);
   registerChatRoutes(app, opts.workdir, policyConfig);
   registerContextRoutes(app, opts.workdir);
+  registerExtractionRoutes(app, opts.workdir);
   registerTraceRoutes(app);
   registerExecutionStreamRoutes(app);
   registerAssetRoutes(app, opts.workdir);

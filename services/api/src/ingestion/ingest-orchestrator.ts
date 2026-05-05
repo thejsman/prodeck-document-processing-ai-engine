@@ -1,4 +1,4 @@
-import type { DocumentType, DocumentClassification, RequirementKey } from '../chat/context.types.js';
+import type { DocumentType, DocumentClassification, RequirementKey, KnowledgeEntry, MeetingSummary, RequirementField, ContextSource } from '../chat/context.types.js';
 import type { ContextService } from '../chat/context.service.js';
 import type { LLMGenerateFn } from './document-preprocessor.js';
 import { detectDocumentType } from './document-type-detector.js';
@@ -30,6 +30,14 @@ export interface IngestionResult {
   validationErrors: string[];
   warnings: string[];
   durationMs: number;
+  /** Raw extracted fields — populated when deferConfirmation=true so the worker can store them. */
+  extractedFields: Partial<Record<RequirementKey, RequirementField<unknown>>>;
+  /** Raw knowledge entries — populated when deferConfirmation=true. */
+  knowledgeEntries: KnowledgeEntry[];
+  /** Raw meeting summary — populated when deferConfirmation=true and document is a transcript. */
+  meetingSummaryResult?: MeetingSummary;
+  /** The context source record that should be written on confirmation (when deferConfirmation=true). */
+  pendingContextSource?: ContextSource;
 }
 
 /**
@@ -76,6 +84,7 @@ export async function processDocument(
   contextService: ContextService,
   faissIndexFn?: FaissIndexFn,
   classification?: DocumentClassification,
+  deferConfirmation?: boolean,
 ): Promise<IngestionResult> {
   const startTime = Date.now();
   const warnings: string[] = [];
@@ -140,7 +149,11 @@ export async function processDocument(
     classification,
   };
 
-  if (!briefExcluded) {
+  if (deferConfirmation) {
+    // When EXTRACTION_CONFIRMATION=true: skip all writes. The worker stores
+    // the raw data in the pending cache and emits extraction_ready SSE.
+    // Nothing touches context.json until the user confirms.
+  } else if (!briefExcluded) {
     // Store as pending confirmation so the user sees an extraction card in chat
     await contextService.storePendingExtraction(namespace, fileName, validFields, contextSource);
     await contextService.mergeKnowledge(namespace, validKnowledge);
@@ -186,5 +199,9 @@ export async function processDocument(
     validationErrors: errors,
     warnings,
     durationMs: Date.now() - startTime,
+    extractedFields: validFields,
+    knowledgeEntries: validKnowledge,
+    meetingSummaryResult: validMeetingSummary,
+    pendingContextSource: deferConfirmation ? contextSource : undefined,
   };
 }

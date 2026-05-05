@@ -44,7 +44,7 @@ const ARRAY_FIELDS: RequirementKey[] = [
 // Pure merge helpers (module-level, exported for testing)
 // ---------------------------------------------------------------------------
 
-function valuesEqual(a: unknown, b: unknown): boolean {
+export function valuesEqual(a: unknown, b: unknown): boolean {
   if (typeof a === 'string' && typeof b === 'string') {
     return a.trim().toLowerCase() === b.trim().toLowerCase();
   }
@@ -481,7 +481,9 @@ export class ContextService {
 
     // Record pending extraction for the Brief Panel confirmation card
     const pending: PendingExtraction = {
+      cardId: documentId,
       documentId,
+      fileName: documentId,
       extractedAt: new Date().toISOString(),
       fields: { ...fields } as PendingExtraction['fields'],
     };

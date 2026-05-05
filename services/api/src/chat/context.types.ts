@@ -145,6 +145,8 @@ export interface ContextSource {
   preprocessConfidence: number;
   warnings?: string[];
   classification?: DocumentClassification;
+  confirmedAt?: string;
+  confirmationCardId?: string;
 }
 
 export interface SelectedTemplate {
@@ -154,10 +156,31 @@ export interface SelectedTemplate {
   generatedFromScratch: boolean;
 }
 
+/** A conflict between an incoming extraction field and an already-confirmed field. */
+export interface ConflictRecord {
+  key: RequirementKey;
+  incomingValue: unknown;
+  incomingConfidence: number;
+  incomingSourceFile: string;
+  existingValue: unknown;
+  existingConfidence: number;
+  existingSourceFile?: string;
+}
+
 export interface PendingExtraction {
+  /** Unique ID for this confirmation card. */
+  cardId: string;
+  /** File name — kept as documentId alias for backward compat. */
   documentId: string;
+  fileName: string;
   extractedAt: string;
+  /** ISO timestamp — 24 hours after extractedAt. */
+  expiresAt?: string;
+  status?: 'pending' | 'confirmed' | 'discarded';
+  classification?: DocumentClassification;
   fields: Partial<Record<RequirementKey, RequirementField<unknown>>>;
+  knowledgeEntries?: KnowledgeEntry[];
+  conflicts?: ConflictRecord[];
 }
 
 export interface BriefFieldStatus {
