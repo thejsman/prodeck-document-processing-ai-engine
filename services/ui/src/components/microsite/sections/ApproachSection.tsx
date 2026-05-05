@@ -80,7 +80,7 @@ export function ApproachSection({ content, tokens }: Props) {
             <Reveal key={pi} delay={240 + pi * 80}>
               <InlineArrayItem arrayPath="pillars" index={pi} total={pillars.length}>
                 {variant === 'list' ? (
-                  <div style={{
+                  <div className="ms-card" style={{
                     display: 'flex', alignItems: 'flex-start', gap: 20,
                     padding: '20px 24px',
                     borderRadius: parseInt(tokens.borderRadius ?? '8') || 8,
@@ -105,7 +105,7 @@ export function ApproachSection({ content, tokens }: Props) {
                     </div>
                   </div>
                 ) : (
-                  <div style={{
+                  <div className="ms-card" style={{
                     padding: tokens.density === 'compact' ? '20px 18px' : tokens.density === 'spacious' ? '40px 36px' : '32px 28px',
                     borderRadius: parseInt(tokens.borderRadius ?? '8') || 8,
                     border: `1px solid ${tokens.border}`,
