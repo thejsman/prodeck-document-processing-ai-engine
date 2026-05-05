@@ -21,6 +21,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { type AuthContext, isWildcard } from '../auth.js';
 import { readMeta } from '../proposal-meta.js';
 import { parseProposalMarkdown } from './markdown-parser.js';
+import { buildBriefFramingRule, buildSectionTypeGuidance, buildSectionOrderGuidance } from '../workflows/microsite-generation.handlers.js';
+import { ContextService } from '../chat/context.service.js';
 import {
   listPresentations,
   getPresentation,
@@ -1146,15 +1148,38 @@ ${layoutSummary}`;
       return reply.code(500).send({ error: `Failed to initialize agent runner: ${message}` });
     }
 
+    // Build Brief-aware instructions for this namespace
+    let briefPrefix = '';
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
+      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
+      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      briefPrefix = [
+        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        '',
+        buildSectionTypeGuidance(projectType),
+        '',
+        buildSectionOrderGuidance(projectType),
+        '',
+      ].join('\n');
+    } catch { /* non-fatal — proceed without Brief context */ }
+
+    const effectiveInstructions = body?.customInstructions
+      ? `${briefPrefix}${body.customInstructions}`
+      : briefPrefix || undefined;
+
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
+        ...(effectiveInstructions ? { prompt: effectiveInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
           ...(body?.plugin ? { plugin: body.plugin } : {}),
           ...(body?.brand ? { brand: body.brand } : {}),
-          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(effectiveInstructions ? { customInstructions: effectiveInstructions } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
         },
       });
@@ -1293,17 +1318,40 @@ ${layoutSummary}`;
     const PDF_ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
     const PDF_MAX_PER_SLIDE = 4;
 
+    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry
+    let streamBriefPrefix = '';
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
+      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
+      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      streamBriefPrefix = [
+        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        '',
+        buildSectionTypeGuidance(projectType),
+        '',
+        buildSectionOrderGuidance(projectType),
+        '',
+      ].join('\n');
+    } catch { /* non-fatal */ }
+
+    const streamEffectiveInstructions = body?.customInstructions
+      ? `${streamBriefPrefix}${body.customInstructions}`
+      : streamBriefPrefix || undefined;
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
+        ...(streamEffectiveInstructions ? { prompt: streamEffectiveInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
           plugin: body?.plugin ?? 'cobalt',
           brand: body?.brand ?? {},
-          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),

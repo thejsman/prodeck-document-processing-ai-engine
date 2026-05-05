@@ -16,6 +16,7 @@ import { MicrositeGeneratorAgent } from '@ai-engine/agent-microsite-generator';
 import { toolRegistry } from '@ai-engine/core';
 import { llmGenerateFn } from '../agent-routes.js';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
+import { ContextService } from '../chat/context.service.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -25,8 +26,226 @@ const DEFAULT_INSTRUCTIONS = [
   'Generate a comprehensive microsite using all content from the proposal.',
   'Include as many sections as the content supports — aim for 10 or more.',
   'Map all source headings to the most specific section type available.',
-  'Use diagrams in approach, timeline, security, techstack, and testing sections.',
+  'Use diagrams only in sections where they are contextually appropriate.',
 ].join(' ');
+
+// ---------------------------------------------------------------------------
+// Brief-aware instruction builders
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a framing rule from the namespace Brief so every section is written
+ * from the Provider's service perspective — not the client's business perspective.
+ * Works for any proposal type: marketing, software, construction, etc.
+ */
+export function buildBriefFramingRule(
+  projectType: string,
+  clientName: string,
+  clientIndustry: string,
+): string {
+  return [
+    'PROPOSAL CONTEXT — read before generating any section:',
+    `  Provider is proposing: ${projectType}`,
+    `  Client name: ${clientName}`,
+    `  Client industry: ${clientIndustry}`,
+    '',
+    'STRICT FRAMING RULE — this overrides the source document:',
+    `  - Every headline, subheadline, and body copy MUST describe the ${projectType} services the Provider delivers.`,
+    `  - The subject of every sentence is the Provider's ${projectType} work — not ${clientName}'s business.`,
+    `  - NEVER write headlines like "Elevate Your [client product] Experience" or "Building a [client facility]".`,
+    `  - CORRECT: "How We Drive Results with ${projectType}" / "Our ${projectType} Approach for ${clientName}"`,
+    `  - WRONG: "Captivating Families at ${clientName}" / "${clientName} Development Phases"`,
+    `  - The timeline section must describe ${projectType} campaign/project phases — not ${clientName}'s build or operations.`,
+    `  - The risk section must describe risks to the ${projectType} engagement — not operational risks of ${clientName}.`,
+    `  - If the source proposal text frames things from ${clientName}'s perspective, REFRAME it to the Provider's perspective.`,
+    '',
+    'SECTION TITLE RULE:',
+    `  - Titles describe what the Provider offers or does — not what ${clientName} is or does.`,
+    `  - Use "${clientName}" in a title AT MOST ONCE across all sections (hero only).`,
+    `  - All other titles must stand alone without the client name.`,
+    `  - CORRECT titles: "Our Approach", "Campaign Strategy", "Why Choose Us", "Implementation Phases"`,
+    `  - WRONG titles: "${clientName} Risk Management", "Phases for ${clientName} Success", "${clientName} Background"`,
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Section type affinity table
+// Each specialist type declares the signal words that make it relevant.
+// Universal types (always valid) are not listed here — they are always included.
+// ---------------------------------------------------------------------------
+
+const UNIVERSAL_SECTION_TYPES = [
+  'hero', 'overview', 'challenge', 'problem', 'approach',
+  'deliverables', 'timeline', 'pricing', 'nextsteps', 'approval',
+  'whyus', 'team', 'benefits', 'faq',
+];
+
+interface SectionTypeAffinity {
+  /** Words in projectType that make this type relevant */
+  include: string[];
+  /** Words in projectType that make this type irrelevant (overrides include) */
+  exclude: string[];
+}
+
+const SPECIALIST_SECTION_AFFINITIES: Record<string, SectionTypeAffinity> = {
+  security: {
+    include: ['software', 'development', 'engineering', 'platform', 'app', 'api', 'saas',
+              'data', 'cloud', 'infrastructure', 'compliance', 'healthcare', 'finance',
+              'legal', 'government', 'enterprise', 'security', 'cyber'],
+    exclude: ['marketing', 'brand', 'construction', 'facility', 'interior', 'landscaping',
+              'events', 'hospitality', 'retail', 'food', 'education'],
+  },
+  techstack: {
+    include: ['software', 'development', 'engineering', 'platform', 'app', 'web', 'mobile',
+              'api', 'saas', 'cloud', 'infrastructure', 'data', 'ai', 'ml', 'integration'],
+    exclude: ['marketing', 'brand', 'construction', 'facility', 'interior', 'landscaping',
+              'consulting', 'strategy', 'hr', 'training', 'events'],
+  },
+  testing: {
+    include: ['software', 'development', 'engineering', 'platform', 'app', 'web', 'mobile',
+              'api', 'saas', 'qa', 'quality', 'automation'],
+    exclude: ['marketing', 'brand', 'construction', 'facility', 'consulting', 'strategy',
+              'landscaping', 'events', 'hospitality'],
+  },
+  stats: {
+    include: ['marketing', 'digital', 'seo', 'analytics', 'research', 'audit', 'performance',
+              'data', 'growth', 'advertising', 'campaign', 'consulting', 'strategy'],
+    exclude: [],
+  },
+  metrics: {
+    include: ['marketing', 'digital', 'analytics', 'performance', 'data', 'research',
+              'software', 'engineering', 'saas', 'growth', 'consulting'],
+    exclude: ['construction', 'facility', 'interior', 'landscaping'],
+  },
+  testimonials: {
+    include: ['marketing', 'brand', 'consulting', 'strategy', 'advisory', 'training',
+              'design', 'creative', 'agency', 'services'],
+    exclude: ['software', 'engineering', 'infrastructure', 'compliance'],
+  },
+  casestudy: {
+    include: ['marketing', 'consulting', 'strategy', 'advisory', 'design', 'creative',
+              'construction', 'facility', 'engineering', 'services', 'agency'],
+    exclude: [],
+  },
+  showcase: {
+    include: ['marketing', 'brand', 'design', 'creative', 'product', 'software', 'platform',
+              'agency', 'portfolio'],
+    exclude: [],
+  },
+  comparison: {
+    include: ['software', 'saas', 'platform', 'marketing', 'consulting', 'strategy',
+              'technology', 'data'],
+    exclude: ['construction', 'facility', 'landscaping'],
+  },
+};
+
+/**
+ * Scores each specialist section type against the projectType string using
+ * per-type include/exclude signal words. Returns a dynamic allowlist and blocklist.
+ * Works for any proposal type — no hardcoded category buckets.
+ */
+export function buildSectionTypeGuidance(projectType: string): string {
+  const pt = projectType.toLowerCase();
+  const ptWords = pt.split(/[\s\-_/,]+/);
+
+  const allowed: string[] = [...UNIVERSAL_SECTION_TYPES];
+  const blocked: string[] = [];
+
+  for (const [type, affinity] of Object.entries(SPECIALIST_SECTION_AFFINITIES)) {
+    const excluded = affinity.exclude.some((w) => ptWords.some((pw) => pw.includes(w) || w.includes(pw)));
+    if (excluded) {
+      blocked.push(type);
+      continue;
+    }
+    const included = affinity.include.some((w) => ptWords.some((pw) => pw.includes(w) || w.includes(pw)));
+    if (included) {
+      allowed.push(type);
+    }
+    // Not excluded and not matched → omit (neither recommended nor blocked)
+  }
+
+  const lines = [
+    `SECTION TYPE RULE for a "${projectType}" proposal:`,
+    `  Recommended types: ${allowed.join(', ')}.`,
+  ];
+  if (blocked.length > 0) {
+    lines.push(`  Do NOT use: ${blocked.join(', ')}.`);
+  }
+  lines.push('  Only add a specialist type if the proposal content clearly supports it.');
+  lines.push('  IMPORTANT: Do NOT map a "Risk Management" or "Risks" section to type "security" — use type "generic" instead.');
+  return lines.join('\n');
+}
+
+/**
+ * Returns preferred section ordering and count guidance for the given projectType.
+ * Derived dynamically from the projectType string — no hardcoded category buckets.
+ */
+export function buildSectionOrderGuidance(projectType: string): string {
+  const pt = projectType.toLowerCase();
+  const ptWords = pt.split(/[\s\-_/,]+/);
+  const has = (words: string[]) =>
+    words.some((w) => ptWords.some((pw) => pw.includes(w) || w.includes(pw)));
+
+  let preferredOrder: string[];
+  let countGuidance: string;
+
+  if (has(['marketing', 'digital', 'brand', 'seo', 'social', 'advertising', 'campaign', 'content'])) {
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'stats', 'deliverables', 'timeline', 'pricing', 'testimonials', 'casestudy', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 8 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
+  } else if (has(['software', 'development', 'engineering', 'platform', 'app', 'api', 'saas', 'web', 'mobile'])) {
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'techstack', 'security', 'testing', 'deliverables', 'timeline', 'pricing', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 10 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
+  } else if (has(['consult', 'strateg', 'advisory', 'research', 'audit', 'training'])) {
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'deliverables', 'stats', 'casestudy', 'timeline', 'pricing', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 8 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
+  } else if (has(['construction', 'facility', 'interior', 'design', 'build', 'renovation'])) {
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'deliverables', 'timeline', 'casestudy', 'pricing', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 8 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
+  } else if (has(['discovery', 'scoping', 'assessment'])) {
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'deliverables', 'timeline', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 6 sections. Omit pricing and approval for discovery/scoping proposals. Add more sections if the source content supports it — never drop content.';
+  } else {
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'deliverables', 'timeline', 'pricing', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 7 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
+  }
+
+  return [
+    'SECTION ORDER RULE:',
+    `  Preferred order for a "${projectType}" proposal: ${preferredOrder.join(' → ')}.`,
+    `  ${countGuidance}`,
+    '  Follow the source document structure only where it improves on this order.',
+    '  Do not repeat section types — merge duplicate content into one section.',
+    '  CONTENT COMPLETENESS: Every heading and paragraph from the source proposal must be represented.',
+    '  If content does not fit the preferred order, create an additional section rather than dropping it.',
+    '  FINAL SECTION RULE: "nextsteps" or "approval" MUST always be the very last section — no exceptions.',
+  ].join('\n');
+}
+
+/**
+ * Reads the namespace context.json and builds combined Brief instructions
+ * (framing rule + section type guidance + section order) to pass to the microsite agent.
+ * Falls back to safe defaults if context is unavailable.
+ */
+async function buildBriefInstructions(workdir: string, namespace: string): Promise<string> {
+  try {
+    const contextService = new ContextService(workdir);
+    const ctx = await contextService.get(namespace);
+    const fields = ctx?.requirements?.fields ?? {};
+    const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
+    const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
+    const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+
+    return [
+      buildBriefFramingRule(projectType, clientName, clientIndustry),
+      '',
+      buildSectionTypeGuidance(projectType),
+      '',
+      buildSectionOrderGuidance(projectType),
+    ].join('\n');
+  } catch {
+    return '';
+  }
+}
 
 const SKIP_PATTERN = /^(generate|go|skip|use defaults?|proceed|yes|y|ok|okay|sure)$/i;
 
@@ -325,6 +544,14 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
 
   const agent = new MicrositeGeneratorAgent();
 
+  // Build Brief-aware instructions so every section is framed correctly
+  // for this specific proposal type — works for any engagement type.
+  const briefInstructions = await buildBriefInstructions(workdir, namespace);
+  const baseInstructions = design.customInstructions ?? DEFAULT_INSTRUCTIONS;
+  const fullInstructions = briefInstructions
+    ? `${briefInstructions}\n\n${baseInstructions}`
+    : baseInstructions;
+
   let sectionIndex = 0;
 
   let agentOutput: { markdown?: string; json?: unknown; assets?: string[] };
@@ -333,7 +560,7 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
       namespace,
       metadata: {
         proposalMarkdown,
-        customInstructions: design.customInstructions ?? DEFAULT_INSTRUCTIONS,
+        customInstructions: fullInstructions,
         designBrief: design.designStyle
           ? `Design style: ${design.designStyle}. Make it visually compelling and on-brand.`
           : undefined,
