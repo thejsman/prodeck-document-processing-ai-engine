@@ -218,6 +218,7 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
                   Knowledge ({allEntries.length})
                 </div>
+                <div style={{ maxHeight: showAllKnowledge ? 320 : 'none', overflowY: showAllKnowledge ? 'auto' : 'visible' }}>
                 {visible.map((entry: KnowledgeEntry) => (
                   <div key={entry.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', alignItems: 'flex-start' }}>
                     <span style={{
@@ -278,6 +279,7 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
                     )}
                   </div>
                 ))}
+                </div>
                 {allEntries.length > 5 && (
                   <button
                     onClick={() => setShowAllKnowledge((v) => !v)}
