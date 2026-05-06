@@ -1,7 +1,7 @@
 export interface RequirementField<T> {
   value: T;
   confidence: number; // 0.0 – 1.0
-  source: 'user' | 'document' | 'inferred';
+  source: 'user' | 'document' | 'inferred' | 'client_memory';
   updatedAt: string;
   sourceFile?: string; // which document (if source === 'document')
   /** Set when the user explicitly confirms or directly states this value. */
