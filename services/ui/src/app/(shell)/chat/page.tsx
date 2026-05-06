@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { ArrowUp, Brain, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
@@ -27,18 +27,26 @@ import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { startExecutionTransport } from '@/core/execution/execution-transport';
+import { BriefPanel } from '@/components/chat/BriefPanel';
+import { ExtractionConfirmationCard } from '@/components/chat/ExtractionConfirmationCard';
+import { useBrief } from '@/hooks/useBrief';
+import type { RequirementKey, DocumentClassification } from '@/lib/api';
+import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
+import { confirmExtractionCard, discardExtractionCard, reclassifyExtractionCard, fetchPendingExtractions } from '@/lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'upload';
+  role: 'user' | 'assistant' | 'upload' | 'extraction_card';
   content: string;
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
   metadata?: { proposalArtifactId?: string; proposalNamespace?: string };
   /** Populated when the pipeline halted at Stage 4.5 for user confirmation. */
   confirmation?: ConfirmationRequest;
+  /** Present when role === 'extraction_card'. */
+  extractionCardId?: string;
   /** Populated for inline file upload progress entries. */
   uploadData?: {
     fileName: string;
@@ -103,10 +111,44 @@ export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
 
+  const brief = useBrief(namespace || 'default', apiKey);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [fileRefreshTick, setFileRefreshTick] = useState(0);
+
+  // ── Extraction card store integration ───────────────────────────
+  const allExtractionCards = useExtractionCardStore((s) => s.cards);
+  const extractionCards = useMemo(
+    () => Object.values(allExtractionCards).filter((c) => c.namespace === (namespace ?? 'default')),
+    [allExtractionCards, namespace],
+  );
+  const seenCardIdsRef = useRef<Set<string>>(new Set());
+
+  // Refresh brief context after ingestion completes so extraction cards appear promptly
+  useEffect(() => {
+    if (fileRefreshTick > 0) brief.refresh();
+  }, [fileRefreshTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync new extraction cards from the store into the chat messages array
+  useEffect(() => {
+    for (const card of extractionCards) {
+      if (!seenCardIdsRef.current.has(card.cardId)) {
+        seenCardIdsRef.current.add(card.cardId);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `extraction-${card.cardId}`,
+            role: 'extraction_card',
+            content: '',
+            extractionCardId: card.cardId,
+          },
+        ]);
+      }
+    }
+  }, [extractionCards]);
+
   const [traceOpen, setTraceOpen] = useState(false);
   const [panelVisible, setPanelVisible] = useState(true);
   const [panelHasContent, setPanelHasContent] = useState(true);
@@ -264,6 +306,33 @@ export default function ChatPage() {
       })
       .catch(() => { /* history unavailable — start fresh */ });
 
+    // Page-load recovery: restore pending extraction cards from previous session
+    fetchPendingExtractions(apiKey, ns)
+      .then(({ pending }) => {
+        useExtractionCardStore.getState().loadRecoveryCards(
+          pending.map((p) => ({
+            cardId: p.cardId,
+            namespace: ns,
+            fileName: p.fileName ?? p.documentId,
+            classification: p.classification ?? 'client_source',
+            extractedFields: Object.entries(p.fields ?? {}).map(([key, field]) => ({
+              key: key as RequirementKey,
+              value: field?.value,
+              confidence: field?.confidence ?? 0,
+              conflict: p.conflicts?.find((c) => c.key === key),
+            })),
+            knowledgeEntryCount: p.knowledgeEntries?.length ?? 0,
+            highConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) >= 0.8).length,
+            lowConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) < 0.8).length,
+            notFoundFields: [],
+            expiresAt: p.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            cardState: 'pending' as const,
+            addedAt: Date.now(),
+          })),
+        );
+      })
+      .catch(() => { /* pending extractions unavailable */ });
+
     fetchInsights(ns);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [namespace, apiKey, fetchInsights, reset, removeExecution]);
@@ -419,6 +488,51 @@ export default function ChatPage() {
     });
   }, [input, isStreaming, chunks, sections, confirmationRequest, namespace, apiKey, reset, startStream, removeExecution]);
 
+  // ── Extraction card handlers ───────────────────────────────────
+
+  const handleCardConfirm = useCallback(async (
+    cardId: string,
+    overrides?: Record<string, { value: string }>,
+    resolvedConflicts?: Record<string, string>,
+  ) => {
+    const ns = namespace ?? 'default';
+    try {
+      const result = await confirmExtractionCard(apiKey, ns, cardId, overrides, resolvedConflicts);
+      useExtractionCardStore.getState().updateCardState(cardId, 'confirmed', {
+        fieldsWritten: result.fieldsWritten.length,
+      });
+      brief.refresh();
+    } catch (err) {
+      console.error('[Chat] failed to confirm extraction card', err);
+    }
+  }, [apiKey, namespace, brief]);
+
+  const handleCardDiscard = useCallback(async (cardId: string) => {
+    const ns = namespace ?? 'default';
+    try {
+      await discardExtractionCard(apiKey, ns, cardId);
+      useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
+    } catch (err) {
+      console.error('[Chat] failed to discard extraction card', err);
+    }
+  }, [apiKey, namespace]);
+
+  const handleCardReclassify = useCallback(async (cardId: string, newClassification: DocumentClassification) => {
+    const ns = namespace ?? 'default';
+    try {
+      await reclassifyExtractionCard(apiKey, ns, cardId, newClassification);
+      useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
+    } catch (err) {
+      console.error('[Chat] failed to reclassify extraction card', err);
+    }
+  }, [apiKey, namespace]);
+
+  const handleCardFill = useCallback((cardId: string, fieldKey: RequirementKey) => {
+    const label = fieldKey.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+    setInput(`What is the ${label} for this engagement?`);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
+
   // ── File upload inline progress callbacks ─────────────────────────
 
   const handleUploadStart = useCallback((files: File[]) => {
@@ -445,7 +559,6 @@ export default function ChatPage() {
     );
   }, []);
 
-  // After the XHR completes, transition to processing and start polling file status
   const handleUploadDone = useCallback(() => {
     const id = uploadMsgIdRef.current;
     if (!id) return;
@@ -471,28 +584,22 @@ export default function ChatPage() {
     uploadedFileNamesRef.current = [];
   }, []);
 
-  // ── Poll file processing status and update chat message ───────────
   useEffect(() => {
     if (!activeUploadPoll || !apiKey || !namespace) return;
     const { msgId, fileNames } = activeUploadPoll;
-
     const interval = setInterval(async () => {
       try {
         const fetched = await fetchKnowledgeFiles(apiKey, namespace || 'default');
         const relevant = fetched.filter((f) => fileNames.includes(f.fileName));
-
-        if (relevant.length === 0) return; // not visible yet — keep waiting
-
+        if (relevant.length === 0) return;
         const allTerminal = relevant.every((f) =>
           f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed',
         );
-
         if (allTerminal) {
           clearInterval(interval);
           setActiveUploadPoll(null);
           uploadMsgIdRef.current = null;
           uploadedFileNamesRef.current = [];
-
           const anySuccess = relevant.some((f) => f.status === 'indexed' || f.status === 'extracted');
           setMessages((prev) =>
             prev.map((m) =>
@@ -501,7 +608,6 @@ export default function ChatPage() {
                 : m,
             ),
           );
-          // Only now make the file visible in the right panel
           setFileRefreshTick((t) => t + 1);
         } else {
           const hasExtracting = relevant.some((f) => f.status === 'extracting');
@@ -517,10 +623,8 @@ export default function ChatPage() {
         }
       } catch { /* ignore transient errors */ }
     }, 2500);
-
     return () => clearInterval(interval);
   }, [activeUploadPoll, apiKey, namespace]);
-
   const sendConfirmation = useCallback((msg: string) => {
     if (isStreaming) return;
     // Commit current stream to history first
@@ -680,15 +784,29 @@ export default function ChatPage() {
           </div>
         </header>
 
+        {/* ── Brief Panel ── */}
+        <BriefPanel
+          namespace={namespace || 'default'}
+          apiKey={apiKey}
+          onAskField={(question) => {
+            setInput(question);
+            setTimeout(() => {
+              // Trigger submit after setting input — brief approach via textarea focus
+              (document.querySelector('.chat-v2-input') as HTMLTextAreaElement | null)?.focus();
+            }, 50);
+          }}
+          onGenerateProposal={() => setShowGenerateModal(true)}
+        />
+
         {/* ── Body ── */}
         <div className="chat-v2-body">
           <div className="chat-v2-main">
           {/* Messages */}
           <div className="chat-v2-messages">
             <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
-            {!hasContent ? (
+            {!hasContent && extractionCards.filter((c) => c.cardState === 'pending').length === 0 ? (
               <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
-            ) : (
+            ) : hasContent ? (
               <>
                 {messages.map((m, i) => {
                   if (m.role === 'upload' && m.uploadData) {
@@ -705,12 +823,22 @@ export default function ChatPage() {
                   return (
                   <div
                     key={m.id}
-                    className={`chat-v2-message chat-v2-message--${m.role}`}
+                    className={`chat-v2-message chat-v2-message--${m.role === 'extraction_card' ? 'assistant' : m.role}`}
                     style={{ '--msg-i': i } as React.CSSProperties}
                   >
-                    {m.role === 'assistant' && <div className="chat-v2-avatar">AI</div>}
-                    <div className="chat-v2-bubble">
-                      {m.role === 'assistant' ? (
+                    {(m.role === 'assistant' || m.role === 'extraction_card') && <div className="chat-v2-avatar">AI</div>}
+                    <div className="chat-v2-bubble" style={m.role === 'extraction_card' ? { padding: 0, background: 'none', border: 'none' } : undefined}>
+                      {m.role === 'extraction_card' && m.extractionCardId ? (
+                        <ExtractionConfirmationCard
+                          cardId={m.extractionCardId}
+                          namespace={namespace ?? 'default'}
+                          apiKey={apiKey}
+                          onConfirm={handleCardConfirm}
+                          onDiscard={handleCardDiscard}
+                          onReclassify={handleCardReclassify}
+                          onFill={handleCardFill}
+                        />
+                      ) : m.role === 'assistant' ? (
                         (() => {
                           // In-memory sections from active stream
                           if (m.sections?.length) {
@@ -991,7 +1119,7 @@ export default function ChatPage() {
 
                 {error && <div className="chat-v2-error">{error}</div>}
               </>
-            )}
+            ) : null}
             <div ref={bottomRef} />
           </div>
 

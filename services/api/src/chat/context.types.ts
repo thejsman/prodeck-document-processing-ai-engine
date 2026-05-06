@@ -6,6 +6,8 @@ export interface RequirementField<T> {
   sourceFile?: string; // which document (if source === 'document')
   /** Set when the user explicitly confirms or directly states this value. */
   confirmedByUser?: { at: string };
+  /** True when extracted but not yet confirmed by the user via the Brief Panel. */
+  pendingConfirmation?: boolean;
 }
 
 export type RequirementKey =
@@ -126,6 +128,14 @@ export type DocumentType =
   | 'proposal_draft'
   | 'generic';
 
+/** User-assigned role for a document — controls whether its facts are written to the Brief. */
+export type DocumentClassification =
+  | 'client_source'
+  | 'conversation'
+  | 'provider_asset'
+  | 'reference_example'
+  | 'background';
+
 export interface ContextSource {
   fileName: string;
   documentType: DocumentType;
@@ -134,6 +144,9 @@ export interface ContextSource {
   knowledgeEntriesCreated: number;
   preprocessConfidence: number;
   warnings?: string[];
+  classification?: DocumentClassification;
+  confirmedAt?: string;
+  confirmationCardId?: string;
 }
 
 export interface SelectedTemplate {
@@ -143,12 +156,65 @@ export interface SelectedTemplate {
   generatedFromScratch: boolean;
 }
 
+/** A conflict between an incoming extraction field and an already-confirmed field. */
+export interface ConflictRecord {
+  key: RequirementKey;
+  incomingValue: unknown;
+  incomingConfidence: number;
+  incomingSourceFile: string;
+  existingValue: unknown;
+  existingConfidence: number;
+  existingSourceFile?: string;
+}
+
+export interface PendingExtraction {
+  /** Unique ID for this confirmation card. */
+  cardId: string;
+  /** File name — kept as documentId alias for backward compat. */
+  documentId: string;
+  fileName: string;
+  extractedAt: string;
+  /** ISO timestamp — 24 hours after extractedAt. */
+  expiresAt?: string;
+  status?: 'pending' | 'confirmed' | 'discarded';
+  classification?: DocumentClassification;
+  fields: Partial<Record<RequirementKey, RequirementField<unknown>>>;
+  knowledgeEntries?: KnowledgeEntry[];
+  conflicts?: ConflictRecord[];
+}
+
+export interface BriefFieldStatus {
+  filled: boolean;
+  confidence?: number;
+  pendingConfirmation?: boolean;
+  sourceFile?: string;
+}
+
+export type Tier1Key = 'clientName' | 'clientIndustry' | 'projectType';
+export type Tier2Key = 'budget' | 'timeline' | 'keyObjectives' | 'contactName';
+
+export interface BriefReadiness {
+  tier1: {
+    complete: boolean;
+    fields: Record<Tier1Key, BriefFieldStatus>;
+    missingFields: string[];
+  };
+  tier2: {
+    complete: boolean;
+    missingFields: string[];
+  };
+  canGenerate: boolean;
+  blockingField?: string;
+}
+
 export interface NamespaceContext {
   namespace: string;
   requirements: StructuredRequirements;
   knowledge: KnowledgeEntry[];
   meetingSummary?: MeetingSummary;
   sources: ContextSource[];
+  /** Extractions awaiting user confirmation in the Brief Panel. */
+  pendingExtractions?: PendingExtraction[];
   /** Template the user confirmed to use for the next proposal generation. */
   selectedTemplate?: SelectedTemplate;
   /**

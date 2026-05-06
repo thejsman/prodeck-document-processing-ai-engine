@@ -3,6 +3,8 @@ import { useTraceStore } from "./trace-store"
 import { startExecutionPolling, stopExecutionPolling } from "./execution-poller"
 import type { ExecutionStatus, ExecutionType } from "./execution-types"
 import type { TraceStep } from "@/lib/api"
+import { useExtractionCardStore } from "../extraction/extraction-card-store"
+import type { ExtractionCardField } from "../extraction/extraction-card-store"
 
 // ── Config ────────────────────────────────────────────────────────
 
@@ -62,6 +64,19 @@ interface SSEPayload {
 interface SSETracePayload {
   executionId: string
   step: TraceStep
+}
+
+interface SSEExtractionReadyPayload {
+  cardId: string
+  namespace: string
+  fileName: string
+  classification: string
+  extractedFields: ExtractionCardField[]
+  knowledgeEntryCount: number
+  highConfidenceCount: number
+  lowConfidenceCount: number
+  notFoundFields: string[]
+  expiresAt: string
 }
 
 // ── Event handlers ────────────────────────────────────────────────
@@ -139,6 +154,35 @@ function handleTraceStep(event: MessageEvent): void {
   useTraceStore.getState().upsertTraceStep(executionId, step)
 }
 
+function handleExtractionReady(event: MessageEvent): void {
+  let payload: SSEExtractionReadyPayload
+  try {
+    payload = JSON.parse(event.data as string) as SSEExtractionReadyPayload
+  } catch {
+    console.warn("[ExecutionTransport] failed to parse extraction_ready:", event.data)
+    return
+  }
+
+  if (DEV) {
+    console.debug("[ExecutionTransport] extraction_ready", payload.cardId, payload.fileName)
+  }
+
+  useExtractionCardStore.getState().addCard({
+    cardId: payload.cardId,
+    namespace: payload.namespace,
+    fileName: payload.fileName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    classification: payload.classification as any,
+    extractedFields: payload.extractedFields,
+    knowledgeEntryCount: payload.knowledgeEntryCount,
+    highConfidenceCount: payload.highConfidenceCount,
+    lowConfidenceCount: payload.lowConfidenceCount,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    notFoundFields: payload.notFoundFields as any,
+    expiresAt: payload.expiresAt,
+  })
+}
+
 // ── Connection management ─────────────────────────────────────────
 
 function closeES(): void {
@@ -147,6 +191,7 @@ function closeES(): void {
     es.onmessage = null
     es.onerror = null
     es.removeEventListener("trace-step", handleTraceStep)
+    es.removeEventListener("extraction_ready", handleExtractionReady)
     es.close()
     es = null
   }
@@ -183,6 +228,9 @@ function connect(): void {
 
   // Named event for trace step updates (SSE `event: trace-step`)
   es.addEventListener("trace-step", handleTraceStep)
+
+  // Named event for extraction-ready payloads (EXTRACTION_CONFIRMATION=true)
+  es.addEventListener("extraction_ready", handleExtractionReady)
 
   es.onerror = () => {
     closeES()

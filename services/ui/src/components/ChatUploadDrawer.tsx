@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, Upload, X } from 'lucide-react';
+import { FileText, Loader2, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
-import { uploadKnowledgeFiles } from '@/lib/api';
+import { uploadKnowledgeFiles, type DocumentClassification } from '@/lib/api';
+import { ClassificationPicker } from '@/components/chat/ClassificationPicker';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
@@ -30,16 +31,39 @@ interface Props {
   onUploadError?: () => void;
 }
 
+type UploadState = 'idle' | 'classifying' | 'uploading' | 'queued' | 'error';
+
 export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart, onProgress, onUploadError }: Props) {
   const { apiKey } = useAuth();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [state, setState] = useState<UploadState>('idle');
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
+  const [classification, setClassification] = useState<DocumentClassification | null>(null);
 
-  // File selection
-  const addFiles = useCallback((incoming: FileList | File[]) => {
+  useEffect(() => {
+    if (state === 'queued') onClose();
+  }, [state, onClose]);
+
+  const removeFile = (name: string) => {
+    setFiles((prev) => {
+      const next = prev.filter((f) => f.name !== name);
+      if (next.length === 0) setState('idle');
+      return next;
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragActive(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setDragActive(false); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragActive(false);
+    if (e.dataTransfer.files.length) handleFilesSelected(e.dataTransfer.files);
+  };
+
+  const handleFilesSelected = useCallback((incoming: FileList | File[]) => {
     const valid: File[] = [];
     const rejected: string[] = [];
     for (const f of Array.from(incoming)) {
@@ -54,44 +78,33 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
         const names = new Set(prev.map((f) => f.name));
         return [...prev, ...valid.filter((f) => !names.has(f.name))];
       });
+      setState('classifying');
     }
   }, []);
 
-  const removeFile = (name: string) =>
-    setFiles((prev) => prev.filter((f) => f.name !== name));
-
-  // Drag and drop
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(true);
-  };
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(false);
-  };
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragActive(false);
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-  };
-
-  // Upload — close modal immediately, track progress in chat area
   const handleUpload = useCallback(async () => {
-    if (!apiKey || !files.length) return;
+    if (!apiKey || !files.length || !classification) return;
     onUploadStart?.(files);
-    onClose(); // dismiss modal before upload starts; progress shows in chat
+    setState('uploading');
+    setProgress(0);
+    setError('');
     try {
       await uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
+        setProgress(p);
         onProgress?.(p);
-      });
+      }, classification);
       onUploaded?.();
-    } catch {
+      setState('queued');
+      setFiles([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setState('error');
       onUploadError?.();
     }
-  }, [apiKey, namespace, files, onUploadStart, onProgress, onUploadError, onClose]);
+  }, [apiKey, namespace, files, classification, onUploadStart, onProgress, onUploaded, onUploadError]);
 
-  // Close on Escape
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
@@ -112,6 +125,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
         border: '1px solid var(--border)',
         borderRadius: 16,
         width: 'min(480px, 92vw)',
+        maxHeight: 'min(680px, 90vh)',
         boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
         display: 'flex',
         flexDirection: 'column',
@@ -123,6 +137,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
           display: 'flex', alignItems: 'center', gap: 10,
           padding: '18px 20px 16px',
           borderBottom: '1px solid var(--border)',
+          flexShrink: 0,
         }}>
           <div style={{
             width: 32, height: 32, borderRadius: 8,
@@ -133,22 +148,14 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
             <Icon icon={Upload} size="sm" style={{ color: 'var(--primary)' }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>
-              Ingest Files
-            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Ingest Files</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
               Namespace: <span style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", color: 'var(--text)', opacity: 0.8 }}>{namespace || 'default'}</span>
             </div>
           </div>
           <button
-            onClick={onClose}
-            aria-label="Close"
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--muted)', padding: 6, borderRadius: 8,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
+            onClick={onClose} aria-label="Close"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-dim)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
           >
@@ -157,89 +164,45 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
         </div>
 
         {/* ── Body ── */}
-        <div style={{ padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflowY: 'auto' }}>
 
           {/* Drop zone */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => inputRef.current?.click()}
-            style={{
-              border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
-              borderRadius: 12,
-              padding: '32px 20px',
-              textAlign: 'center',
-              cursor: 'pointer',
-              transition: 'border-color 0.15s, background 0.15s',
-              background: dragActive ? 'var(--primary-dim)' : 'transparent',
-            }}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              accept=".pdf,.txt,.md"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files);
-                e.target.value = '';
+          {state !== 'uploading' && (
+            <div
+              onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+              onClick={() => inputRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: 12, padding: '32px 20px', textAlign: 'center', cursor: 'pointer',
+                transition: 'border-color 0.15s, background 0.15s',
+                background: dragActive ? 'var(--primary-dim)' : 'transparent',
               }}
-            />
-            <div style={{
-              width: 44, height: 44, borderRadius: 12,
-              background: 'var(--primary-dim)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 12px',
-            }}>
-              <Icon icon={Upload} size="md" style={{ color: 'var(--primary)' }} />
+            >
+              <input ref={inputRef} type="file" multiple accept=".pdf,.txt,.md" style={{ display: 'none' }}
+                onChange={(e) => { if (e.target.files) handleFilesSelected(e.target.files); e.target.value = ''; }}
+              />
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                <Icon icon={Upload} size="md" style={{ color: 'var(--primary)' }} />
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
+                Drop files here or <span style={{ color: 'var(--primary)' }}>browse</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>.pdf, .txt, .md — up to 200 MB each</div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
-              Drop files here or <span style={{ color: 'var(--primary)' }}>browse</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              .pdf, .txt, .md — up to 200 MB each
-            </div>
-          </div>
+          )}
 
           {/* File list */}
-          {files.length > 0 && (
-            <div style={{
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              overflow: 'hidden',
-            }}>
+          {files.length > 0 && (state === 'idle' || state === 'classifying' || state === 'error') && (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
               {files.map((f, i) => (
-                <div
-                  key={f.name}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 12px',
-                    borderTop: i === 0 ? 'none' : '1px solid var(--border)',
-                    background: 'var(--panel)',
-                  }}
-                >
-                  <div style={{
-                    width: 28, height: 28, borderRadius: 6,
-                    background: 'var(--primary-dim)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                  }}>
+                <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i === 0 ? 'none' : '1px solid var(--border)', background: 'var(--panel)' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Icon icon={FileText} size="sm" style={{ color: 'var(--primary)' }} />
                   </div>
-                  <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                    {f.name}
-                  </span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
-                    {formatSize(f.size)}
-                  </span>
-                  <button
-                    onClick={() => removeFile(f.name)}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      color: 'var(--muted)', padding: 2, borderRadius: 4,
-                      display: 'flex', alignItems: 'center', flexShrink: 0,
-                    }}
+                  <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{f.name}</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{formatSize(f.size)}</span>
+                  <button onClick={() => removeFile(f.name)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}
                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
                     aria-label={`Remove ${f.name}`}
@@ -251,40 +214,54 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
             </div>
           )}
 
-          {/* Validation error */}
+          {/* Classification step */}
+          {state === 'classifying' && (
+            <ClassificationPicker value={classification} onChange={setClassification} />
+          )}
+
+          {/* Upload progress */}
+          {state === 'uploading' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
+                <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+                Uploading…
+                <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{progress}%</span>
+              </div>
+              <div style={{ height: 4, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary)', borderRadius: 99, transition: 'width 0.2s ease' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
           {error && (
-            <div style={{
-              fontSize: 13, color: 'var(--danger)',
-              padding: '10px 12px', borderRadius: 8,
-              background: 'color-mix(in srgb, var(--danger) 10%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--danger) 25%, transparent)',
-            }}>
+            <div style={{ fontSize: 13, color: 'var(--danger)', padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--danger) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--danger) 25%, transparent)' }}>
               {error}
             </div>
           )}
         </div>
 
         {/* ── Footer ── */}
-        <div style={{
-          padding: '16px 20px 20px',
-          display: 'flex', gap: 8, justifyContent: 'flex-end',
-          marginTop: 6,
-        }}>
-          <button
-            className="btn btn-sm"
-            onClick={onClose}
-            style={{ height: 36, padding: '0 16px', fontSize: 13 }}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={handleUpload}
-            disabled={files.length === 0}
-            style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: files.length === 0 ? 0.45 : 1, cursor: files.length === 0 ? 'not-allowed' : 'pointer' }}
-          >
-            {`Upload${files.length > 0 ? ` (${files.length})` : ''}`}
-          </button>
+        <div style={{ padding: '16px 20px 20px', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6, flexShrink: 0 }}>
+          {(state === 'idle' || state === 'classifying' || state === 'error') && (
+            <>
+              <button className="btn btn-sm" onClick={onClose} style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Cancel</button>
+              {state === 'classifying' && (
+                <button className="btn btn-sm" onClick={() => { setState('idle'); setClassification(null); }} style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Back</button>
+              )}
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={state === 'classifying' ? handleUpload : () => setState('classifying')}
+                disabled={files.length === 0 || (state === 'classifying' && !classification)}
+                style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: (files.length === 0 || (state === 'classifying' && !classification)) ? 0.45 : 1, cursor: (files.length === 0 || (state === 'classifying' && !classification)) ? 'not-allowed' : 'pointer' }}
+              >
+                {state === 'error' ? 'Retry' : state === 'classifying' ? `Upload (${files.length})` : `Next${files.length > 0 ? ` (${files.length})` : ''}`}
+              </button>
+            </>
+          )}
+          {state === 'uploading' && (
+            <button className="btn btn-sm" disabled style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: 0.5 }}>Uploading…</button>
+          )}
         </div>
 
       </div>
