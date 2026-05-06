@@ -8,7 +8,12 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",
-    "clean": "pnpm -r run clean"
+    "clean": "pnpm -r run clean",
+    "build:api": "pnpm --filter @ai-engine/types --filter @ai-engine/core --filter @ai-engine/runtime --filter @ai-engine/planner --filter @ai-engine/layout-engine --filter \"@ai-engine/tool-*\" --filter \"@ai-engine/plugin-*\" --filter \"@ai-engine/agent-*\" --filter @ai-engine/api run build",
+    "build:agents": "pnpm --filter \"@ai-engine/agent-*\" run build",
+    "dev:api": "pnpm --filter @ai-engine/api run dev",
+    "dev:ui": "pnpm --filter @ai-engine/ui run dev",
+    "dev": "pnpm --parallel --filter @ai-engine/api --filter @ai-engine/ui run dev"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
