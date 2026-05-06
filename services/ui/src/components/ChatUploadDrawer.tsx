@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { FileText, Loader2, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
-import { uploadKnowledgeFiles, type DocumentClassification } from '@/lib/api';
+import { uploadKnowledgeFiles, type DocumentClassification, type KnowledgeUploadResult } from '@/lib/api';
 import { ClassificationPicker } from '@/components/chat/ClassificationPicker';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
@@ -25,7 +25,7 @@ function isAcceptedFile(file: File): boolean {
 interface Props {
   namespace: string;
   onClose: () => void;
-  onUploaded?: () => void;
+  onUploaded?: (queued: KnowledgeUploadResult['queued']) => void;
   onUploadStart?: (files: File[]) => void;
   onProgress?: (progress: number) => void;
   onUploadError?: () => void;
@@ -89,11 +89,11 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
     setProgress(0);
     setError('');
     try {
-      await uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
+      const res = await uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
         setProgress(p);
         onProgress?.(p);
       }, classification);
-      onUploaded?.();
+      onUploaded?.(res.queued);
       setState('queued');
       setFiles([]);
     } catch (err) {

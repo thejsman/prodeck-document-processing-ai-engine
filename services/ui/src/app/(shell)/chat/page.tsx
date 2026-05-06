@@ -559,7 +559,7 @@ export default function ChatPage() {
     );
   }, []);
 
-  const handleUploadDone = useCallback(() => {
+  const handleUploadDone = useCallback((queued: Array<{ fileName: string; jobId: string }>) => {
     const id = uploadMsgIdRef.current;
     if (!id) return;
     setMessages((prev) =>
@@ -569,7 +569,7 @@ export default function ChatPage() {
           : m,
       ),
     );
-    setActiveUploadPoll({ msgId: id, fileNames: uploadedFileNamesRef.current });
+    setActiveUploadPoll({ msgId: id, fileNames: queued.map((q) => q.fileName) });
   }, []);
 
   const handleUploadError = useCallback(() => {
