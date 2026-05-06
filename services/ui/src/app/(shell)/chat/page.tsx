@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { useSSE, type ProposalSection, type ConfirmationRequest } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
+import { ChatFileUpload } from '@/components/chat/ChatFileUpload';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { NamespacePanel, parseMicrositeInfo } from '@/components/chat/NamespacePanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
@@ -19,7 +20,7 @@ import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
 import { ProposalForm } from '@/components/ProposalForm';
-import { fetchMicrositeContent, type ProposalDocument, type Presentation } from '@/lib/api';
+import { fetchMicrositeContent, fetchKnowledgeFiles, type ProposalDocument, type Presentation } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
 import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
@@ -37,7 +38,7 @@ import { confirmExtractionCard, discardExtractionCard, reclassifyExtractionCard,
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'extraction_card';
+  role: 'user' | 'assistant' | 'upload' | 'extraction_card';
   content: string;
   /** Populated when the message is a structured proposal stream. */
   sections?: ProposalSection[];
@@ -46,6 +47,14 @@ interface Message {
   confirmation?: ConfirmationRequest;
   /** Present when role === 'extraction_card'. */
   extractionCardId?: string;
+  /** Populated for inline file upload progress entries. */
+  uploadData?: {
+    fileName: string;
+    fileSize: number;
+    progress: number;
+    status: 'uploading' | 'processing' | 'done' | 'error';
+    stage?: string;
+  };
 }
 
 
@@ -161,7 +170,12 @@ export default function ChatPage() {
   const msSentinelRef = useRef<HTMLDivElement>(null);
 
   const chatSessionIdRef = useRef<string | null>(null);
+  const uploadMsgIdRef = useRef<string | null>(null);
+  const uploadedFileNamesRef = useRef<string[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Tracks active ingestion polling: set after upload completes, cleared when processing done
+  const [activeUploadPoll, setActiveUploadPoll] = useState<{ msgId: string; fileNames: string[] } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -508,7 +522,6 @@ export default function ChatPage() {
     try {
       await reclassifyExtractionCard(apiKey, ns, cardId, newClassification);
       useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
-      // A new extraction_ready SSE event will fire when re-extraction completes
     } catch (err) {
       console.error('[Chat] failed to reclassify extraction card', err);
     }
@@ -520,6 +533,98 @@ export default function ChatPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
 
+  // ── File upload inline progress callbacks ─────────────────────────
+
+  const handleUploadStart = useCallback((files: File[]) => {
+    const id = crypto.randomUUID();
+    const displayName = files.length > 1
+      ? `${files[0].name} +${files.length - 1} more`
+      : files[0].name;
+    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    uploadMsgIdRef.current = id;
+    uploadedFileNamesRef.current = files.map((f) => f.name);
+    setMessages((prev) => [
+      ...prev,
+      { id, role: 'upload', content: '', uploadData: { fileName: displayName, fileSize: totalSize, progress: 0, status: 'uploading' } },
+    ]);
+  }, []);
+
+  const handleUploadProgress = useCallback((progress: number) => {
+    const id = uploadMsgIdRef.current;
+    if (!id) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, progress } } : m,
+      ),
+    );
+  }, []);
+
+  const handleUploadDone = useCallback(() => {
+    const id = uploadMsgIdRef.current;
+    if (!id) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.uploadData
+          ? { ...m, uploadData: { ...m.uploadData, progress: 100, status: 'processing', stage: 'Queued' } }
+          : m,
+      ),
+    );
+    setActiveUploadPoll({ msgId: id, fileNames: uploadedFileNamesRef.current });
+  }, []);
+
+  const handleUploadError = useCallback(() => {
+    const id = uploadMsgIdRef.current;
+    if (!id) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, status: 'error' } } : m,
+      ),
+    );
+    uploadMsgIdRef.current = null;
+    uploadedFileNamesRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    if (!activeUploadPoll || !apiKey || !namespace) return;
+    const { msgId, fileNames } = activeUploadPoll;
+    const interval = setInterval(async () => {
+      try {
+        const fetched = await fetchKnowledgeFiles(apiKey, namespace || 'default');
+        const relevant = fetched.filter((f) => fileNames.includes(f.fileName));
+        if (relevant.length === 0) return;
+        const allTerminal = relevant.every((f) =>
+          f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed',
+        );
+        if (allTerminal) {
+          clearInterval(interval);
+          setActiveUploadPoll(null);
+          uploadMsgIdRef.current = null;
+          uploadedFileNamesRef.current = [];
+          const anySuccess = relevant.some((f) => f.status === 'indexed' || f.status === 'extracted');
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId && m.uploadData
+                ? { ...m, uploadData: { ...m.uploadData, status: anySuccess ? 'done' : 'error' } }
+                : m,
+            ),
+          );
+          setFileRefreshTick((t) => t + 1);
+        } else {
+          const hasExtracting = relevant.some((f) => f.status === 'extracting');
+          const hasProcessing = relevant.some((f) => f.status === 'processing');
+          const stage = hasExtracting ? 'Extracting…' : hasProcessing ? 'Indexing…' : 'Queued';
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId && m.uploadData
+                ? { ...m, uploadData: { ...m.uploadData, stage } }
+                : m,
+            ),
+          );
+        }
+      } catch { /* ignore transient errors */ }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [activeUploadPoll, apiKey, namespace]);
   const sendConfirmation = useCallback((msg: string) => {
     if (isStreaming) return;
     // Commit current stream to history first
@@ -703,7 +808,19 @@ export default function ChatPage() {
               <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
             ) : hasContent ? (
               <>
-                {messages.map((m, i) => (
+                {messages.map((m, i) => {
+                  if (m.role === 'upload' && m.uploadData) {
+                    return (
+                      <div
+                        key={m.id}
+                        className="chat-v2-message chat-v2-message--user"
+                        style={{ '--msg-i': i } as React.CSSProperties}
+                      >
+                        <ChatFileUpload {...m.uploadData} />
+                      </div>
+                    );
+                  }
+                  return (
                   <div
                     key={m.id}
                     className={`chat-v2-message chat-v2-message--${m.role === 'extraction_card' ? 'assistant' : m.role}`}
@@ -787,7 +904,8 @@ export default function ChatPage() {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
 
                 {/* ── Modal-triggered generation: loading + done card ── */}
                 {isGeneratingFromModal && (
@@ -1009,7 +1127,10 @@ export default function ChatPage() {
           {showUpload && (
             <ChatUploadDrawer
               namespace={namespace}
-              onUploaded={() => setFileRefreshTick(t => t + 1)}
+              onUploadStart={handleUploadStart}
+              onProgress={handleUploadProgress}
+              onUploaded={handleUploadDone}
+              onUploadError={handleUploadError}
               onClose={() => {
                 setShowUpload(false);
                 textareaRef.current?.focus();
@@ -1128,7 +1249,7 @@ export default function ChatPage() {
             <div style={{ height: 1, background: 'var(--border)' }} />
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-                Clear all messages in the <strong>"{namespace || 'default'}"</strong> session? This action cannot be undone.
+                Clear all messages in the <strong>"{namespace || 'default'}"</strong> session?
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button

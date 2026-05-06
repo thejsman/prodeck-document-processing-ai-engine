@@ -396,12 +396,22 @@ body {
 }
 
 .light .btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
   box-shadow: 0 1px 2px rgba(0,0,0,0.10);
 }
 
 .light .btn-primary:hover {
+  background: var(--primary-hover);
   border-color: var(--primary-hover);
   box-shadow: 0 2px 6px rgba(37,99,235,0.18);
+}
+
+.light .btn-primary:active {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  box-shadow: none;
 }
 
 .light .btn-primary:disabled {
@@ -6591,6 +6601,10 @@ body {
   transform: translateY(-1px);
 }
 
+.light .proposal-card {
+  background: var(--panel);
+}
+
 .proposal-card-header {
   display: flex;
   align-items: flex-start;
@@ -7181,4 +7195,124 @@ body {
 .confirmation-hint {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* ── Chat File Upload ────────────────────────────────────────────────
+   Renders on the user side of the chat (right-aligned) while a file
+   is uploading, then collapses to a compact pill when done.
+   All color references use existing tokens — dark/light handled
+   automatically by the token system; no explicit dark overrides needed.
+───────────────────────────────────────────────────────────────────── */
+
+.chat-file-upload {
+  background: var(--panel);
+  border: none;
+  border-radius: 20px;
+  padding: 10px 16px;
+  max-width: 280px;
+  width: fit-content;
+  margin-left: auto;
+}
+
+/* Collapsed done pill */
+.chat-file-upload--done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Header row: icon + filename + size */
+.chat-file-upload__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-file-upload__icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.chat-file-upload__icon--primary {
+  color: var(--primary);
+}
+
+.chat-file-upload__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+  flex: 1;
+}
+
+/* Single-line variant used in the done pill */
+.chat-file-upload__name--inline {
+  max-width: 170px;
+  flex: unset;
+}
+
+.chat-file-upload__size {
+  font-size: 12px;
+  color: var(--subtle, var(--muted));
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Progress bar */
+.chat-file-upload__track {
+  background: var(--panel-item);
+  border-radius: 99px;
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.chat-file-upload__fill {
+  background: var(--primary);
+  border-radius: 99px;
+  height: 4px;
+  transition: width 0.3s ease;
+}
+
+.chat-file-upload__fill--error {
+  background: var(--danger);
+}
+
+/* Status label */
+.chat-file-upload__status {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.chat-file-upload__status--error {
+  color: var(--danger);
+}
+
+.chat-file-upload__status--done {
+  color: var(--success);
+}
+
+/* Check icon in done pill */
+.chat-file-upload__check-icon {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Processing stage row: spinner + label */
+.chat-file-upload__stage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.chat-file-upload__spinner {
+  color: var(--primary);
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
 }

@@ -51,10 +51,11 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function resolveRevealVariant(animation: string | undefined): 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft' {
+function resolveRevealVariant(animation: string | undefined): 'blurUp' | 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft' {
   if (animation === 'scale') return 'scale';
   if (animation === 'none') return 'fadeIn';
-  return 'fadeUp';
+  if (animation === 'fadeUp') return 'fadeUp';
+  return 'blurUp';
 }
 
 // ── Main component ────────────────────────────────────────────────────────────

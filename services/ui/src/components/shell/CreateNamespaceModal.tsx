@@ -103,15 +103,7 @@ export function CreateNamespaceModal({ onClose }: Props) {
           <button
             onClick={handleCreate}
             disabled={creating || !name.trim()}
-            style={{
-              width: '100%', padding: '9px 16px', borderRadius: 8, border: 'none',
-              background: creating || !name.trim() ? 'var(--panel-soft)' : 'var(--primary)',
-              color: creating || !name.trim() ? 'var(--muted)' : '#fff',
-              fontSize: 14, fontWeight: 400,
-              cursor: creating || !name.trim() ? 'not-allowed' : 'pointer',
-              transition: 'background 0.15s',
-              lineHeight: 1.5, letterSpacing: '0em',
-            }}
+            className="btn btn-primary"
           >{creating ? 'Creating…' : 'Create'}</button>
         </div>
 

@@ -387,7 +387,7 @@ export function TemplateEditor({
       )}
 
       {/* Right panel — editor */}
-      <div className="tpl-editor-main card" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div className={`tpl-editor-main${showEditor ? ' card' : ''}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         {!showEditor ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '48px 24px', textAlign: 'center' }}>
             <div style={{ width: 56, height: 56, borderRadius: 14, background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
