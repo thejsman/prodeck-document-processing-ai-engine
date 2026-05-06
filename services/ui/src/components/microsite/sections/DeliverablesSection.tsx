@@ -103,7 +103,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
             return (
               <Reveal key={ii} delay={80 + ii * 45}>
                 <InlineArrayItem arrayPath="items" index={ii} total={items.length}>
-                  <div style={{
+                  <div className="ms-card" style={{
                     position: 'relative',
                     borderRadius: 14,
                     border: `1px solid ${isFirst ? `rgba(${accentRgb},0.35)` : tokens.border}`,
@@ -138,7 +138,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                       marginTop: 4,
                     }}>
                       {/* Icon container */}
-                      <div style={{
+                      <div className="ms-icon-pop" style={{
                         width: 44, height: 44, borderRadius: 12,
                         background: isFirst
                           ? tokens.accent
@@ -147,6 +147,7 @@ export function DeliverablesSection({ content, tokens }: Props) {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexShrink: 0,
                         boxShadow: isFirst ? `0 2px 12px rgba(${accentRgb},0.35)` : 'none',
+                        animationDelay: `${100 + ii * 45}ms`,
                       }}>
                         <InlineIconEdit
                           fieldPath={`items.${ii}.iconHint`}

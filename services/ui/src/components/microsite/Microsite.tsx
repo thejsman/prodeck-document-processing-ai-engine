@@ -159,7 +159,12 @@ function AnimatedSection({
         };
 
   return (
-    <div ref={ref} id={id} data-section-id={id} style={{ ...animStyle, containerType: 'inline-size' }}>
+    <div
+      ref={ref}
+      id={id}
+      data-section-id={id}
+      style={{ ...animStyle, containerType: 'inline-size' }}
+    >
       {children}
     </div>
   );
@@ -1218,6 +1223,76 @@ ${el.innerHTML}
         @keyframes tw-item-pop {
           from { opacity: 0; transform: translateY(6px) scale(0.97); }
           to   { opacity: 1; transform: none; }
+        }
+
+        /* ── Decoration animations ── */
+        @keyframes ms-blob-float {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33%       { transform: translate(14px, -20px) scale(1.05); }
+          66%       { transform: translate(-10px, 12px) scale(0.96); }
+        }
+
+        /* ── Timeline animations ── */
+        @keyframes ms-spine-draw {
+          from { transform: scaleY(0); }
+          to   { transform: scaleY(1); }
+        }
+        @keyframes ms-node-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 var(--ms-node-glow, rgba(99,102,241,0.45)); }
+          50%       { box-shadow: 0 0 0 7px transparent; }
+        }
+
+        /* ── CTA idle glow ── */
+        @keyframes ms-cta-glow {
+          0%, 100% { box-shadow: 0 0 10px 0 var(--ms-accent-glow, rgba(99,102,241,0.30)); }
+          50%       { box-shadow: 0 0 22px 4px var(--ms-accent-glow, rgba(99,102,241,0.50)); }
+        }
+
+        /* ── Premium blur-up reveal for headlines ── */
+        @keyframes ms-blur-up {
+          from { opacity: 0; filter: blur(6px); transform: translateY(18px); }
+          to   { opacity: 1; filter: blur(0px); transform: translateY(0); }
+        }
+
+        /* ── Card lift-on-hover ── */
+        .ms-card {
+          transition: transform 0.35s cubic-bezier(0.34, 1.15, 0.64, 1), box-shadow 0.35s ease;
+          will-change: transform;
+        }
+        .ms-card:hover {
+          transform: translateY(-7px);
+          box-shadow: 0 20px 48px rgba(0,0,0,0.22), 0 6px 16px rgba(0,0,0,0.10) !important;
+        }
+
+        /* ── Accent line grow ── */
+        @keyframes ms-line-grow {
+          from { transform: scaleX(0); }
+          to   { transform: scaleX(1); }
+        }
+        .ms-line-grow {
+          transform-origin: left center;
+          display: block;
+        }
+
+        /* ── Icon container entrance pop ── */
+        @keyframes ms-icon-pop {
+          from { transform: scale(0.55); opacity: 0; }
+          to   { transform: scale(1);    opacity: 1; }
+        }
+        .ms-icon-pop {
+          animation: ms-icon-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        /* ── PDF / print: kill all motion ── */
+        @media print {
+          *, *::before, *::after {
+            animation: none !important;
+            transition: none !important;
+            transform: none !important;
+            opacity: 1 !important;
+            filter: none !important;
+          }
+          [data-reveal="1"] { opacity: 1 !important; transform: none !important; }
         }
 
         /* Ensure nav-targeted sections don't scroll behind the sticky nav */

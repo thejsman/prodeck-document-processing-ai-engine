@@ -8,8 +8,10 @@ import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Display, Body, Label } from '../shared/Typography';
 import { CTAButton } from '../shared/CTAButton';
-import { getSectionGradient } from '../../../lib/presentation/pluginRegistry';
 import { InlineEditable } from '../editor/InlineEditable';
+import { parseMarkup } from '../editor/Editable';
+import { useEditContext } from '../editor/EditContext';
+import { useSectionId } from '../editor/SectionIdContext';
 import { TypewriterStateContext } from '../TypewriterSection';
 import { TypingCursor } from '../TypingCursor';
 
@@ -51,10 +53,11 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function resolveRevealVariant(animation: string | undefined): 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft' {
+function resolveRevealVariant(animation: string | undefined): 'blurUp' | 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft' {
   if (animation === 'scale') return 'scale';
   if (animation === 'none') return 'fadeIn';
-  return 'fadeUp';
+  if (animation === 'fadeUp') return 'fadeUp';
+  return 'blurUp';
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -99,6 +102,8 @@ export function HeroSection({
 }: Props) {
   // Typewriter context — present only during active streaming animation
   const twCtx = useContext(TypewriterStateContext);
+  const editCtx = useEditContext();
+  const sectionId = useSectionId();
 
   // Track image URL with error fallback — DALL-E URLs expire after 2h, drop them gracefully
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(imageUrl);
@@ -152,7 +157,7 @@ export function HeroSection({
     nonHero[nonHero.length - 1]
   )?.id;
 
-  const outcomes = brief?.keyOutcomes?.slice(0, 3) ?? [];
+  const outcomes = brief?.keyOutcomes ?? [];
 
   // Reveal wrapper — useCallback keeps the reference stable across re-renders
   // so React doesn't unmount/remount InlineEditable children when context updates.
@@ -388,9 +393,44 @@ export function HeroSection({
                 }}
               >
                 <Icon icon={Check} size="sm" style={{ color: tokens.accent, flexShrink: 0, marginTop: 2 }} />
-                <span>{o}</span>
+                <InlineEditable
+                  field={`__brief.keyOutcomes.${i}`}
+                  label={`Outcome ${i + 1}`}
+                  value={o}
+                  display="inline"
+                >
+                  <span>{parseMarkup(o)}</span>
+                </InlineEditable>
               </div>
             ))}
+            {editCtx && sectionId && (
+              <button
+                onClick={() => {
+                  editCtx.updateField(
+                    sectionId,
+                    `__brief.keyOutcomes.${outcomes.length}`,
+                    'New outcome',
+                  );
+                }}
+                style={{
+                  marginTop: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'none',
+                  border: `1px dashed ${tokens.dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)'}`,
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  color: tokens.dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.4)',
+                  cursor: 'pointer',
+                  fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                  width: '100%',
+                }}
+              >
+                + Add outcome
+              </button>
+            )}
           </>
         ) : (
           <div
@@ -469,7 +509,6 @@ export function HeroSection({
               {eyebrow}
               {headline}
               {subBody}
-              {outcomePills}
               {ctaRow}
               {metadataBar}
             </div>
@@ -530,7 +569,6 @@ export function HeroSection({
               {eyebrow}
               {headline}
               {subBody}
-              {outcomePills}
               {ctaRow}
               {metadataBar}
             </div>

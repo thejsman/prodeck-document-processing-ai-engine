@@ -12,6 +12,7 @@ import type {
   ClientPriority,
   AgencyDeliverable,
   BusinessMetric,
+  PendingExtraction,
 } from './context.types.js';
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ const ARRAY_FIELDS: RequirementKey[] = [
 // Pure merge helpers (module-level, exported for testing)
 // ---------------------------------------------------------------------------
 
-function valuesEqual(a: unknown, b: unknown): boolean {
+export function valuesEqual(a: unknown, b: unknown): boolean {
   if (typeof a === 'string' && typeof b === 'string') {
     return a.trim().toLowerCase() === b.trim().toLowerCase();
   }
@@ -445,6 +446,152 @@ export class ContextService {
 
   async reset(namespace: string): Promise<void> {
     await this.save(namespace, this.createEmpty(namespace));
+  }
+
+  /**
+   * Stores extraction results as pending (awaiting user confirmation).
+   * Fields are written with pendingConfirmation: true so the Brief Panel shows them as ◐.
+   */
+  async storePendingExtraction(
+    namespace: string,
+    documentId: string,
+    fields: ExtractionResult['fields'],
+    source: ContextSource,
+  ): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+
+    // Write fields with pendingConfirmation: true — usable for generation but unconfirmed
+    for (const [key, field] of Object.entries(fields)) {
+      if (!field) continue;
+      const rKey = key as RequirementKey;
+      const pendingField = { ...field, pendingConfirmation: true } as RequirementField<unknown>;
+      if (ARRAY_FIELDS.includes(rKey)) {
+        current.requirements.fields[rKey] = mergeArrayField(
+          current.requirements.fields[rKey] as RequirementField<unknown[]> | undefined,
+          pendingField as RequirementField<unknown[]>,
+        ) as RequirementField<unknown>;
+        (current.requirements.fields[rKey] as RequirementField<unknown>).pendingConfirmation = true;
+      } else {
+        current.requirements.fields[rKey] = mergeField(
+          current.requirements.fields[rKey],
+          pendingField,
+        );
+      }
+    }
+
+    // Record pending extraction for the Brief Panel confirmation card
+    const pending: PendingExtraction = {
+      cardId: documentId,
+      documentId,
+      fileName: documentId,
+      extractedAt: new Date().toISOString(),
+      fields: { ...fields } as PendingExtraction['fields'],
+    };
+    if (!current.pendingExtractions) current.pendingExtractions = [];
+    // Replace any existing entry for the same document
+    current.pendingExtractions = current.pendingExtractions.filter(
+      (p) => p.documentId !== documentId,
+    );
+    current.pendingExtractions.push(pending);
+
+    if (source) current.sources.push(source);
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
+  }
+
+  /**
+   * Confirms extracted fields — clears pendingConfirmation flags and optionally
+   * removes the pending extraction entry for the given documentId.
+   */
+  async confirmFields(
+    namespace: string,
+    fields: Partial<Record<RequirementKey, { value: unknown; confidence: number; source: 'user' | 'document' | 'inferred' }>>,
+    documentId?: string,
+  ): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    const now = new Date().toISOString();
+
+    for (const [key, incoming] of Object.entries(fields)) {
+      if (!incoming) continue;
+      const rKey = key as RequirementKey;
+      const confirmed: RequirementField<unknown> = {
+        value: incoming.value,
+        confidence: incoming.confidence,
+        source: incoming.source,
+        updatedAt: now,
+        confirmedByUser: { at: now },
+      };
+      current.requirements.fields[rKey] = confirmed;
+    }
+
+    // Clear this document's pending extraction entry
+    if (documentId && current.pendingExtractions) {
+      current.pendingExtractions = current.pendingExtractions.filter(
+        (p) => p.documentId !== documentId,
+      );
+      if (current.pendingExtractions.length === 0) {
+        delete current.pendingExtractions;
+      }
+    }
+
+    current.version += 1;
+    current.updatedAt = now;
+    await this.save(namespace, current);
+    return current;
+  }
+
+  /**
+   * Updates a single field directly (user edit from Brief Panel).
+   * Sets source to 'user', confidence to 1.0, clears pendingConfirmation.
+   */
+  async updateField(
+    namespace: string,
+    key: RequirementKey,
+    value: unknown,
+    source: 'user' | 'document' | 'inferred' = 'user',
+  ): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+    const now = new Date().toISOString();
+
+    const updated: RequirementField<unknown> = {
+      value,
+      confidence: source === 'user' ? 1.0 : (current.requirements.fields[key]?.confidence ?? 0.8),
+      source,
+      updatedAt: now,
+      ...(source === 'user' ? { confirmedByUser: { at: now } } : {}),
+    };
+    current.requirements.fields[key] = updated;
+
+    current.version += 1;
+    current.updatedAt = now;
+    await this.save(namespace, current);
+    return current;
+  }
+
+  async updateKnowledge(namespace: string, id: string, content: string): Promise<NamespaceContext | null> {
+    const current = await this.get(namespace);
+    if (!current) return null;
+    const entry = current.knowledge.find((e) => e.id === id);
+    if (!entry) return null;
+    entry.content = content;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
+  }
+
+  async deleteKnowledge(namespace: string, id: string): Promise<NamespaceContext | null> {
+    const current = await this.get(namespace);
+    if (!current) return null;
+    const idx = current.knowledge.findIndex((e) => e.id === id);
+    if (idx === -1) return null;
+    current.knowledge.splice(idx, 1);
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
   }
 
   private isSemanticallyDuplicate(a: string, b: string): boolean {

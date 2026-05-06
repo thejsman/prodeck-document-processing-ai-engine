@@ -126,11 +126,8 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
           />
           <button
             onClick={handleSave}
-            style={{
-              padding: '8px 16px', borderRadius: 7, border: 'none',
-              background: 'var(--primary)', color: '#fff', fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
+            className="btn btn-sm btn-primary"
+            style={{ width: 'auto', whiteSpace: 'nowrap' }}
           >Save now</button>
         </div>
 
@@ -160,18 +157,19 @@ export function SnapshotsModal({ ast, namespace, proposalId, onRestore, onClose 
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={() => handleRestore(snap)}
-                      style={{ padding: '5px 10px', borderRadius: 5, border: 'none', background: 'var(--primary)', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      className="btn btn-sm btn-primary"
+                      style={{ width: 'auto' }}
                     >Restore</button>
                     <button
                       onClick={() => setConfirmRestore(null)}
-                      style={{ padding: '5px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' }}
+                      className="btn btn-sm"
                     >Cancel</button>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
                       onClick={() => setConfirmRestore(snap.id)}
-                      style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--muted)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                      className="btn btn-sm"
                     >Restore</button>
                     <button
                       onClick={() => handleDelete(snap.id)}

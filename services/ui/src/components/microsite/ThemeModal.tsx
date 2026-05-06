@@ -203,29 +203,14 @@ export function ThemeModal({ selectedPlugin, onSelect, onPreview, onClose }: Pro
               : 'No theme selected'}
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={onClose}
-              style={{
-                padding: '7px 16px', borderRadius: 6,
-                border: '1px solid var(--color-border)',
-                background: 'transparent', color: 'var(--color-text)',
-                fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              }}
-            >
+            <button onClick={onClose} className="btn btn-sm">
               Cancel
             </button>
             <button
               onClick={handleApply}
               disabled={!isDirty}
-              style={{
-                padding: '7px 16px', borderRadius: 6,
-                border: 'none',
-                background: isDirty ? 'var(--color-primary)' : 'var(--color-border)',
-                color: isDirty ? '#fff' : 'var(--color-text-muted)',
-                fontSize: 13, fontWeight: 600,
-                cursor: isDirty ? 'pointer' : 'not-allowed',
-                transition: 'background 0.15s, color 0.15s',
-              }}
+              className="btn btn-sm btn-primary"
+              style={{ width: 'auto' }}
             >
               {highlightedTheme ? `Apply "${highlightedTheme.label}"` : 'Apply Theme'}
             </button>

@@ -80,7 +80,7 @@ export function BenefitsSection({ content, tokens }: Props) {
             <Reveal key={i} delay={160 + i * 80}>
               <InlineArrayItem arrayPath="items" index={i} total={items.length}>
                 {variant === 'list' ? (
-                  <div style={{
+                  <div className="ms-card" style={{
                     display: 'flex', alignItems: 'flex-start', gap: 20,
                     padding: '18px 24px',
                     borderRadius: parseInt(tokens.borderRadius ?? '12') || 12,
@@ -115,7 +115,7 @@ export function BenefitsSection({ content, tokens }: Props) {
                     </div>
                   </div>
                 ) : (
-                  <div style={{
+                  <div className="ms-card" style={{
                     position: 'relative',
                     padding: 'clamp(1.25rem, 2.5vw, 1.75rem)',
                     borderRadius: tokens.borderRadius ?? '16px',

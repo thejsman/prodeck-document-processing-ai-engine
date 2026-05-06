@@ -64,9 +64,14 @@ export interface ProviderInfo {
 // Known providers — used for validation and env-var mapping
 // ---------------------------------------------------------------------------
 
-const KNOWN_PROVIDERS = new Set(['ollama', 'openai']);
+const KNOWN_PROVIDERS = new Set(['ollama', 'openai', 'anthropic']);
 
 const PROVIDER_ENV_KEYS: Record<string, readonly string[]> = {
+  anthropic: [
+    'LLM_PROVIDER',
+    'ANTHROPIC_GENERATION_MODEL',
+    'ANTHROPIC_TEMPERATURE',
+  ],
   ollama: [
     'LLM_PROVIDER',
     'OLLAMA_BASE_URL',
@@ -230,6 +235,12 @@ export function buildEnvOverrides(
     }
     if (policy.models.embedding) {
       env.OPENAI_EMBEDDING_MODEL = policy.models.embedding;
+    }
+  }
+
+  if (policy.provider === 'anthropic') {
+    if (policy.models.generation) {
+      env.ANTHROPIC_GENERATION_MODEL = policy.models.generation;
     }
   }
 

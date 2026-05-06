@@ -6,6 +6,7 @@ from typing import Optional
 from .base_provider import LLMProvider
 
 _PROVIDERS = {
+    "anthropic": "plugins.shared.providers.anthropic_provider.AnthropicProvider",
     "ollama": "plugins.shared.providers.ollama_provider.OllamaProvider",
     "openai": "plugins.shared.providers.openai_provider.OpenAIProvider",
 }
@@ -20,7 +21,7 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         3. ``"ollama"`` (default)
 
     Args:
-        provider_name: One of ``"ollama"`` or ``"openai"``.
+        provider_name: One of ``"anthropic"``, ``"ollama"``, or ``"openai"``.
 
     Returns:
         A configured LLMProvider ready to use.
@@ -29,6 +30,18 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         ValueError: If the requested provider name is unknown.
     """
     name = (provider_name or os.environ.get("LLM_PROVIDER", "ollama")).lower().strip()
+
+    if name == "anthropic":
+        from .anthropic_provider import AnthropicProvider
+
+        generation_model = os.environ.get(
+            "ANTHROPIC_GENERATION_MODEL", "claude-sonnet-4-6"
+        )
+        temperature = float(os.environ.get("ANTHROPIC_TEMPERATURE", "0"))
+        return AnthropicProvider(
+            generation_model=generation_model,
+            temperature=temperature,
+        )
 
     if name == "ollama":
         from .ollama_provider import OllamaProvider

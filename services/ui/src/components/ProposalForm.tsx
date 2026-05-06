@@ -225,7 +225,11 @@ export function ProposalForm({
       {error && <p className="error">{error}</p>}
 
       {!modalMode && (
-        <button type="submit" className="btn btn-primary" disabled={isGenerating}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={isGenerating || !client.trim() || !projectType.trim()}
+        >
           {isGenerating ? <><span className="spinner" /> Generating...</> : 'Generate Proposal'}
         </button>
       )}

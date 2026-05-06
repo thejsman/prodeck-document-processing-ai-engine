@@ -4,6 +4,7 @@ import type { PluginTokens, TimelineContent } from '../../../types/presentation'
 import { Reveal } from '../shared/Reveal';
 import { NoiseOverlay } from '../shared/NoiseOverlay';
 import { Body, rt } from '../shared/Typography';
+import { AnimatedCounter } from '../shared/AnimatedCounter';
 import { InlineEditable } from '../editor/InlineEditable';
 import { InlineArrayItem, InlineAddItem } from '../editor/InlineArrayControls';
 
@@ -74,9 +75,9 @@ export function TimelineSection({ content, tokens, index }: Props) {
         {/* Accent underline */}
         <Reveal delay={90}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 'clamp(1rem, 2vw, 1.5rem) 0' }}>
-            <div style={{ height: 2, width: 36, background: tokens.accent, borderRadius: 2 }} />
-            <div style={{ height: 2, width: 16, background: `${tokens.accent}50`, borderRadius: 2 }} />
-            <div style={{ height: 2, width: 8, background: `${tokens.accent}25`, borderRadius: 2 }} />
+            <div className="ms-line-grow" style={{ height: 2, width: 36, background: tokens.accent, borderRadius: 2, animationDelay: '150ms', animationDuration: '0.6s' }} />
+            <div className="ms-line-grow" style={{ height: 2, width: 16, background: `${tokens.accent}50`, borderRadius: 2, animationDelay: '220ms', animationDuration: '0.5s' }} />
+            <div className="ms-line-grow" style={{ height: 2, width: 8, background: `${tokens.accent}25`, borderRadius: 2, animationDelay: '280ms', animationDuration: '0.4s' }} />
           </div>
         </Reveal>
 
@@ -102,7 +103,8 @@ export function TimelineSection({ content, tokens, index }: Props) {
             }}>
               {(content.summary ?? []).map((s, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
-                  <div {...rt(s.number ?? '')} style={{
+                  <AnimatedCounter value={s.number ?? ''} duration={1200} style={{
+                    display: 'block',
                     fontSize: 'clamp(2rem,4vw,2.8rem)', fontWeight: 800,
                     color: tokens.accent, lineHeight: 1,
                     fontFamily: `'${tokens.heroFont}', sans-serif`,
@@ -141,9 +143,12 @@ export function TimelineSection({ content, tokens, index }: Props) {
                         background: `linear-gradient(135deg, ${tokens.accent}30, ${tokens.accent}60)`,
                         border: `2px solid ${tokens.accent}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        boxShadow: `0 0 16px ${tokens.accent}30`,
                         zIndex: 2,
-                      }}>
+                        // @ts-ignore CSS variable
+                        '--ms-node-glow': `${tokens.accent}50`,
+                        animation: `ms-node-pulse 2.8s ease-in-out infinite`,
+                        animationDelay: `${pi * 0.4}s`,
+                      } as React.CSSProperties}>
                         <span style={{
                           fontFamily: `'${tokens.heroFont}', sans-serif`,
                           fontWeight: 800, fontSize: '0.7rem',
@@ -152,12 +157,15 @@ export function TimelineSection({ content, tokens, index }: Props) {
                           {String(pi + 1).padStart(2, '0')}
                         </span>
                       </div>
-                      {/* Spine line */}
+                      {/* Spine line — draws downward on reveal */}
                       {!isLast && (
                         <div style={{
                           width: 2, flex: 1, minHeight: 32,
                           background: `linear-gradient(180deg, ${tokens.accent}40, ${tokens.border}40)`,
                           margin: '4px 0',
+                          transformOrigin: 'top',
+                          animation: `ms-spine-draw 0.5s cubic-bezier(0.22,1,0.36,1) both`,
+                          animationDelay: `${200 + pi * 60}ms`,
                         }} />
                       )}
                     </div>
@@ -199,7 +207,7 @@ export function TimelineSection({ content, tokens, index }: Props) {
                       </div>
 
                       {/* Phase card body */}
-                      <div style={{
+                      <div className="ms-card" style={{
                         padding: 'clamp(1.2rem, 2.5vw, 1.75rem)',
                         borderRadius: tokens.borderRadius ?? '12px',
                         border: `1px solid ${tokens.border}`,
