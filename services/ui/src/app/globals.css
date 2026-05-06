@@ -6601,6 +6601,10 @@ body {
   transform: translateY(-1px);
 }
 
+.light .proposal-card {
+  background: var(--panel);
+}
+
 .proposal-card-header {
   display: flex;
   align-items: flex-start;
