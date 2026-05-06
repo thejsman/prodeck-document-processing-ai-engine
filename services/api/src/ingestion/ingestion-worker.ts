@@ -220,7 +220,16 @@ export async function processJob(
 
         for (const f of filesToProcess) {
           try {
-            const content = await readFile(path.join(uploadsDir, f), 'utf-8');
+            const ext = path.extname(f).toLowerCase();
+            let content: string;
+            if (ext === '.pdf') {
+              const { default: pdfParse } = await import('pdf-parse');
+              const buf = await readFile(path.join(uploadsDir, f));
+              const parsed = await pdfParse(buf);
+              content = parsed.text;
+            } else {
+              content = await readFile(path.join(uploadsDir, f), 'utf-8');
+            }
             console.log(`[IngestV2] starting pipeline — ${namespace}/${f} (${content.length} chars)`);
             const v2t0 = Date.now();
             const deferConfirmation = process.env.EXTRACTION_CONFIRMATION === 'true';

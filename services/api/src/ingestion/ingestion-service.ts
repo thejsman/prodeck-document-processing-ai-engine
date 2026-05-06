@@ -148,7 +148,7 @@ export async function recoverInterruptedJobs(
     const files = await loadFilesIndex(workdir, ns);
     let changed = false;
     for (const file of files) {
-      if (file.status === 'uploaded' || file.status === 'processing') {
+      if (file.status === 'uploaded' || file.status === 'processing' || file.status === 'extracting') {
         file.status = 'uploaded';
         delete file.error;
         enqueue(ns, file.fileName);
