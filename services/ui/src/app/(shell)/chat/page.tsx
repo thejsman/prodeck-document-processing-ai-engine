@@ -560,6 +560,10 @@ export default function ChatPage() {
   }, []);
 
   const handleUploadDone = useCallback((queued: Array<{ fileName: string; jobId: string }>) => {
+    for (const { fileName, jobId } of queued) {
+      addExecution({ id: jobId, type: 'ingestion', status: 'queued', title: fileName });
+    }
+
     const id = uploadMsgIdRef.current;
     if (!id) return;
     setMessages((prev) =>
@@ -570,7 +574,7 @@ export default function ChatPage() {
       ),
     );
     setActiveUploadPoll({ msgId: id, fileNames: queued.map((q) => q.fileName) });
-  }, []);
+  }, [addExecution]);
 
   const handleUploadError = useCallback(() => {
     const id = uploadMsgIdRef.current;
