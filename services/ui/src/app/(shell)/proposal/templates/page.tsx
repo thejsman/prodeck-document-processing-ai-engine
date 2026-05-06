@@ -164,8 +164,9 @@ export default function TemplatesPage() {
       <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingLeft: 16, paddingRight: 8 }}>
         <span className="topbar-ns-label" style={{ flex: 1 }}>Templates</span>
         <button
-          className="chat-v2-action-btn"
+          className="btn btn-sm btn-primary"
           onClick={() => setShowNewModal(true)}
+          style={{ width: 'auto' }}
         >
           New Template
         </button>

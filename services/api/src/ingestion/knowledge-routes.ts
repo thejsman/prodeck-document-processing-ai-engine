@@ -72,6 +72,7 @@ export function registerKnowledgeRoutes(
     const parts = req.parts();
 
     let namespace = 'default';
+    let classification: import('../chat/context.types.js').DocumentClassification | undefined;
     const accepted: { fileName: string; buffer: Buffer; size: number }[] = [];
     const rejected: string[] = [];
 
@@ -79,6 +80,9 @@ export function registerKnowledgeRoutes(
       if (part.type === 'field') {
         if (part.fieldname === 'namespace' && typeof part.value === 'string') {
           namespace = part.value.trim() || 'default';
+        }
+        if (part.fieldname === 'classification' && typeof part.value === 'string') {
+          classification = part.value.trim() as import('../chat/context.types.js').DocumentClassification;
         }
         continue;
       }
@@ -155,7 +159,7 @@ export function registerKnowledgeRoutes(
       await upsertFile(workdir, namespace, entry);
 
       // Enqueue background indexing job — capture the job ID for the response
-      const jobId = ingestionQueue.enqueue({ namespace, fileName: file.fileName });
+      const jobId = ingestionQueue.enqueue({ namespace, fileName: file.fileName, classification });
       queued.push({ fileName: file.fileName, jobId });
     }
 

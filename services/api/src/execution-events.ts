@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import type { DocumentClassification, RequirementKey, ConflictRecord } from './chat/context.types.js';
 
 export interface ExecutionEvent {
   executionId: string;
@@ -33,4 +34,38 @@ executionBus.setMaxListeners(0);
 /** Broadcast an execution status update to all connected SSE clients. */
 export function emitExecution(event: ExecutionEvent): void {
   executionBus.emit('update', event);
+}
+
+// ---------------------------------------------------------------------------
+// Extraction-ready events — emitted after extraction completes under
+// EXTRACTION_CONFIRMATION=true, before anything is written to context.json.
+// ---------------------------------------------------------------------------
+
+export interface ExtractionReadyPayload {
+  cardId: string;
+  namespace: string;
+  fileName: string;
+  classification: DocumentClassification;
+  extractedFields: Array<{
+    key: RequirementKey;
+    value: unknown;
+    confidence: number;
+    conflict?: ConflictRecord;
+  }>;
+  knowledgeEntryCount: number;
+  highConfidenceCount: number;
+  lowConfidenceCount: number;
+  /** Tier 1 fields that were not found in the document. */
+  notFoundFields: RequirementKey[];
+  /** ISO timestamp — card expires 24 hours after emission. */
+  expiresAt: string;
+}
+
+/** Separate bus for extraction-ready events — emitted as named SSE events. */
+export const extractionBus = new EventEmitter();
+extractionBus.setMaxListeners(0);
+
+/** Emit an extraction-ready payload to all connected SSE clients. */
+export function emitExtractionReady(payload: ExtractionReadyPayload): void {
+  extractionBus.emit('extraction_ready', payload);
 }

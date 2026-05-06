@@ -32,6 +32,8 @@ export interface IngestionJob {
    * reading from the local uploads directory.
    */
   uri?: string;
+  /** User-assigned role for this document — controls extraction gating. */
+  classification?: import('../chat/context.types.js').DocumentClassification;
 }
 
 // ---------------------------------------------------------------------------

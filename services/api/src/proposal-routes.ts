@@ -45,6 +45,8 @@ import {
 import { createVersionFromEdit } from './proposals/proposal-version.service.js';
 import { recommendTemplate } from './templates/template-recommendation.service.js';
 import { extractRfpRequirements } from './ingestion/extract-rfp-requirements.js';
+import { ClientMemoryService } from './memory/client-memory.service.js';
+import { ContextService } from './chat/context.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -669,6 +671,22 @@ export function registerProposalRoutes(
 
       meta.status = newStatus;
       await writeMeta(filePath, meta);
+
+      // Trigger memory distillation asynchronously when a proposal closes
+      if (newStatus === 'approved' || newStatus === 'finalized') {
+        const sep = fileName.indexOf('::');
+        const namespace = sep !== -1 ? fileName.slice(0, sep) : null;
+        if (namespace) {
+          const memService = new ClientMemoryService(workdir);
+          const ctxService = new ContextService(workdir);
+          ctxService.get(namespace).then((context) => {
+            if (!context?.requirements.fields['clientName']) return;
+            return memService.distill(namespace, context);
+          }).catch((err: unknown) => {
+            app.log.error({ err }, '[ClientMemory] distillation failed');
+          });
+        }
+      }
 
       return reply.send({ meta });
     },

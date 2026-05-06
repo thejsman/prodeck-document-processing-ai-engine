@@ -6,7 +6,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { executionBus, type ExecutionEvent } from './execution-events.js';
+import { executionBus, extractionBus, type ExecutionEvent, type ExtractionReadyPayload } from './execution-events.js';
 
 export function registerExecutionStreamRoutes(app: FastifyInstance): void {
   app.get('/ai-executions/stream', async (req, reply) => {
@@ -27,11 +27,18 @@ export function registerExecutionStreamRoutes(app: FastifyInstance): void {
       raw.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
+    // Named SSE event for extraction-ready payloads (EXTRACTION_CONFIRMATION=true path)
+    const extractionHandler = (payload: ExtractionReadyPayload) => {
+      raw.write(`event: extraction_ready\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
     executionBus.on('update', handler);
+    extractionBus.on('extraction_ready', extractionHandler);
 
     req.raw.on('close', () => {
       clearInterval(heartbeat);
       executionBus.off('update', handler);
+      extractionBus.off('extraction_ready', extractionHandler);
     });
 
     // Keep the handler open — do not return a response body

@@ -21,6 +21,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { type AuthContext, isWildcard } from '../auth.js';
 import { readMeta } from '../proposal-meta.js';
 import { parseProposalMarkdown } from './markdown-parser.js';
+import { buildBriefFramingRule, buildSectionTypeGuidance, buildSectionOrderGuidance } from '../workflows/microsite-generation.handlers.js';
+import { ContextService } from '../chat/context.service.js';
 import {
   listPresentations,
   getPresentation,
@@ -1146,15 +1148,38 @@ ${layoutSummary}`;
       return reply.code(500).send({ error: `Failed to initialize agent runner: ${message}` });
     }
 
+    // Build Brief-aware instructions for this namespace
+    let briefPrefix = '';
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
+      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
+      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      briefPrefix = [
+        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        '',
+        buildSectionTypeGuidance(projectType),
+        '',
+        buildSectionOrderGuidance(projectType),
+        '',
+      ].join('\n');
+    } catch { /* non-fatal — proceed without Brief context */ }
+
+    const effectiveInstructions = body?.customInstructions
+      ? `${briefPrefix}${body.customInstructions}`
+      : briefPrefix || undefined;
+
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
+        ...(effectiveInstructions ? { prompt: effectiveInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
           ...(body?.plugin ? { plugin: body.plugin } : {}),
           ...(body?.brand ? { brand: body.brand } : {}),
-          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(effectiveInstructions ? { customInstructions: effectiveInstructions } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
         },
       });
@@ -1293,17 +1318,40 @@ ${layoutSummary}`;
     const PDF_ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
     const PDF_MAX_PER_SLIDE = 4;
 
+    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry
+    let streamBriefPrefix = '';
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
+      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
+      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      streamBriefPrefix = [
+        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        '',
+        buildSectionTypeGuidance(projectType),
+        '',
+        buildSectionOrderGuidance(projectType),
+        '',
+      ].join('\n');
+    } catch { /* non-fatal */ }
+
+    const streamEffectiveInstructions = body?.customInstructions
+      ? `${streamBriefPrefix}${body.customInstructions}`
+      : streamBriefPrefix || undefined;
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(body?.customInstructions ? { prompt: body.customInstructions } : {}),
+        ...(streamEffectiveInstructions ? { prompt: streamEffectiveInstructions } : {}),
         metadata: {
           proposalMarkdown: markdown,
           plugin: body?.plugin ?? 'cobalt',
           brand: body?.brand ?? {},
-          ...(body?.customInstructions ? { customInstructions: body.customInstructions } : {}),
+          ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
@@ -1505,6 +1553,41 @@ ${layoutSummary}`;
     await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
 
     return reply.send({ ok: true, proposalId });
+  });
+
+  // POST /presentations/:namespace/logo
+  // Upload a logo image for a namespace. Saves to workdir/assets/presentations/:namespace/logo.<ext>
+  // Returns { url } — a server-relative path clients can use directly in <img> tags.
+  app.post('/presentations/:namespace/logo', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const data = await req.file();
+    if (!data) return reply.code(400).send({ error: 'No file uploaded' });
+
+    const mime = data.mimetype ?? '';
+    const allowed = ['image/png', 'image/svg+xml', 'image/jpeg', 'image/webp', 'image/x-icon'];
+    if (!allowed.includes(mime)) {
+      return reply.code(400).send({ error: `Unsupported image type: ${mime}` });
+    }
+
+    const extMap: Record<string, string> = {
+      'image/png': 'png', 'image/svg+xml': 'svg', 'image/jpeg': 'jpg',
+      'image/webp': 'webp', 'image/x-icon': 'ico',
+    };
+    const ext = extMap[mime] ?? 'png';
+    const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+    await mkdir(imagesDir, { recursive: true });
+    const logoFilename = `brand-logo.${ext}`;
+    const logoPath = path.join(imagesDir, logoFilename);
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of data.file) chunks.push(chunk as Buffer);
+    await writeFile(logoPath, Buffer.concat(chunks));
+
+    const url = `/presentation-images/${namespace}/${logoFilename}`;
+    return reply.send({ url });
   });
 
   // POST /presentations/:namespace/:proposalId/design-edit

@@ -1796,27 +1796,36 @@ export function PresentationPage() {
                             onChange={async (e) => {
                               const file = e.target.files?.[0];
                               if (!file) return;
-                              const reader = new FileReader();
-                              reader.onload = async (ev) => {
-                                const dataUrl = ev.target?.result as string;
-                                setBrand((b) => ({ ...b, logoUrl: dataUrl }));
-                                setLogoExtracting(true);
-                                setColorsAutoExtracted(false);
-                                try {
-                                  const { primary, secondary } =
-                                    await extractLogoColors(file, dataUrl);
-                                  setBrand((b) => ({
-                                    ...b,
-                                    primaryColor: primary,
-                                    secondaryColor: secondary,
-                                  }));
-                                  setColorsAutoExtracted(true);
-                                } finally {
-                                  setLogoExtracting(false);
-                                }
-                              };
-                              reader.readAsDataURL(file);
                               e.target.value = "";
+                              setLogoExtracting(true);
+                              setColorsAutoExtracted(false);
+                              try {
+                                // Upload to server so all users see the same logo URL
+                                const formData = new FormData();
+                                formData.append("file", file);
+                                const uploadRes = await fetch(
+                                  `/api/presentations/${encodeURIComponent(selectedNamespace)}/logo`,
+                                  { method: "POST", headers: apiKey ? { "x-api-key": apiKey } : {}, body: formData }
+                                );
+                                const serverUrl: string | null = uploadRes.ok
+                                  ? (await uploadRes.json() as { url: string }).url
+                                  : null;
+
+                                // Use server URL if upload succeeded, otherwise fall back to data URL
+                                const dataUrl = await new Promise<string>((resolve) => {
+                                  const reader = new FileReader();
+                                  reader.onload = (ev) => resolve(ev.target?.result as string);
+                                  reader.readAsDataURL(file);
+                                });
+                                const logoUrl = serverUrl ?? dataUrl;
+                                setBrand((b) => ({ ...b, logoUrl }));
+
+                                const { primary, secondary } = await extractLogoColors(file, dataUrl);
+                                setBrand((b) => ({ ...b, primaryColor: primary, secondaryColor: secondary }));
+                                setColorsAutoExtracted(true);
+                              } finally {
+                                setLogoExtracting(false);
+                              }
                             }}
                           />
                         </label>

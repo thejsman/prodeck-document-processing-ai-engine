@@ -121,20 +121,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
             <button
               onClick={handleDownload}
               disabled={status === 'loading'}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 6,
-                border: 'none',
-                background: status === 'loading' ? 'var(--border)' : 'var(--primary)',
-                color: status === 'loading' ? 'var(--subtle)' : '#fff',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: status === 'loading' ? 'not-allowed' : 'pointer',
-                flexShrink: 0,
-                whiteSpace: 'nowrap',
-                lineHeight: 1.4,
-                letterSpacing: '0.01em',
-              }}
+              className="btn btn-sm btn-primary"
+              style={{ width: 'auto', flexShrink: 0 }}
             >
               {status === 'loading' ? 'Exporting…' : <><Icon icon={ArrowDown} size="sm" /> {status === 'done' ? 'Download again' : 'Download'}</>}
             </button>
@@ -156,20 +144,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
               </div>
               <button
                 onClick={handleCopyUrl}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: copied ? 'var(--success-soft)' : 'var(--panel)',
-                  color: copied ? 'var(--success)' : 'var(--muted)',
-                  fontSize: 12,
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                  lineHeight: 1.4,
-                  letterSpacing: '0.01em',
-                }}
+                className="btn btn-sm"
+                style={{ flexShrink: 0, color: copied ? 'var(--success)' : undefined }}
               >
                 {copied ? <><Icon icon={Check} size="sm" /> Copied</> : 'Copy URL'}
               </button>

@@ -433,13 +433,30 @@ export function PricingSection({ content, tokens, sections = [] }: Props) {
                                 </td>
                                 <td style={{ padding: '10px 0', textAlign: 'right', width: '35%' }}>
                                   <InlineEditable field={`rows.${globalIdx}.1`} label="Amount" value={amount}>
-                                    <span style={{
-                                      fontFamily: `'${tokens.bodyFont}', sans-serif`,
-                                      fontSize: isTotal ? '0.9rem' : '0.825rem',
-                                      fontWeight: isTotal ? 700 : 500,
-                                      color: isTotal ? tokens.accent : (isAnnual ? tokens.textSubtle : tokens.text),
-                                      fontVariantNumeric: 'tabular-nums',
-                                    }} {...rt(amount ?? '')} />
+                                    {amount.trim() ? (
+                                      <span style={{
+                                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                        fontSize: isTotal ? '0.9rem' : '0.825rem',
+                                        fontWeight: isTotal ? 700 : 500,
+                                        color: isTotal ? tokens.accent : (isAnnual ? tokens.textSubtle : tokens.text),
+                                        fontVariantNumeric: 'tabular-nums',
+                                      }} {...rt(amount ?? '')} />
+                                    ) : (
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        padding: '3px 8px', borderRadius: 5,
+                                        border: `1.5px dashed ${tokens.accent}55`,
+                                        fontFamily: `'${tokens.bodyFont}', sans-serif`,
+                                        fontSize: '0.7rem', fontWeight: 600,
+                                        color: `${tokens.accent}99`,
+                                        cursor: 'pointer',
+                                      }}>
+                                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                                          <path d="M5 2v6M2 5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                        </svg>
+                                        Add
+                                      </span>
+                                    )}
                                   </InlineEditable>
                                 </td>
                               </tr>
