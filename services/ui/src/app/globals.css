@@ -340,7 +340,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 16px;
+  height: 36px;
+  padding: 0 16px;
   font-size: 14px;
   font-weight: 400;
   border: 1px solid var(--color-border);
@@ -349,6 +350,7 @@ body {
   color: var(--color-text);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 
 .btn:hover {
@@ -372,8 +374,15 @@ body {
 }
 
 .btn-sm {
-  padding: 5px 12px;
-  font-size: 14px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn-lg {
+  height: 40px;
+  padding: 0 20px;
+  font-size: 15px;
 }
 
 /* ── Light mode button overrides ─────────────────────────────── */
@@ -6586,7 +6595,7 @@ body {
 }
 
 .generate-proposal-body {
-  padding: 20px;
+  padding: 20px 20px 12px;
   overflow-y: auto;
   flex: 1;
   display: flex;

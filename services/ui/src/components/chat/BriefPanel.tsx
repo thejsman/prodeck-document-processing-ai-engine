@@ -387,37 +387,23 @@ export function BriefPanel({ namespace, apiKey, open, onOpenChange, onAskField, 
               )}
             </div>
           )}
+
+          {/* Recommended fields missing — bottom of body */}
+          {readiness && canGenerate && readiness.tier2.missingFields.length > 0 && (
+            <div style={{ marginTop: 'auto', paddingTop: 12, paddingBottom: 4, fontSize: 11, color: 'var(--color-text-muted)' }}>
+              {readiness.tier2.missingFields.length} Recommended field{readiness.tier2.missingFields.length > 1 ? 's' : ''} missing
+            </div>
+          )}
         </div>
 
         {/* ── Footer ────────────────────────────────────────── */}
-        <div className="generate-proposal-footer" style={{ justifyContent: 'space-between' }}>
-          <div>
-            {!canGenerate && blockingField && (
-              <span style={{ fontSize: 12, color: 'var(--warning, #f59e0b)' }}>
-                ⚠ {FIELD_LABELS[blockingField as RequirementKey] ?? blockingField} missing
-              </span>
-            )}
-            {readiness && canGenerate && readiness.tier2.missingFields.length > 0 && (
-              <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
-                {readiness.tier2.missingFields.length} Recommended field{readiness.tier2.missingFields.length > 1 ? 's' : ''} missing
-              </span>
-            )}
+        {!canGenerate && blockingField && (
+          <div className="generate-proposal-footer">
+            <span style={{ fontSize: 12, color: 'var(--warning, #f59e0b)' }}>
+              ⚠ {FIELD_LABELS[blockingField as RequirementKey] ?? blockingField} missing
+            </span>
           </div>
-          <button
-            className={`btn btn-sm${canGenerate ? ' btn-primary' : ''}`}
-            disabled={!canGenerate}
-            onClick={() => {
-              if (canGenerate) {
-                onGenerateProposal?.();
-                setModalOpen(false);
-              }
-            }}
-            style={{ opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? 'pointer' : 'not-allowed' }}
-            title={!canGenerate && blockingField ? `Fill in ${FIELD_LABELS[blockingField as RequirementKey] ?? blockingField} before generating` : undefined}
-          >
-            Generate Proposal
-          </button>
-        </div>
+        )}
       </div>
     </div>,
     document.body,
