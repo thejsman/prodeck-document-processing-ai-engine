@@ -64,7 +64,7 @@ function buildExtractionReadyPayload(namespace: string, pending: PendingExtracti
   };
 }
 
-async function resolveVectorStoreConfig(workdir: string, namespace: string) {
+export async function resolveVectorStoreConfig(workdir: string, namespace: string) {
   const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
   const configResolver = new ConfigResolver(configLoader);
   const config = await configResolver.resolve({ namespace });
