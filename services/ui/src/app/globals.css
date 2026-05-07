@@ -3978,6 +3978,14 @@ body {
   flex-shrink: 0;
 }
 
+/* Floating host for full-screen routes that suppress the Topbar */
+.exec-indicator-float {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 200;
+}
+
 /* ── Execution Panel ─────────────────────────────────────────── */
 
 .exec-panel {
