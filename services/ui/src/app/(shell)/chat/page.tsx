@@ -55,6 +55,7 @@ interface Message {
     progress: number;
     status: 'uploading' | 'processing' | 'done' | 'error';
     stage?: string;
+    errorMessage?: string;
   };
 }
 
@@ -106,6 +107,41 @@ function getOrCreateSessionId(namespace: string): string {
   const id = crypto.randomUUID();
   localStorage.setItem(key, id);
   return id;
+}
+
+// ── Upload message persistence ────────────────────────────────
+interface PersistedUpload {
+  id: string;
+  displayName: string;
+  fileSize: number;
+  status: 'uploading' | 'processing' | 'done' | 'error';
+  fileNames: string[];
+  createdAt: number;
+}
+
+const UPLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function uploadStorageKey(ns: string) { return `prodeck-chat-uploads-${ns}`; }
+
+function loadPersistedUploads(ns: string): PersistedUpload[] {
+  try {
+    const raw = localStorage.getItem(uploadStorageKey(ns));
+    if (!raw) return [];
+    const now = Date.now();
+    return (JSON.parse(raw) as PersistedUpload[]).filter((u) => now - u.createdAt < UPLOAD_TTL_MS);
+  } catch { return []; }
+}
+
+function savePersistedUploads(ns: string, uploads: PersistedUpload[]): void {
+  try { localStorage.setItem(uploadStorageKey(ns), JSON.stringify(uploads)); } catch { /* storage full */ }
+}
+
+function upsertPersistedUpload(ns: string, patch: Partial<PersistedUpload> & { id: string }): void {
+  const list = loadPersistedUploads(ns);
+  const idx = list.findIndex((u) => u.id === patch.id);
+  if (idx >= 0) list[idx] = { ...list[idx], ...patch };
+  else list.push(patch as PersistedUpload);
+  savePersistedUploads(ns, list);
 }
 
 export default function ChatPage() {
@@ -160,6 +196,19 @@ export default function ChatPage() {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [composerPulse, setComposerPulse] = useState(false);
+  const [briefModalOpen, setBriefModalOpen] = useState(false);
+  const [typeTarget, setTypeTarget] = useState('');
+  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const briefFields = brief.context?.requirements?.fields ?? {};
+  const briefTier1Count = (['clientName', 'clientIndustry', 'projectType'] as RequirementKey[])
+    .filter(k => briefFields[k]?.value).length;
+  const briefColor = briefTier1Count === 3
+    ? 'var(--success)'
+    : briefTier1Count > 0
+    ? 'var(--warning)'
+    : 'var(--muted)';
   const [isGeneratingFromModal, setIsGeneratingFromModal] = useState(false);
   const [generatedDoc, setGeneratedDoc] = useState<ProposalDocument | null>(null);
 
@@ -304,7 +353,34 @@ export default function ChatPage() {
     })
       .then((res) => (res.ok ? res.json() : { messages: [] }))
       .then((data: { messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; metadata?: { proposalArtifactId?: string } }> }) => {
-        setMessages(data.messages);
+        // Recover persisted upload messages for this namespace
+        const persisted = loadPersistedUploads(ns);
+        // Interrupted uploads (still 'uploading' means the XHR never completed)
+        const normalized = persisted.map((u) =>
+          u.status === 'uploading' ? { ...u, status: 'error' as const } : u,
+        );
+        savePersistedUploads(ns, normalized);
+
+        const uploadMessages: Message[] = normalized.map((u) => ({
+          id: u.id,
+          role: 'upload' as const,
+          content: '',
+          uploadData: {
+            fileName: u.displayName,
+            fileSize: u.fileSize,
+            progress: u.status === 'done' ? 100 : 0,
+            status: u.status,
+            stage: u.status === 'processing' ? 'Queued' : undefined,
+          },
+        }));
+
+        setMessages([...data.messages, ...uploadMessages]);
+
+        // Resume polling for any still-processing uploads
+        const processing = normalized.filter((u) => u.status === 'processing' && u.fileNames.length > 0);
+        for (const u of processing) {
+          setActiveUploadPoll({ msgId: u.id, fileNames: u.fileNames });
+        }
       })
       .catch(() => { /* history unavailable — start fresh */ });
 
@@ -432,6 +508,30 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, displayed]);
 
+  // Typewriter effect for Ask-from-Brief
+  useEffect(() => {
+    if (!typeTarget) return;
+    if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+    setInput('');
+    let i = 0;
+    function tick() {
+      i++;
+      const next = typeTarget.slice(0, i);
+      setInput(next);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+      }
+      if (i < typeTarget.length) {
+        typeTimerRef.current = setTimeout(tick, 20);
+      } else {
+        setTypeTarget('');
+      }
+    }
+    typeTimerRef.current = setTimeout(tick, 20);
+    return () => { if (typeTimerRef.current) clearTimeout(typeTimerRef.current); };
+  }, [typeTarget]);
+
   // Auto-grow textarea
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
@@ -543,13 +643,17 @@ export default function ChatPage() {
       ? `${files[0].name} +${files.length - 1} more`
       : files[0].name;
     const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    const fileNames = files.map((f) => f.name);
     uploadMsgIdRef.current = id;
-    uploadedFileNamesRef.current = files.map((f) => f.name);
+    uploadedFileNamesRef.current = fileNames;
+    upsertPersistedUpload(namespace || 'default', {
+      id, displayName, fileSize: totalSize, status: 'uploading', fileNames, createdAt: Date.now(),
+    });
     setMessages((prev) => [
       ...prev,
       { id, role: 'upload', content: '', uploadData: { fileName: displayName, fileSize: totalSize, progress: 0, status: 'uploading' } },
     ]);
-  }, []);
+  }, [namespace]);
 
   const handleUploadProgress = useCallback((progress: number) => {
     const id = uploadMsgIdRef.current;
@@ -568,6 +672,7 @@ export default function ChatPage() {
 
     const id = uploadMsgIdRef.current;
     if (!id) return;
+    upsertPersistedUpload(namespace || 'default', { id, status: 'processing' });
     setMessages((prev) =>
       prev.map((m) =>
         m.id === id && m.uploadData
@@ -576,19 +681,22 @@ export default function ChatPage() {
       ),
     );
     setActiveUploadPoll({ msgId: id, fileNames: queued.map((q) => q.fileName) });
-  }, [addExecution]);
+  }, [addExecution, namespace]);
 
-  const handleUploadError = useCallback(() => {
+  const handleUploadError = useCallback((errorMessage?: string) => {
     const id = uploadMsgIdRef.current;
     if (!id) return;
+    upsertPersistedUpload(namespace || 'default', { id, status: 'error' });
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, status: 'error' } } : m,
+        m.id === id && m.uploadData
+          ? { ...m, uploadData: { ...m.uploadData, status: 'error', errorMessage } }
+          : m,
       ),
     );
     uploadMsgIdRef.current = null;
     uploadedFileNamesRef.current = [];
-  }, []);
+  }, [namespace]);
 
   useEffect(() => {
     if (!activeUploadPoll || !apiKey || !namespace) return;
@@ -607,10 +715,16 @@ export default function ChatPage() {
           uploadMsgIdRef.current = null;
           uploadedFileNamesRef.current = [];
           const anySuccess = relevant.some((f) => f.status === 'indexed' || f.status === 'extracted');
+          const terminalStatus = anySuccess ? 'done' : 'error';
+          const failedFiles = relevant.filter((f) => f.status === 'failed');
+          const errorMessage = failedFiles.length > 0
+            ? (failedFiles[0]?.error ?? 'Processing failed')
+            : undefined;
+          upsertPersistedUpload(namespace || 'default', { id: msgId, status: terminalStatus });
           setMessages((prev) =>
             prev.map((m) =>
               m.id === msgId && m.uploadData
-                ? { ...m, uploadData: { ...m.uploadData, status: anySuccess ? 'done' : 'error' } }
+                ? { ...m, uploadData: { ...m.uploadData, status: terminalStatus, errorMessage } }
                 : m,
             ),
           );
@@ -763,6 +877,14 @@ export default function ChatPage() {
 
   return (
     <div className="chat-v2">
+      <style>{`
+        @keyframes composer-ask-pulse {
+          0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--primary) 0%,  transparent); }
+          12%  { box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 30%, transparent); }
+          100% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 0%,  transparent); }
+        }
+        .chat-v2-composer--pulse { animation: composer-ask-pulse 1200ms ease-out forwards; }
+      `}</style>
       {/* ── Center column: header + messages + composer ── */}
       <div className="chat-v2-center">
         <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
@@ -770,6 +892,25 @@ export default function ChatPage() {
             <span className="chat-v2-ns">{namespace || 'default'}</span>
           </div>
           <div className="chat-v2-header-right">
+            <button
+              onClick={() => setBriefModalOpen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                height: 30, padding: '0 10px',
+                borderRadius: 6,
+                background: 'var(--panel-soft)',
+                border: '1px solid var(--border)',
+                cursor: 'pointer',
+                fontSize: 12, fontWeight: 500,
+                color: 'var(--text)',
+                flexShrink: 0,
+              }}
+              title="Open Brief"
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: briefColor, flexShrink: 0 }} />
+              Brief
+              <span style={{ fontSize: 11, color: briefColor, fontWeight: 600 }}>{briefTier1Count}/3</span>
+            </button>
             <button
               className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
               onClick={() => setTraceOpen((v) => !v)}
@@ -790,16 +931,18 @@ export default function ChatPage() {
           </div>
         </header>
 
-        {/* ── Brief Panel ── */}
         <BriefPanel
           namespace={namespace || 'default'}
           apiKey={apiKey}
+          open={briefModalOpen}
+          onOpenChange={setBriefModalOpen}
           onAskField={(question) => {
-            setInput(question);
             setTimeout(() => {
-              // Trigger submit after setting input — brief approach via textarea focus
-              (document.querySelector('.chat-v2-input') as HTMLTextAreaElement | null)?.focus();
-            }, 50);
+              textareaRef.current?.focus();
+              setComposerPulse(true);
+              setTimeout(() => setComposerPulse(false), 700);
+              setTypeTarget(question);
+            }, 60);
           }}
         />
 
@@ -876,7 +1019,7 @@ export default function ChatPage() {
                             return (
                               <div style={{ maxWidth: '33.33%' }}>
                                 <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>Proposal generated</span>
-                                <div className="proposal-card" style={{ background: 'var(--panel-soft)', cursor: 'default' }}>
+                                <div className="proposal-card" style={{ background: 'var(--panel)', cursor: 'default' }}>
                                   <div className="proposal-card-header">
                                     <div style={{ minWidth: 0, flex: 1 }}>
                                       <span className="proposal-card-name">{historyClient}</span>
@@ -937,7 +1080,7 @@ export default function ChatPage() {
                       <div className="chat-v2-avatar">AI</div>
                       <div className="chat-v2-bubble" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: '33.33%' }}>
                         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>Proposal generated</span>
-                        <div className="proposal-card" style={{ background: 'var(--panel-soft)', margin: 0, cursor: 'default' }}>
+                        <div className="proposal-card" style={{ background: 'var(--panel)', margin: 0, cursor: 'default' }}>
                           <div className="proposal-card-header">
                             <div style={{ minWidth: 0, flex: 1 }}>
                               <span className="proposal-card-name">{clientName}</span>
@@ -1150,7 +1293,7 @@ export default function ChatPage() {
 
           {/* Input composer */}
           <div className="chat-v2-composer-wrap">
-            <div className="chat-v2-composer">
+            <div className={`chat-v2-composer${composerPulse ? ' chat-v2-composer--pulse' : ''}`}>
               <div ref={menuRef} style={{ position: 'relative' }}>
                 <button
                   type="button"
@@ -1252,20 +1395,20 @@ export default function ChatPage() {
           style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onMouseDown={e => { if (e.target === e.currentTarget) setShowClearConfirm(false); }}
         >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-            <div style={{ padding: '20px 24px 0' }}>
-              <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.5 }}>Clear chat</p>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: '100%', maxWidth: 420, boxShadow: '0 24px 80px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+            <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid var(--border)', background: 'var(--panel-soft)' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Clear chat</span>
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                style={{ width: 30, height: 30, borderRadius: '50%', background: 'none', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                aria-label="Close"
+              ><Icon icon={X} size="sm" /></button>
             </div>
-            <div style={{ height: 1, background: 'var(--border)' }} />
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
                 Clear all messages in the <strong>"{namespace || 'default'}"</strong> session?
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setShowClearConfirm(false)}
-                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: 'pointer' }}
-                >Cancel</button>
                 <button
                   onClick={() => { handleClear(); setShowClearConfirm(false); }}
                   style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: 'pointer' }}
