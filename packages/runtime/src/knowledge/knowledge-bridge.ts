@@ -20,6 +20,8 @@ export interface VectorStoreConfig {
   type: 'faiss' | 'qdrant';
   /** Qdrant base URL (e.g. "http://localhost:6333"). Required when type=qdrant. */
   url?: string;
+  /** Qdrant Cloud API key. Optional — local Docker setups work without it. */
+  apiKey?: string;
 }
 
 export interface IngestParams {

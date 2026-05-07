@@ -34,7 +34,7 @@ export function getVectorStoreProvider(
   options: VectorStoreProviderOptions,
 ): VectorStoreProvider {
   const vsConfig = options.config as {
-    vectorStore?: { type?: string; url?: string };
+    vectorStore?: { type?: string; url?: string; apiKey?: string };
   };
   const type = vsConfig?.vectorStore?.type ?? 'faiss';
 
@@ -44,7 +44,8 @@ export function getVectorStoreProvider(
 
   if (type === 'qdrant') {
     const url = vsConfig.vectorStore?.url ?? process.env['QDRANT_URL'] ?? 'http://localhost:6333';
-    return new QdrantVectorStoreProvider(options.workdir, url);
+    const apiKey = vsConfig.vectorStore?.apiKey ?? process.env['QDRANT_API_KEY'];
+    return new QdrantVectorStoreProvider(options.workdir, url, apiKey);
   }
 
   throw new Error(

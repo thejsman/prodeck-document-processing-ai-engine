@@ -127,9 +127,9 @@ async function resolveVectorStoreConfig(
     const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
     const configResolver = new ConfigResolver(configLoader);
     const config = await configResolver.resolve({ namespace });
-    const vs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+    const vs = (config as { vectorStore?: { type?: string; url?: string; apiKey?: string } }).vectorStore;
     if (!vs?.type || (vs.type !== 'faiss' && vs.type !== 'qdrant')) return undefined;
-    return { type: vs.type, url: vs.url };
+    return { type: vs.type, url: vs.url, ...(vs.apiKey ? { apiKey: vs.apiKey } : {}) };
   } catch {
     return undefined;
   }

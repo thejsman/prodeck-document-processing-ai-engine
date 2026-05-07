@@ -105,9 +105,9 @@ async function processBufferJob(
   const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
   const configResolver = new ConfigResolver(configLoader);
   const config = await configResolver.resolve({ namespace });
-  const rawVs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+  const rawVs = (config as { vectorStore?: { type?: string; url?: string; apiKey?: string } }).vectorStore;
   const vectorStoreConfig = (rawVs?.type === 'faiss' || rawVs?.type === 'qdrant')
-    ? { type: rawVs.type as 'faiss' | 'qdrant', url: rawVs.url }
+    ? { type: rawVs.type as 'faiss' | 'qdrant', url: rawVs.url, ...(rawVs.apiKey ? { apiKey: rawVs.apiKey } : {}) }
     : undefined;
 
   const documents: { fileName: string; content: string }[] = [];

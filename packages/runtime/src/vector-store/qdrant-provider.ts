@@ -19,6 +19,10 @@
  * ```
  *
  * Or set a global default via QDRANT_URL environment variable.
+ *
+ * For Qdrant Cloud, also set QDRANT_API_KEY (or pass apiKey in the namespace
+ * config under "vectorStore.apiKey").  Local Docker setups without auth work
+ * fine with no key set.
  */
 
 import type { VectorStoreProvider, VectorChunk, VectorSearchResult } from '@ai-engine/core';
@@ -31,19 +35,26 @@ import {
 
 export class QdrantVectorStoreProvider implements VectorStoreProvider {
   private readonly qdrantUrl: string;
+  private readonly qdrantApiKey: string | undefined;
 
   constructor(
     private readonly workdir: string,
     qdrantUrl?: string,
+    qdrantApiKey?: string,
   ) {
     this.qdrantUrl =
       qdrantUrl ??
       process.env['QDRANT_URL'] ??
       'http://localhost:6333';
+    this.qdrantApiKey = qdrantApiKey ?? process.env['QDRANT_API_KEY'];
   }
 
   private get vectorStoreConfig() {
-    return { type: 'qdrant' as const, url: this.qdrantUrl };
+    return {
+      type: 'qdrant' as const,
+      url: this.qdrantUrl,
+      ...(this.qdrantApiKey ? { apiKey: this.qdrantApiKey } : {}),
+    };
   }
 
   // ── VectorStoreProvider implementation ───────────────────────────────────
