@@ -234,8 +234,9 @@ export async function nativeQdrantIndex(
 export async function nativeQdrantDeleteNamespace(
   qdrantUrl: string,
   namespace: string,
+  apiKey?: string,
 ): Promise<void> {
-  const client = await createClient(qdrantUrl);
+  const client = await createClient(qdrantUrl, apiKey);
   try {
     await client.deleteCollection(namespace);
   } catch {
@@ -249,8 +250,9 @@ export async function nativeQdrantDeleteNamespace(
 export async function nativeQdrantNamespaceStats(
   qdrantUrl: string,
   namespace: string,
+  apiKey?: string,
 ): Promise<{ vectorCount: number }> {
-  const client = await createClient(qdrantUrl);
+  const client = await createClient(qdrantUrl, apiKey);
   try {
     const info = await client.getCollection(namespace);
     return { vectorCount: info.points_count ?? 0 };
