@@ -247,6 +247,10 @@ export function registerPresentationRoutes(
         return reply.code(200).send({ error: errCode, tokens: null });
       }
       html = await res.text();
+      // Cloudflare challenge returns 200 with a JS challenge page — detect and bail early
+      if (html.includes('cf_chl_opt') || html.includes('challenges.cloudflare.com')) {
+        return reply.code(200).send({ error: 'blocked_by_bot_protection', tokens: null });
+      }
     } catch (err) {
       const msg = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'fetch_failed';
       return reply.code(200).send({ error: msg, tokens: null });
@@ -305,23 +309,80 @@ export function registerPresentationRoutes(
     const origin = parsedUrl.origin;
 
     // meta theme-color
-    const themeColorMatch = html.match(/<meta[^>]*name=["']theme-color["'][^>]*content=["']([^"']+)["']/i)
-      ?? html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*name=["']theme-color["']/i);
-    const themeColorHint = themeColorMatch ? `theme-color: ${themeColorMatch[1]}` : '';
+    // Extract theme-color metas by media query — sites like Vercel declare both:
+    //   <meta name="theme-color" content="#FAFAFA" media="(prefers-color-scheme: light)">
+    //   <meta name="theme-color" content="#000"    media="(prefers-color-scheme: dark)">
+    // Picking the first match blindly reads the light one and sets themeColorIsExplicitlyLight=true,
+    // which then blocks ALL dark detection for the page.
+    const allThemeColorTags = [...html.matchAll(/<meta\b[^>]*>/gi)]
+      .map(m => m[0])
+      .filter(tag => /name=["']theme-color["']/i.test(tag));
+
+    const darkMediaThemeColor = allThemeColorTags
+      .find(tag => /media=["'][^"']*prefers-color-scheme\s*:\s*dark/i.test(tag))
+      ?.match(/content=["']([^"']+)["']/i)?.[1] ?? null;
+    const lightOrDefaultThemeColor = allThemeColorTags
+      .find(tag => !/media=["'][^"']*prefers-color-scheme\s*:\s*dark/i.test(tag))
+      ?.match(/content=["']([^"']+)["']/i)?.[1] ?? null;
+
+    const themeColorHint = (darkMediaThemeColor ?? lightOrDefaultThemeColor)
+      ? `theme-color: ${darkMediaThemeColor ?? lightOrDefaultThemeColor}` : '';
+
+    // Detect dark mode declared in HTML — read BEFORE fetching stylesheets so we can
+    // prioritize dark-named CSS files over light-named ones in first-definition-wins resolution.
+    const dataColorMode = (html.match(/data-color-mode=["']([^"']+)["']/i)?.[1] ?? '').toLowerCase();
+    // Class-based dark mode: sites like Claude.ai set data-mode="auto" or data-mode="dark"
+    // on <html>. Dark CSS variables live in [data-mode=dark] selector blocks, not :root.
+    const dataMode = (html.match(/\bdata-mode=["']([^"']+)["']/i)?.[1] ?? '').toLowerCase();
+    const hasClassBasedDarkMode = dataMode === 'dark' || dataMode === 'auto';
+
+    const darkTcHex6 = darkMediaThemeColor?.match(/^#([0-9a-fA-F]{6})$/i)?.[1] ?? null;
+    const darkTcIsDark = darkTcHex6 !== null && hexLum('#' + darkTcHex6) < 30 / 255;
+
+    const lightTcHex6 = lightOrDefaultThemeColor?.match(/^#([0-9a-fA-F]{6})$/i)?.[1] ?? null;
+    const lightTcLum = lightTcHex6 !== null ? hexLum('#' + lightTcHex6) : null;
+
+    // "Explicitly light" only when the site has NO dark-media theme-color AND its only
+    // theme-color is clearly light (>180/255 ≈ 0.706). A site with both light+dark metas
+    // (Vercel, Next.js) must NOT be blocked from dark detection.
+    const themeColorIsExplicitlyLight = !darkMediaThemeColor && lightTcLum !== null && lightTcLum > 180 / 255;
+    const htmlDeclaresDark = dataColorMode === 'dark' || darkTcIsDark;
 
     // Google Fonts links — extract font family names
     const gFontNames = [...html.matchAll(/family=([A-Za-z0-9+]+)/gi)].map(m => m[1].replace(/\+/g, ' '));
 
     // Linked stylesheets — handle both href-before-rel (Webflow) and rel-before-href orderings
     const allLinkTags = [...html.matchAll(/<link\s([^>]+)>/gi)].map(m => m[1]);
-    const sheetHrefs = allLinkTags
+    const rawSheetHrefs = allLinkTags
       .filter(attrs => /rel=["']stylesheet["']/i.test(attrs) || /rel=["']preload["'][^>]*as=["']style["']/i.test(attrs))
       .map(attrs => {
         const hm = attrs.match(/href=["']([^"']+)["']/i);
         return hm ? hm[1] : null;
       })
-      .filter((h): h is string => !!h && !h.includes('fonts.googleapis.com') && !h.startsWith('data:'))
-      .slice(0, 5);
+      .filter((h): h is string => !!h && !h.includes('fonts.googleapis.com') && !h.startsWith('data:'));
+
+    // When the site declares dark mode, skip light-only stylesheets and put ONE base dark
+    // stylesheet first. This ensures varMap (first-definition-wins) picks up dark-theme
+    // variable values before the generic design-system CSS is processed.
+    // We only need ONE dark CSS (the base, not high-contrast/colorblind variants) — the
+    // remaining slots are filled by the generic design-system CSS (primer, global, etc.)
+    // which contain actual typography, spacing, and brand tokens.
+    const sheetHrefs = (() => {
+      const seen = new Set<string>();
+      let baseDark: string | null = null;
+      const generic: string[] = [];
+      for (const h of rawSheetHrefs) {
+        if (seen.has(h)) continue;
+        seen.add(h);
+        const filename = h.split('/').pop() ?? h;
+        if (htmlDeclaresDark && /(?:^|[-_./])light(?:[-_.]|$)/i.test(filename)) continue; // skip light-only on dark sites
+        const isDarkFile = /(?:^|[-_./])dark(?:[-_.]|$)/i.test(filename);
+        const isDarkVariant = /high.contrast|colorblind|tritanopia|dimmed/i.test(filename);
+        if (isDarkFile && !isDarkVariant && !baseDark) baseDark = h; // keep only the first base dark CSS
+        else if (!isDarkFile) generic.push(h);
+      }
+      return [...(baseDark ? [baseDark] : []), ...generic].slice(0, 6);
+    })();
 
     // Inline <style> blocks
     const inlineStyles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]).join('\n');
@@ -378,8 +439,13 @@ export function registerPresentationRoutes(
     function cssColorToHex(raw: string): string | null {
       const s = raw.trim().toLowerCase();
       if (s === 'transparent' || s === 'inherit' || s === 'initial' || s === 'unset' || s === 'none') return null;
-      // #hex (3, 4, 6, or 8 chars — strip alpha for 8-char)
-      if (/^#[0-9a-f]{3,8}$/.test(s)) return s.length === 9 ? s.slice(0, 7) : s.length === 5 ? `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}` : s.slice(0, 7);
+      // #hex (3, 4, 6, or 8 chars — expand short forms, strip alpha)
+      if (/^#[0-9a-f]{3,8}$/.test(s)) {
+        if (s.length === 4) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`; // #rgb → #rrggbb
+        if (s.length === 5) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`; // #rgba → strip alpha → #rrggbb
+        if (s.length === 9) return s.slice(0, 7); // #rrggbbaa → strip alpha
+        return s.slice(0, 7); // #rrggbb
+      }
       // hsl / hsla (comma or space separated, optional angle units on H)
       const hslM = s.match(/^hsla?\s*\(\s*([\d.]+)(?:deg|rad|turn|grad)?\s*[,\s]\s*([\d.]+)%?\s*[,\s]\s*([\d.]+)%/);
       if (hslM) return hslToHex(parseFloat(hslM[1]), parseFloat(hslM[2]), parseFloat(hslM[3]));
@@ -404,6 +470,19 @@ export function registerPresentationRoutes(
     for (const m of fullCss.matchAll(/(--[\w-]+)\s*:\s*([^;}{]+)/gu)) {
       const vname = m[1];
       if (!varMap.has(vname)) varMap.set(vname, m[2].trim());
+    }
+
+    // Class-based dark mode override (e.g. Claude.ai [data-mode=dark], Radix .dark):
+    // varMap is first-definition-wins, so light :root defaults were already stored above.
+    // Override them now with values from scoped dark selectors so that bgTokens / text
+    // token analysis sees the actual dark palette.
+    if (hasClassBasedDarkMode) {
+      const darkScopeRe = /(?:\[data-mode=["']?dark["']?\]|\[data-theme=["']?dark["']?\]|\.dark\b)[^{]{0,80}\{([^}]{0,6000})\}/g;
+      for (const m of fullCss.matchAll(darkScopeRe)) {
+        for (const vm of m[1].matchAll(/(--[\w-]+)\s*:\s*([^;}{]+)/gu)) {
+          varMap.set(vm[1], vm[2].trim()); // intentionally overwrite light defaults
+        }
+      }
     }
 
     function resolveVar(name: string, depth = 0): string | null {
@@ -484,6 +563,49 @@ export function registerPresentationRoutes(
       }
     }
 
+    // Generic dark-theme detection: scan both CSS files and HTML inline element styles.
+    // Threshold is 0.20 luminance (catches Bootstrap dark #212529, GitHub #0d1117, etc.)
+    // Sources:
+    //   1. fullCss — catches CSS rules and variables hardcoded with dark hex values
+    //   2. html inline style attributes — catches sites like k-m.com where sections
+    //      set background via style="background-color:#292c34" on elements, not CSS files
+    let dominantDarkBg: string | null = inferredDarkBg;
+    const darkBgFreq = new Map<string, number>();
+    const DARK_LUM_THRESHOLD = 0.20;
+    for (const m of fullCss.matchAll(/background(?:-color)?\s*:\s*(#[0-9a-fA-F]{6,7})\b/g)) {
+      const hex = cssColorToHex(m[1]);
+      if (!hex) continue;
+      if (/^#0{6}$/.test(hex)) continue; // skip pure #000000 (resets/overlays, not brand bg)
+      if (hexLum(hex) <= DARK_LUM_THRESHOLD) darkBgFreq.set(hex, (darkBgFreq.get(hex) ?? 0) + 1);
+    }
+    // HTML inline element styles — fullCss only covers <style> blocks + external CSS.
+    // Only scan structural/container tags; skip decorative/interactive ones (a, span, button,
+    // svg, etc.) which carry UI widget colors like color-picker swatches (Dribbble) that
+    // are not representative of the page background theme.
+    for (const m of html.matchAll(/<([\w]+)[^>]*style=["'][^"']*background(?:-color)?\s*:\s*(#[0-9a-fA-F]{6,7})\b/gi)) {
+      const tag = m[1].toLowerCase();
+      if (/^(a|span|button|input|select|option|svg|path|circle|rect|i|em|b|strong|small|img|label|li|td|th)$/.test(tag)) continue;
+      const hex = cssColorToHex(m[2]);
+      if (!hex || /^#0{6}$/.test(hex)) continue;
+      if (hexLum(hex) <= DARK_LUM_THRESHOLD) darkBgFreq.set(hex, (darkBgFreq.get(hex) ?? 0) + 1);
+    }
+
+    // 2+ distinct dark bg colors found = the site is visually dark-themed.
+    // Guard: if theme-color meta explicitly declares a light theme, never flip to dark
+    // regardless of decorative/widget dark colors found in the HTML (e.g. Dribbble color swatches).
+    let isDarkTheme =
+      !themeColorIsExplicitlyLight && (
+        bodyTextIsLight ||
+        inferredDarkBg !== null ||
+        darkBgFreq.size >= 2
+      );
+
+    if (!dominantDarkBg && darkBgFreq.size > 0) {
+      // Prefer the lightest qualifying dark bg — more readable as a page background than pure black
+      const sorted = [...darkBgFreq.entries()].sort((a, b) => b[1] - a[1] || hexLum(b[0]) - hexLum(a[0]));
+      dominantDarkBg = sorted[0][0];
+    }
+
     // Extract resolved page-level semantic colors (background, text, primary/brand)
     // These are the most reliable signals — they tell us the actual applied colors
     const resolvedPageColors: { label: string; hex: string }[] = [];
@@ -540,10 +662,37 @@ export function registerPresentationRoutes(
       // Resolve the raw value to hex (handles #hex, hsl, rgb, oklch, and var() chains)
       const val = rawVal.startsWith('var(') ? resolveVar(rawName) : cssColorToHex(rawVal);
       if (!val) continue;   // not a color variable — skip
-      if (/background|bg|dark|base|surface|lift|depth/.test(name))  bgTokens.push({ name: rawName, val });
-      else if (/accent|brand|primary|highlight|feature/.test(name)) accentTokens.push({ name: rawName, val });
-      else if (/text|foreground|label|copy/.test(name))              textTokens.push({ name: rawName, val });
-      else                                                            otherTokens.push({ name: rawName, val });
+      const valLum = hexLum(val);
+      const isNearWhite = valLum > 0.92;
+      const isNearBlack = valLum < 0.03;
+      if (/background|bg|dark|base|surface|lift|depth/.test(name))
+        bgTokens.push({ name: rawName, val });
+      else if (/accent|brand|primary|highlight|feature/.test(name)) {
+        // White/near-white and pure-black are never brand accent colors — skip them
+        if (!isNearWhite && !isNearBlack) accentTokens.push({ name: rawName, val });
+      } else if (/text|foreground|label|copy/.test(name))
+        textTokens.push({ name: rawName, val });
+      else {
+        if (!isNearWhite && !isNearBlack) otherTokens.push({ name: rawName, val });
+      }
+    }
+
+    // Refine dark-theme detection using resolved bgTokens.
+    // Sites like GitHub use CSS variables (background-color: var(--color-canvas-default))
+    // so the direct-hex regex scan above finds nothing. bgTokens are already resolved,
+    // making them the most reliable signal.
+    if (bgTokens.length >= 2) {
+      const darkCount = bgTokens.filter(t => hexLum(t.val) <= DARK_LUM_THRESHOLD).length;
+      if (darkCount / bgTokens.length > 0.5) isDarkTheme = true;
+    }
+    // If isDarkTheme but no dominant dark bg yet, pick the darkest resolved bg token
+    if (isDarkTheme && !dominantDarkBg) {
+      const darkTokens = bgTokens.filter(t => hexLum(t.val) < 0.15);
+      if (darkTokens.length > 0) {
+        // Prefer the lightest of the dark tokens — it reads better as a surface bg than pure black
+        darkTokens.sort((a, b) => hexLum(b.val) - hexLum(a.val));
+        dominantDarkBg = darkTokens[0].val;
+      }
     }
 
     // Gradient color stops (hex only to avoid invalid rgba in JSON output)
@@ -572,8 +721,9 @@ export function registerPresentationRoutes(
     if (resolvedPageColors.length) {
       lines.push('\nRESOLVED PAGE COLORS ⚑ USE THESE DIRECTLY — do not override with other tokens:');
       resolvedPageColors.forEach(c => lines.push(`  ${c.label}: ${c.hex}`));
-    } else if (bodyTextIsLight) {
-      lines.push('\nTHEME SIGNAL: body text color is white — this is a DARK theme; use a dark color for background and surface');
+    } else if (isDarkTheme) {
+      const bgHint = dominantDarkBg ? ` Most common dark background found: ${dominantDarkBg}.` : '';
+      lines.push(`\nTHEME: DARK — background MUST be a dark/near-black hex color (luminance < 0.2).${bgHint} Do NOT use white or any light color for background or surface.`);
     } else {
       // No body background found in CSS — browser default is white
       lines.push('\nBODY BACKGROUND: not explicitly set in CSS — default is #ffffff (white); do NOT output a dark/black background unless BACKGROUND TOKENS clearly show a dark theme');
@@ -730,7 +880,7 @@ CRITICAL RULES — read carefully:
 3. Use TEXT TOKENS for "text" and "textMuted" fields (unless overridden by rule 0)
 4. GRADIENT STOPS are the most important signal — if you see blue+pink+black gradient stops, the brand primary IS blue and secondary IS pink
 5. ALL color values in your JSON must be valid hex (#rrggbb or #rgb) — never output rgba() or rgb() values
-6. If you see near-black backgrounds (#010008, #040021, #0a0a0a) it is a DARK theme — do not output #ffffff as background
+6. Dark theme rule: if THEME says DARK, or BACKGROUND TOKENS are predominantly near-black, output a dark background (luminance < 0.2). NEVER output #ffffff as background on a dark theme. White is also NOT a valid primary/secondary/accent — it belongs only in text/textMuted
 7. For "headingFont" and "bodyFont" — output only the font name, no quotes, no fallback stack
 
 Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
@@ -814,6 +964,30 @@ ${layoutSummary}`;
       if (!colors?.primary || !typography?.headingFont || !style?.vibe) {
         console.warn('[extract-url-design] LLM returned incomplete tokens');
         return reply.code(200).send({ error: 'incomplete_tokens', tokens: null, heroImageUrl, logoUrl });
+      }
+
+      // Post-processing: deterministically fix colors the LLM got wrong
+      // 1. Dark theme but LLM returned a light background or surface → override
+      if (isDarkTheme && dominantDarkBg) {
+        if (colors.background && hexLum(colors.background) > 0.7) {
+          console.warn(`[extract-url-design] dark theme but LLM output light bg ${colors.background} — overriding with ${dominantDarkBg}`);
+          colors.background = dominantDarkBg;
+        }
+        // Surface is checked independently — LLM often gets background right but leaves surface white
+        if (colors.surface && hexLum(colors.surface) > 0.7) {
+          console.warn(`[extract-url-design] dark theme but LLM output light surface ${colors.surface} — overriding with ${dominantDarkBg}`);
+          colors.surface = dominantDarkBg;
+        }
+      }
+      // 2. Near-white primary/secondary/accent → replace with best non-white accent token
+      for (const field of ['primary', 'secondary', 'accent'] as const) {
+        if (colors[field] && hexLum(colors[field]) > 0.92) {
+          const replacement = accentTokens.find(t => hexLum(t.val) <= 0.92 && hexLum(t.val) >= 0.03);
+          if (replacement) {
+            console.warn(`[extract-url-design] near-white ${field} ${colors[field]} → replacing with ${replacement.val}`);
+            colors[field] = replacement.val;
+          }
+        }
       }
 
       // Parse layout structure
