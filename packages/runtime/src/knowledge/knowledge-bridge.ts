@@ -124,19 +124,36 @@ function spawnKnowledgeStore(
   });
 }
 
-// Python warning lines look like:
-//   /some/path/site-packages/urllib3/__init__.py:174: DeprecationWarning: ...
-// Filter these out so only genuine error output is used as the error message.
+// Extract a clean error message from Python stderr.
+// If there's a traceback, return only the final exception line (e.g. "ModuleNotFoundError: No module named 'faiss'").
+// Otherwise strip urllib3/deprecation warning noise and return what remains.
 function sanitizePythonStderr(raw: string): string {
   const lines = raw.split('\n');
+
+  // If there's a traceback, find the last non-empty line after all the frame lines.
+  if (lines.some((l) => l.startsWith('Traceback (most recent call last):'))) {
+    // Traceback frame lines are: "Traceback...", "  File ...", "    <code>", warning noise.
+    // The actual exception is the last non-empty line that isn't a frame line.
+    const exceptionLine = [...lines].reverse().find((l) => {
+      const t = l.trim();
+      if (!t) return false;
+      if (t.startsWith('Traceback (most recent call last):')) return false;
+      if (/^File "/.test(t)) return false;
+      if (/^\/.*\.py:\d+:/.test(t)) return false;
+      if (/^\^\s*$/.test(t)) return false; // caret pointer lines
+      if (/^(DeprecationWarning|UserWarning|FutureWarning|RuntimeWarning):/.test(t)) return false;
+      if (/warnings\.warn\(/.test(t)) return false;
+      return true;
+    });
+    return exceptionLine?.trim() ?? '';
+  }
+
+  // No traceback — strip warning noise, return remaining lines.
   const meaningful = lines.filter((line) => {
     const t = line.trim();
     if (!t) return false;
-    // Skip lines that are a file path reference (warnings preamble)
     if (/^\/.*\.py:\d+:/.test(t)) return false;
-    // Skip warning category lines
     if (/^\s*(DeprecationWarning|UserWarning|FutureWarning|RuntimeWarning|PendingDeprecationWarning):/.test(t)) return false;
-    // Skip "warnings.warn(" lines
     if (/warnings\.warn\(/.test(t)) return false;
     return true;
   });
