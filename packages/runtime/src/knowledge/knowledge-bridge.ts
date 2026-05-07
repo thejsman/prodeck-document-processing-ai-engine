@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -57,6 +58,7 @@ export interface QueryResult {
 
 function pythonScriptDir(): string {
   // Resolve relative to this file (dist/knowledge/knowledge-bridge.js → ../../../.. = project root)
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(__dirname, '../../../../plugins/processor-local-faiss-rag');
 }
 

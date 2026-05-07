@@ -36,7 +36,8 @@ export function getVectorStoreProvider(
   const vsConfig = options.config as {
     vectorStore?: { type?: string; url?: string; apiKey?: string };
   };
-  const type = vsConfig?.vectorStore?.type ?? 'faiss';
+  // Namespace config wins; fall back to VECTOR_STORE env var; default: faiss.
+  const type = vsConfig?.vectorStore?.type ?? process.env['VECTOR_STORE'] ?? 'faiss';
 
   if (type === 'faiss') {
     return new FaissVectorStoreProvider(options.workdir);
