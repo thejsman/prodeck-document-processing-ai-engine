@@ -32,14 +32,14 @@ import { ConfigResolver } from '@ai-engine/core';
 import {
   updateFileStatus,
   updateFileChunkCount,
-  loadFilesIndex,
 } from './ingestion-service.js';
 import {
   resolvePolicy,
   executeWithPolicy,
   type ProviderPolicyConfig,
 } from '../provider-policy.js';
-import { emitExecution, emitExtractionReady, type ExtractionReadyPayload } from '../execution-events.js';
+import { emitExecution, emitExtractionReady, emitIngestionProgress, type ExtractionReadyPayload } from '../execution-events.js';
+import { runIndexingBranch, runExtractionBranch, readUploadedFile } from './branch-runner.js';
 import { PendingExtractionService } from './pending-extraction.service.js';
 import { detectConflicts } from './conflict-detector.js';
 import {
@@ -179,6 +179,23 @@ export async function processJob(
   const { namespace, fileName, allFiles, uri } = job;
   const filesToMark = allFiles ?? [fileName];
 
+  // ── Parallel branch path (INGEST_PARALLEL, default on) ────────────
+  // Stream uploads stay sequential — progressive chunking can't share a buffer.
+  // allFiles (re-index jobs) also stay on the legacy path.
+  const useParallel = !uri && !allFiles && process.env.INGEST_PARALLEL !== 'false';
+  if (useParallel) {
+    emitExecution({ executionId: job.id, status: 'RUNNING', type: 'ingestion', title: fileName });
+    const content = await readUploadedFile(workdir, namespace, fileName);
+    await Promise.allSettled([
+      runIndexingBranch([{ fileName, content }], job, workdir, policyConfig),
+      runExtractionBranch(content, job, workdir),
+    ]);
+    return;
+  }
+
+  // ── Legacy sequential path ─────────────────────────────────────────
+  // Preserved when INGEST_PARALLEL=false, uri is set (stream), or allFiles is set.
+
   // Mark as processing
   for (const f of filesToMark) {
     await updateFileStatus(workdir, namespace, f, 'processing');
@@ -192,13 +209,17 @@ export async function processJob(
     try {
       let chunkCount = 0;
 
+      emitIngestionProgress({ stage: 'chunking', fileName, namespace });
+
       if (uri) {
         // Stream path — large file progressive ingestion
+        emitIngestionProgress({ stage: 'embedding', fileName, namespace });
         chunkCount = await processStreamJob(job, workdir);
         await updateFileStatus(workdir, namespace, fileName, 'indexed');
         await updateFileChunkCount(workdir, namespace, fileName, chunkCount);
       } else {
-        // Classic path — existing buffer-based ingestion
+        // Classic buffer path (allFiles re-index jobs)
+        emitIngestionProgress({ stage: 'embedding', fileName, namespace });
         await processBufferJob(job, workdir, policyConfig);
         for (const f of filesToMark) {
           await updateFileStatus(workdir, namespace, f, 'indexed');
@@ -230,12 +251,14 @@ export async function processJob(
             } else {
               content = await readFile(path.join(uploadsDir, f), 'utf-8');
             }
+            emitIngestionProgress({ stage: 'detecting', fileName: f, namespace });
             console.log(`[IngestV2] starting pipeline — ${namespace}/${f} (${content.length} chars)`);
             const v2t0 = Date.now();
             const deferConfirmation = process.env.EXTRACTION_CONFIRMATION === 'true';
             const v2Result = await processDocument(namespace, f, content, llmGenerateFn, contextService, undefined, job.classification, deferConfirmation);
             console.log(`[IngestV2] finished pipeline — ${namespace}/${f} | type=${v2Result.documentType} fields=${v2Result.fieldsExtracted.length} knowledge=${v2Result.knowledgeEntriesCreated} duration=${v2Result.durationMs}ms total=${Date.now() - v2t0}ms`);
 
+            emitIngestionProgress({ stage: 'storing', fileName: f, namespace });
             await updateFileStatus(workdir, namespace, f, 'extracted');
 
             emitExecution({

@@ -69,3 +69,30 @@ extractionBus.setMaxListeners(0);
 export function emitExtractionReady(payload: ExtractionReadyPayload): void {
   extractionBus.emit('extraction_ready', payload);
 }
+
+// ---------------------------------------------------------------------------
+// Ingestion progress events — granular stage updates emitted throughout the
+// indexing and extraction branches so the UI can show live progress.
+// ---------------------------------------------------------------------------
+
+export interface IngestionProgressEvent {
+  fileName: string;
+  namespace: string;
+  stage:
+    | 'chunking'    // splitting document into chunks
+    | 'embedding'   // vectorizing and storing chunks
+    | 'detecting'   // document type detection
+    | 'excerpting'  // smart excerpt extraction (Phase 3)
+    | 'extracting'  // LLM extraction call in progress
+    | 'storing';    // writing to context.json / pending cache
+  chunksProcessed?: number;
+  totalChunks?: number;
+  message?: string;
+}
+
+export const progressBus = new EventEmitter();
+progressBus.setMaxListeners(0);
+
+export function emitIngestionProgress(event: IngestionProgressEvent): void {
+  progressBus.emit('ingestion_progress', event);
+}

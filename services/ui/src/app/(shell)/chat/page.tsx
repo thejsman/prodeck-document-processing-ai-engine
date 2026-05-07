@@ -33,6 +33,7 @@ import { useBrief } from '@/hooks/useBrief';
 import type { RequirementKey, DocumentClassification } from '@/lib/api';
 import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
 import { confirmExtractionCard, discardExtractionCard, reclassifyExtractionCard, fetchPendingExtractions } from '@/lib/api';
+import { useIngestionProgressStore } from '@/core/execution/ingestion-progress-store';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ export default function ChatPage() {
 
   // ── Extraction card store integration ───────────────────────────
   const allExtractionCards = useExtractionCardStore((s) => s.cards);
+  const ingestionProgress = useIngestionProgressStore((s) => s.progress);
   const extractionCards = useMemo(
     () => Object.values(allExtractionCards).filter((c) => c.namespace === (namespace ?? 'default')),
     [allExtractionCards, namespace],
@@ -820,7 +822,12 @@ export default function ChatPage() {
                         className="chat-v2-message chat-v2-message--user"
                         style={{ '--msg-i': i } as React.CSSProperties}
                       >
-                        <ChatFileUpload {...m.uploadData} />
+                        <ChatFileUpload
+                          {...m.uploadData}
+                          chunkProgress={m.uploadData.status === 'processing'
+                            ? ingestionProgress[m.uploadData.fileName]
+                            : undefined}
+                        />
                       </div>
                     );
                   }

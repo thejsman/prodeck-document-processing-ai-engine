@@ -3,12 +3,28 @@
 import { CheckCircle, FileText, Loader2 } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 
+export interface ChunkProgress {
+  stage: string;
+  processed?: number;
+  total?: number;
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  chunking: 'Splitting document',
+  embedding: 'Embedding',
+  detecting: 'Detecting type',
+  excerpting: 'Extracting sections',
+  extracting: 'Analyzing',
+  storing: 'Saving',
+};
+
 export interface ChatFileUploadProps {
   fileName: string;
   fileSize: number;
   progress: number;
   status: 'uploading' | 'processing' | 'done' | 'error';
   stage?: string;
+  chunkProgress?: ChunkProgress;
 }
 
 function formatSize(bytes: number): string {
@@ -17,7 +33,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ChatFileUpload({ fileName, fileSize, progress, status, stage }: ChatFileUploadProps) {
+export function ChatFileUpload({ fileName, fileSize, progress, status, stage, chunkProgress }: ChatFileUploadProps) {
   if (status === 'done') {
     return (
       <div className="chat-file-upload chat-file-upload--done">
@@ -30,6 +46,13 @@ export function ChatFileUpload({ fileName, fileSize, progress, status, stage }: 
   }
 
   if (status === 'processing') {
+    const chunkPct = chunkProgress?.total
+      ? Math.round((chunkProgress.processed ?? 0) / chunkProgress.total * 100)
+      : null;
+    const chunkLabel = chunkProgress
+      ? (STAGE_LABELS[chunkProgress.stage] ?? chunkProgress.stage)
+      : null;
+
     return (
       <div className="chat-file-upload">
         <div className="chat-file-upload__header">
@@ -41,6 +64,22 @@ export function ChatFileUpload({ fileName, fileSize, progress, status, stage }: 
           <Icon icon={Loader2} size="sm" className="chat-file-upload__spinner" />
           <span className="chat-file-upload__status">{stage ?? 'Processing…'}</span>
         </div>
+        {chunkProgress && (
+          <div className="chat-file-upload__chunk-progress">
+            <div className="chat-file-upload__chunk-bar">
+              <div
+                className="chat-file-upload__chunk-fill"
+                style={{ width: chunkPct !== null ? `${chunkPct}%` : '100%' }}
+              />
+            </div>
+            <span className="chat-file-upload__chunk-label">
+              {chunkLabel}
+              {chunkProgress.total
+                ? ` ${chunkProgress.processed ?? 0}/${chunkProgress.total} chunks`
+                : '…'}
+            </span>
+          </div>
+        )}
       </div>
     );
   }
