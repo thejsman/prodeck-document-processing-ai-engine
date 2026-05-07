@@ -46,6 +46,23 @@ services:
       "
     restart: "no"
 
+  # ── Qdrant vector store ──────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["qdrant"]
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   # ── API service ──────────────────────────────────────────────────
   api:
     build:
@@ -61,6 +78,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-}
       - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-}
+      - INGEST_PARALLEL=${INGEST_PARALLEL:-true}
+      - INGEST_UNIFIED_LLM=${INGEST_UNIFIED_LLM:-true}
+      - MAX_EXCERPT_CHARS=${MAX_EXCERPT_CHARS:-32000}
+      - VECTOR_STORE=${VECTOR_STORE:-faiss}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
     volumes:
       - engine_data:/data
       - ${API_KEYS_PATH:-../config/api_keys.example.json}:/app/config/api_keys.json:ro
@@ -111,4 +133,6 @@ volumes:
   ollama_models:
     driver: local
   engine_data:
+    driver: local
+  qdrant_data:
     driver: local

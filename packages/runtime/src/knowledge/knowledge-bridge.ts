@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -20,6 +21,8 @@ export interface VectorStoreConfig {
   type: 'faiss' | 'qdrant';
   /** Qdrant base URL (e.g. "http://localhost:6333"). Required when type=qdrant. */
   url?: string;
+  /** Qdrant Cloud API key. Optional — local Docker setups work without it. */
+  apiKey?: string;
 }
 
 export interface IngestParams {
@@ -55,6 +58,7 @@ export interface QueryResult {
 
 function pythonScriptDir(): string {
   // Resolve relative to this file (dist/knowledge/knowledge-bridge.js → ../../../.. = project root)
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(__dirname, '../../../../plugins/processor-local-faiss-rag');
 }
 
@@ -105,7 +109,8 @@ function spawnKnowledgeStore(
             const msg = parsed.error || '';
             errorMessage = msg || (parsed.type ? `${parsed.type} (no message)` : errorMessage);
           } catch {
-            errorMessage = stderr.trim() || errorMessage;
+            const clean = sanitizePythonStderr(stderr);
+            errorMessage = clean || errorMessage;
           }
         }
         reject(new Error(errorMessage));
@@ -117,6 +122,25 @@ function spawnKnowledgeStore(
     child.stdin.write(JSON.stringify(payload));
     child.stdin.end();
   });
+}
+
+// Python warning lines look like:
+//   /some/path/site-packages/urllib3/__init__.py:174: DeprecationWarning: ...
+// Filter these out so only genuine error output is used as the error message.
+function sanitizePythonStderr(raw: string): string {
+  const lines = raw.split('\n');
+  const meaningful = lines.filter((line) => {
+    const t = line.trim();
+    if (!t) return false;
+    // Skip lines that are a file path reference (warnings preamble)
+    if (/^\/.*\.py:\d+:/.test(t)) return false;
+    // Skip warning category lines
+    if (/^\s*(DeprecationWarning|UserWarning|FutureWarning|RuntimeWarning|PendingDeprecationWarning):/.test(t)) return false;
+    // Skip "warnings.warn(" lines
+    if (/warnings\.warn\(/.test(t)) return false;
+    return true;
+  });
+  return meaningful.join('\n').trim();
 }
 
 // Sentinel written by knowledge_store.py after streaming all tokens, before
@@ -187,7 +211,8 @@ function spawnKnowledgeStoreStreaming(
             const msg = parsed.error || '';
             errorMessage = msg || (parsed.type ? `${parsed.type} (no message)` : errorMessage);
           } catch {
-            errorMessage = stderr.trim() || errorMessage;
+            const clean = sanitizePythonStderr(stderr);
+            errorMessage = clean || errorMessage;
           }
         }
         reject(new Error(errorMessage));

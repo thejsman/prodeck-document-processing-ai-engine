@@ -7,6 +7,9 @@ import { validatePreprocessedDocument } from './preprocessor-validator.js';
 import { extractRequirementsFromPreprocessed } from './requirement-extractor.js';
 import { extractKnowledge } from './knowledge-extractor.js';
 import { validateExtractionResults } from './extraction-validator.js';
+import { extractSmartExcerpt } from './smart-excerptors.js';
+import { unifiedExtract, buildPreprocessedFromUnified } from './unified-extractor.js';
+import { emitIngestionProgress } from '../execution-events.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -92,47 +95,79 @@ export async function processDocument(
   // Step 1: Detect document type (deterministic)
   const detection = detectDocumentType(fileName, content);
 
-  // Step 2: Preprocess (LLM — type-specific prompt, with internal fallback)
-  const preprocessed = await preprocessDocument(fileName, content, detection.type, llmFn);
+  let validFields: Partial<Record<RequirementKey, RequirementField<unknown>>>;
+  let validKnowledge: KnowledgeEntry[];
+  let validMeetingSummary: MeetingSummary | undefined;
+  let preprocessed: import('./document-preprocessor.js').PreprocessedDocument;
 
-  // Step 3: Validate preprocessing output (deterministic — warn, never block)
-  const ppValidation = validatePreprocessedDocument(preprocessed);
-  if (!ppValidation.valid) {
-    const msg = `Preprocessing validation failed: ${ppValidation.errors.join('; ')}`;
-    console.warn(`[IngestOrchestrator] ${fileName}: ${msg}`);
-    warnings.push(msg);
-  }
-  if (preprocessed.sections.length === 0) {
-    warnings.push('Preprocessing produced 0 sections — fallback content used; LLM may have failed or returned invalid JSON');
-  }
-  // Use validated (defaults-filled) doc if available, otherwise keep what preprocessDocument returned
-  const cleanDoc = ppValidation.document
-    ? {
-        ...preprocessed,
-        sections: ppValidation.document.sections,
-        participants: ppValidation.document.participants.length > 0
-          ? ppValidation.document.participants
-          : preprocessed.participants,
-        actionItems: ppValidation.document.actionItems,
-      }
-    : preprocessed;
+  const useUnified = process.env.INGEST_UNIFIED_LLM !== 'false';
 
-  // Steps 4 + 5: Run in parallel — both depend only on cleanDoc, not on each other
-  const [extraction, knowledgeResult] = await Promise.all([
-    extractRequirementsFromPreprocessed(cleanDoc, detection.type, llmFn),
-    extractKnowledge(cleanDoc, detection.type, fileName, llmFn, content),
-  ]);
-  const { entries: knowledge, warnings: knowledgeWarnings } = knowledgeResult;
-  warnings.push(...knowledgeWarnings);
+  if (useUnified) {
+    // ── Unified path (Steps 2–5 collapsed into one LLM call) ────────
+    emitIngestionProgress({ stage: 'excerpting', fileName, namespace: '' });
+    const excerpt = extractSmartExcerpt(content, detection.type);
 
-  // Step 6: Validate extraction outputs (deterministic)
-  const { validFields, validKnowledge, validMeetingSummary, errors } = validateExtractionResults(
-    extraction.fields,
-    knowledge,
-    extraction.meetingSummary,
-  );
-  if (errors.length > 0) {
-    warnings.push(...errors.map((e) => `Validation: ${e}`));
+    emitIngestionProgress({ stage: 'extracting', fileName, namespace: '' });
+    const unified = await unifiedExtract(excerpt, detection.type, classification, llmFn);
+    warnings.push(...unified.warnings);
+
+    preprocessed = buildPreprocessedFromUnified(unified);
+
+    // Stamp fileName on knowledge entries (unified-extractor uses '' as placeholder)
+    for (const entry of unified.knowledge) {
+      (entry.source as { type: string; fileName: string }).fileName = fileName;
+    }
+
+    // Step 6 (validate) using unified outputs
+    const validated = validateExtractionResults(unified.requirements, unified.knowledge);
+    validFields = validated.validFields;
+    validKnowledge = validated.validKnowledge;
+    validMeetingSummary = validated.validMeetingSummary;
+    if (validated.errors.length > 0) {
+      warnings.push(...validated.errors.map((e) => `Validation: ${e}`));
+    }
+  } else {
+    // ── Legacy 3-call path (preserved when INGEST_UNIFIED_LLM=false) ─
+    // Step 2: Preprocess (LLM — type-specific prompt, with internal fallback)
+    preprocessed = await preprocessDocument(fileName, content, detection.type, llmFn);
+
+    // Step 3: Validate preprocessing output (deterministic — warn, never block)
+    const ppValidation = validatePreprocessedDocument(preprocessed);
+    if (!ppValidation.valid) {
+      const msg = `Preprocessing validation failed: ${ppValidation.errors.join('; ')}`;
+      console.warn(`[IngestOrchestrator] ${fileName}: ${msg}`);
+      warnings.push(msg);
+    }
+    if (preprocessed.sections.length === 0) {
+      warnings.push('Preprocessing produced 0 sections — fallback content used');
+    }
+    const cleanDoc = ppValidation.document
+      ? {
+          ...preprocessed,
+          sections: ppValidation.document.sections,
+          participants: ppValidation.document.participants.length > 0
+            ? ppValidation.document.participants
+            : preprocessed.participants,
+          actionItems: ppValidation.document.actionItems,
+        }
+      : preprocessed;
+
+    // Steps 4 + 5: Run in parallel
+    const [extraction, knowledgeResult] = await Promise.all([
+      extractRequirementsFromPreprocessed(cleanDoc, detection.type, llmFn),
+      extractKnowledge(cleanDoc, detection.type, fileName, llmFn, content),
+    ]);
+    const { entries: knowledge, warnings: knowledgeWarnings } = knowledgeResult;
+    warnings.push(...knowledgeWarnings);
+
+    // Step 6: Validate extraction outputs (deterministic)
+    const validated = validateExtractionResults(extraction.fields, knowledge, extraction.meetingSummary);
+    validFields = validated.validFields;
+    validKnowledge = validated.validKnowledge;
+    validMeetingSummary = validated.validMeetingSummary;
+    if (validated.errors.length > 0) {
+      warnings.push(...validated.errors.map((e) => `Validation: ${e}`));
+    }
   }
 
   // Step 7: Merge into namespace context (deterministic)
@@ -192,11 +227,11 @@ export async function processDocument(
     preprocessingStats: {
       rawWordCount: preprocessed.rawLength,
       cleanedWordCount: preprocessed.cleanedLength,
-      sectionsFound: cleanDoc.sections.length,
-      participantsFound: cleanDoc.participants?.length ?? 0,
-      actionItemsFound: cleanDoc.actionItems.length,
+      sectionsFound: preprocessed.sections.length,
+      participantsFound: preprocessed.participants?.length ?? 0,
+      actionItemsFound: preprocessed.actionItems.length,
     },
-    validationErrors: errors,
+    validationErrors: [],
     warnings,
     durationMs: Date.now() - startTime,
     extractedFields: validFields,

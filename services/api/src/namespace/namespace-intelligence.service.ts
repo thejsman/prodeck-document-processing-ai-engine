@@ -12,7 +12,7 @@
 
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { loadFilesIndex } from '../ingestion/ingestion-service.js';
+import { loadFilesIndex, computeLegacyStatus } from '../ingestion/ingestion-service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,8 +77,8 @@ export async function scanNamespace(workdir: string, namespace: string): Promise
   // ── 1. Load files index ───────────────────────────────────────────
   const files = await loadFilesIndex(workdir, namespace);
 
-  const indexedFiles = files.filter((f) => f.status === 'indexed' || f.status === 'extracting' || f.status === 'extracted');
-  const pendingFiles = files.filter((f) => f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting');
+  const indexedFiles = files.filter((f) => { const s = computeLegacyStatus(f); return s === 'indexed' || s === 'extracting' || s === 'extracted'; });
+  const pendingFiles = files.filter((f) => { const s = computeLegacyStatus(f); return s === 'uploaded' || s === 'processing' || s === 'extracting'; });
 
   const hasRfp = files.some((f) => matchesAny(f.fileName, RFP_PATTERNS));
   const hasPricingDoc = files.some((f) => matchesAny(f.fileName, PRICING_PATTERNS));

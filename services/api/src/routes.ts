@@ -127,9 +127,9 @@ async function resolveVectorStoreConfig(
     const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
     const configResolver = new ConfigResolver(configLoader);
     const config = await configResolver.resolve({ namespace });
-    const vs = (config as { vectorStore?: { type?: string; url?: string } }).vectorStore;
+    const vs = (config as { vectorStore?: { type?: string; url?: string; apiKey?: string } }).vectorStore;
     if (!vs?.type || (vs.type !== 'faiss' && vs.type !== 'qdrant')) return undefined;
-    return { type: vs.type, url: vs.url };
+    return { type: vs.type, url: vs.url, ...(vs.apiKey ? { apiKey: vs.apiKey } : {}) };
   } catch {
     return undefined;
   }
@@ -368,7 +368,7 @@ export function registerRoutes(
 
   // POST /namespaces
   app.post('/namespaces', async (req: FastifyRequest, reply: FastifyReply) => {
-    const body = req.body as { name?: string } | undefined;
+    const body = req.body as { name?: string; clientName?: string } | undefined;
 
     if (!body?.name) {
       return reply.code(400).send({ error: 'Missing required field: name' });
@@ -399,7 +399,81 @@ export function registerRoutes(
     await mkdir(path.join(nsDir, 'proposals'), { recursive: true });
     await mkdir(path.join(nsDir, 'index'), { recursive: true });
 
-    return reply.code(201).send({ namespace: name });
+    // Pre-populate context from client memory if clientName is known
+    const clientName = body.clientName?.trim();
+    let prepopulated: { fieldsCount: number; knowledgeCount: number; engagementCount: number } | null = null;
+    if (clientName) {
+      try {
+        const { ClientMemoryService } = await import('./memory/client-memory.service.js');
+        const memService = new ClientMemoryService(workdir);
+        const clientSlug = memService.slugify(clientName);
+        const prepop = await memService.prepopulate(clientSlug);
+
+        if (prepop.found) {
+          const contextService = new ContextService(workdir);
+          const now = new Date().toISOString();
+
+          // Convert memory stable fields into RequirementFields
+          const incoming: Record<string, { value: unknown; confidence: number; source: 'client_memory'; updatedAt: string; pendingConfirmation: true }> = {};
+          for (const [key, field] of Object.entries(prepop.stableFields)) {
+            if (field) {
+              incoming[key] = {
+                value: field.value,
+                confidence: field.confidence,
+                source: 'client_memory',
+                updatedAt: now,
+                pendingConfirmation: true,
+              };
+            }
+          }
+
+          if (Object.keys(incoming).length > 0 || prepop.knowledge.length > 0) {
+            const context = (await contextService.get(name)) ?? {
+              namespace: name,
+              requirements: { fields: {}, customFields: {} },
+              knowledge: [],
+              sources: [],
+              version: 0,
+              updatedAt: now,
+            };
+            for (const [key, field] of Object.entries(incoming)) {
+              context.requirements.fields[key as keyof typeof context.requirements.fields] =
+                field as never;
+            }
+            // Load knowledge entries from memory
+            for (const entry of prepop.knowledge) {
+              context.knowledge.push({
+                id: entry.id,
+                content: entry.content,
+                category: entry.category as never,
+                importance: 3,
+                source: { type: 'manual' },
+                extractedAt: now,
+                confidence: entry.confidence,
+              });
+            }
+            context.version += 1;
+            context.updatedAt = now;
+            await contextService.save(name, context);
+
+            prepopulated = {
+              fieldsCount: Object.keys(incoming).length,
+              knowledgeCount: prepop.knowledge.length,
+              engagementCount: prepop.engagementCount,
+            };
+          }
+
+          // Ensure memory record exists for this client
+          if (!(await memService.get(clientSlug))) {
+            await memService.createEmpty(clientName);
+          }
+        }
+      } catch (err) {
+        app.log.warn({ err }, '[ClientMemory] pre-population failed — namespace created without memory');
+      }
+    }
+
+    return reply.code(201).send({ namespace: name, ...(prepopulated ? { memoryPrepopulated: prepopulated } : {}) });
   });
 
   // DELETE /namespaces/:namespace

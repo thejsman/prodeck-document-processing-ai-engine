@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, Loader2, Upload, X } from 'lucide-react';
+import { FileText, Plus, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
 import { uploadKnowledgeFiles, type DocumentClassification, type KnowledgeUploadResult } from '@/lib/api';
@@ -11,6 +11,20 @@ import { ClassificationPicker } from '@/components/chat/ClassificationPicker';
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md'];
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200 MB
 
+const FILE_TYPE_COLORS: Record<string, string> = {
+  '.pdf': '#ef4444',
+  '.txt': '#6366f1',
+  '.md':  '#8b5cf6',
+};
+
+function getExt(name: string): string {
+  return name.slice(name.lastIndexOf('.')).toLowerCase();
+}
+
+function fileColor(name: string): string {
+  return FILE_TYPE_COLORS[getExt(name)] ?? 'var(--color-primary)';
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -18,8 +32,7 @@ function formatSize(bytes: number): string {
 }
 
 function isAcceptedFile(file: File): boolean {
-  const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-  return ACCEPTED_EXTENSIONS.includes(ext);
+  return ACCEPTED_EXTENSIONS.includes(getExt(file.name));
 }
 
 interface Props {
@@ -28,10 +41,10 @@ interface Props {
   onUploaded?: (queued: KnowledgeUploadResult['queued']) => void;
   onUploadStart?: (files: File[]) => void;
   onProgress?: (progress: number) => void;
-  onUploadError?: () => void;
+  onUploadError?: (message?: string) => void;
 }
 
-type UploadState = 'idle' | 'classifying' | 'uploading' | 'queued' | 'error';
+type UploadState = 'idle' | 'classifying' | 'error';
 
 export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart, onProgress, onUploadError }: Props) {
   const { apiKey } = useAuth();
@@ -40,13 +53,8 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
   const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [state, setState] = useState<UploadState>('idle');
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [classification, setClassification] = useState<DocumentClassification | null>(null);
-
-  useEffect(() => {
-    if (state === 'queued') onClose();
-  }, [state, onClose]);
 
   const removeFile = (name: string) => {
     setFiles((prev) => {
@@ -82,26 +90,19 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
     }
   }, []);
 
-  const handleUpload = useCallback(async () => {
+  const handleUpload = useCallback(() => {
     if (!apiKey || !files.length || !classification) return;
+    // Notify parent to add inline upload message, then close immediately.
+    // The XHR continues in the background; parent callbacks handle all progress/done/error.
     onUploadStart?.(files);
-    setState('uploading');
-    setProgress(0);
-    setError('');
-    try {
-      const res = await uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
-        setProgress(p);
-        onProgress?.(p);
-      }, classification);
-      onUploaded?.(res.queued);
-      setState('queued');
-      setFiles([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setState('error');
-      onUploadError?.();
-    }
-  }, [apiKey, namespace, files, classification, onUploadStart, onProgress, onUploaded, onUploadError]);
+    onClose();
+    uploadKnowledgeFiles(apiKey, namespace || 'default', files, (p) => {
+      onProgress?.(p);
+    }, classification).then(
+      (res) => onUploaded?.(res.queued),
+      (err: unknown) => onUploadError?.(err instanceof Error ? err.message : 'Upload failed'),
+    );
+  }, [apiKey, namespace, files, classification, onUploadStart, onProgress, onUploaded, onUploadError, onClose]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -109,108 +110,148 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  const hasFiles = files.length > 0;
+  const isActive = state === 'idle' || state === 'classifying' || state === 'error';
+  const canUpload = hasFiles && isActive;
+
   const modal = (
     <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 20000,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 24,
-        backdropFilter: 'blur(4px)',
-      }}
+      className="generate-proposal-overlay"
+      style={{ zIndex: 20000 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
-        background: 'var(--panel)',
-        border: '1px solid var(--border)',
-        borderRadius: 16,
-        width: 'min(480px, 92vw)',
-        maxHeight: 'min(680px, 90vh)',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}>
+      <div className="generate-proposal-modal" onClick={(e) => e.stopPropagation()}>
 
         {/* ── Header ── */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '18px 20px 16px',
-          borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
-        }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: 'var(--primary-dim)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <Icon icon={Upload} size="sm" style={{ color: 'var(--primary)' }} />
+        <div className="generate-proposal-header">
+          <div>
+            <h3>Ingest Files</h3>
+            <p style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '2px 0 0', lineHeight: 1.4 }}>
+              {namespace || 'default'}
+            </p>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Ingest Files</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-              Namespace: <span style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", color: 'var(--text)', opacity: 0.8 }}>{namespace || 'default'}</span>
-            </div>
-          </div>
-          <button
-            onClick={onClose} aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--primary-dim)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-          >
-            <Icon icon={X} size="md" />
+          <button className="chat-v2-panel-toggle" onClick={onClose} aria-label="Close">
+            <Icon icon={X} size="sm" />
           </button>
         </div>
 
         {/* ── Body ── */}
-        <div style={{ padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflowY: 'auto' }}>
+        <div className="generate-proposal-body">
 
-          {/* Drop zone */}
-          {state !== 'uploading' && (
-            <div
-              onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-              onClick={() => inputRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border)'}`,
-                borderRadius: 12, padding: '32px 20px', textAlign: 'center', cursor: 'pointer',
-                transition: 'border-color 0.15s, background 0.15s',
-                background: dragActive ? 'var(--primary-dim)' : 'transparent',
-              }}
-            >
-              <input ref={inputRef} type="file" multiple accept=".pdf,.txt,.md" style={{ display: 'none' }}
-                onChange={(e) => { if (e.target.files) handleFilesSelected(e.target.files); e.target.value = ''; }}
-              />
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                <Icon icon={Upload} size="md" style={{ color: 'var(--primary)' }} />
+          {/* Drop zone — full when empty, compact strip when files selected */}
+          {(
+            !hasFiles ? (
+              <div
+                onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+                onClick={() => inputRef.current?.click()}
+                style={{
+                  border: `2px dashed ${dragActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                  borderRadius: 8, padding: '32px 20px', textAlign: 'center', cursor: 'pointer',
+                  transition: 'border-color 0.15s, background 0.15s',
+                  background: dragActive ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent',
+                }}
+              >
+                <input ref={inputRef} type="file" multiple accept=".pdf,.txt,.md" style={{ display: 'none' }}
+                  onChange={(e) => { if (e.target.files) handleFilesSelected(e.target.files); e.target.value = ''; }}
+                />
+                <div style={{ width: 40, height: 40, borderRadius: 8, background: 'color-mix(in srgb, var(--color-primary) 10%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                  <Icon icon={Upload} size="md" style={{ color: 'var(--color-primary)' }} />
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text)', marginBottom: 4 }}>
+                  Drop files here or <span style={{ color: 'var(--color-primary)' }}>browse</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>.pdf, .txt, .md — up to 200 MB each</div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>
-                Drop files here or <span style={{ color: 'var(--primary)' }}>browse</span>
+            ) : (
+              <div
+                onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+                onClick={() => inputRef.current?.click()}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  border: `1.5px dashed ${dragActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                  borderRadius: 8, padding: '9px 14px', cursor: 'pointer',
+                  transition: 'border-color 0.15s, background 0.15s',
+                  background: dragActive ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : 'transparent',
+                }}
+              >
+                <input ref={inputRef} type="file" multiple accept=".pdf,.txt,.md" style={{ display: 'none' }}
+                  onChange={(e) => { if (e.target.files) handleFilesSelected(e.target.files); e.target.value = ''; }}
+                />
+                <Icon icon={Plus} size="sm" style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Add more files</span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-text-muted)' }}>.pdf · .txt · .md</span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>.pdf, .txt, .md — up to 200 MB each</div>
-            </div>
+            )
           )}
 
           {/* File list */}
-          {files.length > 0 && (state === 'idle' || state === 'classifying' || state === 'error') && (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-              {files.map((f, i) => (
-                <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i === 0 ? 'none' : '1px solid var(--border)', background: 'var(--panel)' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--primary-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon icon={FileText} size="sm" style={{ color: 'var(--primary)' }} />
-                  </div>
-                  <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{f.name}</span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{formatSize(f.size)}</span>
-                  <button onClick={() => removeFile(f.name)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
-                    aria-label={`Remove ${f.name}`}
+          {hasFiles && isActive && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {files.map((f) => {
+                const color = fileColor(f.name);
+                const ext = getExt(f.name).slice(1).toUpperCase();
+                return (
+                  <div
+                    key={f.name}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-surface)',
+                    }}
                   >
-                    <Icon icon={X} size="sm" />
-                  </button>
-                </div>
-              ))}
+                    {/* File type icon */}
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                      background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Icon icon={FileText} size="sm" style={{ color }} />
+                    </div>
+
+                    {/* Name + size */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, fontWeight: 500, color: 'var(--color-text)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        lineHeight: 1.4,
+                      }}>
+                        {f.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.4, marginTop: 1 }}>
+                        {formatSize(f.size)}
+                      </div>
+                    </div>
+
+                    {/* Extension badge */}
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, letterSpacing: '0.04em',
+                      padding: '2px 6px', borderRadius: 4,
+                      background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                      color, flexShrink: 0,
+                    }}>
+                      {ext}
+                    </span>
+
+                    {/* Remove */}
+                    <button
+                      onClick={() => removeFile(f.name)}
+                      aria-label={`Remove ${f.name}`}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--color-text-muted)', padding: 2, borderRadius: 4,
+                        display: 'flex', alignItems: 'center', flexShrink: 0,
+                        transition: 'color 0.12s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-error)')}
+                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-muted)')}
+                    >
+                      <Icon icon={X} size="sm" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -219,49 +260,24 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
             <ClassificationPicker value={classification} onChange={setClassification} />
           )}
 
-          {/* Upload progress */}
-          {state === 'uploading' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
-                <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
-                Uploading…
-                <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{progress}%</span>
-              </div>
-              <div style={{ height: 4, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary)', borderRadius: 99, transition: 'width 0.2s ease' }} />
-              </div>
-            </div>
-          )}
-
           {/* Error */}
           {error && (
-            <div style={{ fontSize: 13, color: 'var(--danger)', padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--danger) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--danger) 25%, transparent)' }}>
+            <div style={{ fontSize: 13, color: 'var(--color-error)', padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--color-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-error) 25%, transparent)' }}>
               {error}
             </div>
           )}
         </div>
 
         {/* ── Footer ── */}
-        <div style={{ padding: '16px 20px 20px', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6, flexShrink: 0 }}>
-          {(state === 'idle' || state === 'classifying' || state === 'error') && (
-            <>
-              <button className="btn btn-sm" onClick={onClose} style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Cancel</button>
-              {state === 'classifying' && (
-                <button className="btn btn-sm" onClick={() => { setState('idle'); setClassification(null); }} style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Back</button>
-              )}
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={state === 'classifying' ? handleUpload : () => setState('classifying')}
-                disabled={files.length === 0 || (state === 'classifying' && !classification)}
-                style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: (files.length === 0 || (state === 'classifying' && !classification)) ? 0.45 : 1, cursor: (files.length === 0 || (state === 'classifying' && !classification)) ? 'not-allowed' : 'pointer' }}
-              >
-                {state === 'error' ? 'Retry' : state === 'classifying' ? `Upload (${files.length})` : `Next${files.length > 0 ? ` (${files.length})` : ''}`}
-              </button>
-            </>
-          )}
-          {state === 'uploading' && (
-            <button className="btn btn-sm" disabled style={{ height: 36, padding: '0 16px', fontSize: 13, opacity: 0.5 }}>Uploading…</button>
-          )}
+        <div className="generate-proposal-footer">
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={state === 'classifying' ? handleUpload : () => setState('classifying')}
+            disabled={!canUpload || (state === 'classifying' && !classification)}
+            style={{ width: 'auto', opacity: (!canUpload || (state === 'classifying' && !classification)) ? 0.45 : 1, cursor: (!canUpload || (state === 'classifying' && !classification)) ? 'not-allowed' : 'pointer' }}
+          >
+            {state === 'error' ? 'Retry' : state === 'classifying' ? `Upload (${files.length})` : `Next${files.length > 0 ? ` (${files.length})` : ''}`}
+          </button>
         </div>
 
       </div>
