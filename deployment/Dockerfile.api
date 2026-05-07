@@ -36,14 +36,14 @@ WORKDIR /app
 COPY --from=build /app /app
 
 # Python dependencies — used by FAISS vector store and Python-based plugins.
-# qdrant-client omitted: vector store uses the native @qdrant/js-client-rest package.
 RUN python3 -m pip install --break-system-packages --no-cache-dir \
         requests \
         numpy \
         faiss-cpu \
         pyyaml \
         anthropic \
-        openai
+        openai \
+        "qdrant-client>=1.9.0"
 
 # Config and data directories
 RUN mkdir -p /engine/data/templates /engine/output /app/config
