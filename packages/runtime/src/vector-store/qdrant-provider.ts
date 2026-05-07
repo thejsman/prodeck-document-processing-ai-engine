@@ -27,7 +27,7 @@
  */
 
 import type { VectorStoreProvider, VectorChunk, VectorSearchResult } from '@ai-engine/core';
-import { QdrantClient, type Schemas } from '@qdrant/js-client-rest';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import OpenAI from 'openai';
 
 const VECTOR_SIZE = 3072;
@@ -62,7 +62,7 @@ export class QdrantVectorStoreProvider implements VectorStoreProvider {
           model: this.embeddingModel,
           input: batch,
         });
-        results.push(...res.data.map((d: { embedding: number[] }) => d.embedding));
+        results.push(...res.data.map((d) => d.embedding));
       } catch (err) {
         console.warn('[QdrantVectorStoreProvider] embedTexts failed:', err);
         throw err;
@@ -124,7 +124,7 @@ export class QdrantVectorStoreProvider implements VectorStoreProvider {
         limit: topK,
         with_payload: true,
       });
-      return results.map((r: Schemas['ScoredPoint']) => ({
+      return results.map((r) => ({
         id: String(r.id),
         score: r.score,
         text: r.payload?.['text'] as string,
