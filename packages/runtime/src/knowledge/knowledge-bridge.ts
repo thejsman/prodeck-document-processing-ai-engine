@@ -109,7 +109,8 @@ function spawnKnowledgeStore(
             const msg = parsed.error || '';
             errorMessage = msg || (parsed.type ? `${parsed.type} (no message)` : errorMessage);
           } catch {
-            errorMessage = stderr.trim() || errorMessage;
+            const clean = sanitizePythonStderr(stderr);
+            errorMessage = clean || errorMessage;
           }
         }
         reject(new Error(errorMessage));
@@ -121,6 +122,25 @@ function spawnKnowledgeStore(
     child.stdin.write(JSON.stringify(payload));
     child.stdin.end();
   });
+}
+
+// Python warning lines look like:
+//   /some/path/site-packages/urllib3/__init__.py:174: DeprecationWarning: ...
+// Filter these out so only genuine error output is used as the error message.
+function sanitizePythonStderr(raw: string): string {
+  const lines = raw.split('\n');
+  const meaningful = lines.filter((line) => {
+    const t = line.trim();
+    if (!t) return false;
+    // Skip lines that are a file path reference (warnings preamble)
+    if (/^\/.*\.py:\d+:/.test(t)) return false;
+    // Skip warning category lines
+    if (/^\s*(DeprecationWarning|UserWarning|FutureWarning|RuntimeWarning|PendingDeprecationWarning):/.test(t)) return false;
+    // Skip "warnings.warn(" lines
+    if (/warnings\.warn\(/.test(t)) return false;
+    return true;
+  });
+  return meaningful.join('\n').trim();
 }
 
 // Sentinel written by knowledge_store.py after streaming all tokens, before
@@ -191,7 +211,8 @@ function spawnKnowledgeStoreStreaming(
             const msg = parsed.error || '';
             errorMessage = msg || (parsed.type ? `${parsed.type} (no message)` : errorMessage);
           } catch {
-            errorMessage = stderr.trim() || errorMessage;
+            const clean = sanitizePythonStderr(stderr);
+            errorMessage = clean || errorMessage;
           }
         }
         reject(new Error(errorMessage));

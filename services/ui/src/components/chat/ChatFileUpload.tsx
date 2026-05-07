@@ -25,6 +25,7 @@ export interface ChatFileUploadProps {
   status: 'uploading' | 'processing' | 'done' | 'error';
   stage?: string;
   chunkProgress?: ChunkProgress;
+  errorMessage?: string;
 }
 
 function formatSize(bytes: number): string {
@@ -33,7 +34,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ChatFileUpload({ fileName, fileSize, progress, status, stage, chunkProgress }: ChatFileUploadProps) {
+export function ChatFileUpload({ fileName, fileSize, progress, status, stage, chunkProgress, errorMessage }: ChatFileUploadProps) {
   if (status === 'done') {
     return (
       <div className="chat-file-upload chat-file-upload--done">
@@ -84,21 +85,26 @@ export function ChatFileUpload({ fileName, fileSize, progress, status, stage, ch
     );
   }
 
+  const isError = status === 'error';
+  const errorLabel = errorMessage
+    ? errorMessage.length > 80 ? errorMessage.slice(0, 80) + '…' : errorMessage
+    : 'Upload failed';
+
   return (
     <div className="chat-file-upload">
       <div className="chat-file-upload__header">
-        <Icon icon={FileText} size="sm" className="chat-file-upload__icon" />
+        <Icon icon={FileText} size="sm" className={`chat-file-upload__icon${isError ? '' : ''}`} />
         <span className="chat-file-upload__name">{fileName}</span>
         <span className="chat-file-upload__size">{formatSize(fileSize)}</span>
       </div>
       <div className="chat-file-upload__track">
         <div
-          className={`chat-file-upload__fill${status === 'error' ? ' chat-file-upload__fill--error' : ''}`}
-          style={{ width: status === 'error' ? '100%' : `${progress}%` }}
+          className={`chat-file-upload__fill${isError ? ' chat-file-upload__fill--error' : ''}`}
+          style={{ width: isError ? '100%' : `${progress}%` }}
         />
       </div>
-      <div className={`chat-file-upload__status${status === 'error' ? ' chat-file-upload__status--error' : ''}`}>
-        {status === 'uploading' ? `Uploading… ${progress}%` : 'Upload failed'}
+      <div className={`chat-file-upload__status${isError ? ' chat-file-upload__status--error' : ''}`}>
+        {status === 'uploading' ? `Uploading… ${progress}%` : isError ? errorLabel : ''}
       </div>
     </div>
   );
