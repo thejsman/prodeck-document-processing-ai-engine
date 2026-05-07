@@ -290,7 +290,7 @@ export function HeroSection({
       )}
       {content.ctaSecondary?.trim() && (
         <InlineEditable field="ctaSecondary" label="Secondary CTA" display="inline-block" value={content.ctaSecondary}>
-          <CTAButton tokens={tokens} variant="secondary" targetSectionId={secondaryTarget} showArrow={false}>
+          <CTAButton tokens={tokens} variant="secondary" targetSectionId={secondaryTarget} showArrow={false} onDarkBg={hasBgImage}>
             {content.ctaSecondary}
           </CTAButton>
         </InlineEditable>
