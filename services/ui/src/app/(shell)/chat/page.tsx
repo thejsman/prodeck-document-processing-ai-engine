@@ -801,7 +801,6 @@ export default function ChatPage() {
               (document.querySelector('.chat-v2-input') as HTMLTextAreaElement | null)?.focus();
             }, 50);
           }}
-          onGenerateProposal={() => setShowGenerateModal(true)}
         />
 
         {/* ── Body ── */}

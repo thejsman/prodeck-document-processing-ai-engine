@@ -42,15 +42,14 @@ interface Props {
   namespace: string;
   apiKey: string;
   onAskField?: (question: string) => void;
-  onGenerateProposal?: () => void;
 }
 
-export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }: Props) {
+export function BriefPanel({ namespace, apiKey, onAskField }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [showAllKnowledge, setShowAllKnowledge] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  const { context, readiness, updateField, confirm, updateKnowledge, deleteKnowledge, canGenerate, blockingField } = useBrief(namespace, apiKey);
+  const { context, updateField, confirm, updateKnowledge, deleteKnowledge } = useBrief(namespace, apiKey);
 
   const fields = context?.requirements?.fields ?? {};
 
@@ -321,39 +320,6 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
 
           </div>
 
-          {/* Pinned Generate footer */}
-          <div style={{ padding: '8px 16px 12px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: 'var(--panel-soft)' }}>
-            <div style={{ position: 'relative' }}>
-              <button
-                className={`btn btn-sm${canGenerate ? ' btn-primary' : ''}`}
-                disabled={!canGenerate}
-                onClick={() => canGenerate && onGenerateProposal?.()}
-                style={{
-                  opacity: canGenerate ? 1 : 0.5,
-                  cursor: canGenerate ? 'pointer' : 'not-allowed',
-                  height: 32,
-                  padding: '0 14px',
-                  fontSize: 13,
-                }}
-                title={!canGenerate && blockingField ? `Fill in ${FIELD_LABELS[blockingField as RequirementKey] ?? blockingField} before generating` : undefined}
-              >
-                Generate Proposal ▶
-              </button>
-            </div>
-            {!canGenerate && blockingField && (
-              <span style={{ fontSize: 12, color: 'var(--warning, #f59e0b)' }}>
-                ⚠ {FIELD_LABELS[blockingField as RequirementKey] ?? blockingField} missing
-              </span>
-            )}
-            {readiness && (
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 'auto' }}>
-                Tier 1: {3 - (readiness.tier1.missingFields.length)}/3
-                {readiness.tier2.missingFields.length > 0 && (
-                  <span style={{ marginLeft: 4 }}>· {readiness.tier2.missingFields.length} Tier 2 missing</span>
-                )}
-              </span>
-            )}
-          </div>
 
         </div>
       )}
