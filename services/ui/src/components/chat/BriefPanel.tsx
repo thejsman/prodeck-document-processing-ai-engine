@@ -160,7 +160,7 @@ export function BriefPanel({ namespace, apiKey, open, onOpenChange, onAskField, 
         aria-label="Brief context"
         tabIndex={-1}
         className="generate-proposal-modal"
-        style={{ maxWidth: 600, outline: 'none' }}
+        style={{ maxWidth: 600, height: 'min(660px, 85vh)', outline: 'none' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ────────────────────────────────────────── */}
@@ -397,11 +397,9 @@ export function BriefPanel({ namespace, apiKey, open, onOpenChange, onAskField, 
                 ⚠ {FIELD_LABELS[blockingField as RequirementKey] ?? blockingField} missing
               </span>
             )}
-            {readiness && canGenerate && (
+            {readiness && canGenerate && readiness.tier2.missingFields.length > 0 && (
               <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
-                {readiness.tier2.missingFields.length > 0
-                  ? `${readiness.tier2.missingFields.length} Recommended field${readiness.tier2.missingFields.length > 1 ? 's' : ''} missing`
-                  : 'Ready to generate'}
+                {readiness.tier2.missingFields.length} Recommended field{readiness.tier2.missingFields.length > 1 ? 's' : ''} missing
               </span>
             )}
           </div>
