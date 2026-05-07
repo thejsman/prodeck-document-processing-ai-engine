@@ -185,11 +185,19 @@ export async function processJob(
   const useParallel = !uri && !allFiles && process.env.INGEST_PARALLEL !== 'false';
   if (useParallel) {
     emitExecution({ executionId: job.id, status: 'RUNNING', type: 'ingestion', title: fileName });
-    const content = await readUploadedFile(workdir, namespace, fileName);
-    await Promise.allSettled([
-      runIndexingBranch([{ fileName, content }], job, workdir, policyConfig),
-      runExtractionBranch(content, job, workdir),
-    ]);
+    try {
+      const content = await readUploadedFile(workdir, namespace, fileName);
+      await Promise.allSettled([
+        runIndexingBranch([{ fileName, content }], job, workdir, policyConfig),
+        runExtractionBranch(content, job, workdir),
+      ]);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[ParallelBranch] failed before branches started — ${namespace}/${fileName}:`, err);
+      await updateFileStatus(workdir, namespace, fileName, 'failed', errorMessage);
+      emitExecution({ executionId: job.id, status: 'FAILED', type: 'ingestion', title: fileName, message: errorMessage });
+      workflowEventBus.emit('ingestion_failed', { namespace, fileName, uri: job.uri, jobId: job.id, error: errorMessage });
+    }
     return;
   }
 
