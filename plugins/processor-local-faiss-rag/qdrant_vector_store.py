@@ -21,21 +21,23 @@ from vector_store import VectorStore
 class QdrantVectorStore(VectorStore):
     """Vector store backed by a Qdrant server."""
 
-    def __init__(self, url: str, namespace: str):
+    def __init__(self, url: str, namespace: str, api_key: str | None = None):
         """
         Args:
             url:        Qdrant base URL, e.g. "http://localhost:6333".
             namespace:  Used as the Qdrant collection name.
+            api_key:    Optional API key for Qdrant Cloud. Omit for local Docker.
         """
         self._url = url
         self._collection = namespace
+        self._api_key = api_key
         self._client: QdrantClient | None = None
 
     # ── Internal helpers ────────────────────────────────────────────
 
     def _get_client(self) -> QdrantClient:
         if self._client is None:
-            self._client = QdrantClient(url=self._url)
+            self._client = QdrantClient(url=self._url, api_key=self._api_key)
         return self._client
 
     def _ensure_collection(self, dim: int) -> None:
