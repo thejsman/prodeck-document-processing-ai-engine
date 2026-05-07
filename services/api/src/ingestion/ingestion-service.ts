@@ -14,13 +14,19 @@ import path from 'node:path';
 // Types
 // ---------------------------------------------------------------------------
 
+/** Legacy single-string status — kept for backward-compat with API consumers. */
 export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extracting' | 'extracted' | 'failed';
+
+export type IndexingStatus = 'pending' | 'processing' | 'indexed' | 'failed';
+export type ExtractionStatus = 'pending' | 'processing' | 'extracted' | 'skipped' | 'failed';
 
 export interface IngestionFile {
   fileName: string;
   size: number;
   uploadedAt: string;
-  status: IngestionStatus;
+  /** Dual independent status fields — both branches run concurrently (INGEST_PARALLEL). */
+  indexingStatus: IndexingStatus;
+  extractionStatus: ExtractionStatus;
   error?: string;
   /** Storage URI for stream-uploaded files (local:// or s3://). */
   uri?: string;
@@ -28,6 +34,16 @@ export interface IngestionFile {
   jobId?: string;
   /** Set after successful ingestion: number of text chunks stored in FAISS. */
   chunkCount?: number;
+}
+
+/** Derive legacy single-status from dual fields for backward-compat with polling clients. */
+export function computeLegacyStatus(file: IngestionFile): IngestionStatus {
+  if (file.indexingStatus === 'failed' || file.extractionStatus === 'failed') return 'failed';
+  if (file.extractionStatus === 'extracted') return 'extracted';
+  if (file.indexingStatus === 'indexed' && file.extractionStatus === 'processing') return 'extracting';
+  if (file.indexingStatus === 'indexed') return 'indexed';
+  if (file.indexingStatus === 'processing' || file.extractionStatus === 'processing') return 'processing';
+  return 'uploaded';
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +65,22 @@ export async function loadFilesIndex(
   try {
     const raw = await readFile(filesIndexPath(workdir, namespace), 'utf-8');
     if (!raw.trim()) return [];
-    return JSON.parse(raw) as IngestionFile[];
+    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
+    // Migrate old entries that only have a single `status` field
+    return parsed.map((f) => {
+      if (f['indexingStatus'] === undefined) {
+        const legacyStatus = (f['status'] as IngestionStatus | undefined) ?? 'uploaded';
+        f['indexingStatus'] = legacyStatus === 'failed' ? 'failed'
+          : legacyStatus === 'uploaded' || legacyStatus === 'processing' ? legacyStatus === 'processing' ? 'processing' : 'pending'
+          : 'indexed';
+        f['extractionStatus'] = legacyStatus === 'extracted' ? 'extracted'
+          : legacyStatus === 'extracting' ? 'processing'
+          : legacyStatus === 'failed' ? 'failed'
+          : 'pending';
+        delete f['status'];
+      }
+      return f as unknown as IngestionFile;
+    });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw err;
@@ -81,6 +112,7 @@ export async function upsertFile(
   await saveFilesIndex(workdir, namespace, files);
 }
 
+/** Update file status using the legacy single-status model (sequential path). */
 export async function updateFileStatus(
   workdir: string,
   namespace: string,
@@ -91,10 +123,63 @@ export async function updateFileStatus(
   const files = await loadFilesIndex(workdir, namespace);
   const idx = files.findIndex((f) => f.fileName === fileName);
   if (idx < 0) return; // file not tracked — skip silently
+
+  // Map legacy status to dual fields so files.json stays consistent
+  const indexingStatus: IndexingStatus =
+    status === 'failed' ? 'failed' :
+    status === 'processing' ? 'processing' :
+    status === 'indexed' || status === 'extracting' || status === 'extracted' ? 'indexed' :
+    'pending';
+
+  const extractionStatus: ExtractionStatus =
+    status === 'failed' ? 'failed' :
+    status === 'extracting' ? 'processing' :
+    status === 'extracted' ? 'extracted' :
+    files[idx].extractionStatus; // preserve if indexing-only change
+
   files[idx] = {
     ...files[idx],
-    status,
+    indexingStatus,
+    extractionStatus,
     ...(error !== undefined ? { error } : { error: undefined }),
+  };
+  await saveFilesIndex(workdir, namespace, files);
+}
+
+/** Update only the indexing branch status (parallel path). */
+export async function updateIndexingStatus(
+  workdir: string,
+  namespace: string,
+  fileName: string,
+  status: IndexingStatus,
+  error?: string,
+): Promise<void> {
+  const files = await loadFilesIndex(workdir, namespace);
+  const idx = files.findIndex((f) => f.fileName === fileName);
+  if (idx < 0) return;
+  files[idx] = {
+    ...files[idx],
+    indexingStatus: status,
+    ...(error !== undefined ? { error } : {}),
+  };
+  await saveFilesIndex(workdir, namespace, files);
+}
+
+/** Update only the extraction branch status (parallel path). */
+export async function updateExtractionStatus(
+  workdir: string,
+  namespace: string,
+  fileName: string,
+  status: ExtractionStatus,
+  error?: string,
+): Promise<void> {
+  const files = await loadFilesIndex(workdir, namespace);
+  const idx = files.findIndex((f) => f.fileName === fileName);
+  if (idx < 0) return;
+  files[idx] = {
+    ...files[idx],
+    extractionStatus: status,
+    ...(error !== undefined ? { error } : {}),
   };
   await saveFilesIndex(workdir, namespace, files);
 }
@@ -148,8 +233,13 @@ export async function recoverInterruptedJobs(
     const files = await loadFilesIndex(workdir, ns);
     let changed = false;
     for (const file of files) {
-      if (file.status === 'uploaded' || file.status === 'processing' || file.status === 'extracting') {
-        file.status = 'uploaded';
+      const wasInterrupted =
+        file.indexingStatus === 'processing' ||
+        file.extractionStatus === 'processing' ||
+        (file.indexingStatus === 'pending' && file.extractionStatus === 'pending');
+      if (wasInterrupted) {
+        file.indexingStatus = 'pending';
+        file.extractionStatus = 'pending';
         delete file.error;
         enqueue(ns, file.fileName);
         changed = true;

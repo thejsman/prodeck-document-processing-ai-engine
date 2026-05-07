@@ -48,7 +48,8 @@ def create_vector_store(vector_store_config, storage_dir, namespace):
 
     if store_type == "qdrant":
         url = (vector_store_config or {}).get("url", "http://localhost:6333")
-        return QdrantVectorStore(url=url, namespace=namespace)
+        api_key = (vector_store_config or {}).get("apiKey")
+        return QdrantVectorStore(url=url, namespace=namespace, api_key=api_key)
 
     # Default: FAISS
     return FaissVectorStore(storage_dir)

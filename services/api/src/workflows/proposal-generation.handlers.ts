@@ -35,7 +35,7 @@ import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
 import { formatConversationForContext } from '../chat/context-builder.js';
 import { extractRequirementsFromKnowledge } from '../ingestion/extract-proposal-inputs.js';
-import { loadFilesIndex } from '../ingestion/ingestion-service.js';
+import { loadFilesIndex, computeLegacyStatus } from '../ingestion/ingestion-service.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import { AgentExecutor, TOOL_TIMEOUT_MS } from '../chat/agent-executor.js';
 import type { ToolDescriptor } from '../chat/agent-executor.js';
@@ -196,7 +196,7 @@ export async function handleCollectingRfp(ctx: HandlerContext): Promise<HandlerR
 
   const files = await loadFilesIndex(workdir, namespace);
   const available = files
-    .filter((f) => f.status === 'indexed' || f.status === 'extracting' || f.status === 'extracted' || f.status === 'uploaded')
+    .filter((f) => { const s = computeLegacyStatus(f); return s === 'indexed' || s === 'extracting' || s === 'extracted' || s === 'uploaded'; })
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
 
   if (available.length === 0) {
