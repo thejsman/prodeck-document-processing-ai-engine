@@ -116,6 +116,7 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
     borderBottom: '1px solid var(--border)',
     background: 'var(--panel-soft)',
     fontSize: 13,
+    flexShrink: 0,
   };
 
   const collapsedRow: React.CSSProperties = {
@@ -154,171 +155,174 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
 
       {/* Expanded view */}
       {expanded && (
-        <div style={{ padding: '0 16px 16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 'min(52vh, 480px)' }}>
 
-          {/* Tier 1 */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
-              Tier 1 — Required
-            </div>
-            {TIER1_KEYS.map((k) => (
-              <BriefField
-                key={k}
-                fieldKey={k}
-                field={fields[k] as RequirementField | undefined}
-                onEdit={handleEdit}
-                onAsk={handleAsk}
-                onConfirm={handleConfirm}
-              />
-            ))}
-          </div>
+          {/* Scrollable fields + knowledge + sources */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 8px', scrollbarWidth: 'thin' }}>
 
-          {/* Tier 2 */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
-              Tier 2 — Recommended
-            </div>
-            {TIER2_KEYS.map((k) => (
-              <BriefField
-                key={k}
-                fieldKey={k}
-                field={fields[k] as RequirementField | undefined}
-                onEdit={handleEdit}
-                onAsk={handleAsk}
-                onConfirm={handleConfirm}
-              />
-            ))}
-          </div>
-
-          {/* Tier 3 */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
-              Tier 3 — Enrichment
-            </div>
-            {TIER3_KEYS.map((k) => (
-              <BriefField
-                key={k}
-                fieldKey={k}
-                field={fields[k] as RequirementField | undefined}
-                onEdit={handleEdit}
-                onAsk={handleAsk}
-                onConfirm={handleConfirm}
-              />
-            ))}
-          </div>
-
-          {/* Knowledge */}
-          {(() => {
-            const allEntries = (context?.knowledge ?? []).filter((e: KnowledgeEntry) => !e.supersededBy);
-            if (allEntries.length === 0) return null;
-            const sorted = [...allEntries].sort((a: KnowledgeEntry, b: KnowledgeEntry) => b.importance - a.importance);
-            const visible = showAllKnowledge ? sorted : sorted.slice(0, 5);
-            return (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
-                  Knowledge ({allEntries.length})
-                </div>
-                <div style={{ maxHeight: showAllKnowledge ? 320 : 'none', overflowY: showAllKnowledge ? 'auto' : 'visible' }}>
-                {visible.map((entry: KnowledgeEntry) => (
-                  <div key={entry.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', alignItems: 'flex-start' }}>
-                    <span style={{
-                      flexShrink: 0, fontSize: 10, fontWeight: 600,
-                      color: KNOWLEDGE_CATEGORY_COLORS[entry.category] ?? 'var(--muted)',
-                      textTransform: 'uppercase', letterSpacing: '0.04em',
-                      paddingTop: 1, minWidth: 72,
-                    }}>
-                      {KNOWLEDGE_CATEGORY_LABELS[entry.category] ?? entry.category}
-                    </span>
-                    {editingId === entry.id ? (
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <textarea
-                          autoFocus
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          rows={3}
-                          style={{ fontSize: 12, width: '100%', resize: 'vertical', padding: '4px 6px', border: '1px solid var(--primary)', borderRadius: 4, background: 'var(--input-bg, var(--panel-soft))', color: 'var(--text)' }}
-                        />
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button
-                            onClick={() => handleKnowledgeSave(entry.id)}
-                            disabled={editValue.trim() === ''}
-                            style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 3 }}
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={handleKnowledgeCancel}
-                            style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', background: 'none', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text)' }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5, flex: 1 }}>
-                        {entry.content}
-                      </span>
-                    )}
-                    {editingId !== entry.id && (
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0, paddingTop: 1 }}>
-                        <button
-                          onClick={() => handleKnowledgeEditStart(entry)}
-                          title="Edit"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', lineHeight: 1 }}
-                        >
-                          <Icon icon={Pencil} size="sm" />
-                        </button>
-                        <button
-                          onClick={() => handleKnowledgeDelete(entry.id)}
-                          title="Delete"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', lineHeight: 1 }}
-                        >
-                          <Icon icon={Trash2} size="sm" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                </div>
-                {allEntries.length > 5 && (
-                  <button
-                    onClick={() => setShowAllKnowledge((v) => !v)}
-                    style={{ fontSize: 11, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 2 }}
-                  >
-                    {showAllKnowledge ? 'Show fewer' : `Show all (${allEntries.length})`}
-                  </button>
-                )}
-              </div>
-            );
-          })()}
-
-          {/* Source pool */}
-          {(context?.sources ?? []).length > 0 && (
+            {/* Tier 1 */}
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 4 }}>
-                Source Pool
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
+                Tier 1 — Required
               </div>
-              {context!.sources.map((src, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ flexShrink: 0 }}>
-                    {SOURCE_ICONS[src.classification ?? ''] ?? <Icon icon={FileText} size="sm" />}
-                  </span>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                    {src.fileName}
-                  </span>
-                  <span style={{ flexShrink: 0, color: 'var(--muted)', fontSize: 11 }}>
-                    {[
-                      src.fieldsExtracted.length > 0 ? `${src.fieldsExtracted.length} fields` : null,
-                      src.knowledgeEntriesCreated > 0 ? `${src.knowledgeEntriesCreated} knowledge` : null,
-                    ].filter(Boolean).join(' · ') || '—'}
-                  </span>
-                </div>
+              {TIER1_KEYS.map((k) => (
+                <BriefField
+                  key={k}
+                  fieldKey={k}
+                  field={fields[k] as RequirementField | undefined}
+                  onEdit={handleEdit}
+                  onAsk={handleAsk}
+                  onConfirm={handleConfirm}
+                />
               ))}
             </div>
-          )}
 
-          {/* Generate button */}
-          <div style={{ paddingTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Tier 2 */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
+                Tier 2 — Recommended
+              </div>
+              {TIER2_KEYS.map((k) => (
+                <BriefField
+                  key={k}
+                  fieldKey={k}
+                  field={fields[k] as RequirementField | undefined}
+                  onEdit={handleEdit}
+                  onAsk={handleAsk}
+                  onConfirm={handleConfirm}
+                />
+              ))}
+            </div>
+
+            {/* Tier 3 */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
+                Tier 3 — Enrichment
+              </div>
+              {TIER3_KEYS.map((k) => (
+                <BriefField
+                  key={k}
+                  fieldKey={k}
+                  field={fields[k] as RequirementField | undefined}
+                  onEdit={handleEdit}
+                  onAsk={handleAsk}
+                  onConfirm={handleConfirm}
+                />
+              ))}
+            </div>
+
+            {/* Knowledge */}
+            {(() => {
+              const allEntries = (context?.knowledge ?? []).filter((e: KnowledgeEntry) => !e.supersededBy);
+              if (allEntries.length === 0) return null;
+              const sorted = [...allEntries].sort((a: KnowledgeEntry, b: KnowledgeEntry) => b.importance - a.importance);
+              const visible = showAllKnowledge ? sorted : sorted.slice(0, 5);
+              return (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 8 }}>
+                    Knowledge ({allEntries.length})
+                  </div>
+                  {visible.map((entry: KnowledgeEntry) => (
+                    <div key={entry.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)', alignItems: 'flex-start' }}>
+                      <span style={{
+                        flexShrink: 0, fontSize: 10, fontWeight: 600,
+                        color: KNOWLEDGE_CATEGORY_COLORS[entry.category] ?? 'var(--muted)',
+                        textTransform: 'uppercase', letterSpacing: '0.04em',
+                        paddingTop: 1, minWidth: 72,
+                      }}>
+                        {KNOWLEDGE_CATEGORY_LABELS[entry.category] ?? entry.category}
+                      </span>
+                      {editingId === entry.id ? (
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <textarea
+                            autoFocus
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            rows={3}
+                            style={{ fontSize: 12, width: '100%', resize: 'vertical', padding: '4px 6px', border: '1px solid var(--primary)', borderRadius: 4, background: 'var(--input-bg, var(--panel-soft))', color: 'var(--text)' }}
+                          />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              onClick={() => handleKnowledgeSave(entry.id)}
+                              disabled={editValue.trim() === ''}
+                              style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 3 }}
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={handleKnowledgeCancel}
+                              style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer', background: 'none', border: '1px solid var(--border)', borderRadius: 3, color: 'var(--text)' }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5, flex: 1 }}>
+                          {entry.content}
+                        </span>
+                      )}
+                      {editingId !== entry.id && (
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0, paddingTop: 1 }}>
+                          <button
+                            onClick={() => handleKnowledgeEditStart(entry)}
+                            title="Edit"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', lineHeight: 1 }}
+                          >
+                            <Icon icon={Pencil} size="sm" />
+                          </button>
+                          <button
+                            onClick={() => handleKnowledgeDelete(entry.id)}
+                            title="Delete"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--muted)', lineHeight: 1 }}
+                          >
+                            <Icon icon={Trash2} size="sm" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {allEntries.length > 5 && (
+                    <button
+                      onClick={() => setShowAllKnowledge((v) => !v)}
+                      style={{ fontSize: 11, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', marginTop: 2 }}
+                    >
+                      {showAllKnowledge ? 'Show fewer' : `Show all (${allEntries.length})`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Source pool */}
+            {(context?.sources ?? []).length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6, paddingTop: 4 }}>
+                  Source Pool
+                </div>
+                {context!.sources.map((src, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ flexShrink: 0 }}>
+                      {SOURCE_ICONS[src.classification ?? ''] ?? <Icon icon={FileText} size="sm" />}
+                    </span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                      {src.fileName}
+                    </span>
+                    <span style={{ flexShrink: 0, color: 'var(--muted)', fontSize: 11 }}>
+                      {[
+                        src.fieldsExtracted.length > 0 ? `${src.fieldsExtracted.length} fields` : null,
+                        src.knowledgeEntriesCreated > 0 ? `${src.knowledgeEntriesCreated} knowledge` : null,
+                      ].filter(Boolean).join(' · ') || '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          </div>
+
+          {/* Pinned Generate footer */}
+          <div style={{ padding: '8px 16px 12px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: 'var(--panel-soft)' }}>
             <div style={{ position: 'relative' }}>
               <button
                 className={`btn btn-sm${canGenerate ? ' btn-primary' : ''}`}
@@ -350,6 +354,7 @@ export function BriefPanel({ namespace, apiKey, onAskField, onGenerateProposal }
               </span>
             )}
           </div>
+
         </div>
       )}
     </div>
