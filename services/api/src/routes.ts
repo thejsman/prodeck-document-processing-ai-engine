@@ -10,6 +10,7 @@ import {
   queryKnowledgeBase,
   listNamespaces,
   createNodeConfigLoader,
+  nativeQdrantDeleteNamespace,
   type VectorStoreConfig,
 } from '@ai-engine/runtime';
 import { ConfigResolver } from '@ai-engine/core';
@@ -490,6 +491,8 @@ export function registerRoutes(
       return reply.code(404).send({ error: `Namespace "${namespace}" not found` });
     }
 
+    const vsConfig = await resolveVectorStoreConfig(workdir, namespace);
+
     await rm(nsDir, { recursive: true, force: true });
 
     // Clean up all other namespace-keyed data outside the namespaces/ folder
@@ -502,6 +505,11 @@ export function registerRoutes(
       rm(path.join(workdir, 'exports', namespace), { recursive: true, force: true }),
       rm(path.join(workdir, 'workflows', namespace), { recursive: true, force: true }),
     ]);
+
+    if (vsConfig?.type === 'qdrant') {
+      const qdrantUrl = vsConfig.url ?? process.env['QDRANT_URL'] ?? 'http://localhost:6333';
+      await nativeQdrantDeleteNamespace(qdrantUrl, namespace);
+    }
 
     return reply.code(200).send({ deleted: namespace });
   });
