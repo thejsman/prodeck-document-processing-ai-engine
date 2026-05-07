@@ -944,7 +944,6 @@ export default function ChatPage() {
               setTypeTarget(question);
             }, 60);
           }}
-          onGenerateProposal={() => setShowGenerateModal(true)}
         />
 
         {/* ── Body ── */}

@@ -9,14 +9,13 @@ import {
   ingestDocuments,
   queryKnowledgeBase,
   listNamespaces,
-  createNodeConfigLoader,
-  type VectorStoreConfig,
+  nativeQdrantDeleteNamespace,
 } from '@ai-engine/runtime';
-import { ConfigResolver } from '@ai-engine/core';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
 import { appendChatTurn } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
 import { processDocument } from './ingestion/ingest-orchestrator.js';
+import { resolveVectorStoreConfig } from './ingestion/branch-runner.js';
 import { ContextService } from './chat/context.service.js';
 import { llmGenerateFn } from './agent-routes.js';
 import { emitExecution } from './execution-events.js';
@@ -118,22 +117,6 @@ function attachProviderInfo(req: FastifyRequest, info: ProviderInfo): void {
   (req as FastifyRequest & { __providerInfo: ProviderInfo }).__providerInfo = info;
 }
 
-/** Read the vectorStore config for a namespace from workdir/config/namespaces/<ns>.json */
-async function resolveVectorStoreConfig(
-  workdir: string,
-  namespace: string,
-): Promise<VectorStoreConfig | undefined> {
-  try {
-    const configLoader = createNodeConfigLoader(path.join(workdir, 'config'));
-    const configResolver = new ConfigResolver(configLoader);
-    const config = await configResolver.resolve({ namespace });
-    const vs = (config as { vectorStore?: { type?: string; url?: string; apiKey?: string } }).vectorStore;
-    if (!vs?.type || (vs.type !== 'faiss' && vs.type !== 'qdrant')) return undefined;
-    return { type: vs.type, url: vs.url, ...(vs.apiKey ? { apiKey: vs.apiKey } : {}) };
-  } catch {
-    return undefined;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -490,6 +473,8 @@ export function registerRoutes(
       return reply.code(404).send({ error: `Namespace "${namespace}" not found` });
     }
 
+    const vsConfig = await resolveVectorStoreConfig(workdir, namespace);
+
     await rm(nsDir, { recursive: true, force: true });
 
     // Clean up all other namespace-keyed data outside the namespaces/ folder
@@ -502,6 +487,12 @@ export function registerRoutes(
       rm(path.join(workdir, 'exports', namespace), { recursive: true, force: true }),
       rm(path.join(workdir, 'workflows', namespace), { recursive: true, force: true }),
     ]);
+
+    if (vsConfig?.type === 'qdrant') {
+      const qdrantUrl = vsConfig.url ?? process.env['QDRANT_URL'] ?? 'http://localhost:6333';
+      const qdrantApiKey = vsConfig.apiKey ?? process.env['QDRANT_API_KEY'];
+      await nativeQdrantDeleteNamespace(qdrantUrl, namespace, qdrantApiKey);
+    }
 
     return reply.code(200).send({ deleted: namespace });
   });

@@ -17,7 +17,7 @@ import {
   spawnProposalGenerator,
   type ProcessorPayload,
 } from '@ai-engine/plugin-proposal-generator';
-import { queryKnowledgeBase } from '@ai-engine/runtime';
+import { queryKnowledgeBase, type VectorStoreConfig } from '@ai-engine/runtime';
 import type { GenerateFn } from '@ai-engine/planner';
 import {
   readMeta,
@@ -58,6 +58,7 @@ export interface ToolContext {
   namespace: string;
   generateFn: GenerateFn;
   policyConfig?: ProviderPolicyConfig | null;
+  vectorStoreConfig?: VectorStoreConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -624,12 +625,13 @@ export async function handleSearchDocuments(
   ctx: ToolContext,
 ): Promise<PartialResult> {
   const query = ((params.query as string | undefined) ?? '').trim();
-  const { workdir, namespace } = ctx;
+  const { workdir, namespace, vectorStoreConfig } = ctx;
 
   const result = await queryKnowledgeBase({
     question: query,
     storageDir: path.join(workdir, 'namespaces', namespace),
     namespace,
+    ...(vectorStoreConfig ? { vectorStoreConfig } : {}),
   });
 
   return {

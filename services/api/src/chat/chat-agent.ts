@@ -57,6 +57,7 @@ import { buildBoundaryResponse, buildUnknownResponse } from './boundary-response
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
 import { readMeta } from '../proposal-meta.js';
 import { CostTracker, DEFAULT_COST_CONFIG } from './cost-control.js';
+import { resolveVectorStoreConfig } from '../ingestion/branch-runner.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -839,11 +840,14 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     onPhase('Executing...');
     tracker.incrementTool(); // Track that tools were called this turn
 
+    const vectorStoreConfig = await resolveVectorStoreConfig(workdir, namespace).catch(() => undefined);
+
     toolResults = await executeToolActions(toolActions, {
       namespace,
       workdir,
       generateFn: rawGenerateFn, // tools get the un-wrapped fn (they manage their own calls)
       policyConfig,
+      vectorStoreConfig,
       onPhase,
       onToolEvent,
     });
