@@ -25,21 +25,30 @@ interface GptImage1Response {
 
 // ── Source routing rules ──────────────────────────────────────────────────
 
-type ImageSource = 'unsplash' | 'dalle' | 'picsum' | 'gradient';
+type ImageSource = 'pexels' | 'unsplash' | 'dalle' | 'picsum' | 'gradient';
+
+// Sections that render custom HTML and benefit from a real background/panel image
+const VISUAL_SECTION_TYPES = new Set([
+  'hero', 'showcase', 'overview', 'challenge', 'solution', 'approach',
+  'features', 'feature-grid', 'feature-list', 'cta', 'problem-solution',
+  'metrics', 'stats', 'case-study',
+]);
 
 /**
  * Determine the best image source for a section type.
- * Sections that are data-heavy or text-focused skip imagery.
+ * Visual sections get DALL-E; data-heavy / structured sections use gradient.
  */
 export function resolveImageSource(
   sectionType: string,
   hasUnsplashKey: boolean,
   hasDalleKey: boolean,
+  hasPexelsKey: boolean = false,
 ): ImageSource {
-  // Only hero and showcase get real images — everything else uses gradient
-  if (sectionType !== 'hero' && sectionType !== 'showcase') return 'gradient';
-  if (hasDalleKey) return 'dalle';
+  if (!VISUAL_SECTION_TYPES.has(sectionType)) return 'gradient';
+  // Real photography beats AI generation — Pexels and Unsplash first
+  if (hasPexelsKey) return 'pexels';
   if (hasUnsplashKey) return 'unsplash';
+  if (hasDalleKey) return 'dalle';
   return 'picsum';
 }
 
@@ -66,6 +75,59 @@ export async function fetchUnsplashImageUrl(query: string): Promise<string | nul
       const photo = await res.json() as { urls?: { regular?: string }; errors?: string[] };
       if (photo.errors?.length || !photo.urls?.regular) continue;
       return photo.urls.regular;
+    } catch { continue; }
+  }
+  return null;
+}
+
+// ── Pexels helper (real photography, preferred over DALL-E) ─────────────────
+
+interface PexelsResponse {
+  photos?: Array<{ src?: { landscape?: string; original?: string } }>;
+}
+
+function sanitizeForPexels(raw: string): string {
+  return raw
+    // Strip DALL-E prompt prefixes
+    .replace(/^dall-?e\s*\d*\s*prompt\s*:/i, '')
+    .replace(/^dall-?e\s*\d*\s*:/i, '')
+    // Strip cinematic/photography jargon phrases
+    .replace(/cinematic\s+(photorealistic\s+)?scene\s+of\s+/i, '')
+    .replace(/photorealistic\s+(scene\s+of\s+)?/i, '')
+    .replace(/professional\s+photography[,.]?/gi, '')
+    .replace(/\b(4k|8k|hdr|raw\s+photo|golden\s+hour|soft\s+(natural\s+)?lighting|warm\s+lighting|cinematic\s+lighting|depth.of.field|bokeh|ultra.realistic|hyperrealistic|sharp\s+focus|f\/[\d.]+)\b[,.]?/gi, '')
+    .replace(/\b(capturing\s+the\s+essence\s+of|invoking\s+a\s+sense\s+of|joyful\s+expressions?|vibrant\s+colors?|inviting\s+atmosphere)\b[,.]?/gi, '')
+    .trim()
+    .replace(/^[,.\s]+|[,.\s]+$/g, '')
+    .replace(/\s{2,}/g, ' ');
+}
+
+export async function fetchPexelsImageUrl(query: string): Promise<string | null> {
+  const key = env.PEXELS_API_KEY;
+  if (!key?.trim()) return null;
+
+  const clean = sanitizeForPexels(query);
+  // Try progressively shorter queries to maximise match probability
+  const words = clean.trim().split(/\s+/);
+  const candidates = [
+    clean,
+    words.slice(0, 4).join(' '),
+    words.slice(0, 2).join(' '),
+    words[0],
+  ].filter((q, i, arr) => q && arr.indexOf(q) === i);
+
+  for (const q of candidates) {
+    try {
+      const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=5&orientation=landscape`;
+      const res = await fetch(url, { headers: { Authorization: key } });
+      if (!res.ok) continue;
+      const data = await res.json() as PexelsResponse;
+      const photos = data.photos ?? [];
+      if (!photos.length) continue;
+      // Pick a random photo from the first 5 so repeated sections look different
+      const photo = photos[Math.floor(Math.random() * photos.length)];
+      const src = photo.src?.landscape ?? photo.src?.original;
+      if (src) return src;
     } catch { continue; }
   }
   return null;
@@ -116,6 +178,7 @@ export async function generateDalle3Image(prompt: string): Promise<string | null
         n: 1,
         size: '1792x1024',
         quality: 'standard',
+        style: 'natural',
         response_format: 'url',
       }),
     });
@@ -126,25 +189,113 @@ export async function generateDalle3Image(prompt: string): Promise<string | null
 }
 
 /**
- * Build a DALL-E 3 prompt for a section image.
- * Cinematic quality, specific to section type and brand context.
+ * Build a DALL-E prompt for a section image.
+ * Anchored to candid real-world photography — real people, authentic settings,
+ * natural imperfections — to avoid the AI-generated / stock-photo look.
  */
 export function buildDallePrompt(
   sectionType: string,
   imageQuery: string,
   accentColor?: string,
 ): string {
-  const colorHint = accentColor ? `, accent color ${accentColor}` : '';
-  const baseStyle = 'Professional photography, cinematic lighting, ultra-realistic, no text, no people\'s faces, editorial quality, 16:9 aspect ratio';
+  const colorHint = accentColor ? `, tones suggest ${accentColor}` : '';
+  // Technical photography anchors that force real-world documentary output
+  const baseStyle = [
+    'candid documentary photograph',
+    'shot on Sony FX3 with 35mm f/1.4 lens',
+    'natural ambient indoor or outdoor light',
+    'authentic real-world environment with genuine imperfections',
+    'real people in natural unposed moments',
+    'shallow depth of field with sharp subject and softly blurred background',
+    'no studio lighting',
+    'no text overlaid',
+    'no watermarks',
+    'no illustrated or artistic style',
+    '16:9 landscape frame',
+  ].join(', ');
 
   const sectionStyle: Record<string, string> = {
-    hero:         `Full-bleed hero image. ${imageQuery}. Dramatic, wide-angle, depth-of-field blur in background${colorHint}. ${baseStyle}`,
-    showcase:     `Feature showcase visual. ${imageQuery}. Clean, product-focused, elegant staging${colorHint}. ${baseStyle}`,
-    testimonials: `Human-centered editorial photo. ${imageQuery}. Warm, authentic, lifestyle photography${colorHint}. ${baseStyle}`,
-    challenge:    `Problem or pain-point visual. ${imageQuery}. Moody, high-contrast, documentary-style${colorHint}. ${baseStyle}`,
+    hero: [
+      `Cinematic wide-angle candid scene. ${imageQuery}.`,
+      `Real people naturally engaged in the activity, authentic environment with genuine background details.`,
+      `Warm ambient light — golden hour or interior window light. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    showcase: [
+      `Detail-focused candid shot. ${imageQuery}.`,
+      `Real person interacting naturally with a product or environment.`,
+      `Soft background, sharp subject, window light or soft indoor ambient. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    overview: [
+      `Wide establishing shot of a real place. ${imageQuery}.`,
+      `Genuine environment with authentic details — signage, objects, textures visible.`,
+      `People naturally present in the background. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    challenge: [
+      `Candid documentary scene conveying a real-world problem or difficulty. ${imageQuery}.`,
+      `Authentic unposed moment, overcast or low natural light, genuine tension or effort visible.`,
+      `${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    solution: [
+      `Candid moment showing a real positive outcome. ${imageQuery}.`,
+      `Genuine smile or satisfaction visible, bright natural light, authentic setting.`,
+      `${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    approach: [
+      `Behind-the-scenes candid process shot. ${imageQuery}.`,
+      `Real people working in an authentic environment — tools, workspace, or field visible.`,
+      `Natural light from windows or outdoors. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    features: [
+      `Candid detail or action shot highlighting the subject in real use. ${imageQuery}.`,
+      `Real hands or people interacting naturally, authentic context, window light.`,
+      `${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    'feature-grid': [
+      `Overhead candid lifestyle shot. ${imageQuery}.`,
+      `Real objects arranged naturally on a real surface — imperfect, lived-in look.`,
+      `Natural window light from the side. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    'feature-list': [
+      `Candid environmental scene. ${imageQuery}.`,
+      `Real person or environment in natural unposed context. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    cta: [
+      `Inspirational candid wide shot. ${imageQuery}.`,
+      `Real person in a decisive or confident moment, authentic environment, bright natural light.`,
+      `Negative space on one side for text. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    'problem-solution': [
+      `Documentary scene showing real-world context. ${imageQuery}.`,
+      `Authentic setting, unposed subjects, natural light. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    metrics: [
+      `Wide candid scene conveying scale or collective impact. ${imageQuery}.`,
+      `Real environment with many authentic background details. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    stats: [
+      `Real-world environment showing scale or significance. ${imageQuery}.`,
+      `Candid wide shot, people naturally present. ${baseStyle}${colorHint}`,
+    ].join(' '),
+
+    'case-study': [
+      `Candid documentary scene showing a real outcome or success moment. ${imageQuery}.`,
+      `Authentic workplace or field environment, genuine expressions. ${baseStyle}${colorHint}`,
+    ].join(' '),
   };
 
-  return sectionStyle[sectionType] ?? `${imageQuery}. ${baseStyle}${colorHint}.`;
+  return sectionStyle[sectionType] ?? `${imageQuery}. ${baseStyle}${colorHint}`;
 }
 
 // ── Persistent image download ─────────────────────────────────────────────

@@ -30,6 +30,7 @@ import { SaveAssetTool } from '@ai-engine/tool-save-asset';
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from './provider-policy.js';
 import { appendEpisodicEntry } from './memory-util.js';
 import { buildPicsumUrl } from './image-routes.js';
+import { applyDesignSkill, injectThemeCSS } from './skills/design-skill-microsite.js';
 
 import { env } from 'node:process';
 
@@ -548,6 +549,13 @@ export function registerAgentRoutes(
         },
       };
 
+    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs
+    const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
+      agentName,
+      agentInput.metadata as Record<string, unknown>,
+    );
+    agentInput.metadata = skillMetadata;
+
     let runner: AgentRunner;
     try {
       runner = await buildRunner(workdir);
@@ -627,6 +635,14 @@ export function registerAgentRoutes(
               }
             }
           }
+          // Design skill Phase 2 — generate and inject CSS theme into LayoutAST before persisting
+          await injectThemeCSS(
+            ast as unknown as Record<string, unknown>,
+            designTone,
+            ((skillMetadata.brand as Record<string, unknown> | undefined)?.primaryColor as string | undefined),
+            llmGenerateFn,
+          );
+
           // Always persist the AST so page-reloads can restore the latest generation
           const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
           await mkdir(path.dirname(astPath), { recursive: true });

@@ -31,12 +31,14 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
+import { applyDesignSkill, injectThemeCSS } from '../skills/design-skill-microsite.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
   fetchUnsplashImageUrl,
+  fetchPexelsImageUrl,
   generateGptImage1,
   generateDalle3Image,
   buildDallePrompt,
@@ -1364,6 +1366,7 @@ ${layoutSummary}`;
       if (ast?.sections) {
         const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
         const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+        const hasPexels = !!(env.PEXELS_API_KEY?.trim());
         const accentColor = ast.brand?.primaryColor;
 
         await Promise.all(
@@ -1371,7 +1374,7 @@ ${layoutSummary}`;
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
 
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle, hasPexels);
             if (chosenSource === 'gradient') {
               sec.image.url = null;
               sec.image.source = 'gradient';
@@ -1381,7 +1384,10 @@ ${layoutSummary}`;
             sec.image.source = chosenSource;
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
 
-            if (chosenSource === 'dalle') {
+            if (chosenSource === 'pexels') {
+              const remoteUrl = await fetchPexelsImageUrl(query);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+            } else if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
               const result = await generateGptImage1(prompt);
               if (result) {
@@ -1392,7 +1398,8 @@ ${layoutSummary}`;
                 if (saved) sec.image.url = `/presentation-images/${namespace}/${filename}`;
               } else {
                 // fallback to DALL-E 3 if gpt-image-1 fails
-                const remoteUrl = await generateDalle3Image(prompt);
+                const dallePrompt = buildDallePrompt(sec.sectionType, query, accentColor);
+                const remoteUrl = await generateDalle3Image(dallePrompt);
                 if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
               }
             } else if (chosenSource === 'picsum') {
@@ -1479,6 +1486,7 @@ ${layoutSummary}`;
     // Pre-compute image config so parallel fetches can start during section generation
     const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+    const hasPexels = !!(env.PEXELS_API_KEY?.trim());
     const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
     const urlHeroImageUrl = (body?.urlReferenceDesign as { heroImageUrl?: string | null } | undefined)?.heroImageUrl ?? null;
 
@@ -1515,17 +1523,26 @@ ${layoutSummary}`;
       ? `${streamBriefPrefix}${body.customInstructions}`
       : streamBriefPrefix || undefined;
 
+    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs
+    const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
+      'microsite-generator-agent',
+      {
+        proposalMarkdown: markdown,
+        plugin: body?.plugin ?? 'cobalt',
+        brand: body?.brand ?? {},
+        ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
+        ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
+      },
+    );
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(streamEffectiveInstructions ? { prompt: streamEffectiveInstructions } : {}),
+        ...(skillMetadata.customInstructions ? { prompt: skillMetadata.customInstructions as string } : {}),
         metadata: {
-          proposalMarkdown: markdown,
-          plugin: body?.plugin ?? 'cobalt',
-          brand: body?.brand ?? {},
-          ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
+          ...skillMetadata,
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
@@ -1552,7 +1569,7 @@ ${layoutSummary}`;
                   // Trim the primary section to first N items
                   content[field] = items.slice(0, PDF_MAX_PER_SLIDE);
                   const pdfSectionType = section.sectionType as string | undefined;
-                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle) : 'gradient';
+                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle, hasPexels) : 'gradient';
                   const pdfImageForClient = pdfChosenSource === 'gradient'
                     ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
                     : section.image;
@@ -1590,7 +1607,7 @@ ${layoutSummary}`;
 
             // ── Normal (no split needed) ──────────────────────────────────────────────
             const sectionType = section.sectionType as string | undefined;
-            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle) : 'gradient';
+            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle, hasPexels) : 'gradient';
             // Strip agent's loremflickr URL for gradient sections — prevents flicker in client.
             // Agent doesn't include image.url in callback data anyway, but guard for safety.
             const imageForClient = chosenSource === 'gradient'
@@ -1611,7 +1628,7 @@ ${layoutSummary}`;
         await Promise.all(
           ast.sections.map(async (sec) => {
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle, hasPexels);
 
             if (chosenSource === 'gradient') {
               sec.image.url = null;
@@ -1638,7 +1655,9 @@ ${layoutSummary}`;
             if (!remoteUrl) {
               const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
               if (!query?.trim()) return;
-              if (chosenSource === 'dalle') {
+              if (chosenSource === 'pexels') {
+                remoteUrl = await fetchPexelsImageUrl(query);
+              } else if (chosenSource === 'dalle') {
                 const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
                 remoteUrl = await generateDalle3Image(prompt);
               } else if (chosenSource === 'picsum') {
@@ -1675,6 +1694,16 @@ ${layoutSummary}`;
           const ok = await downloadImageToFile(brandLogoRemote, path.join(imagesDir, logoFilename));
           if (ok) (ast.brand as Record<string, unknown>).logoUrl = `/presentation-images/${namespace}/${logoFilename}`;
         } catch { /* keep remote URL */ }
+      }
+
+      // Design skill Phase 2 — generate and inject CSS theme before sending complete event
+      if (ast) {
+        await injectThemeCSS(
+          ast as unknown as Record<string, unknown>,
+          designTone,
+          (body?.brand?.primaryColor as string | undefined),
+          llmGenerateFn,
+        );
       }
 
       // complete event carries local image URLs — no further reconciliation needed

@@ -15,6 +15,7 @@ import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { MicrositeGeneratorAgent } from '@ai-engine/agent-microsite-generator';
 import { toolRegistry } from '@ai-engine/core';
 import { llmGenerateFn } from '../agent-routes.js';
+import { applyDesignSkill, injectThemeCSS } from '../skills/design-skill-microsite.js';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
 import { ContextService } from '../chat/context.service.js';
 
@@ -552,6 +553,19 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
     ? `${briefInstructions}\n\n${baseInstructions}`
     : baseInstructions;
 
+  // Design skill Phase 1 — enrich metadata with frontend-design directives
+  const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
+    'microsite-generator-agent',
+    {
+      proposalMarkdown,
+      customInstructions: fullInstructions,
+      designBrief: design.designStyle
+        ? `Design style: ${design.designStyle}. Make it visually compelling and on-brand.`
+        : undefined,
+      brand: { companyName: design.companyName, primaryColor: design.primaryColor },
+    },
+  );
+
   let sectionIndex = 0;
 
   let agentOutput: { markdown?: string; json?: unknown; assets?: string[] };
@@ -559,15 +573,7 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
     agentOutput = await agent.run({
       namespace,
       metadata: {
-        proposalMarkdown,
-        customInstructions: fullInstructions,
-        designBrief: design.designStyle
-          ? `Design style: ${design.designStyle}. Make it visually compelling and on-brand.`
-          : undefined,
-        brand: {
-          companyName: design.companyName,
-          primaryColor: design.primaryColor,
-        },
+        ...skillMetadata,
         pdfFriendly: design.pdfFriendly ?? false,
         onSectionComplete: (section: unknown) => {
           const s = section as Record<string, unknown>;
@@ -602,6 +608,16 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
   const micrositeArtifactId = `microsite-${Date.now()}.json`;
   instance.context.micrositeArtifactId = micrositeArtifactId;
   instance.context.micrositeLayoutAST = agentOutput.json ?? null;
+
+  // Design skill Phase 2 — generate and inject CSS theme into LayoutAST before persisting
+  if (agentOutput.json) {
+    await injectThemeCSS(
+      agentOutput.json as Record<string, unknown>,
+      designTone,
+      (skillMetadata.brand as Record<string, unknown> | undefined)?.primaryColor as string | undefined,
+      llmGenerateFn,
+    );
+  }
 
   // Persist AST to disk so the microsite history endpoint can find it
   if (agentOutput.json) {
