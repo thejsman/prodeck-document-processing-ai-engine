@@ -71,13 +71,16 @@ services:
     ports:
       - "${API_PORT:-3000}:3000"
     environment:
-      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-gpt-4o-mini}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_GENERATION_MODEL=${ANTHROPIC_GENERATION_MODEL:-claude-sonnet-4-6}
+      # Ollama — only relevant when --profile ollama is active
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_GENERATION_MODEL=${OLLAMA_GENERATION_MODEL:-mistral}
       - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-}
-      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-}
       - INGEST_PARALLEL=${INGEST_PARALLEL:-true}
       - INGEST_UNIFIED_LLM=${INGEST_UNIFIED_LLM:-true}
       - MAX_EXCERPT_CHARS=${MAX_EXCERPT_CHARS:-32000}
@@ -121,11 +124,14 @@ services:
       dockerfile: deployment/Dockerfile.engine
     profiles: ["cli"]
     environment:
-      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-gpt-4o-mini}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Ollama — only relevant when --profile ollama is active
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_GENERATION_MODEL=${OLLAMA_GENERATION_MODEL:-mistral}
       - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     volumes:
       - engine_data:/data
 

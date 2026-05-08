@@ -22,14 +22,20 @@ export function Topbar({ onMenuClick }: Props) {
   const isPresentation =
     pathname?.startsWith("/microsite") || pathname?.startsWith("/presentation");
 
+  if (pathname === "/") return null;
+
   if (
-    pathname === "/" ||
     pathname?.startsWith("/chat") ||
     pathname?.startsWith("/proposal") ||
     pathname?.startsWith("/microsite") ||
     pathname?.startsWith("/presentation")
-  )
-    return null;
+  ) {
+    return (
+      <div className="exec-indicator-float">
+        <ExecutionIndicator />
+      </div>
+    );
+  }
 
   return (
     <header className="topbar">
