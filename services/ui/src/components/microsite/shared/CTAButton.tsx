@@ -13,11 +13,20 @@ interface CTAButtonProps {
   onClick?: () => void;
   targetSectionId?: string;
   showArrow?: boolean;
+  /** Pass true when the button sits on a dark background (e.g. hero image with scrim).
+   *  Forces light text/border on the secondary variant for guaranteed contrast. */
+  onDarkBg?: boolean;
 }
 
-export function CTAButton({ children, tokens, variant = 'primary', style, onClick, targetSectionId, showArrow = true }: CTAButtonProps) {
+export function CTAButton({ children, tokens, variant = 'primary', style, onClick, targetSectionId, showArrow = true, onDarkBg = false }: CTAButtonProps) {
   const [hovered, setHovered] = useState(false);
   const isPrimary = variant === 'primary';
+
+  // Secondary button colors adapt to background lightness:
+  // dark bg (image with scrim) → light text/border; light bg → tokens.text/border
+  const secondaryIdleText = onDarkBg ? 'rgba(255,255,255,0.85)' : tokens.text;
+  const secondaryIdleBorder = onDarkBg ? 'rgba(255,255,255,0.35)' : tokens.border;
+  const secondaryHoverBorder = onDarkBg ? 'rgba(255,255,255,0.65)' : tokens.accent + '80';
 
   const handleClick = () => {
     if (targetSectionId) {
@@ -37,9 +46,9 @@ export function CTAButton({ children, tokens, variant = 'primary', style, onClic
         gap: 8,
         padding: isPrimary ? '14px 32px' : '12px 24px',
         borderRadius: 8,
-        border: isPrimary ? 'none' : `1px solid ${hovered ? tokens.accent + '80' : tokens.border}`,
+        border: isPrimary ? 'none' : `1px solid ${hovered ? secondaryHoverBorder : secondaryIdleBorder}`,
         background: isPrimary ? tokens.accent : 'transparent',
-        color: isPrimary ? (tokens.dark ? tokens.bg : '#FFFFFF') : (hovered ? tokens.accent : tokens.textMuted),
+        color: isPrimary ? (tokens.dark ? tokens.bg : '#FFFFFF') : (hovered ? tokens.accent : secondaryIdleText),
         fontFamily: `'${tokens.bodyFont}', sans-serif`,
         fontWeight: 400,
         fontSize: '0.9rem',

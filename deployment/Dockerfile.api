@@ -35,7 +35,7 @@ WORKDIR /app
 
 COPY --from=build /app /app
 
-# Python dependencies required by plugins
+# Python dependencies — used by FAISS vector store and Python-based plugins.
 RUN python3 -m pip install --break-system-packages --no-cache-dir \
         requests \
         numpy \
@@ -43,7 +43,7 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir \
         pyyaml \
         anthropic \
         openai \
-        qdrant-client
+        "qdrant-client>=1.9.0"
 
 # Config and data directories
 RUN mkdir -p /engine/data/templates /engine/output /app/config
