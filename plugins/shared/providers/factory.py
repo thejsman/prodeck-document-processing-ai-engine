@@ -7,6 +7,7 @@ from .base_provider import LLMProvider
 
 _PROVIDERS = {
     "anthropic": "plugins.shared.providers.anthropic_provider.AnthropicProvider",
+    "nvidia": "plugins.shared.providers.nvidia_provider.NvidiaProvider",
     "ollama": "plugins.shared.providers.ollama_provider.OllamaProvider",
     "openai": "plugins.shared.providers.openai_provider.OpenAIProvider",
 }
@@ -21,7 +22,7 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         3. ``"ollama"`` (default)
 
     Args:
-        provider_name: One of ``"anthropic"``, ``"ollama"``, or ``"openai"``.
+        provider_name: One of ``"anthropic"``, ``"nvidia"``, ``"ollama"``, or ``"openai"``.
 
     Returns:
         A configured LLMProvider ready to use.
@@ -66,6 +67,22 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         )
         temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0"))
         return OpenAIProvider(
+            generation_model=generation_model,
+            embedding_model=embedding_model,
+            temperature=temperature,
+        )
+
+    if name == "nvidia":
+        from .nvidia_provider import NvidiaProvider
+
+        generation_model = os.environ.get(
+            "NVIDIA_GENERATION_MODEL", "moonshotai/kimi-k2.6"
+        )
+        embedding_model = os.environ.get(
+            "NVIDIA_EMBEDDING_MODEL", "nvidia/nv-embedqa-e5-v5"
+        )
+        temperature = float(os.environ.get("NVIDIA_TEMPERATURE", "0"))
+        return NvidiaProvider(
             generation_model=generation_model,
             embedding_model=embedding_model,
             temperature=temperature,

@@ -1084,6 +1084,17 @@ export function PresentationPage() {
                 ),
               };
             });
+          } else if (event.type === "section_html") {
+            const { id, customHtml } = event as { type: "section_html"; id: string; customHtml: string };
+            setLayoutAST((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                sections: prev.sections.map((s) =>
+                  s.id === id ? { ...s, customHtml } : s,
+                ),
+              };
+            });
           } else if (event.type === "complete") {
             const raw = (event as { type: "complete"; ast: unknown }).ast;
             if (raw && typeof raw === "object") {

@@ -31,7 +31,7 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
-import { applyDesignSkill, injectThemeCSS } from '../skills/design-skill-microsite.js';
+import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
@@ -39,6 +39,7 @@ import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
   fetchUnsplashImageUrl,
   fetchPexelsImageUrl,
+  fetchLoremflickrUrl,
   generateGptImage1,
   generateDalle3Image,
   buildDallePrompt,
@@ -1423,6 +1424,40 @@ ${layoutSummary}`;
     }
   });
 
+  /** Build a clean Pexels photo search query from section content — avoids DALL-E cinematic prompts. */
+  function buildPexelsQueryFromSection(sectionType: string, content: Record<string, unknown>): string {
+    const STOP = new Set(['a','an','the','and','or','of','in','at','to','for','with','by','from','into','on','our','your','this','that','is','are','be','its','how','why','what','all','any']);
+    const clean = (s: string) => s.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !STOP.has(w.toLowerCase()));
+    const eyebrow = clean((content.eyebrow as string | undefined) ?? '').slice(0, 3);
+    const headline = clean((content.headline as string | undefined) ?? '').slice(0, 4);
+    const words = eyebrow.length >= 2 ? eyebrow : headline.slice(0, 3);
+    const TYPE_DEFAULTS: Record<string, string> = {
+      hero: 'vibrant outdoor adventure park',
+      overview: 'business team meeting professional',
+      challenge: 'problem solving strategy whiteboard',
+      approach: 'strategy planning professional team',
+      deliverables: 'project delivery checklist professional',
+      timeline: 'project planning calendar schedule',
+      pricing: 'business investment finance planning',
+      whyus: 'professional team expertise collaboration',
+      nextsteps: 'business handshake partnership agreement',
+      generic: 'professional office workspace modern',
+      testimonials: 'happy client satisfaction review',
+      showcase: 'portfolio creative work professional',
+      benefits: 'business growth success achievement',
+      casestudy: 'case study success analysis',
+      team: 'professional team collaboration office',
+      comparison: 'comparison analysis chart data',
+      security: 'cybersecurity protection digital',
+      techstack: 'technology software development code',
+      testing: 'quality testing professional lab',
+      faq: 'customer support questions answers',
+      stats: 'data analytics statistics dashboard',
+      metrics: 'performance analytics kpi dashboard',
+    };
+    return words.length >= 2 ? words.join(' ') : (TYPE_DEFAULTS[sectionType] ?? 'professional business office');
+  }
+
   // POST /presentations/:namespace/:proposalId/generate-stream
   // Like /generate but streams progress via SSE. Each section completes → SSE event.
   // Events: plan | section | images | complete | error
@@ -1535,6 +1570,18 @@ ${layoutSummary}`;
       },
     );
 
+    // Start CSS token generation in parallel with the agent — tone is already known.
+    // This means CSS vars are ready (or nearly ready) when the first sections arrive.
+    const cssThemePromise: Promise<CSSTheme | null> = generateThemeCSSTokens(
+      designTone as string,
+      body?.brand?.primaryColor as string | undefined,
+      llmGenerateFn,
+    ).catch(() => null);
+
+    // Track per-section HTML generated during streaming so we can inject it into the final AST
+    const streamedHtmlMap = new Map<string, string>(); // sectionId → customHtml
+    let htmlLayoutIdx = 0; // cycles A-F layouts across sections
+
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
@@ -1614,6 +1661,31 @@ ${layoutSummary}`;
               ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
               : section.image;
             send({ type: 'section', ...section, image: imageForClient, content, index: adjustedIdx });
+
+            // Fire HTML generation immediately after streaming section data — no blocking
+            const capturedSection = { ...section, content: { ...content }, image: imageForClient };
+            const capturedLayoutIdx = htmlLayoutIdx++;
+            const capturedSectionType = sectionType ?? '';
+            void (async () => {
+              try {
+                if (!CUSTOM_HTML_SECTION_TYPES.has(capturedSectionType)) return;
+                const cssTheme = await cssThemePromise;
+                if (!cssTheme) return;
+                const html = await generateSectionHtml(
+                  capturedSection as Record<string, unknown>,
+                  designTone as unknown as Tone,
+                  cssTheme.cssVars,
+                  null,
+                  llmGenerateFn,
+                  capturedLayoutIdx,
+                );
+                const secId = (capturedSection as Record<string, unknown>).id as string | undefined;
+                if (secId) {
+                  streamedHtmlMap.set(secId, html);
+                  send({ type: 'section_html', id: secId, customHtml: html });
+                }
+              } catch { /* non-fatal — injectThemeCSS fallback will cover this section */ }
+            })();
           },
         },
       });
@@ -1622,19 +1694,15 @@ ${layoutSummary}`;
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
       const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
 
-      // Download images for hero/showcase from the agent's already-generated URLs, then persist locally.
-      // All other sections use gradient (no image fetch). Running in parallel for hero + showcase.
+      // Resolve and persist images for ALL sections using content-based Pexels queries.
+      // Deduplication prevents the same photo appearing on multiple sections.
       if (ast?.sections) {
+        const usedImageHashes = new Set<string>(); // SHA-1 of file bytes — prevents identical images
+        const usedPexelsUrls = new Set<string>();  // prevents same URL assigned to two sections
+
         await Promise.all(
           ast.sections.map(async (sec) => {
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle, hasPexels);
-
-            if (chosenSource === 'gradient') {
-              sec.image.url = null;
-              sec.image.source = 'gradient';
-              return;
-            }
 
             if (sec.sectionType === 'hero' && urlHeroImageUrl) {
               try {
@@ -1642,37 +1710,45 @@ ${layoutSummary}`;
                 sec.image.url = localUrl;
                 sec.image.source = 'custom';
                 return;
-              } catch {
-                // fall through to DALL-E / Unsplash fallback
-              }
+              } catch { /* fall through */ }
             }
 
-            // hero/showcase: download the agent's URL locally (agent already called DALL-E)
-            const agentUrl = sec.image?.url;
-            let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
+            // Build a clean content-based query — never use DALL-E cinematic prompts for photo search
+            const pexelsQuery = buildPexelsQueryFromSection(sec.sectionType, sec.content);
+            let remoteUrl: string | null = null;
 
-            // Fallback: if agent didn't provide a URL, fetch from the configured source
-            if (!remoteUrl) {
-              const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
-              if (!query?.trim()) return;
-              if (chosenSource === 'pexels') {
-                remoteUrl = await fetchPexelsImageUrl(query);
-              } else if (chosenSource === 'dalle') {
-                const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
-                remoteUrl = await generateDalle3Image(prompt);
-              } else if (chosenSource === 'picsum') {
-                remoteUrl = buildPicsumUrl(query);
-              } else {
-                remoteUrl = await fetchUnsplashImageUrl(query);
+            if (hasPexels) {
+              // Try full query, then progressively shorter to get a unique result
+              const words = pexelsQuery.split(/\s+/);
+              const candidates = [pexelsQuery, words.slice(0, 2).join(' ')].filter((q, i, a) => q && a.indexOf(q) === i);
+              for (const q of candidates) {
+                const url = await fetchPexelsImageUrl(q);
+                if (url && !usedPexelsUrls.has(url)) { remoteUrl = url; usedPexelsUrls.add(url); break; }
               }
             }
-
+            if (!remoteUrl) remoteUrl = await fetchLoremflickrUrl(pexelsQuery);
+            if (!remoteUrl) remoteUrl = await fetchUnsplashImageUrl(pexelsQuery);
+            if (!remoteUrl) remoteUrl = buildPicsumUrl(pexelsQuery);
             if (!remoteUrl) return;
+
             try {
               const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              // Dedup by file content hash — reject identical bytes (cat image has fixed 248658 bytes)
+              const imgRes = await fetch(localUrl.startsWith('/') ? `http://localhost:${process.env.PORT ?? 3001}${localUrl}` : remoteUrl, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+              if (imgRes?.ok) {
+                const buf = Buffer.from(await imgRes.arrayBuffer());
+                const contentHash = require('node:crypto').createHash('sha1').update(buf).digest('hex').slice(0, 12);
+                if (usedImageHashes.has(contentHash)) {
+                  // Identical bytes already used — fall back to loremflickr with unique seed
+                  const fallbackUrl = await fetchLoremflickrUrl(`${sec.sectionType} ${pexelsQuery} ${secId}`);
+                  if (fallbackUrl) { sec.image.url = fallbackUrl; sec.image.source = 'loremflickr'; }
+                  return;
+                }
+                usedImageHashes.add(contentHash);
+              }
               sec.image.url = localUrl;
-              sec.image.source = chosenSource;
-            } catch { /* keep original remote URL on download failure */ }
+              sec.image.source = hasPexels ? 'pexels' : 'unsplash';
+            } catch { sec.image.url = remoteUrl; }
           }),
         );
       }
@@ -1696,13 +1772,28 @@ ${layoutSummary}`;
         } catch { /* keep remote URL */ }
       }
 
-      // Design skill Phase 2 — generate and inject CSS theme before sending complete event
+      // Inject HTML that was streamed per-section during generation into the final AST
+      if (ast?.sections && streamedHtmlMap.size > 0) {
+        for (const sec of ast.sections) {
+          const secId = (sec as unknown as { id?: string }).id;
+          if (secId) {
+            const html = streamedHtmlMap.get(secId);
+            if (html) (sec as unknown as { customHtml?: string }).customHtml = html;
+          }
+        }
+      }
+
+      // Design skill Phase 2+3 — pass cached CSS theme so Phase 2 is skipped;
+      // Phase 3 only runs for sections that didn't receive HTML during streaming
+      const cachedTheme = await cssThemePromise;
       if (ast) {
         await injectThemeCSS(
           ast as unknown as Record<string, unknown>,
           designTone,
           (body?.brand?.primaryColor as string | undefined),
           llmGenerateFn,
+          [],
+          cachedTheme ?? undefined,
         );
       }
 

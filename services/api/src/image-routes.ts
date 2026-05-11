@@ -25,13 +25,17 @@ interface GptImage1Response {
 
 // ── Source routing rules ──────────────────────────────────────────────────
 
-type ImageSource = 'pexels' | 'unsplash' | 'dalle' | 'picsum' | 'gradient';
+type ImageSource = 'pexels' | 'loremflickr' | 'unsplash' | 'dalle' | 'picsum' | 'gradient';
 
 // Sections that render custom HTML and benefit from a real background/panel image
 const VISUAL_SECTION_TYPES = new Set([
   'hero', 'showcase', 'overview', 'challenge', 'solution', 'approach',
   'features', 'feature-grid', 'feature-list', 'cta', 'problem-solution',
   'metrics', 'stats', 'case-study',
+  // All remaining section types also get real images — every section deserves a photo
+  'timeline', 'deliverables', 'pricing', 'whyus', 'nextsteps',
+  'generic', 'testimonials', 'benefits', 'casestudy', 'team',
+  'comparison', 'security', 'techstack', 'testing', 'faq',
 ]);
 
 /**
@@ -45,18 +49,39 @@ export function resolveImageSource(
   hasPexelsKey: boolean = false,
 ): ImageSource {
   if (!VISUAL_SECTION_TYPES.has(sectionType)) return 'gradient';
-  // Real photography beats AI generation — Pexels and Unsplash first
+  // Priority: Pexels → loremflickr → Unsplash → DALL-E → Picsum
   if (hasPexelsKey) return 'pexels';
-  if (hasUnsplashKey) return 'unsplash';
-  if (hasDalleKey) return 'dalle';
-  return 'picsum';
+  return 'loremflickr'; // loremflickr needs no key — always available
 }
+
 
 // ── Picsum helper (no API key, deterministic by seed) ────────────────────
 
 export function buildPicsumUrl(query: string): string {
   const seed = query.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   return `https://picsum.photos/seed/${seed || 'landscape'}/1920/1080`;
+}
+
+// ── loremflickr helper (no API key, keyword-based Flickr photos) ──────────
+
+export async function fetchLoremflickrUrl(query: string): Promise<string | null> {
+  const clean = sanitizeForPexels(query);
+  const keywords = clean
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+    .slice(0, 3)
+    .join(',') || 'nature';
+  let hash = 5381;
+  for (let i = 0; i < query.length; i++) hash = ((hash << 5) + hash) ^ query.charCodeAt(i);
+  const lock = Math.abs(hash) % 9999;
+  const url = `https://loremflickr.com/1200/800/${keywords}?lock=${lock}`;
+  try {
+    const res = await fetch(url, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(7000) });
+    if (res.ok && res.url && !res.url.includes('loremflickr.com/image/flash')) return res.url;
+    return url;
+  } catch { return null; }
 }
 
 // ── Unsplash helper ───────────────────────────────────────────────────────
@@ -88,14 +113,28 @@ interface PexelsResponse {
 
 function sanitizeForPexels(raw: string): string {
   return raw
-    // Strip DALL-E prompt prefixes
+    // Strip DALL-E prompt prefixes and instruction boilerplate
     .replace(/^dall-?e\s*\d*\s*prompt\s*:/i, '')
     .replace(/^dall-?e\s*\d*\s*:/i, '')
-    // Strip cinematic/photography jargon phrases
-    .replace(/cinematic\s+(photorealistic\s+)?scene\s+of\s+/i, '')
-    .replace(/photorealistic\s+(scene\s+of\s+)?/i, '')
-    .replace(/professional\s+photography[,.]?/gi, '')
-    .replace(/\b(4k|8k|hdr|raw\s+photo|golden\s+hour|soft\s+(natural\s+)?lighting|warm\s+lighting|cinematic\s+lighting|depth.of.field|bokeh|ultra.realistic|hyperrealistic|sharp\s+focus|f\/[\d.]+)\b[,.]?/gi, '')
+    .replace(/\bcinematic\s+(photorealistic\s+)?scene\s*(of\s*|:\s*)?/gi, '')
+    .replace(/\bphotorealistic\s+(scene\s+of\s+)?/gi, '')
+    // Strip "e.g. '...'" or e.g. "..." examples entirely
+    .replace(/[,.]?\s*e\.g\..*/gis, '')
+    // Strip "Describe subject, lighting, mood" boilerplate
+    .replace(/\.\s*describe\s+subject.*/gis, '')
+    // Keep only first sentence — second+ sentences are always atmosphere/mood
+    .replace(/\.\s+.+$/s, '')
+    // Strip "with [anything]" tail — in DALL-E prompts this is always lighting/colour atmosphere
+    .replace(/\bwith\s+.+$/i, '')
+    // Strip photography/quality jargon
+    .replace(/\b(4k|8k|hdr|raw\s+photo|golden\s+hour|soft\s+(natural\s+)?lighting|warm\s+lighting|cinematic\s+lighting|dramatic\s+(cinematic\s+)?lighting|depth[\s-]of[\s-]field|bokeh|ultra[\s-]?realistic|ultra[\s-]?detailed|hyperrealistic|sharp\s+focus|f\/[\d.]+|high[\s-]contrast|high[\s-]quality|professional\s+photography|chiaroscuro)\b[,.]?/gi, '')
+    // Strip mood/atmosphere adjectives
+    .replace(/\b(dramatic|moody|cinematic|retro[\s-]futuristic|atmospheric|striking|photogenic|futuristic|abstract|glowing|sleek|illuminating)\b[,.]?/gi, '')
+    // Strip colour atmosphere terms
+    .replace(/\b(phosphor|holographic|scanline|neon\s+accents?|deep\s+shadows?|warm\s+neon|electric[\s-]green|chiaroscuro)\b[,.]?/gi, '')
+    // Strip leading articles then any leading mood adjective left behind
+    .replace(/^(a|an|the)\s+/gi, '')
+    .replace(/^(dark|light|modern|sleek|clean|bright|deep)\s+/gi, '')
     .replace(/\b(capturing\s+the\s+essence\s+of|invoking\s+a\s+sense\s+of|joyful\s+expressions?|vibrant\s+colors?|inviting\s+atmosphere)\b[,.]?/gi, '')
     .trim()
     .replace(/^[,.\s]+|[,.\s]+$/g, '')
@@ -107,6 +146,8 @@ export async function fetchPexelsImageUrl(query: string): Promise<string | null>
   if (!key?.trim()) return null;
 
   const clean = sanitizeForPexels(query);
+  // Bail out if sanitization produced an unfilled placeholder
+  if (/\b(this section|visual mood|matching this|section content|your (section|image)|describe subject)\b/i.test(clean)) return null;
   // Try progressively shorter queries to maximise match probability
   const words = clean.trim().split(/\s+/);
   const candidates = [
@@ -398,7 +439,7 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
         id: string;
         sectionType: string;
         imageQuery: string;
-        source?: 'unsplash' | 'dalle' | 'auto';
+        source?: 'pexels' | 'loremflickr' | 'unsplash' | 'dalle' | 'auto';
         accentColor?: string;
       }>;
     };
@@ -407,6 +448,7 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
       return reply.status(400).send({ error: 'sections array required' });
     }
 
+    const hasPexels = !!(env.PEXELS_API_KEY?.trim());
     const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
 
@@ -417,11 +459,45 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
         }
 
         const source = (sec.source === 'auto' || !sec.source)
-          ? resolveImageSource(sec.sectionType, hasUnsplash, hasDalle)
+          ? resolveImageSource(sec.sectionType, hasUnsplash, hasDalle, hasPexels)
           : sec.source;
 
         if (source === 'gradient') {
           return { id: sec.id, url: null, source: 'gradient' as const };
+        }
+
+        // Cascade: Pexels → loremflickr → Unsplash → DALL-E → Picsum
+        if (source === 'pexels' || source === 'loremflickr') {
+          if (source === 'pexels') {
+            const pexelsUrl = await fetchPexelsImageUrl(sec.imageQuery);
+            if (pexelsUrl) return { id: sec.id, url: pexelsUrl, source: 'pexels' as const };
+          }
+          const flickrUrl = await fetchLoremflickrUrl(sec.imageQuery);
+          if (flickrUrl) return { id: sec.id, url: flickrUrl, source: 'loremflickr' as const };
+          if (hasUnsplash) {
+            const unsplashUrl = await fetchUnsplashImageUrl(sec.imageQuery);
+            if (unsplashUrl) return { id: sec.id, url: unsplashUrl, source: 'unsplash' as const };
+          }
+          if (hasDalle) {
+            const prompt = buildDallePrompt(sec.sectionType, sec.imageQuery, sec.accentColor);
+            const result = await generateGptImage1(prompt);
+            if (result) {
+              if (workdir) {
+                try {
+                  const ns = body.namespace?.trim() || 'batch';
+                  const hash = createHash('sha1').update(result.b64.slice(0, 64)).digest('hex').slice(0, 8);
+                  const filename = `${sec.id}-${hash}.png`;
+                  const destPath = join(workdir, 'assets', 'presentations', ns, 'images', filename);
+                  const saved = await saveBase64ToFile(result.b64, destPath);
+                  if (saved) return { id: sec.id, url: `/presentation-images/${ns}/${filename}`, source: 'dalle' as const };
+                } catch { /* fall through to data URI */ }
+              }
+              return { id: sec.id, url: `data:image/png;base64,${result.b64}`, source: 'dalle' as const };
+            }
+            const dalleUrl = await generateDalle3Image(buildDallePrompt(sec.sectionType, sec.imageQuery, sec.accentColor));
+            if (dalleUrl) return { id: sec.id, url: dalleUrl, source: 'dalle' as const };
+          }
+          return { id: sec.id, url: buildPicsumUrl(sec.imageQuery), source: 'picsum' as const };
         }
 
         if (source === 'dalle') {
@@ -440,7 +516,6 @@ export function registerImageRoutes(app: FastifyInstance, workdir?: string): voi
             }
             return { id: sec.id, url: `data:image/png;base64,${result.b64}`, source: 'dalle' as const };
           }
-          // fallback to DALL-E 3
           const dalleUrl = await generateDalle3Image(prompt);
           return { id: sec.id, url: dalleUrl, source: 'dalle' as const };
         }

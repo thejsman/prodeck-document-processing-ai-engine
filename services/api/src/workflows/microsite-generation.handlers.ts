@@ -25,8 +25,8 @@ import { ContextService } from '../chat/context.service.js';
 
 const DEFAULT_INSTRUCTIONS = [
   'Generate a comprehensive microsite using all content from the proposal.',
-  'Include as many sections as the content supports — aim for 10 or more.',
-  'Map all source headings to the most specific section type available.',
+  'Maximum 7 sections — consolidate related content rather than splitting into separate sections.',
+  'Each sectionType must be unique. Map all source headings to the most specific type available.',
   'Use diagrams only in sections where they are contextually appropriate.',
 ].join(' ');
 
@@ -511,6 +511,50 @@ export async function handleCollectingDesignInputs(ctx: HandlerContext): Promise
  *   6. Store micrositeArtifactId and layout AST in context.
  *   7. Signal DONE.
  */
+const SECTION_NAV_LABEL: Record<string, string> = {
+  hero: 'Home', overview: 'Overview', challenge: 'Challenge', problem: 'Problem',
+  approach: 'Approach', deliverables: 'Deliverables', timeline: 'Timeline',
+  pricing: 'Pricing', whyus: 'Why Us', nextsteps: 'Next Steps',
+  testimonials: 'Testimonials', showcase: 'Our Work', benefits: 'Key Benefits',
+  stats: 'Stats', metrics: 'Performance', security: 'Risk & Compliance',
+  techstack: 'Tech Stack', testing: 'Testing', faq: 'FAQs', team: 'Our Team',
+  comparison: 'How We Compare', casestudy: 'Case Study', approval: 'Sign Off',
+  generic: 'Details',
+};
+
+function deduplicateSections(ast: Record<string, unknown>): void {
+  const sections = ast.sections as Record<string, unknown>[] | undefined;
+  if (!Array.isArray(sections) || sections.length === 0) return;
+
+  const firstOccurrence = new Map<string, number>();
+  const toRemove: number[] = [];
+
+  sections.forEach((section, idx) => {
+    const type = section.sectionType as string;
+    if (firstOccurrence.has(type)) {
+      const firstIdx = firstOccurrence.get(type)!;
+      const first = sections[firstIdx];
+      // Merge customHtml — concatenate so no content is lost
+      const firstHtml = first.customHtml as string | undefined;
+      const thisHtml = section.customHtml as string | undefined;
+      if (thisHtml) {
+        first.customHtml = firstHtml ? `${firstHtml}\n${thisHtml}` : thisHtml;
+      }
+      toRemove.push(idx);
+    } else {
+      firstOccurrence.set(type, idx);
+      // Normalise heading to clean nav label so MicrositeNav always shows the mapped name
+      const label = SECTION_NAV_LABEL[type];
+      if (label) section.heading = label;
+    }
+  });
+
+  // Remove duplicates in reverse order to preserve indices
+  for (let i = toRemove.length - 1; i >= 0; i--) {
+    sections.splice(toRemove[i], 1);
+  }
+}
+
 export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<HandlerResult> {
   const { workdir, namespace, instance, onPhase, onChunk, onSection } = ctx;
 
@@ -617,6 +661,11 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
       (skillMetadata.brand as Record<string, unknown> | undefined)?.primaryColor as string | undefined,
       llmGenerateFn,
     );
+  }
+
+  // Deduplicate sections and normalise headings before persisting
+  if (agentOutput.json) {
+    deduplicateSections(agentOutput.json as Record<string, unknown>);
   }
 
   // Persist AST to disk so the microsite history endpoint can find it

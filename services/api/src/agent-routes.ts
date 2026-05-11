@@ -29,7 +29,7 @@ import { GenerateMermaidTool } from '@ai-engine/tool-generate-mermaid';
 import { SaveAssetTool } from '@ai-engine/tool-save-asset';
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from './provider-policy.js';
 import { appendEpisodicEntry } from './memory-util.js';
-import { buildPicsumUrl } from './image-routes.js';
+import { buildPicsumUrl, fetchPexelsImageUrl, fetchLoremflickrUrl, fetchUnsplashImageUrl as fetchUnsplashFromRoutes } from './image-routes.js';
 import { applyDesignSkill, injectThemeCSS } from './skills/design-skill-microsite.js';
 
 import { env } from 'node:process';
@@ -37,30 +37,6 @@ import { env } from 'node:process';
 /** Fetch a contextual landscape photo URL from the Unsplash API.
  *  Retries with progressively shorter queries if no photos are found.
  *  Returns null on any failure. */
-async function fetchUnsplashImageUrl(query: string): Promise<string | null> {
-  const key = env.UNSPLASH_ACCESS_KEY;
-  if (!key?.trim()) return null;
-
-  const words = query.trim().split(/\s+/);
-  // Try: full query → 3 words → 2 words → 1 word
-  const candidates = [query, words.slice(0, 3).join(' '), words.slice(0, 2).join(' '), words[0]].filter(
-    (q, i, arr) => q && arr.indexOf(q) === i,
-  ); // unique, non-empty
-
-  for (const q of candidates) {
-    try {
-      const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(q)}&orientation=landscape&client_id=${key}`;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const photo = (await res.json()) as { urls?: { regular?: string }; errors?: string[] };
-      if (photo.errors?.length || !photo.urls?.regular) continue;
-      return photo.urls.regular;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Register default agents and tools (idempotent)
@@ -613,28 +589,84 @@ export function registerAgentRoutes(
             }),
           );
 
-          // Resolve and persist hero image — Unsplash when key is set, Picsum otherwise
-          const hero = ast.sections.find((s) => s.sectionType === 'hero');
-          if (hero) {
-            const query = (hero.content.imageQuery as string | undefined) || hero.image?.query;
-            if (query) {
-              const remoteUrl = (await fetchUnsplashImageUrl(query)) ?? buildPicsumUrl(query);
-              try {
-                const hash = createHash('sha1').update(remoteUrl).digest('hex').slice(0, 8);
-                const filename = `hero-${hash}.jpg`;
-                const destPath = path.join(imagesDir, filename);
-                const imgRes = await fetch(remoteUrl, { signal: AbortSignal.timeout(15000) });
-                if (imgRes.ok) {
-                  await fsWriteFile(destPath, Buffer.from(await imgRes.arrayBuffer()));
-                  hero.image.url = `/presentation-images/${namespace}/${filename}`;
-                } else {
-                  hero.image.url = remoteUrl;
-                }
-              } catch {
-                hero.image.url = remoteUrl;
-              }
-            }
+          // Resolve real images for ALL sections — cascade: Pexels → loremflickr → Unsplash → Picsum
+          // Includes gradient sections — every section deserves a real image for Phase 3 HTML
+          const hasPexels = !!(process.env.PEXELS_API_KEY?.trim());
+          const usedImageUrls = new Set<string>(); // dedup tracker — prevents same photo on multiple sections
+
+          // Build a content-based fallback query from section data when cinematic prompt sanitizes poorly
+          type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
+          function buildFallbackQuery(section: AstSection): string {
+            const eyebrow = (section.content?.eyebrow as string | undefined) ?? '';
+            const headline = (section.content?.headline as string | undefined) ?? '';
+            const sectionType = section.sectionType ?? '';
+            const words = `${eyebrow} ${headline}`
+              .replace(/[^a-zA-Z0-9 ]/g, ' ')
+              .split(/\s+/)
+              .filter((w) => w.length > 3)
+              .slice(0, 4)
+              .join(' ');
+            return words || sectionType;
           }
+
+          await Promise.allSettled(
+            ast.sections
+              .filter((s) => {
+                const q = s.image?.query || (s.content?.imageQuery as string | undefined);
+                return !!q; // fetch for ALL sections that have any image query
+              })
+              .map(async (section) => {
+                const rawQuery = (section.content?.imageQuery as string | undefined) || section.image?.query || '';
+
+                let remoteUrl: string | null = null;
+
+                if (hasPexels) {
+                  remoteUrl = await fetchPexelsImageUrl(rawQuery);
+                  // If Pexels returned a duplicate, try the content-based fallback query
+                  if (remoteUrl && usedImageUrls.has(remoteUrl)) {
+                    const fallback = buildFallbackQuery(section);
+                    const alt = fallback !== rawQuery ? await fetchPexelsImageUrl(fallback) : null;
+                    remoteUrl = alt && !usedImageUrls.has(alt) ? alt : null;
+                  }
+                }
+                if (!remoteUrl) remoteUrl = await fetchLoremflickrUrl(rawQuery);
+                if (!remoteUrl) remoteUrl = await fetchUnsplashFromRoutes(rawQuery);
+                if (!remoteUrl) remoteUrl = buildPicsumUrl(rawQuery);
+
+                if (!remoteUrl) return;
+                usedImageUrls.add(remoteUrl);
+
+                try {
+                  const hash = createHash('sha1').update(remoteUrl).digest('hex').slice(0, 8);
+                  const filename = `${section.sectionType}-${hash}.jpg`;
+                  const destPath = path.join(imagesDir, filename);
+                  const imgRes = await fetch(remoteUrl, { signal: AbortSignal.timeout(15000) });
+                  if (imgRes.ok) {
+                    const buf = Buffer.from(await imgRes.arrayBuffer());
+                    // Deduplicate by file content hash — prevents same bytes saved under different names
+                    const contentHash = createHash('sha1').update(buf).digest('hex').slice(0, 8);
+                    if ([...usedImageUrls].some((u) => u.includes(contentHash))) {
+                      // Same file content already used — fall back to loremflickr with section-specific seed
+                      const flickrUrl = await fetchLoremflickrUrl(`${section.sectionType} ${buildFallbackQuery(section)}`);
+                      if (flickrUrl) {
+                        section.image.url = flickrUrl;
+                        section.image.source = 'loremflickr';
+                      }
+                      return;
+                    }
+                    usedImageUrls.add(contentHash);
+                    await fsWriteFile(destPath, buf);
+                    section.image.url = `/presentation-images/${namespace}/${filename}`;
+                    section.image.source = hasPexels && remoteUrl !== buildPicsumUrl(rawQuery) ? 'pexels' : 'loremflickr';
+                    console.log(`[agent-routes] Image resolved for "${section.sectionType}" → ${section.image.url}`);
+                  } else {
+                    section.image.url = remoteUrl;
+                  }
+                } catch {
+                  section.image.url = remoteUrl;
+                }
+              }),
+          );
           // Design skill Phase 2 — generate and inject CSS theme into LayoutAST before persisting
           await injectThemeCSS(
             ast as unknown as Record<string, unknown>,
