@@ -32,6 +32,46 @@ const TONES = [
 
 export type Tone = (typeof TONES)[number];
 
+// Maps client industry keywords to appropriate tones, preventing random dark/neon
+// themes from being applied to family recreation, healthcare, or other warm-context brands.
+const INDUSTRY_TONE_MAP: Array<{ keywords: string[]; tones: Tone[] }> = [
+  {
+    keywords: ['playground', 'trampoline', 'indoor recreation', 'recreation', 'family', 'park', 'bounce', 'leisure', 'entertainment center', 'amusement'],
+    tones: ['organic/natural', 'soft/pastel', 'playful/toy-like', 'editorial/magazine'],
+  },
+  {
+    keywords: ['healthcare', 'medical', 'clinic', 'hospital', 'wellness', 'health'],
+    tones: ['soft/pastel', 'organic/natural', 'brutally minimal'],
+  },
+  {
+    keywords: ['luxury', 'premium', 'high-end', 'fashion', 'jewellery', 'jewelry', 'yacht', 'hospitality', 'hotel', 'real estate'],
+    tones: ['luxury/refined', 'art deco/geometric', 'brutally minimal'],
+  },
+  {
+    keywords: ['saas', 'software', 'technology', 'platform', 'api', 'cloud', 'machine learning', 'data engineering'],
+    tones: ['brutally minimal', 'retro-futuristic', 'art deco/geometric', 'industrial/utilitarian'],
+  },
+  {
+    keywords: ['consulting', 'advisory', 'strategy', 'professional services', 'management consulting'],
+    tones: ['editorial/magazine', 'luxury/refined', 'brutally minimal'],
+  },
+  {
+    keywords: ['marketing', 'digital agency', 'creative agency', 'branding', 'advertising', 'seo agency'],
+    tones: ['editorial/magazine', 'brutally minimal', 'maximalist chaos'],
+  },
+];
+
+function selectToneForIndustry(clientIndustry: string): Tone | null {
+  if (!clientIndustry) return null;
+  const lower = clientIndustry.toLowerCase();
+  for (const entry of INDUSTRY_TONE_MAP) {
+    if (entry.keywords.some(k => lower.includes(k))) {
+      return entry.tones[Math.floor(Math.random() * entry.tones.length)];
+    }
+  }
+  return null;
+}
+
 export const CUSTOM_HTML_SECTION_TYPES = new Set([
   'hero', 'features', 'feature-grid', 'feature-list',
   'cta', 'overview', 'challenge', 'solution', 'approach',
@@ -60,8 +100,10 @@ export function applyDesignSkill(
     return { metadata, tone: defaultTone };
   }
 
-  // Fully random tone per generation — no deterministic bias from title hash
-  const tone = TONES[Math.floor(Math.random() * TONES.length)];
+  // Industry-aware tone selection: pick a contextually appropriate tone when clientIndustry
+  // is known, otherwise fall back to a fully random selection.
+  const clientIndustry = (metadata.clientIndustry as string | undefined) ?? '';
+  const tone = selectToneForIndustry(clientIndustry) ?? TONES[Math.floor(Math.random() * TONES.length)];
 
   // Keep customInstructions lean — full skill content goes to Phase 2 (CSS) and Phase 3 (HTML)
   // only. Sending 900 tokens here would repeat them for every Pass 2 section (8-15×).
@@ -69,7 +111,7 @@ export function applyDesignSkill(
     `⚙️ FRONTEND-DESIGN SKILL — aesthetic direction: "${tone}"`,
     `Commit fully to this direction in every section: typography, spacing, color, voice.`,
     `NEVER: Inter, Roboto, Arial, Space Grotesk, or safe centered card grids.`,
-    `SECTION PLANNING: Maximum 7 sections total. Each sectionType MUST be unique — never assign the same type to two sections. Prefer named types (challenge, approach, deliverables, timeline, pricing, whyus, nextsteps) over generic. Consolidate: all timeline/schedule content → one timeline section, all scope/deliverables → one deliverables section.`,
+    `SECTION PLANNING: Aim for 8–14 sections for comprehensive proposals. Each sectionType MUST be unique — never assign the same type to two sections. Prefer named types (challenge, approach, deliverables, timeline, pricing, whyus, nextsteps) over generic. Consolidate: all timeline/schedule content → one timeline section, all scope/deliverables → one deliverables section.`,
   ].join('\n');
 
   const existingInstructions = metadata.customInstructions as string | undefined;
@@ -175,6 +217,15 @@ export async function generateSectionHtml(
     `5. Responsive via flexbox/grid + @media for 320px-1440px`,
     `6. Load any Google Fonts you choose via @import in the <style> block`,
     ``,
+    `CONTENT REQUIREMENTS (mandatory — overrides visual preferences):`,
+    `- Body text: minimum font-size 16px — NEVER render proposal body copy below 15px`,
+    `- Section lead paragraphs: max-width 640px, font-size 17–18px for readability`,
+    `- Every section MUST have: eyebrow label + headline + at least one body paragraph of ≥50 words`,
+    `- Do NOT render a section as heading + list only — always precede the list with a contextual body paragraph`,
+    `- Card/grid sections: each card MUST have a title AND a description of ≥2 sentences`,
+    `- Timeline sections: show phase name, duration, AND owner (Agency/Client/Joint) if present in content JSON`,
+    `- Deliverables sections: show bullet-point deliverables per workstream, NOT just workstream names`,
+    ``,
     `ASSIGNED LAYOUT: ${LAYOUT_LETTERS[layoutIndex % LAYOUT_LETTERS.length]} — execute this structure exactly, no substitutions:`,
     `A. Asymmetric split (60/40 or 70/30) — text left, visual right (or reversed)`,
     `B. Full-bleed with large background + floating glass/frosted content`,
@@ -199,12 +250,13 @@ export interface CSSTheme {
   fontFaceDeclarations?: string;
 }
 
-function buildCSSPrompt(tone: string, brandPrimaryColor: string | undefined): string {
+function buildCSSPrompt(tone: string, brandPrimaryColor: string | undefined, industryContext?: string): string {
   return [
     `You are applying the frontend-design skill to generate CSS design tokens for a microsite.`,
     ``,
     `The chosen aesthetic direction is: "${tone}"`,
     `Brand primary color hint: ${brandPrimaryColor ?? 'none — choose what best fits the aesthetic'}`,
+    industryContext ? `Client industry context: ${industryContext}` : '',
     ``,
     `=== FRONTEND-DESIGN SKILL (apply strictly) ===`,
     SKILL_CONTENT,
@@ -247,6 +299,9 @@ function buildCSSPrompt(tone: string, brandPrimaryColor: string | undefined): st
     `- LIGHT THEME TONES — --ms-is-dark MUST be "0" and --ms-bg MUST be light (#f0f0f0 to #ffffff range): soft/pastel, organic/natural, playful/toy-like`,
     `- brutally minimal can be dark or light — your choice, but commit to one extreme`,
     `- Current tone is "${tone}" — enforce the correct dark/light rule above with NO exceptions`,
+    industryContext
+      ? `- INDUSTRY CONTEXT OVERRIDE: The client industry is "${industryContext}". If it contains any of: recreation, playground, trampoline, family, park, wellness, healthcare, amusement — you MUST use a light, warm palette (--ms-bg: light warm colour, --ms-is-dark: "0") regardless of the tone above.`
+      : '',
     `- --ms-accent-rgb: RGB numbers of --ms-accent with no # or rgba wrapper (e.g. 99,102,241)`,
     `- fontFaceDeclarations: one @keyframes ms-entrance block only`,
     `- No two generations should look the same — commit fully to the "${tone}" direction`,
@@ -260,10 +315,11 @@ export async function generateThemeCSSTokens(
   tone: string,
   brandPrimaryColor: string | undefined,
   generateFn: (prompt: string) => Promise<string>,
+  clientIndustry?: string,
 ): Promise<CSSTheme | null> {
   if (!SKILL_CONTENT) return null;
   try {
-    const raw = await generateFn(buildCSSPrompt(tone, brandPrimaryColor));
+    const raw = await generateFn(buildCSSPrompt(tone, brandPrimaryColor, clientIndustry));
     const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
@@ -285,6 +341,7 @@ export async function injectThemeCSS(
   generateFn: (prompt: string) => Promise<string>,
   extraImageUrls: string[] = [],
   precomputedTheme?: CSSTheme,
+  clientIndustry?: string,
 ): Promise<void> {
   if (!SKILL_CONTENT && !precomputedTheme) return;
 
@@ -293,7 +350,7 @@ export async function injectThemeCSS(
 
   if (!theme) {
     try {
-      theme = await generateThemeCSSTokens(tone, brandPrimaryColor, generateFn);
+      theme = await generateThemeCSSTokens(tone, brandPrimaryColor, generateFn, clientIndustry);
     } catch (err) {
       console.warn('[design-skill-microsite] Phase 2 CSS generation failed (non-fatal):', err instanceof Error ? err.message : err);
       return;

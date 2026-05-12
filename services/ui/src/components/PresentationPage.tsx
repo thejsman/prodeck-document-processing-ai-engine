@@ -1274,7 +1274,12 @@ export function PresentationPage() {
           }
         }}
         onRegenerate={generating ? undefined : () => setStep("generate")}
-        onEdit={generating ? undefined : () => setShowEditor(true)}
+        onEdit={generating ? undefined : () => {
+          // Navigate to MicrositeEditorPro — fire-and-forget save so AST is fresh on load
+          const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
+          saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST).catch(() => {});
+          router.push(`/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`);
+        }}
         namespace={selectedNamespace}
         proposalId={layoutAST.proposalId}
       />

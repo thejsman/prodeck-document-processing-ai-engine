@@ -37,6 +37,14 @@ import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
+  generateMicrositeDirectly,
+  generateMicrositeStream as generateMicrositeStreamDirect,
+} from './direct-microsite-generator.js';
+import {
+  generateStructuredMicrosite,
+  assignSectionIds,
+} from './structured-microsite-generator.js';
+import {
   fetchUnsplashImageUrl,
   fetchPexelsImageUrl,
   fetchLoremflickrUrl,
@@ -1327,13 +1335,14 @@ ${layoutSummary}`;
 
     // Build Brief-aware instructions for this namespace
     let briefPrefix = '';
+    let clientIndustry = 'general';
     try {
       const ctxSvc = new ContextService(workdir);
       const ctx = await ctxSvc.get(namespace);
       const fields = ctx?.requirements?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
       const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       briefPrefix = [
         buildBriefFramingRule(projectType, clientName, clientIndustry),
         '',
@@ -1348,6 +1357,7 @@ ${layoutSummary}`;
       ? `${briefPrefix}${body.customInstructions}`
       : briefPrefix || undefined;
 
+    const _generationStart = Date.now();
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
@@ -1415,6 +1425,14 @@ ${layoutSummary}`;
         const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
         await mkdir(path.dirname(astPath), { recursive: true });
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const _sectionTypes = ast.sections.map((s: AstSection) => s.sectionType);
+        console.log(
+          `[microsite-gen] Complete — namespace=${namespace}` +
+          ` sections=${_sectionTypes.length} (${_sectionTypes.join(', ')})` +
+          ` industry="${clientIndustry}"` +
+          ` hasWhyUs=${_sectionTypes.includes('whyus')} hasTimeline=${_sectionTypes.includes('timeline')}` +
+          ` hasPricing=${_sectionTypes.includes('pricing')} elapsed=${Date.now() - _generationStart}ms`,
+        );
       }
 
       return reply.send({ ast: result.json ?? null, assets: result.assets ?? [] });
@@ -1535,17 +1553,19 @@ ${layoutSummary}`;
     const PDF_ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
     const PDF_MAX_PER_SLIDE = 4;
 
-    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry
+    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry.
+    // clientIndustry is hoisted so it can be passed to the design-skill for industry-aware tone.
     let streamBriefPrefix = '';
+    let streamClientIndustry = 'general';
     try {
       const ctxSvc = new ContextService(workdir);
       const ctx = await ctxSvc.get(namespace);
       const fields = ctx?.requirements?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
       const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      streamClientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       streamBriefPrefix = [
-        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        buildBriefFramingRule(projectType, clientName, streamClientIndustry),
         '',
         buildSectionTypeGuidance(projectType),
         '',
@@ -1558,13 +1578,17 @@ ${layoutSummary}`;
       ? `${streamBriefPrefix}${body.customInstructions}`
       : streamBriefPrefix || undefined;
 
-    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs
+    const _generationStart = Date.now();
+
+    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs.
+    // Pass clientIndustry so the skill can select a contextually appropriate tone.
     const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
       'microsite-generator-agent',
       {
         proposalMarkdown: markdown,
         plugin: body?.plugin ?? 'cobalt',
         brand: body?.brand ?? {},
+        clientIndustry: streamClientIndustry,
         ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
         ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
       },
@@ -1576,6 +1600,7 @@ ${layoutSummary}`;
       designTone as string,
       body?.brand?.primaryColor as string | undefined,
       llmGenerateFn,
+      streamClientIndustry,
     ).catch(() => null);
 
     // Track per-section HTML generated during streaming so we can inject it into the final AST
@@ -1794,6 +1819,7 @@ ${layoutSummary}`;
           llmGenerateFn,
           [],
           cachedTheme ?? undefined,
+          streamClientIndustry,
         );
       }
 
@@ -1801,7 +1827,368 @@ ${layoutSummary}`;
       send({ type: 'complete', ast });
       if (ast?.sections) {
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const _sectionTypes = (ast.sections as Array<{ sectionType: string }>).map(s => s.sectionType);
+        console.log(
+          `[microsite-gen] Complete — namespace=${namespace}` +
+          ` sections=${_sectionTypes.length} (${_sectionTypes.join(', ')})` +
+          ` tone="${designTone}" industry="${streamClientIndustry}"` +
+          ` hasWhyUs=${_sectionTypes.includes('whyus')} hasTimeline=${_sectionTypes.includes('timeline')}` +
+          ` hasPricing=${_sectionTypes.includes('pricing')} elapsed=${Date.now() - _generationStart}ms`,
+        );
       }
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      reply.raw.end();
+    }
+  });
+
+  // ── Direct single-pass generation routes ──────────────────────────────────
+  // These bypass the multi-step agent pipeline entirely. One LLM call reads
+  // the full proposal and writes complete HTML directly — no AST, no themes.
+
+  // POST /presentations/:namespace/:proposalId/generate-direct
+  // Non-streaming direct generation. Returns { html, elapsed }.
+  app.post('/presentations/:namespace/:proposalId/generate-direct', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown> } | undefined;
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Load proposal markdown — from body first, then disk
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        const mdPath = resolveProposalMdPath(workdir, pres.fileName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through to direct fallback */ }
+    }
+    // Fallback: treat proposalId as the fileName directly (handles namespace::file format)
+    if (!markdown) {
+      try {
+        const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+        const mdPath = resolveProposalMdPath(workdir, fallbackName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through */ }
+    }
+    if (!markdown) return reply.code(400).send({ error: 'proposalMarkdown is required' });
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY is not configured' });
+
+    // Read context.json for brand info
+    let brandConfig: { companyName: string; primaryColor?: string; industry?: string; clientName?: string } = { companyName: '' };
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      brandConfig = {
+        companyName: (fields.clientName?.value as string | undefined) ?? '',
+        clientName:  (fields.clientName?.value as string | undefined) ?? '',
+        industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+        primaryColor: undefined,
+      };
+    } catch { /* non-fatal */ }
+
+    // Apply any brandConfig overrides from request body
+    if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
+
+    try {
+      const { html, elapsed } = await generateMicrositeDirectly({ proposalMarkdown: markdown, brandConfig }, apiKey, model);
+      const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+      await mkdir(path.dirname(htmlPath), { recursive: true });
+      await writeFile(htmlPath, html, 'utf-8');
+      console.log(`[direct-gen] Complete — namespace=${namespace} elapsed=${elapsed}ms size=${html.length}`);
+      return reply.send({ html, elapsed });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: `Direct generation failed: ${message}` });
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/generate-direct-stream
+  // Streaming direct generation via SSE.
+  // Events: { type: 'start' } | { type: 'html_chunk', chunk } | { type: 'complete', elapsed, size } | { type: 'error', message }
+  app.post('/presentations/:namespace/:proposalId/generate-direct-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown> } | undefined;
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Setup SSE
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (data: Record<string, unknown>) => {
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Load markdown — from body first, then disk
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        const mdPath = resolveProposalMdPath(workdir, pres.fileName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through to direct fallback */ }
+    }
+    // Fallback: treat proposalId as the fileName directly (handles namespace::file format)
+    if (!markdown) {
+      try {
+        const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+        const mdPath = resolveProposalMdPath(workdir, fallbackName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through */ }
+    }
+    if (!markdown || !apiKey) {
+      send({ type: 'error', message: !markdown ? 'proposalMarkdown is required' : 'ANTHROPIC_API_KEY is not configured' });
+      reply.raw.end();
+      return;
+    }
+
+    // Read context.json for brand info
+    let brandConfig: { companyName: string; primaryColor?: string; industry?: string; clientName?: string } = { companyName: '' };
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      brandConfig = {
+        companyName: (fields.clientName?.value as string | undefined) ?? '',
+        clientName:  (fields.clientName?.value as string | undefined) ?? '',
+        industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+        primaryColor: undefined,
+      };
+    } catch { /* non-fatal */ }
+    if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
+
+    try {
+      send({ type: 'start' });
+      let accumulated = '';
+
+      await generateMicrositeStreamDirect(
+        { proposalMarkdown: markdown, brandConfig },
+        (chunk) => {
+          accumulated += chunk;
+          send({ type: 'html_chunk', chunk });
+        },
+        async ({ elapsed }) => {
+          const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+          await mkdir(path.dirname(htmlPath), { recursive: true });
+          await writeFile(htmlPath, accumulated, 'utf-8');
+          console.log(`[direct-gen] Stream complete — namespace=${namespace} elapsed=${elapsed}ms size=${accumulated.length}`);
+          send({ type: 'complete', elapsed, size: accumulated.length });
+          reply.raw.end();
+        },
+        apiKey,
+        model,
+      );
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      reply.raw.end();
+    }
+  });
+
+  // GET /presentations/:namespace/:proposalId/site-html
+  // Serve the directly-generated HTML file (text/html).
+  app.get('/presentations/:namespace/:proposalId/site-html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+    try {
+      const html = await readFile(htmlPath, 'utf-8');
+      return reply.type('text/html').send(html);
+    } catch {
+      return reply.code(404).send({ error: 'No direct HTML generated yet for this namespace' });
+    }
+  });
+
+  // ── Structured single-pass generation ────────────────────────────────────────
+  // POST /presentations/:namespace/:proposalId/generate-structured-stream
+  // One LLM call → complete AST (all sections with content fields, no customHtml).
+  // Streams the same SSE event types as /generate-stream so PresentationPage works
+  // without modification. Sections render via existing typed React components and
+  // are fully editable in the editor.
+  app.post('/presentations/:namespace/:proposalId/generate-structured-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string } | undefined;
+    const apiKey  = env.ANTHROPIC_API_KEY ?? '';
+    const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Setup SSE
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (data: Record<string, unknown>) => reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+
+    try {
+      // Load markdown — body first, then disk (with fallback)
+      let markdown = body?.proposalMarkdown ?? '';
+      if (!markdown) {
+        try {
+          const pres = await getPresentation(workdir, namespace, proposalId);
+          markdown = await readFile(resolveProposalMdPath(workdir, pres.fileName, namespace), 'utf-8');
+        } catch { /* fall through */ }
+      }
+      if (!markdown) {
+        try {
+          const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+          markdown = await readFile(resolveProposalMdPath(workdir, fallbackName, namespace), 'utf-8');
+        } catch { /* fall through */ }
+      }
+      if (!markdown) { send({ type: 'error', message: 'Could not load proposal markdown' }); reply.raw.end(); return; }
+      if (!apiKey)   { send({ type: 'error', message: 'ANTHROPIC_API_KEY not configured' });  reply.raw.end(); return; }
+
+      // Read brand/context from context.json
+      let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+      try {
+        const ctxSvc = new ContextService(workdir);
+        const ctx    = await ctxSvc.get(namespace);
+        const fields = ctx?.requirements?.fields ?? {};
+        brandHint = {
+          companyName:  (fields.clientName?.value as string | undefined) ?? '',
+          clientName:   (fields.clientName?.value as string | undefined) ?? '',
+          industry:     (fields.clientIndustry?.value as string | undefined) ?? '',
+          primaryColor: (body?.brand?.primaryColor as string | undefined),
+        };
+      } catch { /* non-fatal */ }
+
+      send({ type: 'start', message: 'Structured generation started' });
+      const _t0 = Date.now();
+
+      // Phase 1 + CSS in parallel:
+      //   - Single LLM call → complete AST structure
+      //   - CSS token generation (industry-aware tone selection)
+      const clientIndustry = brandHint.industry ?? '';
+      const { tone: structuredTone } = applyDesignSkill('microsite-generator-agent', {
+        proposalMarkdown: markdown,
+        clientIndustry,
+      });
+
+      const [ast, cssTheme] = await Promise.all([
+        generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
+        generateThemeCSSTokens(structuredTone as string, brandHint.primaryColor, llmGenerateFn, clientIndustry)
+          .catch(() => null),
+      ]);
+
+      const sections = assignSectionIds(ast.sections);
+      ast.sections   = sections;
+
+      // Inject CSS theme into brand
+      if (cssTheme) {
+        ast.brand = {
+          ...ast.brand,
+          extractedCssVariables: cssTheme.cssVars,
+          overrideTheme: true,
+          ...(cssTheme.googleFontsUrl ? { googleFontsUrl: cssTheme.googleFontsUrl } : {}),
+          ...(cssTheme.fontFaceDeclarations ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations } : {}),
+        } as typeof ast.brand;
+      }
+
+      // Stream plan + section events so PresentationPage shows progress
+      send({ type: 'plan', totalSections: sections.length, sectionTypes: sections.map(s => s.sectionType) });
+      for (let i = 0; i < sections.length; i++) {
+        const s = sections[i];
+        send({ type: 'section', id: s.id, sectionType: s.sectionType, heading: s.heading, content: s.content, image: s.image, index: i });
+      }
+
+      // Phase 2: Generate customHtml for all sections using a dedicated 5-concurrent
+      // function isolated from the global LLM bridge pool (which stays at size=2 for
+      // chat, proposals, and agents). Includes 429 retry so it's production-safe.
+      send({ type: 'progress', message: 'Generating section HTML in parallel…' });
+      if (cssTheme) {
+        // Dedicated generate function for microsite HTML — does NOT use the global
+        // LLM_BRIDGE_POOL so the rest of the app is unaffected.
+        const micrositeGenerateFn = async (prompt: string): Promise<string> => {
+          const MAX_RETRIES = 3;
+          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            const r = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model,
+                max_tokens: 8000,
+                messages: [{ role: 'user', content: prompt }],
+              }),
+            });
+
+            if (r.status === 429) {
+              // Rate limited — back off before retrying
+              const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
+              const delay = retryAfter * 1000 * (attempt + 1);
+              console.warn(`[structured-gen] 429 rate limit — retrying in ${delay}ms (attempt ${attempt + 1})`);
+              await new Promise(res => setTimeout(res, delay));
+              continue;
+            }
+
+            if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+            const d = await r.json() as { content: Array<{ type: string; text: string }> };
+            return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+          }
+          throw new Error('Microsite HTML generation: max retries exceeded');
+        };
+
+        const CONCURRENCY = 5; // isolated from the global pool; rest of app unaffected
+        const targets = sections.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType));
+        let cursor = 0;
+
+        async function htmlWorker() {
+          while (cursor < targets.length) {
+            const section = targets[cursor++];
+            const idx     = sections.indexOf(section);
+            try {
+              const html = await generateSectionHtml(
+                section as unknown as Record<string, unknown>,
+                structuredTone as import('../skills/design-skill-microsite.js').Tone,
+                cssTheme!.cssVars,
+                null,
+                micrositeGenerateFn,
+                idx,
+              );
+              section.customHtml = html;
+              send({ type: 'section_html', id: section.id, customHtml: html });
+              console.log(`[structured-gen] HTML done: ${section.sectionType} (${idx + 1}/${sections.length})`);
+            } catch (err) {
+              console.warn(`[structured-gen] HTML failed: ${section.sectionType}:`, err instanceof Error ? err.message : err);
+            }
+          }
+        }
+
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()),
+        );
+      }
+
+      // Persist AST to disk
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      await mkdir(path.dirname(astPath), { recursive: true });
+      await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+
+      const elapsed = Date.now() - _t0;
+      console.log(`[structured-gen] Complete — namespace=${namespace} sections=${sections.length} tone="${structuredTone}" elapsed=${elapsed}ms`);
+
+      send({ type: 'complete', ast });
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -1882,6 +2269,120 @@ ${layoutSummary}`;
 
     const url = `/presentation-images/${namespace}/${logoFilename}`;
     return reply.send({ url });
+  });
+
+  // ── MicrositeEditorPro endpoints ─────────────────────────────────────────────
+
+  // POST /presentations/:namespace/:proposalId/regenerate-section
+  // Regenerates the customHtml for a single section using the existing AST content
+  // and CSS vars. Used by MicrositeEditorPro's per-section Regenerate button.
+  // Body: { sectionId: string; currentAst: object }
+  // Returns: { sectionId: string; html: string; elapsed: number }
+  app.post('/presentations/:namespace/:proposalId/regenerate-section', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { sectionId?: string; currentAst?: Record<string, unknown> } | undefined;
+    const sectionId = body?.sectionId?.trim();
+    if (!sectionId) return reply.code(400).send({ error: 'sectionId is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    // Load AST from body or fall back to saved file
+    let ast = body?.currentAst;
+    if (!ast) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      try { ast = JSON.parse(await readFile(astPath, 'utf-8')) as Record<string, unknown>; }
+      catch { return reply.code(404).send({ error: 'No AST found' }); }
+    }
+
+    const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const sectionIdx = sections?.findIndex(s => s.id === sectionId) ?? -1;
+    if (sectionIdx < 0) return reply.code(404).send({ error: `Section ${sectionId} not found in AST` });
+    const section = sections![sectionIdx];
+
+    // Get CSS vars and tone from the AST brand
+    const brand = ast.brand as Record<string, unknown> | undefined;
+    const cssVars = (brand?.extractedCssVariables as Record<string, string> | undefined) ?? {};
+    const tone: import('../skills/design-skill-microsite.js').Tone = 'editorial/magazine';
+
+    // Dedicated generate function with retry — isolated from global bridge pool
+    const regenFn = async (prompt: string): Promise<string> => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+          await new Promise(res => setTimeout(res, delay));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+        const d = await r.json() as { content: Array<{ type: string; text: string }> };
+        return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      }
+      throw new Error('Max retries exceeded');
+    };
+
+    const t0 = Date.now();
+    try {
+      const html = await generateSectionHtml(section, tone, cssVars, null, regenFn, sectionIdx);
+      return reply.send({ sectionId, html, elapsed: Date.now() - t0 });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: `Section regeneration failed: ${message}` });
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/edit-section-html
+  // Natural language edit: applies a user instruction to a section's existing HTML.
+  // The AI returns ONLY the modified HTML — no explanation, no markdown.
+  // Body: { sectionHtml: string; instruction: string }
+  // Returns: { html: string }
+  app.post('/presentations/:namespace/:proposalId/edit-section-html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { sectionHtml?: string; instruction?: string } | undefined;
+    const sectionHtml = body?.sectionHtml?.trim();
+    const instruction = body?.instruction?.trim();
+    if (!sectionHtml) return reply.code(400).send({ error: 'sectionHtml is required' });
+    if (!instruction) return reply.code(400).send({ error: 'instruction is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    const systemPrompt = 'You are an HTML editor. You will receive a section\'s HTML and a user instruction. Return ONLY the modified HTML for that section with no explanation, no markdown, no code fences. Start directly with the opening HTML tag.';
+    const userPrompt   = `USER INSTRUCTION: ${instruction}\n\nSECTION HTML:\n${sectionHtml}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model, max_tokens: 8000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (r.status === 429) {
+        const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      if (!r.ok) return reply.code(502).send({ error: `Anthropic ${r.status}: ${await r.text()}` });
+      const d = await r.json() as { content: Array<{ type: string; text: string }> };
+      const html = d.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      return reply.send({ html });
+    }
+    return reply.code(502).send({ error: 'Max retries exceeded' });
   });
 
   // POST /presentations/:namespace/:proposalId/design-edit

@@ -1,27 +1,44 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { LoaderCircle, AlertTriangle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { LoaderCircle, AlertTriangle, Zap } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { fetchMicrositeContent } from '@/lib/api';
+import { fetchMicrositeContent, fetchMicrositeDirectHtml, generateMicrositeDirectStream } from '@/lib/api';
 import { Microsite } from '@/components/microsite/Microsite';
 import type { LayoutAST } from '@/types/presentation';
+
+type ViewMode = 'direct' | 'ast';
 
 export default function MicrositeViewPage() {
   const { namespace, proposalId } = useParams<{ namespace: string; proposalId: string }>();
   const { apiKey } = useAuth();
+  const router = useRouter();
+
   const [ast, setAst] = useState<LayoutAST | null>(null);
+  const [directHtml, setDirectHtml] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('direct');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Fast generation state
+  const [generating, setGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState(0);   // 0-100
+  const [genMsg, setGenMsg]           = useState('');
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
-    fetchMicrositeContent(apiKey, namespace, proposalId)
-      .then(({ ast: data }) => {
+    Promise.all([
+      fetchMicrositeDirectHtml(apiKey, namespace, proposalId).catch(() => null),
+      fetchMicrositeContent(apiKey, namespace, proposalId).catch(() => ({ ast: null })),
+    ])
+      .then(([html, { ast: data }]) => {
+        setDirectHtml(html);
         setAst(data as LayoutAST | null);
+        setViewMode(html ? 'direct' : 'ast');
         setLoading(false);
       })
       .catch(err => {
@@ -30,6 +47,62 @@ export default function MicrositeViewPage() {
       });
   }, [apiKey, namespace, proposalId]);
 
+  async function startFastGeneration() {
+    if (!apiKey || !namespace || !proposalId || generating) return;
+    abortRef.current = new AbortController();
+    setGenerating(true);
+    setGenProgress(2);
+    setGenMsg('Reading proposal…');
+
+    let accumulated = '';
+    let charCount   = 0;
+    const EXPECTED_CHARS = 120_000; // ~32 000 tokens × ~3.75 chars/token
+
+    try {
+      await generateMicrositeDirectStream(
+        apiKey,
+        namespace,
+        proposalId,
+        { signal: abortRef.current.signal },
+        (event) => {
+          if (event.type === 'start') {
+            setGenMsg('Generating microsite…');
+            setGenProgress(5);
+          } else if (event.type === 'html_chunk' && event.chunk) {
+            accumulated += event.chunk;
+            charCount   += event.chunk.length;
+            // Progress: 5 % start → 95 % near end, based on expected output size
+            const pct = Math.min(95, 5 + Math.round((charCount / EXPECTED_CHARS) * 90));
+            setGenProgress(pct);
+            setGenMsg(`Writing HTML… (${Math.round(charCount / 1000)} KB)`);
+          } else if (event.type === 'complete') {
+            setGenProgress(100);
+            setGenMsg(`Done — ${Math.round((event.size ?? charCount) / 1000)} KB in ${Math.round((event.elapsed ?? 0) / 1000)} s`);
+            setDirectHtml(accumulated);
+            setViewMode('direct');
+            setGenerating(false);
+          } else if (event.type === 'error') {
+            setGenMsg(`Error: ${event.message ?? 'Generation failed'}`);
+            setGenerating(false);
+          }
+        },
+      );
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        setGenMsg(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      setGenerating(false);
+    }
+  }
+
+  function cancelGeneration() {
+    abortRef.current?.abort();
+    setGenerating(false);
+    setGenMsg('');
+    setGenProgress(0);
+  }
+
+  // ── Loading / error screens ────────────────────────────────────────────────
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0a0a0a', color: '#fff' }}>
@@ -54,17 +127,119 @@ export default function MicrositeViewPage() {
     );
   }
 
-  if (!ast) {
+  // ── Nothing generated yet ──────────────────────────────────────────────────
+  if (!directHtml && !ast) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0a0a0a', color: '#fff' }}>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: 48, marginBottom: 12, lineHeight: 1.1 }}>📄</p>
           <p style={{ fontSize: 16, fontWeight: 400, lineHeight: 1.5, letterSpacing: '0em' }}>No microsite generated yet</p>
-          <p style={{ fontSize: 13, color: '#888', marginTop: 8, lineHeight: 1.5, letterSpacing: '0.01em' }}>Generate a microsite first from the presentation builder.</p>
+          <p style={{ fontSize: 13, color: '#888', marginTop: 8, lineHeight: 1.5, letterSpacing: '0.01em' }}>Generate from the presentation builder or use fast mode below.</p>
+          <button
+            onClick={startFastGeneration}
+            disabled={generating}
+            style={{
+              marginTop: 20, display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '10px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: '#f59e0b', color: '#000', fontWeight: 600, fontSize: 14,
+            }}
+          >
+            <Icon icon={Zap} size="sm" /> Generate Fast (~20 s)
+          </button>
         </div>
       </div>
     );
   }
 
-  return <Microsite ast={ast} mode="fullscreen" />;
+  // ── Fast-generation progress overlay ──────────────────────────────────────
+  const genOverlay = generating ? (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100000,
+      background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: 16, color: '#fff',
+    }}>
+      <p style={{ fontSize: 14, fontWeight: 600, letterSpacing: '0.02em' }}>⚡ Fast Generation</p>
+      <div style={{ width: 320, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+        <div style={{
+          height: '100%', borderRadius: 3, background: '#f59e0b',
+          width: `${genProgress}%`, transition: 'width 0.4s ease',
+        }} />
+      </div>
+      <p style={{ fontSize: 13, color: '#aaa' }}>{genMsg}</p>
+      <button onClick={cancelGeneration} style={{
+        marginTop: 4, padding: '6px 16px', borderRadius: 6, border: '1px solid #444',
+        background: 'transparent', color: '#888', cursor: 'pointer', fontSize: 12,
+      }}>Cancel</button>
+    </div>
+  ) : null;
+
+  // ── Toolbar (view toggle + generate fast button) ───────────────────────────
+  const toolbar = (
+    <div style={{
+      position: 'fixed', top: 12, right: 16, zIndex: 99999,
+      display: 'flex', alignItems: 'center', gap: 6,
+      background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(8px)',
+      borderRadius: 8, padding: '4px 6px',
+    }}>
+      {/* View toggle — only when both versions exist */}
+      {directHtml && ast && (['direct', 'ast'] as ViewMode[]).map(mode => (
+        <button
+          key={mode}
+          onClick={() => setViewMode(mode)}
+          style={{
+            padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+            fontSize: 12, fontWeight: 500,
+            background: viewMode === mode ? '#fff' : 'transparent',
+            color: viewMode === mode ? '#000' : '#aaa',
+          }}
+        >
+          {mode === 'direct' ? 'Direct HTML' : 'Editor View'}
+        </button>
+      ))}
+
+      {/* Generate Fast button */}
+      <button
+        onClick={startFastGeneration}
+        disabled={generating}
+        title="Generate a new single-pass microsite (~20 s)"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          padding: '4px 10px', borderRadius: 6, border: 'none', cursor: generating ? 'default' : 'pointer',
+          background: generating ? 'rgba(245,158,11,0.3)' : '#f59e0b',
+          color: generating ? '#aaa' : '#000', fontSize: 12, fontWeight: 600,
+          opacity: generating ? 0.6 : 1,
+        }}
+      >
+        <Icon icon={Zap} size="sm" />
+        {generating ? `${genProgress}%` : '⚡ Generate Fast'}
+      </button>
+    </div>
+  );
+
+  if (viewMode === 'direct' && directHtml) {
+    return (
+      <>
+        {genOverlay}
+        {toolbar}
+        <iframe
+          srcDoc={directHtml}
+          sandbox="allow-scripts allow-same-origin"
+          style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
+          title="Generated Microsite"
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {genOverlay}
+      {toolbar}
+      <Microsite
+        ast={ast!}
+        mode="fullscreen"
+        onEdit={() => router.push(`/microsite-editor-pro/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`)}
+      />
+    </>
+  );
 }

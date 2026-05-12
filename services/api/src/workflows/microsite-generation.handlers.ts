@@ -66,6 +66,11 @@ export function buildBriefFramingRule(
     `  - All other titles must stand alone without the client name.`,
     `  - CORRECT titles: "Our Approach", "Campaign Strategy", "Why Choose Us", "Implementation Phases"`,
     `  - WRONG titles: "${clientName} Risk Management", "Phases for ${clientName} Success", "${clientName} Background"`,
+    '',
+    'HERO HEADLINE SOURCING RULE:',
+    `  - Scan the proposal's Executive Summary for strong transformation phrases and use them verbatim or near-verbatim for the hero headline.`,
+    `  - Priority order: (1) direct quote from Executive Summary, (2) rephrased key outcome from the proposal, (3) client name + primary workstream benefit.`,
+    `  - NEVER fabricate a generic headline when the proposal contains specific compelling language.`,
   ].join('\n');
 }
 
@@ -191,8 +196,8 @@ export function buildSectionOrderGuidance(projectType: string): string {
   let countGuidance: string;
 
   if (has(['marketing', 'digital', 'brand', 'seo', 'social', 'advertising', 'campaign', 'content'])) {
-    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'stats', 'deliverables', 'timeline', 'pricing', 'testimonials', 'casestudy', 'team', 'nextsteps'];
-    countGuidance = 'Start with at least 8 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
+    preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'stats', 'deliverables', 'timeline', 'pricing', 'whyus', 'testimonials', 'casestudy', 'team', 'nextsteps'];
+    countGuidance = 'Start with at least 8 sections. Add more if source content supports it — every piece of proposal content must appear somewhere. MANDATORY: include a whyus section whenever the proposal contains a "Why Choose Us" or credentials section. Never drop content to hit a count.';
   } else if (has(['software', 'development', 'engineering', 'platform', 'app', 'api', 'saas', 'web', 'mobile'])) {
     preferredOrder = ['hero', 'overview', 'challenge', 'approach', 'techstack', 'security', 'testing', 'deliverables', 'timeline', 'pricing', 'team', 'nextsteps'];
     countGuidance = 'Start with at least 10 sections. Add more if the source content supports it — every piece of source content must appear somewhere. Never drop content to meet a section count.';
