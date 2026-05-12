@@ -63,6 +63,9 @@ function pythonScriptDir(): string {
 }
 
 function resolvePython(scriptDir: string): string {
+  // Honour explicit PYTHON env var (set in deployment/.env)
+  const envPython = process.env['PYTHON'];
+  if (envPython && existsSync(envPython)) return envPython;
   // 1. Plugin-local venv
   const venvUnix = path.join(scriptDir, '.venv', 'bin', 'python3');
   if (existsSync(venvUnix)) return venvUnix;

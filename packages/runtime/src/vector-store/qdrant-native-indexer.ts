@@ -144,8 +144,28 @@ async function embedOpenAI(texts: string[]): Promise<number[][]> {
   return json.data.map((d) => d.embedding);
 }
 
+async function embedVoyage(texts: string[]): Promise<number[][]> {
+  const apiKey = process.env['VOYAGE_API_KEY'] ?? '';
+  const model = process.env['VOYAGE_EMBEDDING_MODEL'] ?? 'voyage-4';
+  const res = await fetch('https://api.voyageai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model, input: texts }),
+  });
+  if (!res.ok) {
+    throw new Error(`Voyage embeddings error ${res.status}: ${await res.text()}`);
+  }
+  const json = (await res.json()) as { data: Array<{ embedding: number[] }> };
+  return json.data.map((d) => d.embedding);
+}
+
 function embedBatch(texts: string[], provider: string): Promise<number[][]> {
-  return provider === 'openai' ? embedOpenAI(texts) : embedOllama(texts);
+  if (provider === 'openai') return embedOpenAI(texts);
+  if (provider === 'voyage') return embedVoyage(texts);
+  return embedOllama(texts);
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +215,7 @@ export async function nativeQdrantIndex(
   params: NativeQdrantIndexParams,
 ): Promise<NativeQdrantIndexResult> {
   const { namespace, fileName, content, qdrantUrl, qdrantApiKey, onProgress } = params;
-  const provider = process.env['LLM_PROVIDER'] ?? 'ollama';
+  const provider = process.env['EMBEDDING_PROVIDER'] || process.env['LLM_PROVIDER'] || 'ollama';
 
   const chunks = splitChunks(content);
   if (chunks.length === 0) return { chunks: 0 };
