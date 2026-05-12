@@ -65,3 +65,5 @@ workdir/
 images/
 
 namespaces/*
+
+.claude/specs/*

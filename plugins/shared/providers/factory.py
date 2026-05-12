@@ -10,6 +10,7 @@ _PROVIDERS = {
     "nvidia": "plugins.shared.providers.nvidia_provider.NvidiaProvider",
     "ollama": "plugins.shared.providers.ollama_provider.OllamaProvider",
     "openai": "plugins.shared.providers.openai_provider.OpenAIProvider",
+    "voyage": "plugins.shared.providers.voyage_provider.VoyageProvider",
 }
 
 
@@ -22,7 +23,7 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         3. ``"ollama"`` (default)
 
     Args:
-        provider_name: One of ``"anthropic"``, ``"nvidia"``, ``"ollama"``, or ``"openai"``.
+        provider_name: One of ``"anthropic"``, ``"nvidia"``, ``"ollama"``, ``"openai"``, or ``"voyage"``.
 
     Returns:
         A configured LLMProvider ready to use.
@@ -71,6 +72,12 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
             embedding_model=embedding_model,
             temperature=temperature,
         )
+
+    if name == "voyage":
+        from .voyage_provider import VoyageProvider
+
+        embedding_model = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-4")
+        return VoyageProvider(embedding_model=embedding_model)
 
     if name == "nvidia":
         from .nvidia_provider import NvidiaProvider

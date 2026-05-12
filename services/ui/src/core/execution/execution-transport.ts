@@ -5,6 +5,7 @@ import type { ExecutionStatus, ExecutionType } from "./execution-types"
 import type { TraceStep } from "@/lib/api"
 import { useExtractionCardStore } from "../extraction/extraction-card-store"
 import type { ExtractionCardField } from "../extraction/extraction-card-store"
+import { useIngestionProgressStore } from "./ingestion-progress-store"
 
 // ── Config ────────────────────────────────────────────────────────
 
@@ -183,6 +184,27 @@ function handleExtractionReady(event: MessageEvent): void {
   })
 }
 
+function handleIngestionProgress(event: MessageEvent): void {
+  let payload: { fileName: string; namespace: string; stage: string; chunksProcessed?: number; totalChunks?: number; message?: string }
+  try {
+    payload = JSON.parse(event.data as string) as typeof payload
+  } catch {
+    console.warn("[ExecutionTransport] failed to parse ingestion_progress:", event.data)
+    return
+  }
+
+  if (DEV) {
+    console.debug("[ExecutionTransport] ingestion_progress", payload.fileName, payload.stage)
+  }
+
+  useIngestionProgressStore.getState().setProgress(payload.fileName, {
+    stage: payload.stage,
+    chunksProcessed: payload.chunksProcessed,
+    totalChunks: payload.totalChunks,
+    message: payload.message,
+  })
+}
+
 // ── Connection management ─────────────────────────────────────────
 
 function closeES(): void {
@@ -192,6 +214,7 @@ function closeES(): void {
     es.onerror = null
     es.removeEventListener("trace-step", handleTraceStep)
     es.removeEventListener("extraction_ready", handleExtractionReady)
+    es.removeEventListener("ingestion_progress", handleIngestionProgress)
     es.close()
     es = null
   }
@@ -231,6 +254,9 @@ function connect(): void {
 
   // Named event for extraction-ready payloads (EXTRACTION_CONFIRMATION=true)
   es.addEventListener("extraction_ready", handleExtractionReady)
+
+  // Named event for granular ingestion stage progress
+  es.addEventListener("ingestion_progress", handleIngestionProgress)
 
   es.onerror = () => {
     closeES()

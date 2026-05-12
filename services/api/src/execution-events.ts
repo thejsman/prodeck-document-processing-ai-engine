@@ -31,9 +31,25 @@ export interface ExecutionEvent {
 export const executionBus = new EventEmitter();
 executionBus.setMaxListeners(0);
 
+/**
+ * Short-lived cache of terminal events (COMPLETED / FAILED) so the polling
+ * endpoint can serve clients that missed the SSE push.  Entries expire after
+ * 10 minutes — long enough for any 5-second poller to catch up.
+ */
+const recentTerminalEvents = new Map<string, ExecutionEvent>();
+
 /** Broadcast an execution status update to all connected SSE clients. */
 export function emitExecution(event: ExecutionEvent): void {
   executionBus.emit('update', event);
+  if (event.status === 'COMPLETED' || event.status === 'FAILED') {
+    recentTerminalEvents.set(event.executionId, event);
+    setTimeout(() => { recentTerminalEvents.delete(event.executionId); }, 10 * 60 * 1000);
+  }
+}
+
+/** Return the cached terminal event for an execution ID, or undefined if not yet terminal. */
+export function getRecentExecution(executionId: string): ExecutionEvent | undefined {
+  return recentTerminalEvents.get(executionId);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,4 +84,31 @@ extractionBus.setMaxListeners(0);
 /** Emit an extraction-ready payload to all connected SSE clients. */
 export function emitExtractionReady(payload: ExtractionReadyPayload): void {
   extractionBus.emit('extraction_ready', payload);
+}
+
+// ---------------------------------------------------------------------------
+// Ingestion progress events — granular stage updates emitted throughout the
+// indexing and extraction branches so the UI can show live progress.
+// ---------------------------------------------------------------------------
+
+export interface IngestionProgressEvent {
+  fileName: string;
+  namespace: string;
+  stage:
+    | 'chunking'    // splitting document into chunks
+    | 'embedding'   // vectorizing and storing chunks
+    | 'detecting'   // document type detection
+    | 'excerpting'  // smart excerpt extraction (Phase 3)
+    | 'extracting'  // LLM extraction call in progress
+    | 'storing';    // writing to context.json / pending cache
+  chunksProcessed?: number;
+  totalChunks?: number;
+  message?: string;
+}
+
+export const progressBus = new EventEmitter();
+progressBus.setMaxListeners(0);
+
+export function emitIngestionProgress(event: IngestionProgressEvent): void {
+  progressBus.emit('ingestion_progress', event);
 }

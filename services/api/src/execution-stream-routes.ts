@@ -6,9 +6,17 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { executionBus, extractionBus, type ExecutionEvent, type ExtractionReadyPayload } from './execution-events.js';
+import { executionBus, extractionBus, progressBus, getRecentExecution, type ExecutionEvent, type ExtractionReadyPayload, type IngestionProgressEvent } from './execution-events.js';
 
 export function registerExecutionStreamRoutes(app: FastifyInstance): void {
+  // ── Polling fallback — lets the frontend poller catch up on missed SSE events
+  app.get('/ai-executions/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const event = getRecentExecution(id);
+    if (!event) return reply.code(404).send({ error: 'Not found' });
+    return reply.send({ id: event.executionId, status: event.status, type: event.type ?? null });
+  });
+
   app.get('/ai-executions/stream', async (req, reply) => {
     const raw = reply.raw;
 
@@ -32,13 +40,20 @@ export function registerExecutionStreamRoutes(app: FastifyInstance): void {
       raw.write(`event: extraction_ready\ndata: ${JSON.stringify(payload)}\n\n`);
     };
 
+    // Named SSE event for granular ingestion stage progress
+    const progressHandler = (event: IngestionProgressEvent) => {
+      raw.write(`event: ingestion_progress\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+
     executionBus.on('update', handler);
     extractionBus.on('extraction_ready', extractionHandler);
+    progressBus.on('ingestion_progress', progressHandler);
 
     req.raw.on('close', () => {
       clearInterval(heartbeat);
       executionBus.off('update', handler);
       extractionBus.off('extraction_ready', extractionHandler);
+      progressBus.off('ingestion_progress', progressHandler);
     });
 
     // Keep the handler open — do not return a response body

@@ -21,19 +21,28 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile.api
     environment:
-      - LLM_PROVIDER=openai
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # LLM provider — set LLM_PROVIDER=anthropic in .env.production to use Claude
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_GENERATION_MODEL=${OPENAI_GENERATION_MODEL:-gpt-4o-mini}
       - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_GENERATION_MODEL=${ANTHROPIC_GENERATION_MODEL:-claude-sonnet-4-6}
+      # Vector store — Qdrant is the default for production
+      - VECTOR_STORE=${VECTOR_STORE:-qdrant}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      # Runtime paths
       - WORKDIR=/engine
       - PORT=3000
       - API_KEYS_PATH=/app/config/api_keys.json
       - AUDIT_LOG_PATH=/engine/audit.log
-      - CHAT_V2=${CHAT_V2:-false}
-      - INGEST_V2=${INGEST_V2:-false}
+      # Feature flags — V2 pipelines are the only active pipelines
+      - CHAT_V2=true
+      - INGEST_V2=true
     volumes:
       - engine_data:/engine
-      - ${API_KEYS_HOST_PATH:-../config/api_keys.km-digital.json}:/app/config/api_keys.json:ro
+      - ${API_KEYS_HOST_PATH:-../config/api_keys.example.json}:/app/config/api_keys.json:ro
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))\""]
       interval: 15s
@@ -53,7 +62,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"const http=require('http');http.get('http://localhost:3001',r=>{process.exit(r.statusCode<400?0:1)}).on('error',()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 10s
       retries: 5

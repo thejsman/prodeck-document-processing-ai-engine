@@ -203,9 +203,6 @@ export function ThemeModal({ selectedPlugin, onSelect, onPreview, onClose }: Pro
               : 'No theme selected'}
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} className="btn btn-sm">
-              Cancel
-            </button>
             <button
               onClick={handleApply}
               disabled={!isDirty}

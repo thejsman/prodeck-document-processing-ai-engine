@@ -19,6 +19,7 @@ import {
   upsertFile,
   updateFileStatus,
   removeFileEntry,
+  computeLegacyStatus,
   type IngestionFile,
 } from './ingestion-service.js';
 import { ingestionQueue } from './ingestion-queue.js';
@@ -148,12 +149,13 @@ export function registerKnowledgeRoutes(
         uri = await provider.writeFile(`uploads/${file.fileName}`, file.buffer);
       }
 
-      // Add/update entry in files.json with status 'uploaded'
+      // Add/update entry in files.json
       const entry: IngestionFile = {
         fileName: file.fileName,
         size: file.size,
         uploadedAt: now,
-        status: 'uploaded',
+        indexingStatus: 'pending',
+        extractionStatus: 'pending',
         ...(uri ? { uri } : {}),
       };
       await upsertFile(workdir, namespace, entry);
@@ -181,7 +183,9 @@ export function registerKnowledgeRoutes(
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const files = await loadFilesIndex(workdir, namespace);
-    return reply.send({ files });
+    // Include computed legacy `status` field for clients that still read it
+    const filesWithStatus = files.map((f) => ({ ...f, status: computeLegacyStatus(f) }));
+    return reply.send({ files: filesWithStatus });
   });
 
   // DELETE /knowledge/files/:fileName?namespace=<ns>

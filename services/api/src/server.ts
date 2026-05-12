@@ -23,6 +23,7 @@ import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { registerSkillRoutes } from './skills/skill-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
+import { registerClientMemoryRoutes } from './client-memory-routes.js';
 import { registerContextRoutes } from './context-routes.js';
 import { registerExtractionRoutes } from './ingestion/extraction-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
@@ -119,6 +120,7 @@ export async function createServer(opts: ServerOptions) {
   registerImageRoutes(app, opts.workdir);
   registerPluginRoutes(app, presenterRegistry);
   registerSkillRoutes(app, opts.workdir, policyConfig);
+  registerClientMemoryRoutes(app, opts.workdir);
 
   // ── Static exports (HTML downloads) ──────────────────────────
   app.get('/exports/:namespace/:filename', async (req, reply) => {

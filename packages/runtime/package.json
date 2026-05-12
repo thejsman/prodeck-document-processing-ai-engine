@@ -2,21 +2,27 @@
   "name": "@ai-engine/runtime",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Runtime layer for file system, plugin loading, configuration, and execution context",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "echo \"No tests yet\"",
+    "test": "vitest run",
     "clean": "rm -rf dist"
   },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  },
   "dependencies": {
-    "@ai-engine/types": "workspace:*",
     "@ai-engine/core": "workspace:*",
     "@ai-engine/plugin-sdk": "workspace:*",
-    "yaml": "^2.7.0",
+    "@ai-engine/types": "workspace:*",
     "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/lib-storage": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
-    "@aws-sdk/lib-storage": "^3.0.0"
+    "@qdrant/js-client-rest": "^1.17.0",
+    "openai": "^6.36.0",
+    "yaml": "^2.7.0"
   }
 }

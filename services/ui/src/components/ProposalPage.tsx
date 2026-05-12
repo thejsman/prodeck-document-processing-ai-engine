@@ -988,7 +988,7 @@ export function ProposalPage() {
             <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
               <ThemeToggle />
             </div>
-            {/* Inline browser header */}
+            {/* Inline browser header + content — constrained to 860 like Microsites */}
             <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
                 <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>Proposals</span>
@@ -1027,32 +1027,35 @@ export function ProposalPage() {
                   + Generate Proposal
                 </button>
               </div>
-              <div style={{ height: 1, background: 'var(--border)' }} />
-            </div>
-            {browseLoading && !pending ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
-                Loading…
-              </div>
-            ) : filteredProposals.length === 0 && !pending ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '40px 20px' }}>
-                <div style={{ maxWidth: 320, textAlign: 'center' }}>
-                  <FileText size={40} strokeWidth={1.5} style={{ color: 'var(--subtle)', marginBottom: 14 }} />
-                  <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
-                    No proposals yet
-                  </p>
-                  <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
-                    Create your first one to get started.
-                  </p>
-                  <button
-                    onClick={() => setShowGenerateModal(true)}
-                    className="btn btn-primary btn-sm"
-                    style={{ marginTop: 20, width: 'auto' }}
-                  >
-                    New Proposal
-                  </button>
+              <div style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
+
+              {browseLoading && !pending ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240, color: 'var(--muted)', fontSize: 14 }}>
+                  Loading…
                 </div>
-              </div>
-            ) : (
+              ) : filteredProposals.length === 0 && !pending ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240, padding: '40px 20px' }}>
+                  <div style={{ maxWidth: 320, textAlign: 'center' }}>
+                    <FileText size={40} strokeWidth={1.5} style={{ color: 'var(--subtle)', marginBottom: 14 }} />
+                    <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
+                      No proposals yet
+                    </p>
+                    <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
+                      Create your first one to get started.
+                    </p>
+                    <button
+                      onClick={() => setShowGenerateModal(true)}
+                      className="btn btn-primary btn-sm"
+                      style={{ marginTop: 20, width: 'auto' }}
+                    >
+                      New Proposal
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {((!browseLoading || pending) && (filteredProposals.length > 0 || !!pending)) && (
               <div className="proposal-cards-grid">
                 {/* Pending / generating card — always first */}
                 {pending && (!browseNs || !pending.namespace || browseNs === pending.namespace) && (
@@ -1289,13 +1292,6 @@ export function ProposalPage() {
             </div>
             <div className="generate-proposal-footer">
               <button
-                className="btn btn-sm"
-                onClick={() => setShowGenerateModal(false)}
-                disabled={isGenerating}
-              >
-                Cancel
-              </button>
-              <button
                 form="generate-proposal-form"
                 type="submit"
                 className="btn btn-sm btn-primary"
@@ -1393,17 +1389,16 @@ export function ProposalPage() {
           style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onMouseDown={e => { if (e.target === e.currentTarget && !deletingProposal) setConfirmDeleteProposal(null); }}
         >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-            <div style={{ padding: '20px 24px 0' }}>
-              <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>Delete proposal</p>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: '100%', maxWidth: 420, boxShadow: '0 24px 80px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
+            <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid var(--border)', background: 'var(--panel-soft)' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Delete proposal</span>
+              <button onClick={() => setConfirmDeleteProposal(null)} disabled={deletingProposal} style={{ width: 30, height: 30, borderRadius: '50%', background: 'none', border: '1px solid var(--border)', cursor: deletingProposal ? 'not-allowed' : 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="Close"><Icon icon={X} size="sm" /></button>
             </div>
-            <div style={{ height: 1, background: 'var(--border)' }} />
             <div style={{ padding: 24 }}>
               <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
                 Delete <strong>"{confirmDeleteProposal.client}"</strong>?
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button onClick={() => setConfirmDeleteProposal(null)} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer' }}>Cancel</button>
                 <button onClick={handleDeleteProposalConfirmed} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer', opacity: deletingProposal ? 0.7 : 1 }}>{deletingProposal ? 'Deleting…' : 'Delete'}</button>
               </div>
             </div>

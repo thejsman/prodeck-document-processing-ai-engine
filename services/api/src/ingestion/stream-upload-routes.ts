@@ -35,7 +35,7 @@ import { ConfigResolver } from '@ai-engine/core';
 import { createNodeConfigLoader, getStorageProvider } from '@ai-engine/runtime';
 import { type AuthContext, isWildcard } from '../auth.js';
 import { ingestionQueue } from './ingestion-queue.js';
-import { upsertFile, loadFilesIndex } from './ingestion-service.js';
+import { upsertFile, loadFilesIndex, computeLegacyStatus } from './ingestion-service.js';
 import { executionBus, type ExecutionEvent } from '../execution-events.js';
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -140,7 +140,8 @@ export function registerStreamUploadRoutes(
       fileName,
       size: bytesWritten,
       uploadedAt: new Date().toISOString(),
-      status: 'uploaded',
+      indexingStatus: 'pending',
+      extractionStatus: 'pending',
       uri,
       jobId,
     });
@@ -206,7 +207,7 @@ export function registerStreamUploadRoutes(
     return reply.send({
       jobId,
       fileName:   entry.fileName,
-      status:     mapJobStatus(entry.status),
+      status:     mapJobStatus(computeLegacyStatus(entry)),
       uri:        entry.uri,
       size:       entry.size,
       chunkCount: entry.chunkCount,
