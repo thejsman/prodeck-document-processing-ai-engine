@@ -262,6 +262,7 @@ export async function generateSectionHtml(
   fallbackImageUrl: string | null,
   generateFn: (prompt: string) => Promise<string>,
   layoutIndex: number = 0,
+  designOverride?: string,
 ): Promise<string> {
   const sectionType = section.sectionType as string;
   const sid = String(section.id ?? 'sec').replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -310,9 +311,14 @@ export async function generateSectionHtml(
     `Section type: ${sectionType}`,
     `Aesthetic direction: "${tone}" — commit fully, no safe defaults`,
     designHint ? `Design hint (from global theme): ${designHint}` : '',
+    ...(designOverride ? [
+      ``,
+      `CUSTOM DESIGN DIRECTIVE — ABSOLUTE HIGHEST PRIORITY (overrides tone and all rules below):`,
+      designOverride,
+    ] : []),
     ``,
     `DESIGN SYSTEM: Define your own CSS variables scoped to .ms-cv-${sid} in the <style> block.`,
-    `Choose colors, fonts, and gradients that match the "${tone}" aesthetic.`,
+    `Choose colors, fonts, and gradients that match the "${tone}" aesthetic${designOverride ? ' AND the custom design directive above' : ''}.`,
     `Use these variables via var() throughout — define them on .ms-cv-${sid}, not :root.`,
     `Example: .ms-cv-${sid} { --bg: #0a0a0f; --accent: #ff4500; --font-h: 'Bebas Neue', sans-serif; }`,
     `NEVER use Inter, Roboto, Arial, Space Grotesk, or system-ui for headings.`,
@@ -328,6 +334,10 @@ export async function generateSectionHtml(
     `- Scroll-trigger animations: staggered fade-up, slide-in from edges (CSS only, no JS libs).`,
     `- Typography as a design element: mix display (6vw+) with tight utility text.`,
     `- Every element intentional — no padding/margin filler, no empty decoration.`,
+    ...(sectionType === 'hero' ? [
+      `- CRITICAL: Content elements (headline, body, CTAs) MUST start visible (opacity:1). Use animation-fill-mode:forwards NOT both — content must never be invisible on initial render. Decorative floating/pulse animations on background elements are fine.`,
+      `- CRITICAL: Ensure all text colors have strong contrast against the background — headlines must use the primary text color or accent, NEVER a dark-on-dark or light-on-light combination.`,
+    ] : []),
     ``,
     `REQUIREMENTS:`,
     `1. Root: <div class="ms-cv ms-cv-${sid}"> ... </div>`,
@@ -387,13 +397,21 @@ export interface CSSTheme {
   fontFaceDeclarations?: string;
 }
 
-function buildCSSPrompt(tone: string, brandPrimaryColor: string | undefined, industryContext?: string): string {
+function buildCSSPrompt(tone: string, brandPrimaryColor: string | undefined, industryContext?: string, designOverride?: string): string {
   return [
     `You are applying the frontend-design skill to generate CSS design tokens for a microsite.`,
     ``,
+    // Custom design prompt takes absolute priority — inject before everything else so the LLM
+    // reads it first and uses it to determine colors, fonts, and dark/light theme.
+    ...(designOverride ? [
+      `CUSTOM DESIGN DIRECTIVE — ABSOLUTE HIGHEST PRIORITY (overrides tone, industry, and all rules below):`,
+      designOverride,
+      `Use this directive to determine: background colors, accent colors, font choices, and whether the theme is dark or light.`,
+      ``,
+    ] : []),
     `The chosen aesthetic direction is: "${tone}"`,
     `Brand primary color hint: ${brandPrimaryColor ?? 'none — choose what best fits the aesthetic'}`,
-    industryContext ? `Client industry context: ${industryContext}` : '',
+    industryContext && !designOverride ? `Client industry context: ${industryContext}` : '',
     ``,
     `=== FRONTEND-DESIGN SKILL (apply strictly) ===`,
     SKILL_CONTENT,
@@ -436,9 +454,11 @@ function buildCSSPrompt(tone: string, brandPrimaryColor: string | undefined, ind
     `- LIGHT THEME TONES — --ms-is-dark MUST be "0" and --ms-bg MUST be light (#f0f0f0 to #ffffff range): soft/pastel, organic/natural, playful/toy-like`,
     `- brutally minimal can be dark or light — your choice, but commit to one extreme`,
     `- Current tone is "${tone}" — enforce the correct dark/light rule above with NO exceptions`,
-    industryContext
-      ? `- INDUSTRY CONTEXT OVERRIDE: The client industry is "${industryContext}". If it contains any of: recreation, playground, trampoline, family, park, wellness, healthcare, amusement — you MUST use a light, warm palette (--ms-bg: light warm colour, --ms-is-dark: "0") regardless of the tone above.`
-      : '',
+    designOverride
+      ? `- CUSTOM DESIGN DIRECTIVE (see top of prompt) overrides all dark/light enforcement rules — derive the theme from the directive, not from the tone name above.`
+      : industryContext
+        ? `- INDUSTRY CONTEXT OVERRIDE: The client industry is "${industryContext}". If it contains any of: recreation, playground, trampoline, family, park, wellness, healthcare, amusement — you MUST use a light, warm palette (--ms-bg: light warm colour, --ms-is-dark: "0") regardless of the tone above.`
+        : '',
     `- --ms-accent-rgb: RGB numbers of --ms-accent with no # or rgba wrapper (e.g. 99,102,241)`,
     `- fontFaceDeclarations: one @keyframes ms-entrance block only`,
     `- No two generations should look the same — commit fully to the "${tone}" direction`,
@@ -453,10 +473,11 @@ export async function generateThemeCSSTokens(
   brandPrimaryColor: string | undefined,
   generateFn: (prompt: string) => Promise<string>,
   clientIndustry?: string,
+  designOverride?: string,
 ): Promise<CSSTheme | null> {
   if (!SKILL_CONTENT) return null;
   try {
-    const raw = await generateFn(buildCSSPrompt(tone, brandPrimaryColor, clientIndustry));
+    const raw = await generateFn(buildCSSPrompt(tone, brandPrimaryColor, clientIndustry, designOverride));
     const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');

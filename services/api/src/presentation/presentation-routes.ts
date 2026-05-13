@@ -1852,7 +1852,7 @@ ${layoutSummary}`;
         const r = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': _htmlApiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model: _htmlModel, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+          body: JSON.stringify({ model: _htmlModel, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
         });
         if (r.status === 429) {
           const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
@@ -2311,10 +2311,58 @@ ${layoutSummary}`;
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string } | undefined;
+    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string; customInstructions?: string; fullDesignPrompt?: string; urlReferenceDesign?: { colors: { primary: string; secondary: string; accent?: string; background: string; surface: string; text: string; textMuted: string }; typography: { headingFont: string; bodyFont: string; headingWeight: string; bodyWeight: string; headingStyle?: string; mood?: string }; style: { borderRadius: string; spacing: string; vibe: string }; heroImageUrl?: string | null } | null; urlLayout?: Record<string, unknown> | null } | undefined;
     const apiKey  = env.ANTHROPIC_API_KEY ?? '';
     const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
     const htmlModel = model; // Sonnet for HTML — richer, more varied layouts
+    // Custom design prompt from the user — drives tone selection and design override.
+    // fullDesignPrompt takes priority over customInstructions (same hierarchy as /generate-stream).
+    const customDesignPrompt = (body?.fullDesignPrompt ?? body?.customInstructions ?? '').trim();
+
+    // Detect "full site spec" prompts — user provided a complete HTML/site specification
+    // (with section definitions, color tokens, font specs, etc.) instead of a proposal file.
+    // These need different handling:
+    //   1. The spec itself becomes the proposal input (content comes from the spec, not disk)
+    //   2. designOverride is trimmed to style-relevant lines only (stops the LLM from trying
+    //      to generate a complete HTML file for each individual section)
+    const isFullSiteSpec = customDesignPrompt.length > 500 && (
+      /html\s+file|single.page|all\s+css\s+inline|GLOBAL\s+RULES|inline\s+css/i.test(customDesignPrompt) ||
+      /\d+\.\s+[A-Z]{3,}/.test(customDesignPrompt)  // numbered section definitions like "1. HERO"
+    );
+
+    // For a full spec: extract only the style-relevant portion (up to the SECTIONS block)
+    // to use as designOverride — prevents per-section generators seeing "single HTML file" instruction.
+    const styleTokensOnly = isFullSiteSpec
+      ? (() => {
+          const cutoff = customDesignPrompt.search(/SECTIONS?\s*[\(:]/i);
+          const raw = cutoff > 0 ? customDesignPrompt.slice(0, cutoff) : customDesignPrompt.slice(0, 500);
+          return raw.trim();
+        })()
+      : customDesignPrompt;
+
+    // For a full spec: also try to extract the primary color so CSS generation matches the spec.
+    const specPrimaryColor = isFullSiteSpec
+      ? (customDesignPrompt.match(/[Pp]rimary[^#\n]*#([0-9a-fA-F]{3,6})/)?.[1]
+          ? '#' + customDesignPrompt.match(/[Pp]rimary[^#\n]*#([0-9a-fA-F]{3,6})/)![1]
+          : undefined)
+      : undefined;
+
+    // URL brand tokens — extracted from the client's website via the site-intel panel.
+    // When present, these drive tone selection, CSS generation, and per-section HTML so the
+    // microsite matches the client's real visual identity exactly.
+    const urlRefDesign = body?.urlReferenceDesign ?? null;
+
+    // Build a design directive from URL tokens to guide the CSS and HTML LLM calls.
+    const urlDesignHint = urlRefDesign ? [
+      'BRAND TOKEN OVERRIDE — use EXACTLY these values, do not invent alternatives:',
+      `  Palette: bg=${urlRefDesign.colors.background}, surface=${urlRefDesign.colors.surface}, primary=${urlRefDesign.colors.primary}, secondary=${urlRefDesign.colors.secondary}, text=${urlRefDesign.colors.text}, muted=${urlRefDesign.colors.textMuted}`,
+      `  Typography: headings="${urlRefDesign.typography.headingFont}" weight ${urlRefDesign.typography.headingWeight}, body="${urlRefDesign.typography.bodyFont}" weight ${urlRefDesign.typography.bodyWeight}`,
+      `  Style: border-radius=${urlRefDesign.style.borderRadius}, spacing=${urlRefDesign.style.spacing}`,
+      `  Visual identity: ${urlRefDesign.style.vibe}`,
+    ].join('\n') : null;
+
+    // Combine user custom prompt (higher priority) with URL brand tokens (additional context).
+    const effectiveDesignOverride = [styleTokensOnly || null, urlDesignHint].filter(Boolean).join('\n\n') || undefined;
 
     // Setup SSE
     reply.hijack();
@@ -2341,6 +2389,11 @@ ${layoutSummary}`;
           markdown = await readFile(resolveProposalMdPath(workdir, fallbackName, namespace), 'utf-8');
         } catch { /* fall through */ }
       }
+      // Full site spec: use the spec itself as the proposal input so sections are
+      // derived from the user's spec (not from a mismatched disk proposal).
+      if (isFullSiteSpec && !markdown) markdown = customDesignPrompt;
+      if (isFullSiteSpec && markdown) markdown = customDesignPrompt; // always override with spec
+
       if (!markdown) { send({ type: 'error', message: 'Could not load proposal markdown' }); reply.raw.end(); return; }
       if (!apiKey)   { send({ type: 'error', message: 'ANTHROPIC_API_KEY not configured' });  reply.raw.end(); return; }
 
@@ -2355,7 +2408,8 @@ ${layoutSummary}`;
           companyName:  (fields.clientName?.value as string | undefined) ?? '',
           clientName:   (fields.clientName?.value as string | undefined) ?? '',
           industry:     (fields.clientIndustry?.value as string | undefined) ?? '',
-          primaryColor: (body?.brand?.primaryColor as string | undefined),
+          // Priority: spec-extracted > URL brand token > manual brand input
+          primaryColor: specPrimaryColor ?? urlRefDesign?.colors.primary ?? (body?.brand?.primaryColor as string | undefined),
         };
       } catch { /* non-fatal */ }
 
@@ -2363,21 +2417,57 @@ ${layoutSummary}`;
       const _t0 = Date.now();
 
       const clientIndustry = brandHint.industry ?? '';
-      const { tone: structuredTone } = applyDesignSkill('microsite-generator-agent', {
+
+      // Tone selection:
+      // - Custom prompt present → detect from custom prompt keywords
+      // - URL tokens present (no custom prompt) → detect from vibe/mood string
+      // - Neither → industry-aware default (existing behaviour)
+      const toneSignal = customDesignPrompt || [urlRefDesign?.style.vibe, urlRefDesign?.typography.mood].filter(Boolean).join(' ');
+      const detectedTone = toneSignal ? (() => {
+        const lower = toneSignal.toLowerCase();
+        const map: Array<[string[], string]> = [
+          [['retro', 'futuristic', 'synthwave', 'cyberpunk', 'neon', 'sci-fi', 'crt', 'arcade', 'vaporwave', 'holograph'], 'retro-futuristic'],
+          [['brutalist', 'raw', 'concrete', 'brutal'], 'brutalist/raw'],
+          [['minimal', 'stark', 'clean', 'stripped'], 'brutally minimal'],
+          [['maximalist', 'chaos', 'excess', 'energetic', 'bold', 'adventurous', 'exciting', 'vibrant', 'dynamic', 'lively', 'electric', 'high-energy', 'sporty', 'athletic'], 'maximalist chaos'],
+          [['luxury', 'premium', 'elegant', 'refined', 'sophisticated', 'exclusive', 'upscale'], 'luxury/refined'],
+          [['playful', 'toy', 'whimsical', 'cartoon', 'fun', 'friendly', 'approachable'], 'playful/toy-like'],
+          [['editorial', 'magazine', 'journalistic', 'print'], 'editorial/magazine'],
+          [['art deco', 'geometric', 'bauhaus', 'angular', 'structured'], 'art deco/geometric'],
+          [['soft', 'pastel', 'gentle', 'delicate', 'airy', 'calm', 'peaceful'], 'soft/pastel'],
+          [['industrial', 'utilitarian', 'mechanical', 'factory', 'technical'], 'industrial/utilitarian'],
+          [['organic', 'natural', 'earthy', 'botanical', 'sustainable', 'eco'], 'organic/natural'],
+        ];
+        for (const [kws, tone] of map) {
+          if (kws.some(k => lower.includes(k))) return tone;
+        }
+        // Custom prompt present but no keyword matched — use 'brutally minimal' as neutral fallback.
+        // It doesn't enforce dark or light, so the designOverride directive drives the aesthetic.
+        return 'brutally minimal';
+      })() : null;
+
+      const { tone: industryTone } = applyDesignSkill('microsite-generator-agent', {
         proposalMarkdown: markdown,
-        clientIndustry,
+        // Suppress industry override when user supplies a custom prompt or URL tokens
+        // so their aesthetic intent is not overridden by the industry heuristic.
+        clientIndustry: (customDesignPrompt || urlRefDesign) ? '' : clientIndustry,
       });
+      const structuredTone = detectedTone ?? industryTone;
 
       // Phase 1 cache disabled — always run full Sonnet call for fresh content
-      // (cache vars: cacheDir, cacheFile, mdHash — restore logic around generateStructuredMicrosite to re-enable)
 
       // Phase 1 + CSS in parallel:
       //   - Single LLM call → complete AST structure
-      //   - CSS token generation (industry-aware tone selection)
+      //   - CSS token generation (custom prompt or industry-aware tone selection)
       const [ast, cssTheme] = await Promise.all([
         generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
-        generateThemeCSSTokens(structuredTone as string, brandHint.primaryColor, llmGenerateFn, clientIndustry)
-          .catch(() => null),
+        generateThemeCSSTokens(
+          structuredTone as string,
+          brandHint.primaryColor,
+          llmGenerateFn,
+          (customDesignPrompt || urlRefDesign) ? undefined : clientIndustry,  // skip industry when design is driven by prompt or URL tokens
+          effectiveDesignOverride,                          // combined custom prompt + URL brand tokens
+        ).catch(() => null),
       ]);
 
       const sections = assignSectionIds(ast.sections);
@@ -2385,6 +2475,28 @@ ${layoutSummary}`;
 
       // Inject CSS theme into brand
       if (cssTheme) {
+        // Patch exact URL brand token values on top of LLM-generated CSS — ensures the
+        // microsite uses the client's real colors and fonts, not LLM approximations.
+        if (urlRefDesign) {
+          const vars = cssTheme.cssVars as Record<string, string>;
+          const u = urlRefDesign;
+          if (u.colors.background) vars['--ms-bg']          = u.colors.background;
+          if (u.colors.surface)    vars['--ms-surface']     = u.colors.surface;
+          if (u.colors.primary)    vars['--ms-accent']      = u.colors.primary;
+          if (u.colors.secondary)  vars['--ms-accent2']     = u.colors.secondary;
+          if (u.colors.text)       vars['--ms-text']        = u.colors.text;
+          if (u.colors.textMuted)  vars['--ms-text3']       = u.colors.textMuted;
+          if (u.typography.headingFont) vars['--ms-font-heading'] = `"${u.typography.headingFont}", sans-serif`;
+          if (u.typography.bodyFont)    vars['--ms-font-body']    = `"${u.typography.bodyFont}", sans-serif`;
+          // Recompute dark/light based on actual background luminance
+          const bgHex = u.colors.background.replace('#', '');
+          if (bgHex.length === 6) {
+            const r = parseInt(bgHex.slice(0, 2), 16);
+            const g = parseInt(bgHex.slice(2, 4), 16);
+            const b = parseInt(bgHex.slice(4, 6), 16);
+            vars['--ms-is-dark'] = (r * 0.299 + g * 0.587 + b * 0.114) < 128 ? '1' : '0';
+          }
+        }
         ast.brand = {
           ...ast.brand,
           extractedCssVariables: cssTheme.cssVars,
@@ -2431,7 +2543,7 @@ ${layoutSummary}`;
               },
               body: JSON.stringify({
                 model: htmlModel,
-                max_tokens: 8000,
+                max_tokens: 16000,
                 messages: [{ role: 'user', content: prompt }],
               }),
             });
@@ -2470,6 +2582,7 @@ ${layoutSummary}`;
                 null,
                 micrositeGenerateFn,
                 idx,
+                effectiveDesignOverride,        // combined custom prompt + URL brand tokens
               );
               section.customHtml = html;
               send({ type: 'section_html', id: section.id, customHtml: html });
