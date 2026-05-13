@@ -18,6 +18,30 @@ from vector_store import FaissVectorStore
 from qdrant_vector_store import QdrantVectorStore
 
 CHUNK_SIZE = 500
+
+
+class SplitProvider:
+    """Delegates embed() to one provider and generate*() to another.
+
+    Used when EMBEDDING_PROVIDER differs from LLM_PROVIDER — e.g.
+    Voyage AI for embeddings + Anthropic for generation.
+    """
+
+    def __init__(self, embed_provider, gen_provider):
+        self._embed = embed_provider
+        self._gen = gen_provider
+
+    def embed(self, text):
+        return self._embed.embed(text)
+
+    def generate(self, prompt, temperature=None):
+        return self._gen.generate(prompt, temperature)
+
+    def generate_stream(self, prompt, temperature=None):
+        return self._gen.generate_stream(prompt, temperature)
+
+    def generate_with_image(self, prompt, image_data):
+        return self._gen.generate_with_image(prompt, image_data)
 TOP_K = 5
 
 # Source-document audit log — written alongside the FAISS index files.
@@ -207,7 +231,26 @@ def main():
         namespace = input_data.get("namespace", "default")
         vector_store_config = input_data.get("vectorStore", None)
 
-        provider = create_provider()
+        gen_provider = create_provider()
+
+        llm_name = os.environ.get("LLM_PROVIDER", "ollama").lower()
+        embed_name = os.environ.get("EMBEDDING_PROVIDER", "").lower().strip()
+
+        # When LLM_PROVIDER=anthropic and EMBEDDING_PROVIDER is not set,
+        # auto-detect from available API keys as a convenience fallback.
+        if not embed_name and llm_name == "anthropic":
+            if os.environ.get("VOYAGE_API_KEY"):
+                embed_name = "voyage"
+            elif os.environ.get("OPENAI_API_KEY"):
+                embed_name = "openai"
+            else:
+                embed_name = "ollama"
+
+        if embed_name and embed_name != llm_name:
+            embed_provider = create_provider(embed_name)
+            provider = SplitProvider(embed_provider, gen_provider)
+        else:
+            provider = gen_provider
 
         # Build the vector store once and pass it to all operations.
         store = create_vector_store(vector_store_config, storage_dir, namespace)
@@ -223,17 +266,15 @@ def main():
                 raise ValueError("No documents provided for ingestion")
             result = ingest_documents(documents, storage_dir, provider, store=store)
             # Annotate which provider/model embedded the documents.
-            provider_name = os.environ.get("LLM_PROVIDER", "ollama").lower()
-            if provider_name == "openai":
-                embed_model = os.environ.get(
-                    "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
-                )
+            effective_embed = embed_name or llm_name
+            if effective_embed == "openai":
+                embed_model = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+            elif effective_embed == "voyage":
+                embed_model = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-4")
             else:
-                embed_model = os.environ.get(
-                    "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"
-                )
+                embed_model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
             vs_type = (vector_store_config or {}).get("type", "faiss")
-            result["provider"] = f"{provider_name} ({embed_model}) / {vs_type}"
+            result["provider"] = f"{effective_embed} ({embed_model}) / {vs_type}"
             json.dump({"result": result}, sys.stdout)
             sys.stdout.flush()
 

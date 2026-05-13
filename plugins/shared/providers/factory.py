@@ -9,6 +9,7 @@ _PROVIDERS = {
     "anthropic": "plugins.shared.providers.anthropic_provider.AnthropicProvider",
     "ollama": "plugins.shared.providers.ollama_provider.OllamaProvider",
     "openai": "plugins.shared.providers.openai_provider.OpenAIProvider",
+    "voyage": "plugins.shared.providers.voyage_provider.VoyageProvider",
 }
 
 
@@ -21,7 +22,7 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
         3. ``"ollama"`` (default)
 
     Args:
-        provider_name: One of ``"anthropic"``, ``"ollama"``, or ``"openai"``.
+        provider_name: One of ``"anthropic"``, ``"ollama"``, ``"openai"``, or ``"voyage"``.
 
     Returns:
         A configured LLMProvider ready to use.
@@ -70,6 +71,12 @@ def create_provider(provider_name: Optional[str] = None) -> LLMProvider:
             embedding_model=embedding_model,
             temperature=temperature,
         )
+
+    if name == "voyage":
+        from .voyage_provider import VoyageProvider
+
+        embedding_model = os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-4")
+        return VoyageProvider(embedding_model=embedding_model)
 
     supported = ", ".join(sorted(_PROVIDERS))
     raise ValueError(
