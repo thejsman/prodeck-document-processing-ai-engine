@@ -723,6 +723,7 @@ export type StreamEvent =
   | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
+  | { type: 'section_html'; id: string; customHtml: string }
   | { type: 'complete'; ast: unknown }
   | { type: 'error'; message: string };
 
@@ -815,6 +816,150 @@ export async function generateMicrositeStream(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Direct single-pass generation (bypasses multi-step agent pipeline)
+// ---------------------------------------------------------------------------
+
+export interface DirectStreamEvent {
+  type: 'start' | 'html_chunk' | 'complete' | 'error';
+  chunk?: string;
+  elapsed?: number;
+  size?: number;
+  message?: string;
+}
+
+/** Stream direct single-pass HTML generation. */
+export async function generateMicrositeDirectStream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: { proposalMarkdown?: string; brandConfig?: Record<string, unknown>; signal?: AbortSignal },
+  onEvent: (event: DirectStreamEvent) => void,
+): Promise<void> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-direct-stream`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(opts.proposalMarkdown ? { proposalMarkdown: opts.proposalMarkdown } : {}),
+        ...(opts.brandConfig ? { brandConfig: opts.brandConfig } : {}),
+      }),
+      signal: opts.signal,
+    },
+  );
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Direct stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as DirectStreamEvent;
+          onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ── MicrositeEditorPro API functions ─────────────────────────────────────────
+
+/** Regenerate the customHtml for a single section without touching other sections. */
+export async function regenerateSection(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { sectionId: string; currentAst: unknown },
+): Promise<{ sectionId: string; html: string; elapsed: number }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/regenerate-section`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Regenerate failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ sectionId: string; html: string; elapsed: number }>;
+}
+
+/** Apply a natural language instruction to a section's HTML. Returns modified HTML only. */
+export async function editSectionHtml(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { sectionHtml: string; instruction: string },
+): Promise<{ html: string }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/edit-section-html`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Edit failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ html: string }>;
+}
+
+/** Non-streaming single-pass generation. One LLM call, returns when complete. */
+export async function generateMicrositeDirectly(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+): Promise<{ html: string; elapsed: number }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-direct`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Direct generation failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ html: string; elapsed: number }>;
+}
+
+/** Fetch the directly-generated HTML file. Returns null if not yet generated. */
+export async function fetchMicrositeDirectHtml(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/site-html`,
+    { headers: authHeadersNoBody(apiKey) },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
 }
 
 export async function runAgent(apiKey: string, request: AgentRunRequest): Promise<AgentRunResult> {

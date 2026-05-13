@@ -188,6 +188,15 @@ function renderSection(
   const sid = section.id;
 
   let inner: React.ReactNode;
+
+  const sectionRaw = section as unknown as Record<string, unknown>;
+  if (typeof sectionRaw.customHtml === 'string' && sectionRaw.customHtml) {
+    return (
+      // eslint-disable-next-line react/no-danger
+      <div dangerouslySetInnerHTML={{ __html: sectionRaw.customHtml }} />
+    );
+  }
+
   switch (section.sectionType) {
     case 'hero': {
       const heroRaw = section.content as unknown as Record<string, unknown>;

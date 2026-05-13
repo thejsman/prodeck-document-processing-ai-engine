@@ -5,7 +5,7 @@ import { Globe, X, MoreHorizontal, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
 import { Microsite } from "./Microsite";
-import { MicrositeEditor } from "./editor/MicrositeEditor";
+import { MicrositeEditorPro } from "./editor/MicrositeEditorPro";
 import {
   useMicrositeHistory,
   type MicrositeHistoryEntry,
@@ -157,22 +157,22 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
   // Editor mode — opened from preview or history card
   if (editingEntry) {
     return (
-      <MicrositeEditor
+      <MicrositeEditorPro
         ast={editingEntry.ast}
         namespace={editingEntry.namespace}
         proposalId={editingEntry.id}
         onClose={() => setEditingEntry(null)}
-        onExport={(editedAst) => {
+        onSaved={(updatedAst) => {
           // Update in-place for local entries; create new local entry for server-only entries
           const saved = editingEntry.source === 'local'
-            ? updateEntry(editingEntry.id, editedAst)
-            : addEntry(editedAst, editingEntry.namespace);
+            ? updateEntry(editingEntry.id, updatedAst)
+            : addEntry(updatedAst, editingEntry.namespace);
           refresh();
           setPreviewEntry({
             id: saved.id,
             savedAt: saved.savedAt,
             namespace: saved.namespace,
-            ast: editedAst,
+            ast: updatedAst,
             source: 'local',
           });
           setEditingEntry(null);

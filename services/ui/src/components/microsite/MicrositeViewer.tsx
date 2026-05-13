@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { Microsite } from './Microsite';
-import { MicrositeEditor } from './editor/MicrositeEditor';
+import { MicrositeEditorPro } from './editor/MicrositeEditorPro';
 import type { MicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
+import type { LayoutAST } from '@/types/presentation';
 
 interface Props {
   entry: MicrositeHistoryEntry;
@@ -18,7 +19,7 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
   const [showPreview, setShowPreview] = useState(false);
   const [currentEntry, setCurrentEntry] = useState(entry);
 
-  const title = currentEntry.ast.meta.client || currentEntry.ast.brand?.companyName || 'Microsite';
+  const title     = currentEntry.ast.meta.client || currentEntry.ast.brand?.companyName || 'Microsite';
   const namespace = currentEntry.namespace;
 
   if (showPreview) {
@@ -56,16 +57,15 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
 
       <div id="ms-embedded-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {showEditor ? (
-          <MicrositeEditor
+          <MicrositeEditorPro
             ast={currentEntry.ast}
             namespace={namespace}
             proposalId={currentEntry.ast.proposalId || currentEntry.id}
             onClose={() => setShowEditor(false)}
-            onExport={(editedAst) => {
-              const updated = { ...currentEntry, ast: editedAst };
+            onSaved={(updatedAst: LayoutAST) => {
+              const updated = { ...currentEntry, ast: updatedAst };
               setCurrentEntry(updated);
               onUpdateEntry?.(updated);
-              setShowEditor(false);
             }}
           />
         ) : (

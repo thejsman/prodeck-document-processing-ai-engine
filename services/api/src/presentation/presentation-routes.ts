@@ -31,12 +31,23 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
+import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
+  generateMicrositeDirectly,
+  generateMicrositeStream as generateMicrositeStreamDirect,
+} from './direct-microsite-generator.js';
+import {
+  generateStructuredMicrosite,
+  assignSectionIds,
+} from './structured-microsite-generator.js';
+import {
   fetchUnsplashImageUrl,
+  fetchPexelsImageUrl,
+  fetchLoremflickrUrl,
   generateGptImage1,
   generateDalle3Image,
   buildDallePrompt,
@@ -53,6 +64,33 @@ import {
  *   "file.md"            → workdir/namespaces/<namespace>/proposals/file.md (inferred from context)
  *   fallback             → workdir/output/file.md  (legacy)
  */
+/** Extract the proposing agency/company from context.json data.
+ *  Tries stakeholders (company != clientName), then knowledge source filenames (Otter.ai pattern).
+ *  Falls back to markdown header patterns as last resort.
+ */
+function extractPreparedBy(
+  ctx: Record<string, unknown> | null,
+  markdown: string,
+): string {
+  // 1. Proposal markdown — explicit "Prepared by" / "From:" header
+  const mdMatch = markdown.slice(0, 3000).match(
+    /(?:Prepared\s+by|From|Submitted\s+by|Presented\s+by)\s*[:\-]\s*\**([^\n*|]{2,60})\**/i,
+  );
+  if (mdMatch?.[1]?.trim()) return mdMatch[1].trim();
+
+  // 2. Knowledge source filenames — Otter.ai pattern: Speaker__Client__-_Agency_otter_ai
+  if (ctx) {
+    const knowledge = (ctx as Record<string, unknown[]>).knowledge ?? [];
+    for (const k of knowledge) {
+      const fileName = ((k as Record<string, Record<string, string>>).source?.fileName) ?? '';
+      const m = fileName.match(/__-_(.+?)_otter_ai/i);
+      if (m) return m[1].replace(/_/g, ' ');
+    }
+  }
+
+  return '';
+}
+
 function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
   const sep = fileName.indexOf('::');
   if (sep !== -1) {
@@ -1324,13 +1362,14 @@ ${layoutSummary}`;
 
     // Build Brief-aware instructions for this namespace
     let briefPrefix = '';
+    let clientIndustry = 'general';
     try {
       const ctxSvc = new ContextService(workdir);
       const ctx = await ctxSvc.get(namespace);
       const fields = ctx?.requirements?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
       const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       briefPrefix = [
         buildBriefFramingRule(projectType, clientName, clientIndustry),
         '',
@@ -1345,6 +1384,7 @@ ${layoutSummary}`;
       ? `${briefPrefix}${body.customInstructions}`
       : briefPrefix || undefined;
 
+    const _generationStart = Date.now();
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
@@ -1364,6 +1404,7 @@ ${layoutSummary}`;
       if (ast?.sections) {
         const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
         const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+        const hasPexels = !!(env.PEXELS_API_KEY?.trim());
         const accentColor = ast.brand?.primaryColor;
 
         await Promise.all(
@@ -1371,7 +1412,7 @@ ${layoutSummary}`;
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
 
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle, hasPexels);
             if (chosenSource === 'gradient') {
               sec.image.url = null;
               sec.image.source = 'gradient';
@@ -1381,7 +1422,10 @@ ${layoutSummary}`;
             sec.image.source = chosenSource;
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
 
-            if (chosenSource === 'dalle') {
+            if (chosenSource === 'pexels') {
+              const remoteUrl = await fetchPexelsImageUrl(query);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+            } else if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
               const result = await generateGptImage1(prompt);
               if (result) {
@@ -1392,7 +1436,8 @@ ${layoutSummary}`;
                 if (saved) sec.image.url = `/presentation-images/${namespace}/${filename}`;
               } else {
                 // fallback to DALL-E 3 if gpt-image-1 fails
-                const remoteUrl = await generateDalle3Image(prompt);
+                const dallePrompt = buildDallePrompt(sec.sectionType, query, accentColor);
+                const remoteUrl = await generateDalle3Image(dallePrompt);
                 if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
               }
             } else if (chosenSource === 'picsum') {
@@ -1407,6 +1452,14 @@ ${layoutSummary}`;
         const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
         await mkdir(path.dirname(astPath), { recursive: true });
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const _sectionTypes = ast.sections.map((s: AstSection) => s.sectionType);
+        console.log(
+          `[microsite-gen] Complete — namespace=${namespace}` +
+          ` sections=${_sectionTypes.length} (${_sectionTypes.join(', ')})` +
+          ` industry="${clientIndustry}"` +
+          ` hasWhyUs=${_sectionTypes.includes('whyus')} hasTimeline=${_sectionTypes.includes('timeline')}` +
+          ` hasPricing=${_sectionTypes.includes('pricing')} elapsed=${Date.now() - _generationStart}ms`,
+        );
       }
 
       return reply.send({ ast: result.json ?? null, assets: result.assets ?? [] });
@@ -1415,6 +1468,40 @@ ${layoutSummary}`;
       return reply.code(502).send({ error: `Agent execution failed: ${message}` });
     }
   });
+
+  /** Build a clean Pexels photo search query from section content — avoids DALL-E cinematic prompts. */
+  function buildPexelsQueryFromSection(sectionType: string, content: Record<string, unknown>): string {
+    const STOP = new Set(['a','an','the','and','or','of','in','at','to','for','with','by','from','into','on','our','your','this','that','is','are','be','its','how','why','what','all','any']);
+    const clean = (s: string) => s.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !STOP.has(w.toLowerCase()));
+    const eyebrow = clean((content.eyebrow as string | undefined) ?? '').slice(0, 3);
+    const headline = clean((content.headline as string | undefined) ?? '').slice(0, 4);
+    const words = eyebrow.length >= 2 ? eyebrow : headline.slice(0, 3);
+    const TYPE_DEFAULTS: Record<string, string> = {
+      hero: 'vibrant outdoor adventure park',
+      overview: 'business team meeting professional',
+      challenge: 'problem solving strategy whiteboard',
+      approach: 'strategy planning professional team',
+      deliverables: 'project delivery checklist professional',
+      timeline: 'project planning calendar schedule',
+      pricing: 'business investment finance planning',
+      whyus: 'professional team expertise collaboration',
+      nextsteps: 'business handshake partnership agreement',
+      generic: 'professional office workspace modern',
+      testimonials: 'happy client satisfaction review',
+      showcase: 'portfolio creative work professional',
+      benefits: 'business growth success achievement',
+      casestudy: 'case study success analysis',
+      team: 'professional team collaboration office',
+      comparison: 'comparison analysis chart data',
+      security: 'cybersecurity protection digital',
+      techstack: 'technology software development code',
+      testing: 'quality testing professional lab',
+      faq: 'customer support questions answers',
+      stats: 'data analytics statistics dashboard',
+      metrics: 'performance analytics kpi dashboard',
+    };
+    return words.length >= 2 ? words.join(' ') : (TYPE_DEFAULTS[sectionType] ?? 'professional business office');
+  }
 
   // POST /presentations/:namespace/:proposalId/generate-stream
   // Like /generate but streams progress via SSE. Each section completes → SSE event.
@@ -1479,6 +1566,7 @@ ${layoutSummary}`;
     // Pre-compute image config so parallel fetches can start during section generation
     const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+    const hasPexels = !!(env.PEXELS_API_KEY?.trim());
     const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
     const urlHeroImageUrl = (body?.urlReferenceDesign as { heroImageUrl?: string | null } | undefined)?.heroImageUrl ?? null;
 
@@ -1492,17 +1580,23 @@ ${layoutSummary}`;
     const PDF_ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
     const PDF_MAX_PER_SLIDE = 4;
 
-    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry
+    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry.
+    // clientIndustry and clientName are hoisted so they can flow into design-skill and hero metadata.
     let streamBriefPrefix = '';
+    let streamClientIndustry = 'general';
+    let streamClientName = '—';
+    let streamCtx: Record<string, unknown> | null = null;
     try {
       const ctxSvc = new ContextService(workdir);
-      const ctx = await ctxSvc.get(namespace);
-      const fields = ctx?.requirements?.fields ?? {};
+      streamCtx = await ctxSvc.get(namespace) as unknown as Record<string, unknown> | null;
+      const ctx = streamCtx;
+      type SF = Record<string, { value?: unknown }>;
+      const fields: SF = ((ctx as Record<string, unknown>)?.requirements as Record<string, SF> | undefined)?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
-      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      streamClientName = (fields.clientName?.value as string | undefined) ?? '—';
+      streamClientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       streamBriefPrefix = [
-        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        buildBriefFramingRule(projectType, streamClientName, streamClientIndustry),
         '',
         buildSectionTypeGuidance(projectType),
         '',
@@ -1511,21 +1605,59 @@ ${layoutSummary}`;
       ].join('\n');
     } catch { /* non-fatal */ }
 
+    // Metadata for the hero section's bottom metadata strip.
+    // preparedBy extracted from the proposal markdown (most reliable source for agency name).
+    const heroProposalMeta = {
+      clientName:  streamClientName,
+      preparedBy:  extractPreparedBy(streamCtx ?? null, markdown) || (body?.brand?.companyName as string | undefined) || '—',
+      date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      version:     (() => {
+        const m = (proposalId as string).match(/[_\-v]v?(\d+)$/i);
+        return m ? `v${m[1]}` : 'v1';
+      })(),
+    };
+
     const streamEffectiveInstructions = body?.customInstructions
       ? `${streamBriefPrefix}${body.customInstructions}`
       : streamBriefPrefix || undefined;
+
+    const _generationStart = Date.now();
+
+    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs.
+    // Pass clientIndustry so the skill can select a contextually appropriate tone.
+    const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
+      'microsite-generator-agent',
+      {
+        proposalMarkdown: markdown,
+        plugin: body?.plugin ?? 'cobalt',
+        brand: body?.brand ?? {},
+        clientIndustry: streamClientIndustry,
+        ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
+        ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
+      },
+    );
+
+    // Start CSS token generation in parallel with the agent — tone is already known.
+    // This means CSS vars are ready (or nearly ready) when the first sections arrive.
+    const cssThemePromise: Promise<CSSTheme | null> = generateThemeCSSTokens(
+      designTone as string,
+      body?.brand?.primaryColor as string | undefined,
+      llmGenerateFn,
+      streamClientIndustry,
+    ).catch(() => null);
+
+    // Track per-section HTML generated during streaming so we can inject it into the final AST
+    const streamedHtmlMap = new Map<string, string>(); // sectionId → customHtml
+    let htmlLayoutIdx = 0; // cycles A-F layouts across sections
 
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(streamEffectiveInstructions ? { prompt: streamEffectiveInstructions } : {}),
+        ...(skillMetadata.customInstructions ? { prompt: skillMetadata.customInstructions as string } : {}),
         metadata: {
-          proposalMarkdown: markdown,
-          plugin: body?.plugin ?? 'cobalt',
-          brand: body?.brand ?? {},
-          ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
+          ...skillMetadata,
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
@@ -1552,7 +1684,7 @@ ${layoutSummary}`;
                   // Trim the primary section to first N items
                   content[field] = items.slice(0, PDF_MAX_PER_SLIDE);
                   const pdfSectionType = section.sectionType as string | undefined;
-                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle) : 'gradient';
+                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle, hasPexels) : 'gradient';
                   const pdfImageForClient = pdfChosenSource === 'gradient'
                     ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
                     : section.image;
@@ -1590,13 +1722,44 @@ ${layoutSummary}`;
 
             // ── Normal (no split needed) ──────────────────────────────────────────────
             const sectionType = section.sectionType as string | undefined;
-            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle) : 'gradient';
+            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle, hasPexels) : 'gradient';
             // Strip agent's loremflickr URL for gradient sections — prevents flicker in client.
             // Agent doesn't include image.url in callback data anyway, but guard for safety.
             const imageForClient = chosenSource === 'gradient'
               ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
               : section.image;
             send({ type: 'section', ...section, image: imageForClient, content, index: adjustedIdx });
+
+            // Fire HTML generation immediately after streaming section data — no blocking
+            const capturedSection = {
+              ...section,
+              content: { ...content },
+              image: imageForClient,
+              // Attach proposal metadata for the hero bottom strip — ignored by all other section types
+              ...(sectionType === 'hero' ? { _meta: heroProposalMeta } : {}),
+            };
+            const capturedLayoutIdx = htmlLayoutIdx++;
+            const capturedSectionType = sectionType ?? '';
+            void (async () => {
+              try {
+                if (!CUSTOM_HTML_SECTION_TYPES.has(capturedSectionType)) return;
+                const cssTheme = await cssThemePromise;
+                if (!cssTheme) { console.log('[routes] hero HTML skipped — cssTheme is null'); return; }
+                const html = await generateSectionHtml(
+                  capturedSection as Record<string, unknown>,
+                  designTone as unknown as Tone,
+                  cssTheme.cssVars,
+                  null,
+                  llmGenerateFn,
+                  capturedLayoutIdx,
+                );
+                const secId = (capturedSection as Record<string, unknown>).id as string | undefined;
+                if (secId) {
+                  streamedHtmlMap.set(secId, html);
+                  send({ type: 'section_html', id: secId, customHtml: html });
+                }
+              } catch { /* non-fatal — injectThemeCSS fallback will cover this section */ }
+            })();
           },
         },
       });
@@ -1605,19 +1768,15 @@ ${layoutSummary}`;
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
       const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
 
-      // Download images for hero/showcase from the agent's already-generated URLs, then persist locally.
-      // All other sections use gradient (no image fetch). Running in parallel for hero + showcase.
+      // Resolve and persist images for ALL sections using content-based Pexels queries.
+      // Deduplication prevents the same photo appearing on multiple sections.
       if (ast?.sections) {
+        const usedImageHashes = new Set<string>(); // SHA-1 of file bytes — prevents identical images
+        const usedPexelsUrls = new Set<string>();  // prevents same URL assigned to two sections
+
         await Promise.all(
           ast.sections.map(async (sec) => {
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
-
-            if (chosenSource === 'gradient') {
-              sec.image.url = null;
-              sec.image.source = 'gradient';
-              return;
-            }
 
             if (sec.sectionType === 'hero' && urlHeroImageUrl) {
               try {
@@ -1625,35 +1784,45 @@ ${layoutSummary}`;
                 sec.image.url = localUrl;
                 sec.image.source = 'custom';
                 return;
-              } catch {
-                // fall through to DALL-E / Unsplash fallback
-              }
+              } catch { /* fall through */ }
             }
 
-            // hero/showcase: download the agent's URL locally (agent already called DALL-E)
-            const agentUrl = sec.image?.url;
-            let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
+            // Build a clean content-based query — never use DALL-E cinematic prompts for photo search
+            const pexelsQuery = buildPexelsQueryFromSection(sec.sectionType, sec.content);
+            let remoteUrl: string | null = null;
 
-            // Fallback: if agent didn't provide a URL, fetch from the configured source
-            if (!remoteUrl) {
-              const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
-              if (!query?.trim()) return;
-              if (chosenSource === 'dalle') {
-                const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
-                remoteUrl = await generateDalle3Image(prompt);
-              } else if (chosenSource === 'picsum') {
-                remoteUrl = buildPicsumUrl(query);
-              } else {
-                remoteUrl = await fetchUnsplashImageUrl(query);
+            if (hasPexels) {
+              // Try full query, then progressively shorter to get a unique result
+              const words = pexelsQuery.split(/\s+/);
+              const candidates = [pexelsQuery, words.slice(0, 2).join(' ')].filter((q, i, a) => q && a.indexOf(q) === i);
+              for (const q of candidates) {
+                const url = await fetchPexelsImageUrl(q);
+                if (url && !usedPexelsUrls.has(url)) { remoteUrl = url; usedPexelsUrls.add(url); break; }
               }
             }
-
+            if (!remoteUrl) remoteUrl = await fetchLoremflickrUrl(pexelsQuery);
+            if (!remoteUrl) remoteUrl = await fetchUnsplashImageUrl(pexelsQuery);
+            if (!remoteUrl) remoteUrl = buildPicsumUrl(pexelsQuery);
             if (!remoteUrl) return;
+
             try {
               const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              // Dedup by file content hash — reject identical bytes (cat image has fixed 248658 bytes)
+              const imgRes = await fetch(localUrl.startsWith('/') ? `http://localhost:${process.env.PORT ?? 3001}${localUrl}` : remoteUrl, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+              if (imgRes?.ok) {
+                const buf = Buffer.from(await imgRes.arrayBuffer());
+                const contentHash = require('node:crypto').createHash('sha1').update(buf).digest('hex').slice(0, 12);
+                if (usedImageHashes.has(contentHash)) {
+                  // Identical bytes already used — fall back to loremflickr with unique seed
+                  const fallbackUrl = await fetchLoremflickrUrl(`${sec.sectionType} ${pexelsQuery} ${secId}`);
+                  if (fallbackUrl) { sec.image.url = fallbackUrl; sec.image.source = 'loremflickr'; }
+                  return;
+                }
+                usedImageHashes.add(contentHash);
+              }
               sec.image.url = localUrl;
-              sec.image.source = chosenSource;
-            } catch { /* keep original remote URL on download failure */ }
+              sec.image.source = hasPexels ? 'pexels' : 'unsplash';
+            } catch { sec.image.url = remoteUrl; }
           }),
         );
       }
@@ -1677,11 +1846,418 @@ ${layoutSummary}`;
         } catch { /* keep remote URL */ }
       }
 
+      // Inject HTML that was streamed per-section during generation into the final AST
+      if (ast?.sections && streamedHtmlMap.size > 0) {
+        for (const sec of ast.sections) {
+          const secId = (sec as unknown as { id?: string }).id;
+          if (secId) {
+            const html = streamedHtmlMap.get(secId);
+            if (html) (sec as unknown as { customHtml?: string }).customHtml = html;
+          }
+        }
+      }
+
+      // Attach _meta to the hero AST section so Phase 3 fallback (injectThemeCSS) can render
+      // the metadata strip even if streaming HTML generation failed for the hero.
+      if (ast?.sections) {
+        const heroAstSec = ast.sections.find(s => (s as unknown as { sectionType?: string }).sectionType === 'hero');
+        if (heroAstSec && !(heroAstSec as unknown as { customHtml?: string }).customHtml) {
+          (heroAstSec as unknown as Record<string, unknown>)._meta = heroProposalMeta;
+        }
+      }
+
+      // Design skill Phase 2+3 — pass cached CSS theme so Phase 2 is skipped;
+      // Phase 3 only runs for sections that didn't receive HTML during streaming
+      const cachedTheme = await cssThemePromise;
+      if (ast) {
+        await injectThemeCSS(
+          ast as unknown as Record<string, unknown>,
+          designTone,
+          (body?.brand?.primaryColor as string | undefined),
+          llmGenerateFn,
+          [],
+          cachedTheme ?? undefined,
+          streamClientIndustry,
+        );
+      }
+
       // complete event carries local image URLs — no further reconciliation needed
       send({ type: 'complete', ast });
       if (ast?.sections) {
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const _sectionTypes = (ast.sections as Array<{ sectionType: string }>).map(s => s.sectionType);
+        console.log(
+          `[microsite-gen] Complete — namespace=${namespace}` +
+          ` sections=${_sectionTypes.length} (${_sectionTypes.join(', ')})` +
+          ` tone="${designTone}" industry="${streamClientIndustry}"` +
+          ` hasWhyUs=${_sectionTypes.includes('whyus')} hasTimeline=${_sectionTypes.includes('timeline')}` +
+          ` hasPricing=${_sectionTypes.includes('pricing')} elapsed=${Date.now() - _generationStart}ms`,
+        );
       }
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      reply.raw.end();
+    }
+  });
+
+  // ── Direct single-pass generation routes ──────────────────────────────────
+  // These bypass the multi-step agent pipeline entirely. One LLM call reads
+  // the full proposal and writes complete HTML directly — no AST, no themes.
+
+  // POST /presentations/:namespace/:proposalId/generate-direct
+  // Non-streaming direct generation. Returns { html, elapsed }.
+  app.post('/presentations/:namespace/:proposalId/generate-direct', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown> } | undefined;
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Load proposal markdown — from body first, then disk
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        const mdPath = resolveProposalMdPath(workdir, pres.fileName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through to direct fallback */ }
+    }
+    // Fallback: treat proposalId as the fileName directly (handles namespace::file format)
+    if (!markdown) {
+      try {
+        const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+        const mdPath = resolveProposalMdPath(workdir, fallbackName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through */ }
+    }
+    if (!markdown) return reply.code(400).send({ error: 'proposalMarkdown is required' });
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY is not configured' });
+
+    // Read context.json for brand info
+    let brandConfig: { companyName: string; primaryColor?: string; industry?: string; clientName?: string } = { companyName: '' };
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      brandConfig = {
+        companyName: (fields.clientName?.value as string | undefined) ?? '',
+        clientName:  (fields.clientName?.value as string | undefined) ?? '',
+        industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+        primaryColor: undefined,
+      };
+    } catch { /* non-fatal */ }
+
+    // Apply any brandConfig overrides from request body
+    if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
+
+    try {
+      const { html, elapsed } = await generateMicrositeDirectly({ proposalMarkdown: markdown, brandConfig }, apiKey, model);
+      const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+      await mkdir(path.dirname(htmlPath), { recursive: true });
+      await writeFile(htmlPath, html, 'utf-8');
+      console.log(`[direct-gen] Complete — namespace=${namespace} elapsed=${elapsed}ms size=${html.length}`);
+      return reply.send({ html, elapsed });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: `Direct generation failed: ${message}` });
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/generate-direct-stream
+  // Streaming direct generation via SSE.
+  // Events: { type: 'start' } | { type: 'html_chunk', chunk } | { type: 'complete', elapsed, size } | { type: 'error', message }
+  app.post('/presentations/:namespace/:proposalId/generate-direct-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown> } | undefined;
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Setup SSE
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (data: Record<string, unknown>) => {
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Load markdown — from body first, then disk
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        const mdPath = resolveProposalMdPath(workdir, pres.fileName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through to direct fallback */ }
+    }
+    // Fallback: treat proposalId as the fileName directly (handles namespace::file format)
+    if (!markdown) {
+      try {
+        const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+        const mdPath = resolveProposalMdPath(workdir, fallbackName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through */ }
+    }
+    if (!markdown || !apiKey) {
+      send({ type: 'error', message: !markdown ? 'proposalMarkdown is required' : 'ANTHROPIC_API_KEY is not configured' });
+      reply.raw.end();
+      return;
+    }
+
+    // Read context.json for brand info
+    let brandConfig: { companyName: string; primaryColor?: string; industry?: string; clientName?: string } = { companyName: '' };
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      brandConfig = {
+        companyName: (fields.clientName?.value as string | undefined) ?? '',
+        clientName:  (fields.clientName?.value as string | undefined) ?? '',
+        industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+        primaryColor: undefined,
+      };
+    } catch { /* non-fatal */ }
+    if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
+
+    try {
+      send({ type: 'start' });
+      let accumulated = '';
+
+      await generateMicrositeStreamDirect(
+        { proposalMarkdown: markdown, brandConfig },
+        (chunk) => {
+          accumulated += chunk;
+          send({ type: 'html_chunk', chunk });
+        },
+        async ({ elapsed }) => {
+          const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+          await mkdir(path.dirname(htmlPath), { recursive: true });
+          await writeFile(htmlPath, accumulated, 'utf-8');
+          console.log(`[direct-gen] Stream complete — namespace=${namespace} elapsed=${elapsed}ms size=${accumulated.length}`);
+          send({ type: 'complete', elapsed, size: accumulated.length });
+          reply.raw.end();
+        },
+        apiKey,
+        model,
+      );
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      reply.raw.end();
+    }
+  });
+
+  // GET /presentations/:namespace/:proposalId/site-html
+  // Serve the directly-generated HTML file (text/html).
+  app.get('/presentations/:namespace/:proposalId/site-html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+    try {
+      const html = await readFile(htmlPath, 'utf-8');
+      return reply.type('text/html').send(html);
+    } catch {
+      return reply.code(404).send({ error: 'No direct HTML generated yet for this namespace' });
+    }
+  });
+
+  // ── Structured single-pass generation ────────────────────────────────────────
+  // POST /presentations/:namespace/:proposalId/generate-structured-stream
+  // One LLM call → complete AST (all sections with content fields, no customHtml).
+  // Streams the same SSE event types as /generate-stream so PresentationPage works
+  // without modification. Sections render via existing typed React components and
+  // are fully editable in the editor.
+  app.post('/presentations/:namespace/:proposalId/generate-structured-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string } | undefined;
+    const apiKey  = env.ANTHROPIC_API_KEY ?? '';
+    const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Setup SSE
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (data: Record<string, unknown>) => reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+
+    try {
+      // Load markdown — body first, then disk (with fallback)
+      let markdown = body?.proposalMarkdown ?? '';
+      if (!markdown) {
+        try {
+          const pres = await getPresentation(workdir, namespace, proposalId);
+          markdown = await readFile(resolveProposalMdPath(workdir, pres.fileName, namespace), 'utf-8');
+        } catch { /* fall through */ }
+      }
+      if (!markdown) {
+        try {
+          const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+          markdown = await readFile(resolveProposalMdPath(workdir, fallbackName, namespace), 'utf-8');
+        } catch { /* fall through */ }
+      }
+      if (!markdown) { send({ type: 'error', message: 'Could not load proposal markdown' }); reply.raw.end(); return; }
+      if (!apiKey)   { send({ type: 'error', message: 'ANTHROPIC_API_KEY not configured' });  reply.raw.end(); return; }
+
+      // Read brand/context from context.json
+      let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+      let structuredCtx: Record<string, unknown> | null = null;
+      try {
+        const ctxSvc = new ContextService(workdir);
+        structuredCtx = await ctxSvc.get(namespace) as unknown as Record<string, unknown> | null;
+        const fields  = ((structuredCtx as Record<string, unknown>)?.requirements as Record<string, Record<string, { value?: unknown }>> | undefined)?.fields ?? {};
+        brandHint = {
+          companyName:  (fields.clientName?.value as string | undefined) ?? '',
+          clientName:   (fields.clientName?.value as string | undefined) ?? '',
+          industry:     (fields.clientIndustry?.value as string | undefined) ?? '',
+          primaryColor: (body?.brand?.primaryColor as string | undefined),
+        };
+      } catch { /* non-fatal */ }
+
+      send({ type: 'start', message: 'Structured generation started' });
+      const _t0 = Date.now();
+
+      // Phase 1 + CSS in parallel:
+      //   - Single LLM call → complete AST structure
+      //   - CSS token generation (industry-aware tone selection)
+      const clientIndustry = brandHint.industry ?? '';
+      const { tone: structuredTone } = applyDesignSkill('microsite-generator-agent', {
+        proposalMarkdown: markdown,
+        clientIndustry,
+      });
+
+      const [ast, cssTheme] = await Promise.all([
+        generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
+        generateThemeCSSTokens(structuredTone as string, brandHint.primaryColor, llmGenerateFn, clientIndustry)
+          .catch(() => null),
+      ]);
+
+      const sections = assignSectionIds(ast.sections);
+      ast.sections   = sections;
+
+      // Inject CSS theme into brand
+      if (cssTheme) {
+        ast.brand = {
+          ...ast.brand,
+          extractedCssVariables: cssTheme.cssVars,
+          overrideTheme: true,
+          ...(cssTheme.googleFontsUrl ? { googleFontsUrl: cssTheme.googleFontsUrl } : {}),
+          ...(cssTheme.fontFaceDeclarations ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations } : {}),
+        } as typeof ast.brand;
+      }
+
+      // Stream plan + section events so PresentationPage shows progress
+      send({ type: 'plan', totalSections: sections.length, sectionTypes: sections.map(s => s.sectionType) });
+      for (let i = 0; i < sections.length; i++) {
+        const s = sections[i];
+        send({ type: 'section', id: s.id, sectionType: s.sectionType, heading: s.heading, content: s.content, image: s.image, index: i });
+      }
+
+      // Attach proposal metadata to the hero section so generateSectionHtml can inject the strip.
+      const structuredHeroMeta = {
+        clientName:  brandHint.clientName || '—',
+        preparedBy:  extractPreparedBy(structuredCtx, markdown) || (body?.brand?.companyName as string | undefined) || '—',
+        date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        version:     (() => { const m = (proposalId as string).match(/[_\-v]v?(\d+)$/i); return m ? `v${m[1]}` : 'v1'; })(),
+      };
+      const heroSec = sections.find(s => s.sectionType === 'hero');
+      if (heroSec) (heroSec as unknown as Record<string, unknown>)._meta = structuredHeroMeta;
+
+      // Phase 2: Generate customHtml for all sections using a dedicated 5-concurrent
+      // function isolated from the global LLM bridge pool (which stays at size=2 for
+      // chat, proposals, and agents). Includes 429 retry so it's production-safe.
+      send({ type: 'progress', message: 'Generating section HTML in parallel…' });
+      if (cssTheme) {
+        // Dedicated generate function for microsite HTML — does NOT use the global
+        // LLM_BRIDGE_POOL so the rest of the app is unaffected.
+        const micrositeGenerateFn = async (prompt: string): Promise<string> => {
+          const MAX_RETRIES = 3;
+          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            const r = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model,
+                max_tokens: 8000,
+                messages: [{ role: 'user', content: prompt }],
+              }),
+            });
+
+            if (r.status === 429) {
+              // Rate limited — back off before retrying
+              const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
+              const delay = retryAfter * 1000 * (attempt + 1);
+              console.warn(`[structured-gen] 429 rate limit — retrying in ${delay}ms (attempt ${attempt + 1})`);
+              await new Promise(res => setTimeout(res, delay));
+              continue;
+            }
+
+            if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+            const d = await r.json() as { content: Array<{ type: string; text: string }> };
+            return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+          }
+          throw new Error('Microsite HTML generation: max retries exceeded');
+        };
+
+        const CONCURRENCY = 5; // isolated from the global pool; rest of app unaffected
+        const targets = sections.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType));
+        let cursor = 0;
+
+        async function htmlWorker() {
+          while (cursor < targets.length) {
+            const section = targets[cursor++];
+            const idx     = sections.indexOf(section);
+            try {
+              const html = await generateSectionHtml(
+                section as unknown as Record<string, unknown>,
+                structuredTone as import('../skills/design-skill-microsite.js').Tone,
+                cssTheme!.cssVars,
+                null,
+                micrositeGenerateFn,
+                idx,
+              );
+              section.customHtml = html;
+              send({ type: 'section_html', id: section.id, customHtml: html });
+              console.log(`[structured-gen] HTML done: ${section.sectionType} (${idx + 1}/${sections.length})`);
+            } catch (err) {
+              console.warn(`[structured-gen] HTML failed: ${section.sectionType}:`, err instanceof Error ? err.message : err);
+            }
+          }
+        }
+
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()),
+        );
+      }
+
+      // Persist AST to disk
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      await mkdir(path.dirname(astPath), { recursive: true });
+      await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+
+      const elapsed = Date.now() - _t0;
+      console.log(`[structured-gen] Complete — namespace=${namespace} sections=${sections.length} tone="${structuredTone}" elapsed=${elapsed}ms`);
+
+      send({ type: 'complete', ast });
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -1762,6 +2338,120 @@ ${layoutSummary}`;
 
     const url = `/presentation-images/${namespace}/${logoFilename}`;
     return reply.send({ url });
+  });
+
+  // ── MicrositeEditorPro endpoints ─────────────────────────────────────────────
+
+  // POST /presentations/:namespace/:proposalId/regenerate-section
+  // Regenerates the customHtml for a single section using the existing AST content
+  // and CSS vars. Used by MicrositeEditorPro's per-section Regenerate button.
+  // Body: { sectionId: string; currentAst: object }
+  // Returns: { sectionId: string; html: string; elapsed: number }
+  app.post('/presentations/:namespace/:proposalId/regenerate-section', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { sectionId?: string; currentAst?: Record<string, unknown> } | undefined;
+    const sectionId = body?.sectionId?.trim();
+    if (!sectionId) return reply.code(400).send({ error: 'sectionId is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    // Load AST from body or fall back to saved file
+    let ast = body?.currentAst;
+    if (!ast) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      try { ast = JSON.parse(await readFile(astPath, 'utf-8')) as Record<string, unknown>; }
+      catch { return reply.code(404).send({ error: 'No AST found' }); }
+    }
+
+    const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const sectionIdx = sections?.findIndex(s => s.id === sectionId) ?? -1;
+    if (sectionIdx < 0) return reply.code(404).send({ error: `Section ${sectionId} not found in AST` });
+    const section = sections![sectionIdx];
+
+    // Get CSS vars and tone from the AST brand
+    const brand = ast.brand as Record<string, unknown> | undefined;
+    const cssVars = (brand?.extractedCssVariables as Record<string, string> | undefined) ?? {};
+    const tone: import('../skills/design-skill-microsite.js').Tone = 'editorial/magazine';
+
+    // Dedicated generate function with retry — isolated from global bridge pool
+    const regenFn = async (prompt: string): Promise<string> => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+          await new Promise(res => setTimeout(res, delay));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+        const d = await r.json() as { content: Array<{ type: string; text: string }> };
+        return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      }
+      throw new Error('Max retries exceeded');
+    };
+
+    const t0 = Date.now();
+    try {
+      const html = await generateSectionHtml(section, tone, cssVars, null, regenFn, sectionIdx);
+      return reply.send({ sectionId, html, elapsed: Date.now() - t0 });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: `Section regeneration failed: ${message}` });
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/edit-section-html
+  // Natural language edit: applies a user instruction to a section's existing HTML.
+  // The AI returns ONLY the modified HTML — no explanation, no markdown.
+  // Body: { sectionHtml: string; instruction: string }
+  // Returns: { html: string }
+  app.post('/presentations/:namespace/:proposalId/edit-section-html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { sectionHtml?: string; instruction?: string } | undefined;
+    const sectionHtml = body?.sectionHtml?.trim();
+    const instruction = body?.instruction?.trim();
+    if (!sectionHtml) return reply.code(400).send({ error: 'sectionHtml is required' });
+    if (!instruction) return reply.code(400).send({ error: 'instruction is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    const systemPrompt = 'You are an HTML editor. You will receive a section\'s HTML and a user instruction. Return ONLY the modified HTML for that section with no explanation, no markdown, no code fences. Start directly with the opening HTML tag.';
+    const userPrompt   = `USER INSTRUCTION: ${instruction}\n\nSECTION HTML:\n${sectionHtml}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model, max_tokens: 8000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (r.status === 429) {
+        const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      if (!r.ok) return reply.code(502).send({ error: `Anthropic ${r.status}: ${await r.text()}` });
+      const d = await r.json() as { content: Array<{ type: string; text: string }> };
+      const html = d.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      return reply.send({ html });
+    }
+    return reply.code(502).send({ error: 'Max retries exceeded' });
   });
 
   // POST /presentations/:namespace/:proposalId/design-edit
