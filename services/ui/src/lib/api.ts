@@ -1548,6 +1548,157 @@ export async function deleteKnowledgeEntry(
 }
 
 // ---------------------------------------------------------------------------
+// Client Memory
+// ---------------------------------------------------------------------------
+
+export interface MemoryField {
+  value: string | string[];
+  confidence: number;
+  sourceEngagements: string[];
+  firstSeenAt: string;
+  lastConfirmedAt: string;
+}
+
+export interface ClientKnowledgeEntry {
+  id: string;
+  content: string;
+  category: 'preference' | 'constraint' | 'relationship' | 'context';
+  confidence: number;
+  sourceEngagements: string[];
+  firstSeenAt: string;
+  lastConfirmedAt: string;
+  supersededBy?: string;
+}
+
+export interface StakeholderRecord {
+  id: string;
+  name: string;
+  role: string;
+  email?: string;
+  notes?: string;
+  sourceEngagements: string[];
+  lastSeenAt: string;
+}
+
+export interface MemoryConflict {
+  id: string;
+  existingId: string;
+  existingContent: string;
+  incomingContent: string;
+  reason: string;
+  status: 'needs_review' | 'resolved';
+  resolution?: 'keep_old' | 'use_new' | 'keep_both' | 'defer';
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface ClientMemory {
+  clientSlug: string;
+  clientName: string;
+  clientIndustry: string;
+  stableFields: Partial<Record<'clientName' | 'clientIndustry' | 'contactName', MemoryField>>;
+  knowledge: ClientKnowledgeEntry[];
+  stakeholders: StakeholderRecord[];
+  conflicts: MemoryConflict[];
+  version: number;
+}
+
+export async function fetchClientMemory(apiKey: string, clientSlug: string): Promise<ClientMemory | null> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}`, { headers: authHeaders(apiKey) });
+  if (res.status === 404) return null;
+  const data = await handleResponse<{ memory: ClientMemory }>(res);
+  return data.memory;
+}
+
+export async function addKnowledgeEntry(
+  apiKey: string,
+  clientSlug: string,
+  content: string,
+  category: ClientKnowledgeEntry['category'],
+  confidence?: number,
+): Promise<ClientKnowledgeEntry> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/knowledge`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ content, category, confidence }),
+  });
+  const data = await handleResponse<{ entry: ClientKnowledgeEntry }>(res);
+  return data.entry;
+}
+
+export async function updateClientKnowledgeEntry(
+  apiKey: string,
+  clientSlug: string,
+  id: string,
+  content: string,
+): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/knowledge/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ content }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteClientKnowledgeEntry(apiKey: string, clientSlug: string, id: string): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/knowledge/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function addStakeholder(
+  apiKey: string,
+  clientSlug: string,
+  data: { name: string; role: string; email?: string; notes?: string },
+): Promise<StakeholderRecord> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/stakeholders`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(data),
+  });
+  const result = await handleResponse<{ record: StakeholderRecord }>(res);
+  return result.record;
+}
+
+export async function updateStakeholder(
+  apiKey: string,
+  clientSlug: string,
+  id: string,
+  updates: Partial<{ name: string; role: string; email: string; notes: string }>,
+): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/stakeholders/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(updates),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteStakeholder(apiKey: string, clientSlug: string, id: string): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/stakeholders/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function resolveConflict(
+  apiKey: string,
+  clientSlug: string,
+  conflictId: string,
+  resolution: 'keep_old' | 'use_new' | 'keep_both' | 'defer',
+): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/conflicts/${encodeURIComponent(conflictId)}/resolve`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ resolution }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+// ---------------------------------------------------------------------------
 // URL Design Extraction
 // ---------------------------------------------------------------------------
 

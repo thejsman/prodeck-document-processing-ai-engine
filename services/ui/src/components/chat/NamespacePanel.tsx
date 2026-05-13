@@ -21,6 +21,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useNamespacePanelStore } from '@/lib/namespace-panel-store';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
+import { MemorySection } from './MemorySection';
 
 // ── Helpers — same as VersionHistory ─────────────────────────────
 
@@ -41,13 +42,14 @@ function parseMicrositeLabel(proposalId: string): string {
 
 // ── Collapsible section — mirrors sidebar NamespacesSection ──────
 
-interface SectionProps {
+export interface SectionProps {
   label: string;
   loading: boolean;
   children: React.ReactNode;
+  badge?: number;
 }
 
-function Section({ label, loading, children }: SectionProps) {
+export function Section({ label, loading, children, badge }: SectionProps) {
   const [open, setOpen] = useState(true);
   const [hovered, setHovered] = useState(false);
 
@@ -61,6 +63,11 @@ function Section({ label, loading, children }: SectionProps) {
         style={{ cursor: 'pointer' }}
       >
         <span className="sidebar-label ns-section-title" style={{ flex: 1 }}>{label}</span>
+        {badge ? (
+          <span style={{ flexShrink: 0, background: 'var(--warning, #f59e0b)', color: '#000', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '1px 6px', lineHeight: 1.5, marginRight: 4 }}>
+            {badge}
+          </span>
+        ) : null}
         <Icon
           icon={ChevronDown}
           size="sm"
@@ -176,6 +183,8 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
 
   // Ingested files stay local — no cross-session caching needed
   const [files, setFiles] = useState<IngestionFile[]>([]);
+  const [hasMemory, setHasMemory] = useState(false);
+  const [loadingMemory, setLoadingMemory] = useState(true);
   const [loadingProposals, setLoadingProposals] = useState(false);
   const [loadingMicrosites, setLoadingMicrosites] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
@@ -391,8 +400,8 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     }
   }, [allExecutions, namespace, apiKey, setProposals, setMicrosites]);
 
-  const allLoaded = !effectiveLoadingProposals && !effectiveLoadingMicrosites && !loadingFiles;
-  const hasContent = proposals.length > 0 || microsites.length > 0 || files.length > 0;
+  const allLoaded = !effectiveLoadingProposals && !effectiveLoadingMicrosites && !loadingFiles && !loadingMemory;
+  const hasContent = proposals.length > 0 || microsites.length > 0 || files.length > 0 || !!namespace;
 
   useEffect(() => {
     if (allLoaded) onHasContent?.(hasContent);
@@ -609,6 +618,8 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
             })
           )}
         </Section>
+
+        <MemorySection namespace={namespace} onHasMemory={setHasMemory} onLoadingChange={setLoadingMemory} />
 
       </div>
     </aside>
