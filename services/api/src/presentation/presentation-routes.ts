@@ -64,6 +64,33 @@ import {
  *   "file.md"            → workdir/namespaces/<namespace>/proposals/file.md (inferred from context)
  *   fallback             → workdir/output/file.md  (legacy)
  */
+/** Extract the proposing agency/company from context.json data.
+ *  Tries stakeholders (company != clientName), then knowledge source filenames (Otter.ai pattern).
+ *  Falls back to markdown header patterns as last resort.
+ */
+function extractPreparedBy(
+  ctx: Record<string, unknown> | null,
+  markdown: string,
+): string {
+  // 1. Proposal markdown — explicit "Prepared by" / "From:" header
+  const mdMatch = markdown.slice(0, 3000).match(
+    /(?:Prepared\s+by|From|Submitted\s+by|Presented\s+by)\s*[:\-]\s*\**([^\n*|]{2,60})\**/i,
+  );
+  if (mdMatch?.[1]?.trim()) return mdMatch[1].trim();
+
+  // 2. Knowledge source filenames — Otter.ai pattern: Speaker__Client__-_Agency_otter_ai
+  if (ctx) {
+    const knowledge = (ctx as Record<string, unknown[]>).knowledge ?? [];
+    for (const k of knowledge) {
+      const fileName = ((k as Record<string, Record<string, string>>).source?.fileName) ?? '';
+      const m = fileName.match(/__-_(.+?)_otter_ai/i);
+      if (m) return m[1].replace(/_/g, ' ');
+    }
+  }
+
+  return '';
+}
+
 function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
   const sep = fileName.indexOf('::');
   if (sep !== -1) {
@@ -1554,18 +1581,22 @@ ${layoutSummary}`;
     const PDF_MAX_PER_SLIDE = 4;
 
     // Build Brief-aware instructions — reads context.json for projectType/clientName/industry.
-    // clientIndustry is hoisted so it can be passed to the design-skill for industry-aware tone.
+    // clientIndustry and clientName are hoisted so they can flow into design-skill and hero metadata.
     let streamBriefPrefix = '';
     let streamClientIndustry = 'general';
+    let streamClientName = '—';
+    let streamCtx: Record<string, unknown> | null = null;
     try {
       const ctxSvc = new ContextService(workdir);
-      const ctx = await ctxSvc.get(namespace);
-      const fields = ctx?.requirements?.fields ?? {};
+      streamCtx = await ctxSvc.get(namespace) as unknown as Record<string, unknown> | null;
+      const ctx = streamCtx;
+      type SF = Record<string, { value?: unknown }>;
+      const fields: SF = ((ctx as Record<string, unknown>)?.requirements as Record<string, SF> | undefined)?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
-      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
+      streamClientName = (fields.clientName?.value as string | undefined) ?? '—';
       streamClientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       streamBriefPrefix = [
-        buildBriefFramingRule(projectType, clientName, streamClientIndustry),
+        buildBriefFramingRule(projectType, streamClientName, streamClientIndustry),
         '',
         buildSectionTypeGuidance(projectType),
         '',
@@ -1573,6 +1604,18 @@ ${layoutSummary}`;
         '',
       ].join('\n');
     } catch { /* non-fatal */ }
+
+    // Metadata for the hero section's bottom metadata strip.
+    // preparedBy extracted from the proposal markdown (most reliable source for agency name).
+    const heroProposalMeta = {
+      clientName:  streamClientName,
+      preparedBy:  extractPreparedBy(streamCtx ?? null, markdown) || (body?.brand?.companyName as string | undefined) || '—',
+      date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      version:     (() => {
+        const m = (proposalId as string).match(/[_\-v]v?(\d+)$/i);
+        return m ? `v${m[1]}` : 'v1';
+      })(),
+    };
 
     const streamEffectiveInstructions = body?.customInstructions
       ? `${streamBriefPrefix}${body.customInstructions}`
@@ -1688,14 +1731,20 @@ ${layoutSummary}`;
             send({ type: 'section', ...section, image: imageForClient, content, index: adjustedIdx });
 
             // Fire HTML generation immediately after streaming section data — no blocking
-            const capturedSection = { ...section, content: { ...content }, image: imageForClient };
+            const capturedSection = {
+              ...section,
+              content: { ...content },
+              image: imageForClient,
+              // Attach proposal metadata for the hero bottom strip — ignored by all other section types
+              ...(sectionType === 'hero' ? { _meta: heroProposalMeta } : {}),
+            };
             const capturedLayoutIdx = htmlLayoutIdx++;
             const capturedSectionType = sectionType ?? '';
             void (async () => {
               try {
                 if (!CUSTOM_HTML_SECTION_TYPES.has(capturedSectionType)) return;
                 const cssTheme = await cssThemePromise;
-                if (!cssTheme) return;
+                if (!cssTheme) { console.log('[routes] hero HTML skipped — cssTheme is null'); return; }
                 const html = await generateSectionHtml(
                   capturedSection as Record<string, unknown>,
                   designTone as unknown as Tone,
@@ -1805,6 +1854,15 @@ ${layoutSummary}`;
             const html = streamedHtmlMap.get(secId);
             if (html) (sec as unknown as { customHtml?: string }).customHtml = html;
           }
+        }
+      }
+
+      // Attach _meta to the hero AST section so Phase 3 fallback (injectThemeCSS) can render
+      // the metadata strip even if streaming HTML generation failed for the hero.
+      if (ast?.sections) {
+        const heroAstSec = ast.sections.find(s => (s as unknown as { sectionType?: string }).sectionType === 'hero');
+        if (heroAstSec && !(heroAstSec as unknown as { customHtml?: string }).customHtml) {
+          (heroAstSec as unknown as Record<string, unknown>)._meta = heroProposalMeta;
         }
       }
 
@@ -2058,10 +2116,11 @@ ${layoutSummary}`;
 
       // Read brand/context from context.json
       let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+      let structuredCtx: Record<string, unknown> | null = null;
       try {
         const ctxSvc = new ContextService(workdir);
-        const ctx    = await ctxSvc.get(namespace);
-        const fields = ctx?.requirements?.fields ?? {};
+        structuredCtx = await ctxSvc.get(namespace) as unknown as Record<string, unknown> | null;
+        const fields  = ((structuredCtx as Record<string, unknown>)?.requirements as Record<string, Record<string, { value?: unknown }>> | undefined)?.fields ?? {};
         brandHint = {
           companyName:  (fields.clientName?.value as string | undefined) ?? '',
           clientName:   (fields.clientName?.value as string | undefined) ?? '',
@@ -2108,6 +2167,16 @@ ${layoutSummary}`;
         const s = sections[i];
         send({ type: 'section', id: s.id, sectionType: s.sectionType, heading: s.heading, content: s.content, image: s.image, index: i });
       }
+
+      // Attach proposal metadata to the hero section so generateSectionHtml can inject the strip.
+      const structuredHeroMeta = {
+        clientName:  brandHint.clientName || '—',
+        preparedBy:  extractPreparedBy(structuredCtx, markdown) || (body?.brand?.companyName as string | undefined) || '—',
+        date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        version:     (() => { const m = (proposalId as string).match(/[_\-v]v?(\d+)$/i); return m ? `v${m[1]}` : 'v1'; })(),
+      };
+      const heroSec = sections.find(s => s.sectionType === 'hero');
+      if (heroSec) (heroSec as unknown as Record<string, unknown>)._meta = structuredHeroMeta;
 
       // Phase 2: Generate customHtml for all sections using a dedicated 5-concurrent
       // function isolated from the global LLM bridge pool (which stays at size=2 for
