@@ -727,6 +727,57 @@ export type StreamEvent =
   | { type: 'complete'; ast: unknown }
   | { type: 'error'; message: string };
 
+export interface BusinessIntel {
+  brandIdentity: {
+    brandName: string;
+    tagline: string | null;
+    missionStatement: string | null;
+    brandVoice: string;
+    brandPersonality: string;
+  };
+  businessIdentity: {
+    industry: string;
+    businessType: string;
+    companyDescription: string;
+    productsOrServices: string[];
+    pricingModel: string;
+  };
+  digitalAudit: {
+    seoTitle: string;
+    metaDescription: string | null;
+    hasAnalytics: boolean;
+    hasChatWidget: boolean;
+    techStack: string[];
+    internationalPresence: boolean;
+    languages: string[];
+  };
+  contactIntel: {
+    emails: string[];
+    phones: string[];
+    address: string | null;
+    socialProfiles: Record<string, string>;
+    hasContactForm: boolean;
+    hasLiveChat: boolean;
+  };
+  contentAnalysis: {
+    primaryCTA: string;
+    secondaryCTAs: string[];
+    keyMessages: string[];
+    contentTone: string;
+    hasTestimonials: boolean;
+    hasCaseStudies: boolean;
+    hasPricing: boolean;
+    hasVideo: boolean;
+  };
+  competitiveContext: {
+    uniqueSellingPoints: string[];
+    targetAudience: string;
+    positioning: string;
+    competitiveAdvantages: string[];
+    marketCategory: string;
+  };
+}
+
 export interface ReferenceDesign {
   colors: {
     primary: string; secondary: string; accent: string;
@@ -1551,10 +1602,20 @@ export async function deleteKnowledgeEntry(
 // URL Design Extraction
 // ---------------------------------------------------------------------------
 
+export type ExtractUrlDesignResult = {
+  tokens: ReferenceDesign | null;
+  heroImageUrl?: string | null;
+  logoUrl?: string | null;
+  layout?: Record<string, unknown> | null;
+  images?: string[];
+  businessIntel?: BusinessIntel | null;
+  error?: string;
+};
+
 export async function extractUrlDesign(
   apiKey: string,
   url: string,
-): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }> {
+): Promise<ExtractUrlDesignResult> {
   try {
     const res = await fetch('/api/microsite/extract-url-design', {
       method: 'POST',
@@ -1562,7 +1623,7 @@ export async function extractUrlDesign(
       body: JSON.stringify({ url }),
     });
     if (!res.ok) return { tokens: null, error: 'request_failed' };
-    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }>;
+    return res.json() as Promise<ExtractUrlDesignResult>;
   } catch {
     return { tokens: null, error: 'network_error' };
   }

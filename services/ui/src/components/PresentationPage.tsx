@@ -369,6 +369,8 @@ export function PresentationPage() {
     useState<ReferenceDesign | null>(null);
   const [urlLayout, setUrlLayout] = useState<Record<string, unknown> | null>(null);
   const [urlImages, setUrlImages] = useState<string[]>([]);
+  const [urlBusinessIntel, setUrlBusinessIntel] = useState<import('../lib/api').BusinessIntel | null>(null);
+  const [urlIntelExpanded, setUrlIntelExpanded] = useState(false);
   const [urlExtractionState, setUrlExtractionState] = useState<
     "idle" | "loading" | "success" | "error" | "blocked"
   >("idle");
@@ -738,6 +740,7 @@ export function PresentationPage() {
     setReferenceFile(null);
     setUrlInput("");
     setUrlReferenceDesign(null);
+    setUrlBusinessIntel(null);
     setUrlExtractionState("idle");
     setProgress([]);
     setStreamingSections([]);
@@ -2598,11 +2601,13 @@ export function PresentationPage() {
                                   setUrlReferenceDesign({ ...result.tokens, heroImageUrl: result.heroImageUrl ?? null });
                                   setUrlLayout(result.layout ?? null);
                                   setUrlImages(result.images ?? []);
+                                  setUrlBusinessIntel(result.businessIntel ?? null);
                                   setUrlExtractionState("success");
                                 } else {
                                   setUrlReferenceDesign(null);
                                   setUrlLayout(null);
                                   setUrlImages([]);
+                                  setUrlBusinessIntel(null);
                                   setUrlExtractionState(
                                     result.error === "blocked_by_bot_protection" ? "blocked" : "error",
                                   );
@@ -2611,6 +2616,7 @@ export function PresentationPage() {
                                 setUrlReferenceDesign(null);
                                 setUrlLayout(null);
                                 setUrlImages([]);
+                                setUrlBusinessIntel(null);
                                 setUrlExtractionState("error");
                               }
                             }, 800);
@@ -2625,6 +2631,7 @@ export function PresentationPage() {
                               setUrlReferenceDesign(null);
                               setUrlLayout(null);
                               setUrlImages([]);
+                              setUrlBusinessIntel(null);
                               setUrlExtractionState("idle");
                               if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
                               setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
@@ -2892,6 +2899,378 @@ export function PresentationPage() {
                             ? `${urlReferenceDesign.typography.headingFont} · ${urlReferenceDesign.style.borderRadius}`
                             : "extracted colors"}
                         </span>
+                      </div>
+                    )}
+
+                    {/* Site Intel — collapsible panel for design + business intelligence */}
+                    {urlExtractionState === "success" && (urlReferenceDesign || urlLayout || urlImages.length > 0 || urlBusinessIntel) && (
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setUrlIntelExpanded(v => !v)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "6px 10px",
+                            borderRadius: 6,
+                            background: "var(--color-surface, #1a1a1a)",
+                            border: "1px solid var(--color-border, #333)",
+                            cursor: "pointer",
+                            fontSize: 12,
+                            color: "var(--color-text, #e5e5e5)",
+                          }}
+                        >
+                          <span style={{ fontWeight: 600 }}>
+                            {urlBusinessIntel?.brandIdentity?.brandName
+                              ? `Site intel — ${urlBusinessIntel.brandIdentity.brandName}`
+                              : "Site intel"}
+                            {urlBusinessIntel?.businessIdentity?.industry && (
+                              <span style={{ fontWeight: 400, color: "var(--color-text-muted,#888)", marginLeft: 8 }}>
+                                {urlBusinessIntel.businessIdentity.industry} · {urlBusinessIntel.businessIdentity.businessType}
+                              </span>
+                            )}
+                          </span>
+                          <span style={{ fontSize: 10, color: "var(--color-text-muted,#888)" }}>
+                            {urlIntelExpanded ? "▲ collapse" : "▼ expand"}
+                          </span>
+                        </button>
+
+                        {urlIntelExpanded && (
+                          <div style={{ marginTop: 6, maxHeight: 520, overflowY: "auto", paddingRight: 2 }}>
+                    {/* ── inner panels start ── */}
+                    {true && (() => {
+                      const sectionStyle: React.CSSProperties = {
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        background: "var(--color-surface, #1a1a1a)",
+                        border: "1px solid var(--color-border, #333)",
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                      };
+                      const labelStyle: React.CSSProperties = {
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "var(--color-text-muted, #888)",
+                        marginBottom: 6,
+                        display: "block",
+                      };
+                      const chipStyle: React.CSSProperties = {
+                        padding: "2px 7px",
+                        borderRadius: 4,
+                        background: "rgba(255,255,255,0.07)",
+                        fontSize: 11,
+                        color: "var(--color-text, #e5e5e5)",
+                        whiteSpace: "nowrap",
+                      };
+                      const rowStyle: React.CSSProperties = { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 };
+                      const mutedStyle: React.CSSProperties = { color: "var(--color-text-muted, #888)", fontSize: 11 };
+                      const valueStyle: React.CSSProperties = { color: "var(--color-text, #e5e5e5)", fontSize: 12 };
+
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+
+                          {/* Typography + Style */}
+                          {urlReferenceDesign && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                              <div style={sectionStyle}>
+                                <span style={labelStyle}>Typography</span>
+                                <div style={{ marginBottom: 4 }}>
+                                  <span style={mutedStyle}>Heading </span>
+                                  <span style={{ ...valueStyle, fontWeight: 600 }}>{urlReferenceDesign.typography.headingFont}</span>
+                                  <span style={{ ...mutedStyle, marginLeft: 6 }}>w{urlReferenceDesign.typography.headingWeight} · {urlReferenceDesign.typography.headingStyle}</span>
+                                </div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <span style={mutedStyle}>Body </span>
+                                  <span style={valueStyle}>{urlReferenceDesign.typography.bodyFont}</span>
+                                  <span style={{ ...mutedStyle, marginLeft: 6 }}>w{urlReferenceDesign.typography.bodyWeight}</span>
+                                </div>
+                                <div style={rowStyle}>
+                                  <span style={chipStyle}>{urlReferenceDesign.typography.mood}</span>
+                                </div>
+                              </div>
+
+                              <div style={sectionStyle}>
+                                <span style={labelStyle}>Style</span>
+                                <div style={rowStyle}>
+                                  <span style={chipStyle}>Radius: {urlReferenceDesign.style.borderRadius}</span>
+                                  <span style={chipStyle}>Space: {urlReferenceDesign.style.spacing}</span>
+                                </div>
+                                <div style={{ ...mutedStyle, fontStyle: "italic", marginTop: 4 }}>{urlReferenceDesign.style.vibe}</div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Full color palette */}
+                          {urlReferenceDesign && (
+                            <div style={sectionStyle}>
+                              <span style={labelStyle}>Color Palette</span>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                {(["primary","secondary","accent","background","surface","text","textMuted"] as const).map(key => (
+                                  <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                                    <span
+                                      title={urlReferenceDesign.colors[key]}
+                                      style={{
+                                        width: 28, height: 28, borderRadius: 6,
+                                        background: urlReferenceDesign.colors[key],
+                                        border: "1px solid rgba(128,128,128,0.3)",
+                                        display: "block",
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 9, color: "var(--color-text-muted,#888)", textAlign: "center" }}>{key}</span>
+                                    <span style={{ fontSize: 9, color: "var(--color-text-muted,#888)" }}>{urlReferenceDesign.colors[key]}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Layout Structure */}
+                          {urlLayout && (
+                            <div style={sectionStyle}>
+                              <span style={labelStyle}>Layout Structure</span>
+                              {(urlLayout.sections as string[] | undefined)?.length > 0 && (
+                                <div style={{ ...rowStyle, marginBottom: 6 }}>
+                                  {(urlLayout.sections as string[]).map((s, i) => (
+                                    <span key={i} style={{ ...chipStyle, background: "rgba(99,102,241,0.15)" }}>{s}</span>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={rowStyle}>
+                                {urlLayout.heroStyle && <span style={chipStyle}>Hero: {String(urlLayout.heroStyle)}</span>}
+                                {urlLayout.gridColumns && <span style={chipStyle}>{String(urlLayout.gridColumns)}-col grid</span>}
+                                {urlLayout.layoutDensity && <span style={chipStyle}>{String(urlLayout.layoutDensity)}</span>}
+                                {urlLayout.visualHierarchy && <span style={chipStyle}>{String(urlLayout.visualHierarchy)}</span>}
+                                {urlLayout.isImageHeavy && <span style={chipStyle}>Image heavy</span>}
+                                {urlLayout.hasVideo && <span style={chipStyle}>Has video</span>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Images Gallery */}
+                          {urlImages.length > 0 && (
+                            <div style={sectionStyle}>
+                              <span style={labelStyle}>Images ({urlImages.length} found)</span>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {urlImages.slice(0, 12).map((src, i) => (
+                                  <img
+                                    key={i}
+                                    src={src}
+                                    alt=""
+                                    title={src}
+                                    style={{
+                                      width: 64, height: 48,
+                                      objectFit: "cover",
+                                      borderRadius: 5,
+                                      border: "1px solid var(--color-border,#333)",
+                                      cursor: "zoom-in",
+                                    }}
+                                    onClick={() => setImagePreviewModal({ type: 'hero', src })}
+                                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      );
+                    })()}
+
+                    {/* Business Intelligence Panel */}
+                    {urlBusinessIntel && urlExtractionState === "success" && (() => {
+                      const bi = urlBusinessIntel;
+                      const sectionStyle: React.CSSProperties = {
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        background: "var(--color-surface, #1a1a1a)",
+                        border: "1px solid var(--color-border, #333)",
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                      };
+                      const labelStyle: React.CSSProperties = {
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "var(--color-text-muted, #888)",
+                        marginBottom: 6,
+                        display: "block",
+                      };
+                      const rowStyle: React.CSSProperties = {
+                        display: "flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                        marginBottom: 4,
+                      };
+                      const chipStyle: React.CSSProperties = {
+                        padding: "2px 7px",
+                        borderRadius: 4,
+                        background: "rgba(255,255,255,0.07)",
+                        fontSize: 11,
+                        color: "var(--color-text, #e5e5e5)",
+                        whiteSpace: "nowrap",
+                      };
+                      const valueStyle: React.CSSProperties = {
+                        color: "var(--color-text, #e5e5e5)",
+                        fontSize: 12,
+                      };
+                      const mutedStyle: React.CSSProperties = {
+                        color: "var(--color-text-muted, #888)",
+                        fontSize: 11,
+                      };
+
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+
+                          {/* Brand Identity */}
+                          <div style={sectionStyle}>
+                            <span style={labelStyle}>Brand Identity</span>
+                            {bi.brandIdentity.brandName && (
+                              <div style={{ marginBottom: 4 }}>
+                                <span style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text, #e5e5e5)" }}>{bi.brandIdentity.brandName}</span>
+                                {bi.brandIdentity.tagline && <span style={{ ...mutedStyle, marginLeft: 8 }}>· {bi.brandIdentity.tagline}</span>}
+                              </div>
+                            )}
+                            {bi.brandIdentity.missionStatement && (
+                              <div style={{ ...valueStyle, marginBottom: 4, fontStyle: "italic" }}>&ldquo;{bi.brandIdentity.missionStatement}&rdquo;</div>
+                            )}
+                            <div style={rowStyle}>
+                              {bi.brandIdentity.brandVoice && <span style={chipStyle}>Voice: {bi.brandIdentity.brandVoice}</span>}
+                              {bi.brandIdentity.brandPersonality && <span style={chipStyle}>{bi.brandIdentity.brandPersonality}</span>}
+                            </div>
+                          </div>
+
+                          {/* Business Identity */}
+                          <div style={sectionStyle}>
+                            <span style={labelStyle}>Business Identity</span>
+                            <div style={{ ...valueStyle, marginBottom: 4 }}>{bi.businessIdentity.companyDescription}</div>
+                            <div style={rowStyle}>
+                              {bi.businessIdentity.industry && <span style={chipStyle}>{bi.businessIdentity.industry}</span>}
+                              {bi.businessIdentity.businessType && <span style={chipStyle}>{bi.businessIdentity.businessType}</span>}
+                              {bi.businessIdentity.pricingModel && bi.businessIdentity.pricingModel !== "not-mentioned" && <span style={chipStyle}>{bi.businessIdentity.pricingModel}</span>}
+                            </div>
+                            {bi.businessIdentity.productsOrServices?.length > 0 && (
+                              <div style={rowStyle}>
+                                {bi.businessIdentity.productsOrServices.slice(0, 6).map((s, i) => (
+                                  <span key={i} style={{ ...chipStyle, background: "rgba(99,102,241,0.15)" }}>{s}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Content Analysis */}
+                          <div style={sectionStyle}>
+                            <span style={labelStyle}>Content Analysis</span>
+                            {bi.contentAnalysis.primaryCTA && (
+                              <div style={{ marginBottom: 6 }}>
+                                <span style={mutedStyle}>Primary CTA: </span>
+                                <span style={{ ...valueStyle, fontWeight: 600 }}>{bi.contentAnalysis.primaryCTA}</span>
+                              </div>
+                            )}
+                            {bi.contentAnalysis.keyMessages?.length > 0 && (
+                              <ul style={{ margin: "0 0 6px 0", paddingLeft: 16 }}>
+                                {bi.contentAnalysis.keyMessages.slice(0, 4).map((msg, i) => (
+                                  <li key={i} style={valueStyle}>{msg}</li>
+                                ))}
+                              </ul>
+                            )}
+                            <div style={rowStyle}>
+                              {bi.contentAnalysis.contentTone && <span style={chipStyle}>Tone: {bi.contentAnalysis.contentTone}</span>}
+                              {bi.contentAnalysis.hasTestimonials && <span style={chipStyle}>Testimonials</span>}
+                              {bi.contentAnalysis.hasCaseStudies && <span style={chipStyle}>Case Studies</span>}
+                              {bi.contentAnalysis.hasPricing && <span style={chipStyle}>Pricing page</span>}
+                              {bi.contentAnalysis.hasVideo && <span style={chipStyle}>Video</span>}
+                            </div>
+                          </div>
+
+                          {/* Competitive Context */}
+                          <div style={sectionStyle}>
+                            <span style={labelStyle}>Competitive Context</span>
+                            {bi.competitiveContext.positioning && (
+                              <div style={{ ...valueStyle, marginBottom: 4 }}>{bi.competitiveContext.positioning}</div>
+                            )}
+                            {bi.competitiveContext.targetAudience && (
+                              <div style={{ marginBottom: 6 }}>
+                                <span style={mutedStyle}>Target: </span>
+                                <span style={valueStyle}>{bi.competitiveContext.targetAudience}</span>
+                              </div>
+                            )}
+                            {bi.competitiveContext.uniqueSellingPoints?.length > 0 && (
+                              <div style={rowStyle}>
+                                {bi.competitiveContext.uniqueSellingPoints.slice(0, 4).map((usp, i) => (
+                                  <span key={i} style={{ ...chipStyle, background: "rgba(16,185,129,0.12)" }}>{usp}</span>
+                                ))}
+                              </div>
+                            )}
+                            {bi.competitiveContext.marketCategory && (
+                              <div style={mutedStyle}>{bi.competitiveContext.marketCategory}</div>
+                            )}
+                          </div>
+
+                          {/* Digital Audit + Contact Intel */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            <div style={sectionStyle}>
+                              <span style={labelStyle}>Digital Audit</span>
+                              {bi.digitalAudit.techStack?.length > 0 && (
+                                <div style={{ ...rowStyle, marginBottom: 6 }}>
+                                  {bi.digitalAudit.techStack.slice(0, 5).map((t, i) => (
+                                    <span key={i} style={chipStyle}>{t}</span>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={rowStyle}>
+                                {bi.digitalAudit.hasAnalytics && <span style={chipStyle}>Analytics</span>}
+                                {bi.digitalAudit.hasChatWidget && <span style={chipStyle}>Chat widget</span>}
+                                {bi.digitalAudit.internationalPresence && <span style={chipStyle}>Multi-language</span>}
+                              </div>
+                              {bi.digitalAudit.metaDescription && (
+                                <div style={{ ...mutedStyle, marginTop: 4 }}>{bi.digitalAudit.metaDescription.slice(0, 120)}{bi.digitalAudit.metaDescription.length > 120 ? "…" : ""}</div>
+                              )}
+                            </div>
+
+                            <div style={sectionStyle}>
+                              <span style={labelStyle}>Contact Intel</span>
+                              {bi.contactIntel.emails?.length > 0 && (
+                                <div style={{ ...valueStyle, marginBottom: 3 }}>{bi.contactIntel.emails.slice(0, 2).join(", ")}</div>
+                              )}
+                              {bi.contactIntel.phones?.length > 0 && (
+                                <div style={{ ...valueStyle, marginBottom: 3 }}>{bi.contactIntel.phones.slice(0, 2).join(", ")}</div>
+                              )}
+                              {bi.contactIntel.address && (
+                                <div style={{ ...mutedStyle, marginBottom: 4 }}>{bi.contactIntel.address.slice(0, 80)}</div>
+                              )}
+                              {Object.keys(bi.contactIntel.socialProfiles ?? {}).length > 0 && (
+                                <div style={rowStyle}>
+                                  {Object.keys(bi.contactIntel.socialProfiles).map((platform) => (
+                                    <a
+                                      key={platform}
+                                      href={bi.contactIntel.socialProfiles[platform]}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ ...chipStyle, textDecoration: "none", color: "var(--color-text, #e5e5e5)" }}
+                                    >{platform}</a>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={rowStyle}>
+                                {bi.contactIntel.hasContactForm && <span style={chipStyle}>Contact form</span>}
+                                {bi.contactIntel.hasLiveChat && <span style={chipStyle}>Live chat</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      );
+                    })()}
+
+                          </div>
+                        )}
                       </div>
                     )}
 

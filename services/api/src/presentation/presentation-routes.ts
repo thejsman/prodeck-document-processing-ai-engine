@@ -880,6 +880,179 @@ export function registerPresentationRoutes(
     }
     const layoutSummary = layoutLines.join('\n').slice(0, 6_000);
 
+    // ── Step 2c: Deterministic business intelligence extraction ───────────
+    // Extract what we can from HTML without an LLM call first.
+
+    // Page title and meta description
+    const pageTitle = html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1]?.trim() ?? '';
+    const metaDescription =
+      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,500})["'][^>]*>/i)?.[1]?.trim() ??
+      html.match(/<meta[^>]+content=["']([^"']{1,500})["'][^>]+name=["']description["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const metaKeywords =
+      html.match(/<meta[^>]+name=["']keywords["'][^>]+content=["']([^"']{1,300})["'][^>]*>/i)?.[1]?.trim() ??
+      html.match(/<meta[^>]+content=["']([^"']{1,300})["'][^>]+name=["']keywords["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{1,200})["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const ogDescription = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']{1,500})["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const ogSiteName = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']{1,100})["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const twitterSite = html.match(/<meta[^>]+name=["']twitter:site["'][^>]+content=["']([^"']{1,100})["'][^>]*>/i)?.[1]?.trim() ?? '';
+
+    // Contact intel — deterministic regex extraction
+    const emailMatches = [...new Set([...html.matchAll(/\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g)].map(m => m[0]).filter(e => !e.match(/\.(png|jpg|gif|svg|css|js)$/i)))].slice(0, 5);
+    const phoneMatches = [...new Set([...html.matchAll(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/g)].map(m => m[0].trim()))].slice(0, 5);
+    const addressMatch = html.match(/<address[^>]*>([\s\S]{1,400}?)<\/address>/i)?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+
+    // Social links
+    const socialPatterns: Record<string, RegExp> = {
+      twitter: /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,50})/,
+      linkedin: /https?:\/\/(?:www\.)?linkedin\.com\/(?:company|in)\/([a-zA-Z0-9_\-]{1,80})/,
+      facebook: /https?:\/\/(?:www\.)?facebook\.com\/([a-zA-Z0-9_.]{1,80})/,
+      instagram: /https?:\/\/(?:www\.)?instagram\.com\/([a-zA-Z0-9_.]{1,80})/,
+      youtube: /https?:\/\/(?:www\.)?youtube\.com\/(?:channel\/|@)([a-zA-Z0-9_\-]{1,80})/,
+    };
+    const socialLinks: Record<string, string> = {};
+    for (const [platform, pattern] of Object.entries(socialPatterns)) {
+      const m = html.match(pattern);
+      if (m) socialLinks[platform] = m[0];
+    }
+
+    // Tech stack signals from script srcs, meta generators
+    const techHints: string[] = [];
+    const generatorMeta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']([^"']{1,100})["'][^>]*>/i)?.[1]?.trim();
+    if (generatorMeta) techHints.push(generatorMeta);
+    for (const m of html.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+      const src = m[1].toLowerCase();
+      if (src.includes('wp-content') || src.includes('wordpress')) techHints.push('WordPress');
+      else if (src.includes('shopify')) techHints.push('Shopify');
+      else if (src.includes('squarespace')) techHints.push('Squarespace');
+      else if (src.includes('wix')) techHints.push('Wix');
+      else if (src.includes('webflow')) techHints.push('Webflow');
+      else if (src.includes('gtag') || src.includes('google-analytics') || src.includes('analytics.js')) techHints.push('Google Analytics');
+      else if (src.includes('hotjar')) techHints.push('Hotjar');
+      else if (src.includes('intercom')) techHints.push('Intercom');
+      else if (src.includes('hubspot')) techHints.push('HubSpot');
+      else if (src.includes('segment')) techHints.push('Segment');
+    }
+    const uniqueTechHints = [...new Set(techHints)].slice(0, 10);
+
+    // Canonical URL and hreflang (international signals)
+    const canonicalUrl = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const hreflangTags = [...html.matchAll(/<link[^>]+rel=["']alternate["'][^>]+hreflang=["']([^"']+)["'][^>]*>/gi)].map(m => m[1]).filter(l => l !== 'x-default').slice(0, 8);
+
+    // Schema.org structured data — extract business type, name, description
+    let schemaOrgName = '';
+    let schemaOrgDescription = '';
+    let schemaOrgType = '';
+    let schemaOrgPriceRange = '';
+    for (const block of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const data = JSON.parse(block[1]) as Record<string, unknown>;
+        const items = Array.isArray(data['@graph']) ? data['@graph'] as Record<string, unknown>[] : [data];
+        for (const item of items) {
+          if (!schemaOrgType && item['@type']) schemaOrgType = String(item['@type']);
+          if (!schemaOrgName && item.name) schemaOrgName = String(item.name).slice(0, 100);
+          if (!schemaOrgDescription && item.description) schemaOrgDescription = String(item.description).slice(0, 400);
+          if (!schemaOrgPriceRange && item.priceRange) schemaOrgPriceRange = String(item.priceRange);
+        }
+      } catch { /* malformed JSON-LD */ }
+    }
+
+    // Extract visible text for LLM — strip tags, scripts, styles, limit size
+    const visibleText = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#\d+;/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .slice(0, 8_000);
+
+    // Build business intel prompt context
+    const biContext = [
+      pageTitle && `PAGE TITLE: ${pageTitle}`,
+      ogTitle && ogTitle !== pageTitle && `OG TITLE: ${ogTitle}`,
+      ogSiteName && `SITE NAME: ${ogSiteName}`,
+      metaDescription && `META DESCRIPTION: ${metaDescription}`,
+      ogDescription && ogDescription !== metaDescription && `OG DESCRIPTION: ${ogDescription}`,
+      metaKeywords && `META KEYWORDS: ${metaKeywords}`,
+      schemaOrgType && `SCHEMA TYPE: ${schemaOrgType}`,
+      schemaOrgName && `SCHEMA NAME: ${schemaOrgName}`,
+      schemaOrgDescription && `SCHEMA DESCRIPTION: ${schemaOrgDescription}`,
+      schemaOrgPriceRange && `PRICE RANGE: ${schemaOrgPriceRange}`,
+      emailMatches.length && `EMAILS FOUND: ${emailMatches.join(', ')}`,
+      phoneMatches.length && `PHONES FOUND: ${phoneMatches.join(', ')}`,
+      addressMatch && `ADDRESS: ${addressMatch}`,
+      Object.keys(socialLinks).length && `SOCIAL: ${Object.entries(socialLinks).map(([k, v]) => `${k}: ${v}`).join(', ')}`,
+      uniqueTechHints.length && `TECH STACK: ${uniqueTechHints.join(', ')}`,
+      canonicalUrl && `CANONICAL: ${canonicalUrl}`,
+      hreflangTags.length && `LANGUAGES: ${hreflangTags.join(', ')}`,
+      `\nPAGE TEXT (first 8000 chars):\n${visibleText}`,
+    ].filter(Boolean).join('\n');
+
+    const businessIntelPrompt = `You are a business analyst extracting structured intelligence from a website.
+Analyze the provided page data and return a JSON object with exactly these 6 categories.
+Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
+
+{
+  "brandIdentity": {
+    "brandName": "company or brand name",
+    "tagline": "official tagline or slogan if present, else null",
+    "missionStatement": "mission or vision statement if present, else null",
+    "brandVoice": "professional | friendly | authoritative | playful | technical | inspirational",
+    "brandPersonality": "2-5 word description of the brand personality"
+  },
+  "businessIdentity": {
+    "industry": "primary industry (e.g. SaaS, E-commerce, Healthcare, Legal, Real Estate)",
+    "businessType": "B2B | B2C | B2B2C | Marketplace | Non-profit | Government",
+    "companyDescription": "1-2 sentence description of what the company does",
+    "productsOrServices": ["list", "of", "key", "offerings"],
+    "pricingModel": "subscription | one-time | freemium | enterprise | custom | not-mentioned"
+  },
+  "digitalAudit": {
+    "seoTitle": "page title used",
+    "metaDescription": "meta description if present, else null",
+    "hasAnalytics": true,
+    "hasChatWidget": true,
+    "techStack": ["detected", "technologies"],
+    "internationalPresence": true,
+    "languages": ["en", "fr"]
+  },
+  "contactIntel": {
+    "emails": ["list of emails found"],
+    "phones": ["list of phones found"],
+    "address": "physical address if found, else null",
+    "socialProfiles": {"twitter": "url", "linkedin": "url"},
+    "hasContactForm": true,
+    "hasLiveChat": true
+  },
+  "contentAnalysis": {
+    "primaryCTA": "main call-to-action text (e.g. Get Started, Book a Demo)",
+    "secondaryCTAs": ["other", "cta", "texts"],
+    "keyMessages": ["3-5 core value propositions or key messages"],
+    "contentTone": "formal | conversational | technical | inspirational | persuasive",
+    "hasTestimonials": true,
+    "hasCaseStudies": true,
+    "hasPricing": true,
+    "hasVideo": true
+  },
+  "competitiveContext": {
+    "uniqueSellingPoints": ["2-4 clear USPs"],
+    "targetAudience": "description of who this is for",
+    "positioning": "how the company positions itself in the market",
+    "competitiveAdvantages": ["stated", "advantages"],
+    "marketCategory": "the specific market category or niche"
+  }
+}
+
+Rules:
+- Use null for fields where information is genuinely not available — do NOT guess
+- "productsOrServices" should list actual named products/services, not generic descriptions
+- "keyMessages" should be extracted from headlines and hero copy, not invented
+- "uniqueSellingPoints" should be based on what the site explicitly claims
+- Keep all string values concise (under 200 chars each)
+
+PAGE DATA:
+${biContext}`;
+
     // ── Step 3: LLM extraction (colors + layout in parallel) ─────────────
     const extractionPrompt = `You are a senior UI designer analyzing a website's design system.
 Below are pre-categorized design tokens extracted from the site's CSS.
@@ -956,9 +1129,10 @@ HTML STRUCTURE SUMMARY:
 ${layoutSummary}`;
 
     try {
-      const [colorRaw, layoutRaw] = await Promise.all([
+      const [colorRaw, layoutRaw, biRaw] = await Promise.all([
         llmGenerateFn(extractionPrompt),
         llmGenerateFn(layoutExtractionPrompt),
+        llmGenerateFn(businessIntelPrompt),
       ]);
 
       // Parse color tokens
@@ -1013,13 +1187,44 @@ ${layoutSummary}`;
         console.warn('[extract-url-design] layout JSON parse failed — continuing without layout');
       }
 
-      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}, sections=${JSON.stringify((layout as Record<string, unknown> | null)?.sections ?? [])}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}`);
+      // Parse business intelligence
+      let businessIntel: Record<string, unknown> | null = null;
+      try {
+        const biJsonStart = biRaw.indexOf('{');
+        const biJsonEnd = biRaw.lastIndexOf('}');
+        if (biJsonStart !== -1 && biJsonEnd > biJsonStart) {
+          businessIntel = JSON.parse(biRaw.slice(biJsonStart, biJsonEnd + 1)) as Record<string, unknown>;
+        }
+        // Overlay deterministic values that are more reliable than LLM extraction
+        if (businessIntel) {
+          const ci = businessIntel.contactIntel as Record<string, unknown> ?? {};
+          if (emailMatches.length) ci.emails = emailMatches;
+          if (phoneMatches.length) ci.phones = phoneMatches;
+          if (addressMatch) ci.address = addressMatch;
+          if (Object.keys(socialLinks).length) ci.socialProfiles = socialLinks;
+          businessIntel.contactIntel = ci;
+
+          const da = businessIntel.digitalAudit as Record<string, unknown> ?? {};
+          da.techStack = uniqueTechHints.length ? uniqueTechHints : (da.techStack ?? []);
+          da.seoTitle = pageTitle || da.seoTitle;
+          da.metaDescription = metaDescription || da.metaDescription || null;
+          da.hasAnalytics = uniqueTechHints.some(t => t.toLowerCase().includes('analytics') || t.toLowerCase().includes('segment') || t.toLowerCase().includes('hotjar'));
+          da.hasChatWidget = uniqueTechHints.some(t => t.toLowerCase().includes('intercom') || t.toLowerCase().includes('hubspot'));
+          if (hreflangTags.length) { da.internationalPresence = true; da.languages = hreflangTags; }
+          businessIntel.digitalAudit = da;
+        }
+      } catch {
+        console.warn('[extract-url-design] business intel JSON parse failed — continuing without it');
+      }
+
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}, sections=${JSON.stringify((layout as Record<string, unknown> | null)?.sections ?? [])}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}${businessIntel ? `, businessIntel extracted` : ''}`);
       return reply.code(200).send({
         tokens: parsed,
         heroImageUrl,
         logoUrl,
         images: bodyImages.slice(0, 20),
         layout,
+        businessIntel,
       });
     } catch (err) {
       console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
