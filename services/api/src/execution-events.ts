@@ -38,9 +38,27 @@ executionBus.setMaxListeners(0);
  */
 const recentTerminalEvents = new Map<string, ExecutionEvent>();
 
+/**
+ * Cache of ALL execution events (any status) keyed by executionId.
+ * Stores the latest event per execution so the polling and trace endpoints
+ * can return status for in-progress jobs too.
+ */
+const recentAllEvents = new Map<string, { event: ExecutionEvent; cachedAt: number }>();
+
 /** Broadcast an execution status update to all connected SSE clients. */
 export function emitExecution(event: ExecutionEvent): void {
   executionBus.emit('update', event);
+
+  const cachedAt = Date.now();
+  recentAllEvents.set(event.executionId, { event, cachedAt });
+  // Evict after 10 minutes, but only if no newer update has replaced this entry
+  setTimeout(() => {
+    const current = recentAllEvents.get(event.executionId);
+    if (current && current.cachedAt === cachedAt) {
+      recentAllEvents.delete(event.executionId);
+    }
+  }, 10 * 60 * 1000);
+
   if (event.status === 'COMPLETED' || event.status === 'FAILED') {
     recentTerminalEvents.set(event.executionId, event);
     setTimeout(() => { recentTerminalEvents.delete(event.executionId); }, 10 * 60 * 1000);
@@ -50,6 +68,11 @@ export function emitExecution(event: ExecutionEvent): void {
 /** Return the cached terminal event for an execution ID, or undefined if not yet terminal. */
 export function getRecentExecution(executionId: string): ExecutionEvent | undefined {
   return recentTerminalEvents.get(executionId);
+}
+
+/** Return the latest cached event for any execution ID regardless of status. */
+export function getExecution(executionId: string): ExecutionEvent | undefined {
+  return recentAllEvents.get(executionId)?.event;
 }
 
 // ---------------------------------------------------------------------------

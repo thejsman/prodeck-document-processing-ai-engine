@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc && mkdir -p dist/skills && cp src/skills/frontend-design.md dist/skills/",
     "start": "node --env-file=../../deployment/.env dist/index.js",
-    "dev": "node --env-file=../../deployment/.env dist/index.js",
+    "dev": "tsc --watch --preserveWatchOutput & node --env-file=../../deployment/.env --watch-path=./dist dist/index.js",
     "clean": "rm -rf dist",
     "test": "vitest run"
   },

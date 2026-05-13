@@ -6,15 +6,28 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { executionBus, extractionBus, progressBus, getRecentExecution, type ExecutionEvent, type ExtractionReadyPayload, type IngestionProgressEvent } from './execution-events.js';
+import { executionBus, extractionBus, progressBus, getExecution, type ExecutionEvent, type ExtractionReadyPayload, type IngestionProgressEvent } from './execution-events.js';
 
 export function registerExecutionStreamRoutes(app: FastifyInstance): void {
   // ── Polling fallback — lets the frontend poller catch up on missed SSE events
   app.get('/ai-executions/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const event = getRecentExecution(id);
+    const event = getExecution(id);
     if (!event) return reply.code(404).send({ error: 'Not found' });
     return reply.send({ id: event.executionId, status: event.status, type: event.type ?? null });
+  });
+
+  // ── Trace snapshot — returns status + any server-side metadata for a given execution
+  app.get('/ai-executions/:id/trace', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const event = getExecution(id);
+    if (!event) return reply.code(404).send({ error: 'Not found' });
+    return reply.send({
+      executionId: event.executionId,
+      status: event.status,
+      type: event.type ?? null,
+      steps: [],
+    });
   });
 
   app.get('/ai-executions/stream', async (req, reply) => {
