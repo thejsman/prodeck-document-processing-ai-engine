@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Brain, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
+import { ArrowUp, Brain, Database, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
@@ -34,6 +34,8 @@ import type { RequirementKey, DocumentClassification } from '@/lib/api';
 import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
 import { confirmExtractionCard, discardExtractionCard, reclassifyExtractionCard, fetchPendingExtractions } from '@/lib/api';
 import { useIngestionProgressStore } from '@/core/execution/ingestion-progress-store';
+import { CollectionPanel } from '@/components/collection/CollectionPanel';
+import { useCollectionStatus } from '@/lib/use-collection-status';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -149,6 +151,7 @@ export default function ChatPage() {
   const { namespace } = useNamespace();
 
   const brief = useBrief(namespace || 'default', apiKey);
+  const { status: collectionStatus, loading: collectionLoading } = useCollectionStatus();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -198,6 +201,7 @@ export default function ChatPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [composerPulse, setComposerPulse] = useState(false);
   const [briefModalOpen, setBriefModalOpen] = useState(false);
+  const [collectionPanelOpen, setCollectionPanelOpen] = useState(false);
   const [typeTarget, setTypeTarget] = useState('');
   const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -928,6 +932,15 @@ export default function ChatPage() {
                 <Icon icon={panelVisible ? PanelRightClose : PanelRightOpen} size="sm" />
               </button>
             )}
+            {namespace && (
+              <button
+                className={`chat-v2-panel-toggle${collectionPanelOpen ? ' active' : ''}`}
+                onClick={() => setCollectionPanelOpen((v) => !v)}
+                title={collectionPanelOpen ? 'Hide collection progress' : 'Show collection progress'}
+              >
+                <Icon icon={Database} size="sm" />
+              </button>
+            )}
           </div>
         </header>
 
@@ -1378,6 +1391,35 @@ export default function ChatPage() {
       {/* ── Right panel: full height, not under header ── */}
       <div style={{ width: panelVisible && panelHasContent ? 256 : 0, flexShrink: 0, overflow: 'hidden', transition: 'width 0.22s ease' }}>
         <NamespacePanel namespace={namespace} onMicrositeClick={setViewMicrosite} fileRefreshTick={fileRefreshTick} onHasContent={setPanelHasContent} />
+      </div>
+
+      {/* ── Collection progress panel ── */}
+      <div style={{
+        width: collectionPanelOpen && !!namespace ? 304 : 0,
+        flexShrink: 0,
+        overflow: 'hidden',
+        transition: 'width 0.22s ease',
+        borderLeft: collectionPanelOpen && !!namespace ? '1px solid var(--border)' : 'none',
+      }}>
+        {collectionPanelOpen && !!namespace && (
+          <div style={{ width: 304, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{
+              padding: '12px 16px',
+              borderBottom: '1px solid var(--border)',
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              flexShrink: 0,
+            }}>
+              Collection Progress
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <CollectionPanel status={collectionStatus} loading={collectionLoading} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Execution trace panel */}

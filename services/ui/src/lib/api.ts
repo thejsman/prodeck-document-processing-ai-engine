@@ -110,11 +110,11 @@ export async function fetchNamespaces(apiKey: string): Promise<string[]> {
   return data.namespaces;
 }
 
-export async function createNamespace(apiKey: string, name: string): Promise<string> {
+export async function createNamespace(apiKey: string, name: string, clientName?: string): Promise<string> {
   const res = await fetch('/api/namespaces', {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(clientName ? { clientName } : {}) }),
   });
   const data = await handleResponse<{ namespace: string }>(res);
   return data.namespace;

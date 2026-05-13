@@ -109,6 +109,19 @@ const INTENT_RULES: Array<{
     intent: 'INGEST_GUIDANCE',
     confidence: 0.85,
   },
+  // --- CLIENT DATA COLLECTION ---
+  {
+    id: 'kw_client_data',
+    test: (msg) => /\b(client\s+(data|info|details|profile|brief)|collect\s+(data|info|details|requirements)|build\s+(client|brief|profile)|scrape\s+(website|url|site)|client\s+website)\b/i.test(msg),
+    intent: 'CLIENT_DATA_COLLECTION' as Intent,
+    confidence: 0.88,
+  },
+  {
+    id: 'ctx_awaiting_client_data',
+    test: (_msg, ctx) => ctx.awaitingInput?.intent === 'CLIENT_DATA_COLLECTION',
+    intent: 'CLIENT_DATA_COLLECTION' as Intent,
+    confidence: 0.95,
+  },
   {
     id: 'kw_greeting',
     test: (msg) => /^(hi|hello|hey|good\s+(morning|afternoon|evening)|what'?s\s+up)\b/i.test(msg) && msg.length < 30,
@@ -197,7 +210,8 @@ function buildLLMPrompt(message: string, context: ChatContext): string {
 PROJECT-RELATED (about proposals, templates, microsites, documents, client work, skills):
   GENERATE_PROPOSAL, MODIFY_PROPOSAL, GENERATE_TEMPLATE, MODIFY_TEMPLATE,
   GENERATE_MICROSITE, UPDATE_REQUIREMENTS, QUERY, STATUS_CHECK, INGEST_GUIDANCE,
-  CREATE_SKILL, MODIFY_SKILL, LIST_SKILLS
+  CREATE_SKILL, MODIFY_SKILL, LIST_SKILLS, CLIENT_DATA_COLLECTION
+  CLIENT_DATA_COLLECTION — user wants to provide, collect, or review client data for proposal preparation (uploading files, sharing URLs, answering questions about the client)
 
 NON-PROJECT:
   GREETING — hello, hi, good morning (short social opener)

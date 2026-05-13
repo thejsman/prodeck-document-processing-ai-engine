@@ -18,6 +18,7 @@ export function CreateNamespaceModal({ onClose }: Props) {
   const router = useRouter();
 
   const [name, setName] = useState('');
+  const [clientName, setClientName] = useState('');
   const [nameError, setNameError] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -32,7 +33,7 @@ export function CreateNamespaceModal({ onClose }: Props) {
     setCreating(true);
     setNameError('');
     try {
-      const ns = await createNamespace(apiKey, name.trim());
+      const ns = await createNamespace(apiKey, name.trim(), clientName.trim() || undefined);
       addNamespace(ns);
       setNamespace(ns);
       onClose();
@@ -99,6 +100,23 @@ export function CreateNamespaceModal({ onClose }: Props) {
               }}
             />
             {nameError && <p style={{ fontSize: 12, color: 'var(--danger)', margin: '4px 0 0' }}>{nameError}</p>}
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
+              Client name <span style={{ opacity: 0.5 }}>(optional)</span>
+            </label>
+            <input
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
+              placeholder="e.g. Acme Corporation"
+              style={{
+                width: '100%', padding: '8px 10px',
+                border: '1px solid var(--border)',
+                borderRadius: 6, background: 'var(--panel-soft)',
+                color: 'var(--text)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+              }}
+            />
           </div>
           <button
             onClick={handleCreate}

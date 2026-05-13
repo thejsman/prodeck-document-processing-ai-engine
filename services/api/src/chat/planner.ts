@@ -81,6 +81,7 @@ const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
   CREATE_SKILL: ['context'],
   MODIFY_SKILL: ['context'],
   LIST_SKILLS: [],
+  CLIENT_DATA_COLLECTION: ['context'],
 }
 
 function selectRelevantKnowledge(intent: Intent, knowledge: KnowledgeEntry[]): KnowledgeEntry[] {

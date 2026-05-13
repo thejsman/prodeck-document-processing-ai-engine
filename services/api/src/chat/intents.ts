@@ -19,6 +19,7 @@ export type Intent =
   | 'CREATE_SKILL'     // create a new reusable proposal skill
   | 'MODIFY_SKILL'     // edit an existing skill
   | 'LIST_SKILLS'      // list available skills
+  | 'CLIENT_DATA_COLLECTION'  // chat-driven client data collection for proposal prerequisites
 
 export const VALID_INTENTS: readonly Intent[] = [
   'GENERATE_PROPOSAL',
@@ -38,6 +39,7 @@ export const VALID_INTENTS: readonly Intent[] = [
   'CREATE_SKILL',
   'MODIFY_SKILL',
   'LIST_SKILLS',
+  'CLIENT_DATA_COLLECTION',
 ] as const
 
 export interface ClassificationResult {
