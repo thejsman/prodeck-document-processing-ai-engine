@@ -91,7 +91,7 @@ function buildUserPrompt(
   params: DirectMicrositeParams,
   meta: ProposalMeta,
 ): string {
-  const { brandConfig, proposalMarkdown } = params;
+  const { brandConfig, proposalMarkdown, designStyleOverride } = params;
   const lines = [
     `Generate a complete production-ready microsite HTML for the following proposal.`,
     ``,
@@ -99,6 +99,7 @@ function buildUserPrompt(
     `PROPOSING COMPANY: ${brandConfig.companyName}`,
     `INDUSTRY: ${brandConfig.industry || meta.industry || 'professional services'}`,
     `PRIMARY COLOR HINT: ${brandConfig.primaryColor ?? 'choose based on industry — warm and approachable for recreation, dark and minimal for tech'}`,
+    ...(designStyleOverride ? [`\nDESIGN SKILL (apply this aesthetic direction — overrides all auto-selection rules above):\n${designStyleOverride}`] : []),
     ``,
     `DOCUMENT METADATA (extracted):`,
     `  - Proposal sections (h2 headings): ${meta.sectionCount}`,
@@ -130,6 +131,8 @@ export interface DirectMicrositeParams {
     industry?: string;
     clientName?: string;
   };
+  /** Optional design skill aesthetic override — overrides the system prompt's auto-selection rules */
+  designStyleOverride?: string;
 }
 
 interface AnthropicStreamEvent {

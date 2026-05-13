@@ -32,6 +32,10 @@ import { buildRunner } from '../agent-routes.js';
 import type { ToolName } from './planner.js';
 import { listSkills as listSkillsFromDisk, createSkill, loadSkill } from '../skills/skill.service.js';
 import { generateSkillFromDescription } from '../skills/skill-generator.js';
+import { listDesignSkills as listDesignSkillsFromDisk, getDesignSkill } from '../skills/design-skill.service.js';
+import { buildDesignPromptFromSkill, applyDesignSkill, generateThemeCSSTokens } from '../skills/design-skill-microsite.js';
+import { generateStructuredMicrosite, assignSectionIds } from '../presentation/structured-microsite-generator.js';
+import { ContextService } from './context.service.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -329,7 +333,7 @@ export async function handleGenerateProposal(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?artifact=${encodeURIComponent(fileName)}&namespace=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(fileName)}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };
@@ -408,7 +412,7 @@ export async function handleEditProposalSection(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };
@@ -416,7 +420,6 @@ export async function handleEditProposalSection(
 
 // ---------------------------------------------------------------------------
 // 3. generate_microsite
-//    Mirrors POST /agent/run with agent=microsite-generator-agent
 // ---------------------------------------------------------------------------
 
 export async function handleGenerateMicrosite(
@@ -424,7 +427,8 @@ export async function handleGenerateMicrosite(
   ctx: ToolContext,
 ): Promise<PartialResult> {
   const proposalFileName = ((params.proposalFileName as string | undefined) ?? '').trim();
-  const { workdir, namespace } = ctx;
+  const designSkillSlug  = (params.designSkillSlug as string | undefined) ?? null;
+  const { workdir, namespace, generateFn } = ctx;
 
   const filePath = resolveProposalPath(proposalFileName, workdir, namespace);
   let proposalContent: string;
@@ -434,6 +438,93 @@ export async function handleGenerateMicrosite(
     return { success: false, message: `Proposal not found: "${proposalFileName}"` };
   }
 
+  // When a design skill is specified, use the structured generation pipeline
+  // (same path as /generate-structured-stream) which is design-skill-aware.
+  // Otherwise fall back to the classic agent.
+  if (designSkillSlug) {
+    const apiKey = (process.env.ANTHROPIC_API_KEY ?? '').trim();
+    const model  = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return { success: false, message: 'ANTHROPIC_API_KEY is not configured.' };
+
+    // Load brand context from context.json
+    let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+    let clientIndustry = '';
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx2 = await ctxSvc.get(namespace);
+      const fields = (ctx2?.requirements as { fields?: Record<string, { value?: unknown }> } | undefined)?.fields ?? {};
+      brandHint = {
+        companyName:  (fields.clientName?.value as string | undefined) ?? '',
+        clientName:   (fields.clientName?.value as string | undefined) ?? '',
+        industry:     (fields.clientIndustry?.value as string | undefined) ?? '',
+      };
+      clientIndustry = brandHint.industry ?? '';
+    } catch { /* non-fatal */ }
+
+    // Resolve design skill → tone + prompt override
+    let skillTone: string;
+    let designPromptOverride: string | undefined;
+    try {
+      const skill = await getDesignSkill(workdir, designSkillSlug);
+      const built = buildDesignPromptFromSkill(skill);
+      skillTone = built.tone;
+      designPromptOverride = built.prompt;
+      if (skill.colorPalette.primary && !brandHint.primaryColor) {
+        brandHint = { ...brandHint, primaryColor: skill.colorPalette.primary };
+      }
+    } catch {
+      // Design skill not found — fall back to auto-tone selection
+      const { tone } = applyDesignSkill('microsite-generator-agent', { proposalMarkdown: proposalContent, clientIndustry });
+      skillTone = tone as string;
+    }
+
+    // Phase 1 + CSS in parallel (mirrors /generate-structured-stream)
+    const proposalId = proposalFileName.replace(/\.md$/i, '');
+    const [ast, cssTheme] = await Promise.all([
+      generateStructuredMicrosite(proposalContent, brandHint, proposalId, apiKey, model),
+      generateThemeCSSTokens(skillTone, brandHint.primaryColor, generateFn, clientIndustry, designPromptOverride).catch(() => null),
+    ]);
+
+    ast.sections = assignSectionIds(ast.sections);
+
+    const astRaw = ast as unknown as Record<string, unknown>;
+
+    // Inject CSS theme into brand so the design skill colours/fonts render.
+    // Phase 3 (per-section custom HTML) is intentionally skipped here — running it
+    // inline would add 60–120 s and time out the Next.js proxy. Sections render via
+    // their typed React components with the design skill CSS variables applied.
+    if (cssTheme) {
+      astRaw.brand = {
+        ...(ast.brand ?? {}),
+        extractedCssVariables: cssTheme.cssVars,
+        overrideTheme: true,
+        ...(cssTheme.googleFontsUrl ? { googleFontsUrl: cssTheme.googleFontsUrl } : {}),
+        ...(cssTheme.fontFaceDeclarations ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations } : {}),
+      };
+    }
+
+    // Tag with the design skill slug so the MicrositeHistory badge shows it
+    astRaw.plugin = designSkillSlug;
+
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    await mkdir(path.dirname(astPath), { recursive: true });
+    await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+
+    return {
+      success: true,
+      message: `Presentation microsite generated from "${proposalFileName}" using design skill "${designSkillSlug}".`,
+      data: { namespace, proposalFileName, designSkillSlug, hasAst: true },
+      actionCards: [
+        {
+          type: 'view_microsite',
+          label: 'View Presentation',
+          href: `/presentation?ns=${encodeURIComponent(namespace)}`,
+        },
+      ],
+    };
+  }
+
+  // No design skill — use classic agent (unchanged behaviour)
   const runner = await buildRunner(workdir);
   const result = await runner.run('microsite-generator-agent', {
     namespace,
@@ -450,8 +541,6 @@ export async function handleGenerateMicrosite(
     },
   });
 
-  // Write the AST to the path the presentation UI reads from.
-  // This mirrors what presentation-routes.ts /generate does at line 494-496.
   if (result.json != null) {
     const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
     await mkdir(path.dirname(astPath), { recursive: true });
@@ -829,7 +918,7 @@ export async function handleSetProposalStatus(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };
@@ -1012,5 +1101,34 @@ export async function handleListSkills(
     message: `**${skills.length} skill${skills.length !== 1 ? 's' : ''} available:**\n\n${lines.join('\n')}`,
     data: { skills },
     actionCards: [{ type: 'view_skills', label: 'Manage Skills', href: '/skills' }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 14. list_design_skills
+//     Lists all available design skills in the workdir.
+// ---------------------------------------------------------------------------
+
+export async function handleListDesignSkills(
+  _params: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<PartialResult> {
+  const skills = await listDesignSkillsFromDisk(ctx.workdir);
+  if (skills.length === 0) {
+    return {
+      success: true,
+      message: 'No design skills yet. Visit **Skills → 🎨 Design Skills** to create one.',
+      data: { designSkills: [] },
+      actionCards: [{ type: 'view_skills', label: 'Create Design Skill', href: '/skills' }],
+    };
+  }
+  const lines = skills.map(
+    (s) => `- **${s.displayName}** (\`${s.slug}\`) — ${s.aestheticTone}, ${s.themeClass} theme${s.description ? ` — ${s.description.slice(0, 80)}${s.description.length > 80 ? '…' : ''}` : ''}`,
+  );
+  return {
+    success: true,
+    message: `**${skills.length} design skill${skills.length !== 1 ? 's' : ''} available:**\n\n${lines.join('\n')}\n\nUse a design skill when generating a microsite by saying e.g. _"generate microsite with obsidian-editorial"_.`,
+    data: { designSkills: skills },
+    actionCards: [{ type: 'view_skills', label: 'Manage Design Skills', href: '/skills' }],
   };
 }

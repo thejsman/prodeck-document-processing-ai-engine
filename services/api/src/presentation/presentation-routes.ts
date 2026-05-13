@@ -31,7 +31,8 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
-import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
+import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, buildDesignPromptFromSkill, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
+import { getDesignSkill } from '../skills/design-skill.service.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
@@ -1912,7 +1913,7 @@ ${layoutSummary}`;
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown> } | undefined;
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown>; designSkillSlug?: string } | undefined;
     const apiKey = env.ANTHROPIC_API_KEY ?? '';
     const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
 
@@ -1953,8 +1954,21 @@ ${layoutSummary}`;
     // Apply any brandConfig overrides from request body
     if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
 
+    // Resolve design skill → aesthetic override string for the HTML generator
+    let designStyleOverride: string | undefined;
+    if (body?.designSkillSlug) {
+      try {
+        const skill = await getDesignSkill(workdir, body.designSkillSlug);
+        const built = buildDesignPromptFromSkill(skill);
+        designStyleOverride = built.prompt;
+        if (skill.colorPalette.primary && !brandConfig.primaryColor) {
+          brandConfig = { ...brandConfig, primaryColor: skill.colorPalette.primary };
+        }
+      } catch { /* skill not found — fall through to auto-selection */ }
+    }
+
     try {
-      const { html, elapsed } = await generateMicrositeDirectly({ proposalMarkdown: markdown, brandConfig }, apiKey, model);
+      const { html, elapsed } = await generateMicrositeDirectly({ proposalMarkdown: markdown, brandConfig, designStyleOverride }, apiKey, model);
       const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
       await mkdir(path.dirname(htmlPath), { recursive: true });
       await writeFile(htmlPath, html, 'utf-8');
@@ -2082,7 +2096,7 @@ ${layoutSummary}`;
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string } | undefined;
+    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string; designSkillSlug?: string } | undefined;
     const apiKey  = env.ANTHROPIC_API_KEY ?? '';
     const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
 
@@ -2134,16 +2148,34 @@ ${layoutSummary}`;
 
       // Phase 1 + CSS in parallel:
       //   - Single LLM call → complete AST structure
-      //   - CSS token generation (industry-aware tone selection)
+      //   - CSS token generation (design skill override or auto-tone selection)
       const clientIndustry = brandHint.industry ?? '';
-      const { tone: structuredTone } = applyDesignSkill('microsite-generator-agent', {
-        proposalMarkdown: markdown,
-        clientIndustry,
-      });
+
+      let structuredTone: string;
+      let designPromptOverride: string | undefined;
+
+      if (body?.designSkillSlug) {
+        try {
+          const designSkill = await getDesignSkill(workdir, body.designSkillSlug);
+          const built = buildDesignPromptFromSkill(designSkill);
+          structuredTone = built.tone;
+          designPromptOverride = built.prompt;
+          if (designSkill.colorPalette.primary && !brandHint.primaryColor) {
+            brandHint = { ...brandHint, primaryColor: designSkill.colorPalette.primary };
+          }
+        } catch {
+          // fall back to auto-selection if slug is invalid/missing
+          const { tone } = applyDesignSkill('microsite-generator-agent', { proposalMarkdown: markdown, clientIndustry });
+          structuredTone = tone as string;
+        }
+      } else {
+        const { tone } = applyDesignSkill('microsite-generator-agent', { proposalMarkdown: markdown, clientIndustry });
+        structuredTone = tone as string;
+      }
 
       const [ast, cssTheme] = await Promise.all([
         generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
-        generateThemeCSSTokens(structuredTone as string, brandHint.primaryColor, llmGenerateFn, clientIndustry)
+        generateThemeCSSTokens(structuredTone, brandHint.primaryColor, llmGenerateFn, clientIndustry, designPromptOverride)
           .catch(() => null),
       ]);
 
