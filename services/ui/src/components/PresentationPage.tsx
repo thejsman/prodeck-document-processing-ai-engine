@@ -293,6 +293,87 @@ function clearSnapshot() {
   }
 }
 
+// ── Motivational Quote Rotator ────────────────────────────────────────────────
+
+const MS_QUOTES: string[] = [
+  "Great things take a moment to load… yours is almost ready.",
+  "Crafting your story, one pixel at a time.",
+  "Good proposals don’t just happen — they’re built with intention.",
+  "Your client is about to be impressed. Hold tight.",
+  "Turning your ideas into something unforgettable…",
+  "The best first impressions are worth the wait.",
+  "Building something worth presenting…",
+  "Every great proposal starts with a single section.",
+  "Almost there — greatness is being assembled.",
+  "Your microsite is taking shape. This is the exciting part.",
+  "Precision takes a moment. Perfection takes slightly longer.",
+  "We’re making sure every detail is exactly right.",
+  "Your story is being told beautifully. Just a moment more.",
+  "Great design is invisible — we’re making sure yours is great.",
+  "The wait makes the reveal even better.",
+];
+
+interface MotivationalQuotesProps {
+  active: boolean;
+}
+
+function MotivationalQuotes({ active }: MotivationalQuotesProps) {
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      setVisible(false);
+      const swap = setTimeout(() => {
+        setIdx(i => (i + 1) % MS_QUOTES.length);
+        setVisible(true);
+      }, 400);
+      return () => clearTimeout(swap);
+    }, 3600);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  if (!active) return null;
+
+  return (
+    <div
+      style={{
+        marginTop: 20,
+        textAlign: "center",
+        padding: "10px 16px",
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.4s ease",
+        pointerEvents: "none",
+        userSelect: "none",
+      }}
+    >
+      <span
+        style={{
+          color: "var(--color-primary)",
+          fontSize: 18,
+          lineHeight: 1,
+          marginRight: 4,
+          fontFamily: "Georgia, serif",
+          verticalAlign: "middle",
+        }}
+      >
+        &ldquo;
+      </span>
+      <span
+        style={{
+          fontSize: 12,
+          color: "var(--color-text-muted)",
+          fontStyle: "italic",
+          lineHeight: 1.6,
+        }}
+      >
+        {MS_QUOTES[idx]}
+      </span>
+    </div>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export function PresentationPage() {
   const { apiKey } = useAuth();
@@ -3385,6 +3466,8 @@ export function PresentationPage() {
                       </div>
                     ))}
                   </div>
+
+                  <MotivationalQuotes active={(generating || wasGenerating) && !error} />
 
                   {error && (
                     <div

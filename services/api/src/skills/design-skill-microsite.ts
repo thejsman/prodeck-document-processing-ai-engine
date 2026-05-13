@@ -140,6 +140,121 @@ function resolveImageUrl(rawUrl: string): string {
 
 const LAYOUT_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
 
+interface HeroProposalMeta {
+  clientName?: string;
+  preparedBy?: string;
+  date?: string;
+  version?: string;
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Finds the character index of the closing </div> that matches the FIRST opening <div>
+ * in `html`, by counting nesting depth. Robust against any extra content the LLM appends
+ * after the root element (extra divs, comment bars, orphan tags, etc.).
+ */
+function findRootClosingDiv(html: string): number {
+  let depth = 0;
+  let pos = 0;
+
+  while (pos < html.length) {
+    // Search for the next opening <div or closing </div from current position
+    const openRe = /<div[\s>]/g;
+    openRe.lastIndex = pos;
+    const closeRe = /<\/div>/g;
+    closeRe.lastIndex = pos;
+
+    const openMatch  = openRe.exec(html);
+    const closeMatch = closeRe.exec(html);
+
+    if (!closeMatch) break;
+
+    if (openMatch && openMatch.index < closeMatch.index) {
+      depth++;
+      pos = openMatch.index + openMatch[0].length;
+    } else {
+      depth--;
+      if (depth === 0) return closeMatch.index;
+      pos = closeMatch.index + 6; // len('</div>')
+    }
+  }
+  return -1;
+}
+
+/**
+ * Injects a deterministic 4-column metadata strip at the bottom of the hero HTML.
+ * Post-generation injection — 100% reliable regardless of what the LLM generates.
+ */
+function injectHeroMetadataStrip(html: string, meta: HeroProposalMeta): string {
+  const col = (label: string, value: string) =>
+    `<div>` +
+    `<div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;line-height:1.2;margin-bottom:3px;color:var(--ink-soft,var(--text-mid,var(--muted,rgba(0,0,0,0.45))))">${label}</div>` +
+    `<div style="font-size:13px;font-weight:600;line-height:1.3;color:var(--ink,var(--text-dark,var(--text,#1a1205)))">${esc(value)}</div>` +
+    `</div>`;
+
+  const strip =
+    `<div class="ms-hero-meta" style="` +
+    `position:absolute;bottom:0;left:0;right:0;` +
+    `padding:14px 5%;` +
+    `border-top:1px solid rgba(0,0,0,0.15);` +
+    `display:flex;align-items:flex-end;justify-content:space-between;gap:12px;` +
+    `box-sizing:border-box;font-family:inherit;` +
+    `color:var(--ink,var(--text-dark,var(--text,var(--ms-text,#1a1205))));">` +
+    `<style>` +
+    `@media(max-width:600px){` +
+    `.ms-hero-meta{flex-wrap:wrap;gap:10px}` +
+    `.ms-hero-meta .ms-hero-meta-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px}` +
+    `.ms-hero-meta .ms-hero-scroll{display:none}` +
+    `}` +
+    `</style>` +
+    `<div class="ms-hero-meta-cols" style="display:flex;gap:clamp(16px,3vw,48px)">` +
+    col('CLIENT',      meta.clientName  || '—') +
+    col('PREPARED BY', meta.preparedBy  || '—') +
+    col('DATE',        meta.date        || '—') +
+    col('VERSION',     meta.version     || 'v1') +
+    `</div>` +
+    `<div class="ms-hero-scroll" style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;letter-spacing:.14em;text-transform:uppercase;opacity:.4" aria-hidden="true">SCROLL</div>` +
+    `</div>`;
+
+  // Add position:relative to the root div so the absolute-positioned strip works
+  let result = html.replace(
+    /^(<div\b[^>]*?)(style="([^"]*)")?(\s*>)/,
+    (_m, pre, styleAttr, styleVal, close) => {
+      const existing = styleVal ?? '';
+      if (existing.includes('position:relative') || existing.includes('position: relative')) return _m;
+      const newStyle = `position:relative;${existing}`;
+      return styleAttr ? `${pre}style="${newStyle}"${close}` : `${pre} style="${newStyle}"${close}`;
+    },
+  );
+
+  // Remove overflow:hidden from the root class CSS — it clips the absolute-positioned strip.
+  // Replace with overflow:clip (clips paint without creating a scroll container).
+  result = result.replace(
+    /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/,
+    (_m, open, css, close) => {
+      const fixed = css.replace(/overflow\s*:\s*hidden/g, 'overflow:clip');
+      return open + fixed + close;
+    },
+  );
+
+  // Add padding-bottom to the root so strip doesn't overlap hero content
+  result = result.replace(
+    /^(<div\b[^>]*?style=")([^"]*)(")/,
+    (_m, pre, styleVal, close) => {
+      if (styleVal.includes('padding-bottom')) return _m;
+      return `${pre}padding-bottom:70px;${styleVal}${close}`;
+    },
+  );
+
+  // Find the root div's matching closing tag (not just the last </div> in the string)
+  const rootClosePos = findRootClosingDiv(result);
+  if (rootClosePos === -1) return result + strip;
+  return result.slice(0, rootClosePos) + strip + result.slice(rootClosePos);
+}
+
 export async function generateSectionHtml(
   section: Record<string, unknown>,
   tone: Tone,
@@ -151,6 +266,11 @@ export async function generateSectionHtml(
   const sectionType = section.sectionType as string;
   const sid = String(section.id ?? 'sec').replace(/[^a-zA-Z0-9_-]/g, '-');
   const contentJson = JSON.stringify(section.content ?? {}, null, 2);
+
+  // Hero-only: pull proposal metadata injected by the route handler for the bottom strip
+  const heroMeta = sectionType === 'hero'
+    ? (section._meta as HeroProposalMeta | undefined)
+    : undefined;
 
   // Compact design hint from Phase 2 (accent + fonts only — ~20 tokens vs 200 for full varsList)
   const accentHint = cssVars['--ms-accent'] ?? '';
@@ -236,12 +356,21 @@ export async function generateSectionHtml(
     ``,
     `NEVER: centered card grid, equal-width Bootstrap columns, generic stacked layout`,
     `NEVER: invent image URLs — use only the URL provided above or CSS gradients`,
+    ...(heroMeta ? [`NEVER: add a footer bar, footer strip, metadata row, or "confidential" notice — a metadata strip will be injected automatically after your output.`] : []),
     ``,
     `Return ONLY the HTML. Start with <div. No markdown fences, no explanation.`,
   ].filter(line => line !== '').join('\n');
 
   const raw = await generateFn(prompt);
-  return raw.replace(/^```(?:html)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+  const cleaned = raw.replace(/^```(?:html)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+
+  // Deterministically inject the 4-column metadata strip at the bottom of the hero.
+  // Post-processing guarantees the strip even if the LLM ignores or rephrases the instruction.
+  if (sectionType === 'hero' && heroMeta) {
+    return injectHeroMetadataStrip(cleaned, heroMeta);
+  }
+
+  return cleaned;
 }
 
 export interface CSSTheme {

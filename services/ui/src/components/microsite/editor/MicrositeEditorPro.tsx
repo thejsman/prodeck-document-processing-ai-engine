@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Wand2, Download, Check, ArrowLeft, Loader2, ChevronRight } from 'lucide-react';
+import { RefreshCw, Wand2, Download, Check, ArrowLeft, Loader2, ChevronRight, Save } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import {
   regenerateSection,
@@ -26,14 +26,21 @@ import type { LayoutAST, LayoutSection } from '@/types/presentation';
 // Types
 // ---------------------------------------------------------------------------
 
-interface SectionState {
+/** Canvas-affecting state — changing this re-renders the microsite preview. */
+interface SectionHtmlState {
   html: string;
+}
+
+/** UI-only state — changing this NEVER re-renders the microsite canvas. */
+interface SectionUiState {
   regenerating: boolean;
   regenError: string | null;
   promptOpen: boolean;
   promptValue: string;
   applying: boolean;
   applyError: string | null;
+  saving: boolean;
+  savedAt: number | null;
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'no-changes';
@@ -121,19 +128,20 @@ export function MicrositeEditorPro({
 }: MicrositeEditorProProps) {
   const { apiKey } = useAuth();
 
-  // ── Per-section state (keyed by section id) ────────────────────────────────
-  const [sectionStates, setSectionStates] = useState<Record<string, SectionState>>(() => {
-    const init: Record<string, SectionState> = {};
+  // ── HTML state — keyed by section id — drives the canvas ───────────────────
+  // Only updating this causes the microsite preview to re-render.
+  const [sectionHtmls, setSectionHtmls] = useState<Record<string, SectionHtmlState>>(() => {
+    const init: Record<string, SectionHtmlState> = {};
+    for (const s of ast.sections) init[s.id] = { html: getSectionHtml(s) };
+    return init;
+  });
+
+  // ── UI state — keyed by section id — never affects the canvas ──────────────
+  // Typing in the prompt textarea only updates this, so the canvas stays still.
+  const [sectionUi, setSectionUi] = useState<Record<string, SectionUiState>>(() => {
+    const init: Record<string, SectionUiState> = {};
     for (const s of ast.sections) {
-      init[s.id] = {
-        html: getSectionHtml(s),
-        regenerating: false,
-        regenError:   null,
-        promptOpen:   false,
-        promptValue:  '',
-        applying:     false,
-        applyError:   null,
-      };
+      init[s.id] = { regenerating: false, regenError: null, promptOpen: false, promptValue: '', applying: false, applyError: null, saving: false, savedAt: null };
     }
     return init;
   });
@@ -147,24 +155,36 @@ export function MicrositeEditorPro({
     Object.fromEntries(ast.sections.map(s => [s.id, getSectionHtml(s)])),
   );
 
-  // ── Derived AST — updated as sections are regenerated / edited ─────────────
+  // Reactive per-section "last persisted" snapshot — drives per-section Save button visibility.
+  // Unlike savedSnapshotRef, changes here trigger re-renders so the button appears/disappears.
+  const [savedHtmls, setSavedHtmls] = useState<Record<string, string>>(
+    () => Object.fromEntries(ast.sections.map(s => [s.id, getSectionHtml(s)])),
+  );
+
+  // ── Derived AST — only depends on sectionHtmls, not UI state ───────────────
   const currentAst = useMemo<LayoutAST>(() => ({
     ...ast,
     sections: ast.sections.map(s => {
-      const state = sectionStates[s.id];
-      if (!state?.html) return s;
-      return { ...s, customHtml: state.html } as LayoutSection;
+      const html = sectionHtmls[s.id]?.html;
+      if (!html) return s;
+      return { ...s, customHtml: html } as LayoutSection;
     }),
-  }), [ast, sectionStates]);
+  }), [ast, sectionHtmls]);
 
   const hasChanges = useMemo(
-    () => ast.sections.some(s => sectionStates[s.id]?.html !== (savedSnapshotRef.current[s.id] ?? '')),
-    [ast.sections, sectionStates],
+    () => ast.sections.some(s => (sectionHtmls[s.id]?.html ?? '') !== (savedSnapshotRef.current[s.id] ?? '')),
+    [ast.sections, sectionHtmls],
   );
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  const patch = useCallback((id: string, update: Partial<SectionState>) => {
-    setSectionStates(prev => ({ ...prev, [id]: { ...prev[id], ...update } }));
+  /** Update HTML for a section — re-renders the canvas. */
+  const patchHtml = useCallback((id: string, html: string) => {
+    setSectionHtmls(prev => ({ ...prev, [id]: { html } }));
+  }, []);
+
+  /** Update UI state for a section — does NOT re-render the canvas. */
+  const patchUi = useCallback((id: string, update: Partial<SectionUiState>) => {
+    setSectionUi(prev => ({ ...prev, [id]: { ...prev[id], ...update } }));
   }, []);
 
   const scrollToSection = (sectionId: string) => {
@@ -175,13 +195,13 @@ export function MicrositeEditorPro({
   // ── Feature 1: Regenerate ──────────────────────────────────────────────────
   const handleRegenerate = useCallback(async (section: LayoutSection) => {
     if (!apiKey) return;
-    patch(section.id, { regenerating: true, regenError: null });
+    patchUi(section.id, { regenerating: true, regenError: null });
 
     const latestAst = {
       ...ast,
       sections: ast.sections.map(s => ({
         ...s,
-        customHtml: sectionStates[s.id]?.html ?? getSectionHtml(s),
+        customHtml: sectionHtmls[s.id]?.html ?? getSectionHtml(s),
       })),
     };
 
@@ -190,41 +210,68 @@ export function MicrositeEditorPro({
         sectionId:  section.id,
         currentAst: latestAst,
       });
-      patch(section.id, { html, regenerating: false });
+      patchHtml(section.id, html);
+      patchUi(section.id, { regenerating: false, regenError: null });
     } catch (err) {
-      patch(section.id, {
+      patchUi(section.id, {
         regenerating: false,
         regenError:   err instanceof Error ? err.message : 'Regeneration failed',
       });
     }
-  }, [apiKey, ast, namespace, proposalId, sectionStates, patch]);
+  }, [apiKey, ast, namespace, proposalId, sectionHtmls, patchHtml, patchUi]);
 
   // ── Feature 2: AI Edit ────────────────────────────────────────────────────
   const handleApplyPrompt = useCallback(async (section: LayoutSection) => {
-    const state = sectionStates[section.id];
-    if (!apiKey || !state?.promptValue.trim()) return;
-    patch(section.id, { applying: true, applyError: null });
+    const ui = sectionUi[section.id];
+    if (!apiKey || !ui?.promptValue.trim()) return;
+    patchUi(section.id, { applying: true, applyError: null });
 
     try {
       const { html } = await editSectionHtml(apiKey, namespace, proposalId, {
-        sectionHtml: state.html,
-        instruction: state.promptValue.trim(),
+        sectionHtml: sectionHtmls[section.id]?.html ?? getSectionHtml(section),
+        instruction: ui.promptValue.trim(),
       });
-      patch(section.id, { html, applying: false, promptOpen: false, promptValue: '' });
+      patchHtml(section.id, html);
+      patchUi(section.id, { applying: false, promptOpen: false, promptValue: '' });
     } catch (err) {
-      patch(section.id, {
+      patchUi(section.id, {
         applying:   false,
         applyError: err instanceof Error ? err.message : 'Edit failed',
       });
     }
-  }, [apiKey, namespace, proposalId, sectionStates, patch]);
+  }, [apiKey, namespace, proposalId, sectionHtmls, sectionUi, patchHtml, patchUi]);
+
+  // ── Feature 2b: Per-section Save ─────────────────────────────────────────
+  const handleSectionSave = useCallback(async (section: LayoutSection) => {
+    if (!apiKey) return;
+    patchUi(section.id, { saving: true });
+
+    const currentHtmls = ast.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
+    const updatedAst: LayoutAST = {
+      ...ast,
+      sections: ast.sections.map((s, i) => ({ ...s, customHtml: currentHtmls[i] } as LayoutSection)),
+    };
+
+    try {
+      await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst);
+      await publishMicrosite(apiKey, namespace, proposalId, updatedAst).catch(() => {});
+      onSaved?.(updatedAst);
+      // Mark this section as persisted so the Save button disappears
+      setSavedHtmls(prev => ({ ...prev, [section.id]: sectionHtmls[section.id]?.html ?? getSectionHtml(section) }));
+      savedSnapshotRef.current = { ...savedSnapshotRef.current, [section.id]: sectionHtmls[section.id]?.html ?? getSectionHtml(section) };
+      patchUi(section.id, { saving: false, savedAt: Date.now() });
+      setTimeout(() => patchUi(section.id, { savedAt: null }), 3000);
+    } catch {
+      patchUi(section.id, { saving: false });
+    }
+  }, [apiKey, ast, namespace, proposalId, sectionHtmls, onSaved, patchUi]);
 
   // ── Feature 3: Save ───────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!apiKey || !hasChanges || saveState === 'saving') return;
     setSaveState('saving');
 
-    const currentHtmls  = ast.sections.map(s => sectionStates[s.id]?.html ?? getSectionHtml(s));
+    const currentHtmls  = ast.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
     const fullHtml      = buildFullHtml(ast, currentHtmls);
     const filename      = `${proposalId.split('::').pop() ?? proposalId}.html`;
     triggerDownload(fullHtml, filename);
@@ -243,7 +290,7 @@ export function MicrositeEditorPro({
     savedSnapshotRef.current = Object.fromEntries(ast.sections.map((s, i) => [s.id, currentHtmls[i]]));
     setSaveState('saved');
     setTimeout(() => setSaveState('idle'), 3000);
-  }, [apiKey, ast, namespace, proposalId, sectionStates, hasChanges, saveState, onSaved]);
+  }, [apiKey, ast, namespace, proposalId, sectionHtmls, hasChanges, saveState, onSaved]);
 
   // ── Button helpers ────────────────────────────────────────────────────────
   const saveBtnVariant = saveState === 'saving' ? 'saving'
@@ -322,9 +369,9 @@ export function MicrositeEditorPro({
           </div>
 
           {ast.sections.map(section => {
-            const state    = sectionStates[section.id];
+            const state    = sectionUi[section.id];
             const isActive = activeSectionId === section.id;
-            const hasHtml  = !!state?.html;
+            const hasHtml  = !!sectionHtmls[section.id]?.html;
 
             return (
               <div key={section.id} style={{ borderBottom: `1px solid ${tok.border}` }}>
@@ -385,7 +432,7 @@ export function MicrositeEditorPro({
 
                   {/* Edit with AI */}
                   <button
-                    onClick={e => { e.stopPropagation(); patch(section.id, { promptOpen: !state?.promptOpen, applyError: null }); setActiveSectionId(section.id); }}
+                    onClick={e => { e.stopPropagation(); patchUi(section.id, { promptOpen: !state?.promptOpen, applyError: null }); setActiveSectionId(section.id); }}
                     disabled={state?.applying}
                     title="Edit with natural language instruction"
                     style={{
@@ -408,6 +455,38 @@ export function MicrositeEditorPro({
                     <Wand2 size={11} />
                     Edit AI
                   </button>
+
+                  {/* Per-section Save — appears only when this section has unsaved changes */}
+                  {(sectionHtmls[section.id]?.html ?? '') !== savedHtmls[section.id] && (
+                    <button
+                      onClick={e => { e.stopPropagation(); handleSectionSave(section); }}
+                      disabled={state?.saving}
+                      title="Save changes to this section"
+                      style={{
+                        height: 26,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '0 8px',
+                        background: state?.savedAt ? tok.success : tok.primary,
+                        border: 'none',
+                        borderRadius: 5,
+                        cursor: state?.saving ? 'default' : 'pointer',
+                        color: '#fff',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        opacity: state?.saving ? 0.7 : 1,
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      {state?.saving
+                        ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+                        : state?.savedAt
+                          ? <Check size={11} />
+                          : <Save size={11} />}
+                      {state?.saving ? 'Saving…' : state?.savedAt ? 'Saved!' : 'Save'}
+                    </button>
+                  )}
                 </div>
 
                 {/* Error */}
@@ -415,7 +494,7 @@ export function MicrositeEditorPro({
                   <div style={{ margin: '0 10px 8px', padding: '6px 8px', borderRadius: 5, background: tok.dangerDim, color: tok.danger, fontSize: 11 }}>
                     {state.regenError}
                     <button
-                      onClick={() => patch(section.id, { regenError: null })}
+                      onClick={() => patchUi(section.id, { regenError: null })}
                       style={{ marginLeft: 6, background: 'none', border: 'none', color: tok.danger, cursor: 'pointer', fontSize: 10 }}
                     >✕</button>
                   </div>
@@ -426,13 +505,13 @@ export function MicrositeEditorPro({
                   <div style={{ padding: '0 10px 10px' }}>
                     <textarea
                       value={state.promptValue}
-                      onChange={e => patch(section.id, { promptValue: e.target.value })}
+                      onChange={e => patchUi(section.id, { promptValue: e.target.value })}
                       placeholder='"make the headline bigger", "change bg to dark blue"…'
                       disabled={state.applying}
                       autoFocus
                       onKeyDown={e => {
                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleApplyPrompt(section);
-                        if (e.key === 'Escape') patch(section.id, { promptOpen: false, promptValue: '', applyError: null });
+                        if (e.key === 'Escape') patchUi(section.id, { promptOpen: false, promptValue: '', applyError: null });
                       }}
                       style={{
                         width: '100%',
@@ -478,7 +557,7 @@ export function MicrositeEditorPro({
                         {state.applying ? <><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Applying…</> : 'Apply'}
                       </button>
                       <button
-                        onClick={() => patch(section.id, { promptOpen: false, promptValue: '', applyError: null })}
+                        onClick={() => patchUi(section.id, { promptOpen: false, promptValue: '', applyError: null })}
                         disabled={state.applying}
                         style={{ height: 28, padding: '0 10px', background: 'transparent', border: `1px solid ${tok.border}`, borderRadius: 5, cursor: 'pointer', color: tok.muted, fontSize: 12 }}
                       >
