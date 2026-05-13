@@ -15,8 +15,8 @@ export async function POST(
   { params }: { params: Promise<{ namespace: string; proposalId: string }> },
 ) {
   const { namespace, proposalId } = await params;
-  const url = `${API_URL}/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-stream`;
-  console.log('[route-handler] generate-stream hit for', namespace, proposalId);
+  const url = `${API_URL}/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-structured-stream`;
+  console.log('[route-handler] generate-stream → generate-structured-stream for', namespace, proposalId);
 
   const body = await req.text();
   const authHeader = req.headers.get('authorization') ?? '';

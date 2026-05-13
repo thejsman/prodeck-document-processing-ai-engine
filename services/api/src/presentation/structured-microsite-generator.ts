@@ -279,6 +279,11 @@ export async function generateStructuredMicrosite(
 ): Promise<StructuredAST> {
   const t0 = Date.now();
 
+  const _systemPrompt = buildSystemPrompt();
+  const _userPrompt   = buildUserPrompt(proposalMarkdown, brandHint, proposalId);
+  console.log(`[microsite-gen] Phase 1 system prompt (${_systemPrompt.length}c):\n${_systemPrompt.slice(0, 500)}...\n`);
+  console.log(`[microsite-gen] Phase 1 user prompt (${_userPrompt.length}c):\n${_userPrompt.slice(0, 500)}...\n`);
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -289,8 +294,8 @@ export async function generateStructuredMicrosite(
     body: JSON.stringify({
       model,
       max_tokens: 16000,
-      system: buildSystemPrompt(),
-      messages: [{ role: 'user', content: buildUserPrompt(proposalMarkdown, brandHint, proposalId) }],
+      system: _systemPrompt,
+      messages: [{ role: 'user', content: _userPrompt }],
     }),
   });
 

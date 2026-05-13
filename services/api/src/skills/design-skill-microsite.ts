@@ -37,7 +37,7 @@ export type Tone = (typeof TONES)[number];
 const INDUSTRY_TONE_MAP: Array<{ keywords: string[]; tones: Tone[] }> = [
   {
     keywords: ['playground', 'trampoline', 'indoor recreation', 'recreation', 'family', 'park', 'bounce', 'leisure', 'entertainment center', 'amusement'],
-    tones: ['organic/natural', 'soft/pastel', 'playful/toy-like', 'editorial/magazine'],
+    tones: ['playful/toy-like', 'playful/toy-like', 'playful/toy-like', 'editorial/magazine'],
   },
   {
     keywords: ['healthcare', 'medical', 'clinic', 'hospital', 'wellness', 'health'],
@@ -345,6 +345,14 @@ export async function generateSectionHtml(
     `- Card/grid sections: each card MUST have a title AND a description of ≥2 sentences`,
     `- Timeline sections: show phase name, duration, AND owner (Agency/Client/Joint) if present in content JSON`,
     `- Deliverables sections: show bullet-point deliverables per workstream, NOT just workstream names`,
+    ``,
+    `LAYOUT SAFETY RULES (prevent clipping and invisible text — non-negotiable):`,
+    `- NEVER use overflow:hidden on any element that contains body text or list content`,
+    `- Full-width "wide" cards (cards that span all columns): NEVER use grid-template-columns on their inner content wrapper — use flex-direction:column or a single-column grid instead. Two-column grids inside full-width cards cause text to be squeezed into half-width and overflow the left edge.`,
+    `- All text must have sufficient contrast against its background. NEVER place light-colored text over a light background or decorative gradient without a solid/semi-opaque background on the text container.`,
+    `- Pseudo-elements (::before, ::after) used as decorative overlays MUST use pointer-events:none and z-index lower than the text content. NEVER allow a decorative layer to sit above readable text.`,
+    `- When using CSS grid for staggered column layouts, the full-width element (last item or "wide" card) MUST use grid-column: 1 / -1 on the card itself AND its inner content must NOT re-introduce a multi-column grid.`,
+    `- Root element padding: use padding: 80px 5% but set min-width:0 on all flex/grid children to prevent text overflow.`,
     ``,
     `ASSIGNED LAYOUT: ${LAYOUT_LETTERS[layoutIndex % LAYOUT_LETTERS.length]} — execute this structure exactly, no substitutions:`,
     `A. Asymmetric split (60/40 or 70/30) — text left, visual right (or reversed)`,

@@ -1842,6 +1842,30 @@ ${layoutSummary}`;
       },
     );
 
+    // Dedicated generate function for HTML section rendering — bypasses the global
+    // LLM bridge pool so chat/proposals are unaffected. Uses Sonnet for richer layouts.
+    const _htmlApiKey  = env.ANTHROPIC_API_KEY ?? '';
+    const _htmlModel   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    const htmlGenerateFn = async (prompt: string): Promise<string> => {
+      const MAX_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': _htmlApiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: _htmlModel, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
+          await new Promise(res => setTimeout(res, retryAfter * 1000 * (attempt + 1)));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic HTML API error: ${r.status}`);
+        const j = await r.json() as { content?: { text?: string }[] };
+        return j.content?.[0]?.text ?? '';
+      }
+      throw new Error('Anthropic HTML API: max retries exceeded');
+    };
+
     // Start CSS token generation in parallel with the agent — tone is already known.
     // This means CSS vars are ready (or nearly ready) when the first sections arrive.
     const cssThemePromise: Promise<CSSTheme | null> = generateThemeCSSTokens(
@@ -1955,7 +1979,7 @@ ${layoutSummary}`;
                   designTone as unknown as Tone,
                   cssTheme.cssVars,
                   null,
-                  llmGenerateFn,
+                  htmlGenerateFn,
                   capturedLayoutIdx,
                 );
                 const secId = (capturedSection as Record<string, unknown>).id as string | undefined;
@@ -2290,6 +2314,7 @@ ${layoutSummary}`;
     const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string } | undefined;
     const apiKey  = env.ANTHROPIC_API_KEY ?? '';
     const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    const htmlModel = model; // Sonnet for HTML — richer, more varied layouts
 
     // Setup SSE
     reply.hijack();
@@ -2337,15 +2362,18 @@ ${layoutSummary}`;
       send({ type: 'start', message: 'Structured generation started' });
       const _t0 = Date.now();
 
-      // Phase 1 + CSS in parallel:
-      //   - Single LLM call → complete AST structure
-      //   - CSS token generation (industry-aware tone selection)
       const clientIndustry = brandHint.industry ?? '';
       const { tone: structuredTone } = applyDesignSkill('microsite-generator-agent', {
         proposalMarkdown: markdown,
         clientIndustry,
       });
 
+      // Phase 1 cache disabled — always run full Sonnet call for fresh content
+      // (cache vars: cacheDir, cacheFile, mdHash — restore logic around generateStructuredMicrosite to re-enable)
+
+      // Phase 1 + CSS in parallel:
+      //   - Single LLM call → complete AST structure
+      //   - CSS token generation (industry-aware tone selection)
       const [ast, cssTheme] = await Promise.all([
         generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
         generateThemeCSSTokens(structuredTone as string, brandHint.primaryColor, llmGenerateFn, clientIndustry)
@@ -2391,6 +2419,7 @@ ${layoutSummary}`;
         // Dedicated generate function for microsite HTML — does NOT use the global
         // LLM_BRIDGE_POOL so the rest of the app is unaffected.
         const micrositeGenerateFn = async (prompt: string): Promise<string> => {
+          console.log(`[microsite-gen] Phase 3 HTML prompt (${prompt.length}c):\n${prompt.slice(0, 800)}...\n`);
           const MAX_RETRIES = 3;
           for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2401,7 +2430,7 @@ ${layoutSummary}`;
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model,
+                model: htmlModel,
                 max_tokens: 8000,
                 messages: [{ role: 'user', content: prompt }],
               }),
@@ -2418,7 +2447,9 @@ ${layoutSummary}`;
 
             if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
             const d = await r.json() as { content: Array<{ type: string; text: string }> };
-            return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+            const result = d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+            console.log(`[microsite-gen] Phase 3 HTML response (${result.length}c):\n${result.slice(0, 300)}...\n`);
+            return result;
           }
           throw new Error('Microsite HTML generation: max retries exceeded');
         };
@@ -2562,7 +2593,7 @@ ${layoutSummary}`;
     if (!sectionId) return reply.code(400).send({ error: 'sectionId is required' });
 
     const apiKey = env.ANTHROPIC_API_KEY ?? '';
-    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    const model  = env.ANTHROPIC_HTML_MODEL ?? 'claude-haiku-4-5-20251001';
     if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
 
     // Load AST from body or fall back to saved file
