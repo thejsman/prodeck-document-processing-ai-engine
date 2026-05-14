@@ -10,8 +10,8 @@
  * Visual tokens match MicrositeEditor — no logic or feature code is shared with it.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Wand2, Download, Check, ArrowLeft, Loader2, ChevronRight, Save } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCw, Wand2, Download, Check, ArrowLeft, Loader2, ChevronRight, Save, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import {
   regenerateSection,
@@ -43,7 +43,8 @@ interface SectionUiState {
   savedAt: number | null;
 }
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'no-changes';
+type SaveState  = 'idle' | 'saving' | 'saved' | 'no-changes';
+type RegenState = 'idle' | 'generating' | 'done';
 
 export interface MicrositeEditorProProps {
   ast: LayoutAST;
@@ -149,6 +150,14 @@ export function MicrositeEditorPro({
   // ── Active section (scroll-to + sidebar highlight) ─────────────────────────
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
 
+  // ── Full-microsite regeneration state ──────────────────────────────────────
+  const [regenState, setRegenState]     = useState<RegenState>('idle');
+  const [pendingHtmls, setPendingHtmls] = useState<Record<string, string>>({});
+  const abortRegenRef = useRef<AbortController | null>(null);
+
+  // Cancel any in-flight generation when the editor unmounts
+  useEffect(() => () => { abortRegenRef.current?.abort(); }, []);
+
   // ── Save state ─────────────────────────────────────────────────────────────
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const savedSnapshotRef = useRef<Record<string, string>>(
@@ -170,11 +179,6 @@ export function MicrositeEditorPro({
       return { ...s, customHtml: html } as LayoutSection;
     }),
   }), [ast, sectionHtmls]);
-
-  const hasChanges = useMemo(
-    () => ast.sections.some(s => (sectionHtmls[s.id]?.html ?? '') !== (savedSnapshotRef.current[s.id] ?? '')),
-    [ast.sections, sectionHtmls],
-  );
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   /** Update HTML for a section — re-renders the canvas. */
@@ -241,6 +245,108 @@ export function MicrositeEditorPro({
     }
   }, [apiKey, namespace, proposalId, sectionHtmls, sectionUi, patchHtml, patchUi]);
 
+  // ── Feature 0: Full Microsite Regenerate ─────────────────────────────────
+  const handleFullRegenerate = useCallback(async () => {
+    if (!apiKey || regenState === 'generating') return;
+    const ctrl = new AbortController();
+    abortRegenRef.current = ctrl;
+    setRegenState('generating');
+    setPendingHtmls({});
+
+    // Resolve the actual proposal ID — prefer ast.proposalId which is the server-side key
+    const resolvedId = (ast as unknown as Record<string, unknown>).proposalId as string | undefined ?? proposalId;
+
+    try {
+      const res = await fetch(
+        `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(resolvedId)}/generate-structured-stream`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({}),
+          signal: ctrl.signal,
+        },
+      );
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: generation request failed`);
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer    = '';
+      let receivedHtml = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+
+          // Parse the SSE payload — skip truly malformed lines only
+          let ev: Record<string, unknown>;
+          try { ev = JSON.parse(line.slice(6)) as Record<string, unknown>; }
+          catch { continue; }
+
+          if (ev.type === 'error') {
+            // Server-level error — propagate to outer catch, do NOT swallow
+            throw new Error((ev.message as string | undefined) ?? 'Generation failed');
+          }
+          if (ev.type === 'section_html' && typeof ev.id === 'string' && typeof ev.customHtml === 'string') {
+            receivedHtml = true;
+            const sid  = ev.id as string;
+            const html = ev.customHtml as string;
+            // Update canvas immediately so the user sees each section render as it arrives
+            patchHtml(sid, html);
+            setPendingHtmls(prev => ({ ...prev, [sid]: html }));
+          }
+        }
+      }
+
+      if (!receivedHtml) throw new Error('Generation completed but no HTML was produced. Check the server logs.');
+      setRegenState('done');
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        console.error('[MicrositeEditorPro] full regen failed:', err);
+        // Surface the error briefly so the user knows what went wrong
+        alert(`Regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      setRegenState('idle');
+      setPendingHtmls({});
+    }
+  }, [apiKey, ast, namespace, proposalId, regenState, patchHtml]);
+
+  // Save all newly generated section HTMLs, overriding the existing content
+  const handleSaveRegenerated = useCallback(async () => {
+    if (!apiKey || Object.keys(pendingHtmls).length === 0 || saveState === 'saving') return;
+    setSaveState('saving');
+
+    // Build the final HTML map: new generation takes priority, fall back to current
+    const merged = Object.fromEntries(
+      ast.sections.map(s => [s.id, pendingHtmls[s.id] ?? sectionHtmls[s.id]?.html ?? getSectionHtml(s)]),
+    );
+
+    const updatedAst: LayoutAST = {
+      ...ast,
+      sections: ast.sections.map(s => ({ ...s, customHtml: merged[s.id] } as LayoutSection)),
+    };
+
+    try {
+      await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst);
+      await publishMicrosite(apiKey, namespace, proposalId, updatedAst).catch(() => {});
+      onSaved?.(updatedAst);
+    } catch { /* best-effort */ }
+
+    // Apply to all state slices so canvas reflects the saved result
+    setSectionHtmls(Object.fromEntries(Object.entries(merged).map(([id, html]) => [id, { html }])));
+    setSavedHtmls(merged);
+    savedSnapshotRef.current = merged;
+    setPendingHtmls({});
+    setRegenState('idle');
+    setSaveState('saved');
+    setTimeout(() => setSaveState('idle'), 3000);
+  }, [apiKey, ast, namespace, proposalId, pendingHtmls, sectionHtmls, saveState, onSaved]);
+
   // ── Feature 2b: Per-section Save ─────────────────────────────────────────
   const handleSectionSave = useCallback(async (section: LayoutSection) => {
     if (!apiKey) return;
@@ -267,41 +373,21 @@ export function MicrositeEditorPro({
   }, [apiKey, ast, namespace, proposalId, sectionHtmls, onSaved, patchUi]);
 
   // ── Feature 3: Save ───────────────────────────────────────────────────────
-  const handleSave = useCallback(async () => {
-    if (!apiKey || !hasChanges || saveState === 'saving') return;
-    setSaveState('saving');
+  const handleDownload = useCallback(() => {
+    const currentHtmls = ast.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
+    const fullHtml     = buildFullHtml(ast, currentHtmls);
 
-    const currentHtmls  = ast.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
-    const fullHtml      = buildFullHtml(ast, currentHtmls);
-    const filename      = `${proposalId.split('::').pop() ?? proposalId}.html`;
+    // Build a meaningful filename from client name + version
+    const client  = (ast.meta?.client ?? ast.brand?.companyName ?? '').trim();
+    const version = (proposalId as string).match(/[_\-v]v?(\d+)$/i)?.[1];
+    const slug    = (client || proposalId.split('::').pop() || 'microsite')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const filename = `${slug}-microsite${version ? `-v${version}` : ''}.html`;
+
     triggerDownload(fullHtml, filename);
-
-    const updatedAst: LayoutAST = {
-      ...ast,
-      sections: ast.sections.map((s, i) => ({ ...s, customHtml: currentHtmls[i] } as LayoutSection)),
-    };
-
-    try {
-      await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst);
-      await publishMicrosite(apiKey, namespace, proposalId, updatedAst).catch(() => {});
-      onSaved?.(updatedAst);
-    } catch { /* best-effort */ }
-
-    savedSnapshotRef.current = Object.fromEntries(ast.sections.map((s, i) => [s.id, currentHtmls[i]]));
-    setSaveState('saved');
-    setTimeout(() => setSaveState('idle'), 3000);
-  }, [apiKey, ast, namespace, proposalId, sectionHtmls, hasChanges, saveState, onSaved]);
-
-  // ── Button helpers ────────────────────────────────────────────────────────
-  const saveBtnVariant = saveState === 'saving' ? 'saving'
-    : saveState === 'saved'   ? 'saved'
-    : !hasChanges             ? 'disabled'
-    : 'default';
-
-  const saveBtnLabel = saveState === 'saving' ? 'Saving…'
-    : saveState === 'saved'   ? 'Saved!'
-    : !hasChanges             ? 'No changes'
-    : 'Save HTML';
+  }, [ast, proposalId, sectionHtmls]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -328,31 +414,64 @@ export function MicrositeEditorPro({
 
         <div style={{ flex: 1 }} />
 
-        {/* Save button */}
+        {/* Full regenerate / save-changes button */}
         <button
-          onClick={handleSave}
-          disabled={saveBtnVariant === 'disabled' || saveBtnVariant === 'saving'}
+          onClick={regenState === 'done' ? handleSaveRegenerated : handleFullRegenerate}
+          disabled={regenState === 'generating'}
+          title={regenState === 'done' ? 'Save the newly generated microsite' : 'Regenerate entire microsite from scratch'}
           style={{
             height: 34,
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
             padding: '0 14px',
-            background: saveBtnVariant === 'saved' ? tok.success : saveBtnVariant === 'disabled' ? 'rgba(99,110,123,0.2)' : tok.primary,
-            border: 'none',
+            background: regenState === 'done'
+              ? 'rgba(35,134,54,0.18)'
+              : regenState === 'generating'
+                ? 'rgba(99,110,123,0.15)'
+                : 'transparent',
+            border: `1px solid ${regenState === 'done' ? tok.success : tok.border}`,
             borderRadius: 7,
-            cursor: saveBtnVariant === 'disabled' || saveBtnVariant === 'saving' ? 'default' : 'pointer',
-            color: saveBtnVariant === 'disabled' ? tok.muted : '#fff',
+            cursor: regenState === 'generating' ? 'default' : 'pointer',
+            color: regenState === 'done' ? tok.success : tok.muted,
             fontSize: 13,
             fontWeight: 600,
-            opacity: saveBtnVariant === 'saving' ? 0.8 : 1,
-            transition: 'background 0.15s',
+            opacity: regenState === 'generating' ? 0.6 : 1,
+            transition: 'all 0.15s',
           }}
         >
-          {saveState === 'saving' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-            : saveState === 'saved' ? <Check size={14} />
-            : <Download size={14} />}
-          {saveBtnLabel}
+          {regenState === 'generating'
+            ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+            : regenState === 'done'
+              ? <Check size={14} />
+              : <RotateCcw size={14} />}
+          {regenState === 'generating' ? 'Generating…' : regenState === 'done' ? 'Save Changes' : 'Regenerate'}
+        </button>
+
+        {/* Download HTML button — always enabled, no server save */}
+        <button
+          onClick={handleDownload}
+          title="Download the full microsite as a single HTML file"
+          style={{
+            height: 34,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '0 14px',
+            background: tok.primary,
+            border: 'none',
+            borderRadius: 7,
+            cursor: 'pointer',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 600,
+            transition: 'opacity 0.15s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+        >
+          <Download size={14} />
+          Download HTML
         </button>
 
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

@@ -610,9 +610,11 @@ export async function saveMicrositeAst(apiKey: string, namespace: string, propos
 }
 
 export interface MicrositeHistoryServerEntry {
+  id: string;
   namespace: string;
   savedAt: string;
   ast: unknown;
+  source?: string;
 }
 
 export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<void> {
@@ -624,8 +626,9 @@ export async function saveMicrositeHistoryToServer(apiKey: string, namespace: st
   await handleResponse<{ ok: boolean }>(res);
 }
 
-export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
-  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, source?: string): Promise<void> {
+  const qs = source ? `?source=${encodeURIComponent(source)}` : '';
+  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}${qs}`, {
     method: 'DELETE',
     headers: authHeadersNoBody(apiKey),
   });
@@ -726,6 +729,57 @@ export type StreamEvent =
   | { type: 'section_html'; id: string; customHtml: string }
   | { type: 'complete'; ast: unknown }
   | { type: 'error'; message: string };
+
+export interface BusinessIntel {
+  brandIdentity: {
+    brandName: string;
+    tagline: string | null;
+    missionStatement: string | null;
+    brandVoice: string;
+    brandPersonality: string;
+  };
+  businessIdentity: {
+    industry: string;
+    businessType: string;
+    companyDescription: string;
+    productsOrServices: string[];
+    pricingModel: string;
+  };
+  digitalAudit: {
+    seoTitle: string;
+    metaDescription: string | null;
+    hasAnalytics: boolean;
+    hasChatWidget: boolean;
+    techStack: string[];
+    internationalPresence: boolean;
+    languages: string[];
+  };
+  contactIntel: {
+    emails: string[];
+    phones: string[];
+    address: string | null;
+    socialProfiles: Record<string, string>;
+    hasContactForm: boolean;
+    hasLiveChat: boolean;
+  };
+  contentAnalysis: {
+    primaryCTA: string;
+    secondaryCTAs: string[];
+    keyMessages: string[];
+    contentTone: string;
+    hasTestimonials: boolean;
+    hasCaseStudies: boolean;
+    hasPricing: boolean;
+    hasVideo: boolean;
+  };
+  competitiveContext: {
+    uniqueSellingPoints: string[];
+    targetAudience: string;
+    positioning: string;
+    competitiveAdvantages: string[];
+    marketCategory: string;
+  };
+}
 
 export interface ReferenceDesign {
   colors: {
@@ -1795,10 +1849,20 @@ export async function resolveConflict(
 // URL Design Extraction
 // ---------------------------------------------------------------------------
 
+export type ExtractUrlDesignResult = {
+  tokens: ReferenceDesign | null;
+  heroImageUrl?: string | null;
+  logoUrl?: string | null;
+  layout?: Record<string, unknown> | null;
+  images?: string[];
+  businessIntel?: BusinessIntel | null;
+  error?: string;
+};
+
 export async function extractUrlDesign(
   apiKey: string,
   url: string,
-): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }> {
+): Promise<ExtractUrlDesignResult> {
   try {
     const res = await fetch('/api/microsite/extract-url-design', {
       method: 'POST',
@@ -1806,7 +1870,7 @@ export async function extractUrlDesign(
       body: JSON.stringify({ url }),
     });
     if (!res.ok) return { tokens: null, error: 'request_failed' };
-    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }>;
+    return res.json() as Promise<ExtractUrlDesignResult>;
   } catch {
     return { tokens: null, error: 'network_error' };
   }

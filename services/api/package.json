@@ -7,7 +7,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc && mkdir -p dist/skills && cp src/skills/frontend-design.md dist/skills/",
+    "build": "tsc && node -e \"const fs=require('fs');fs.mkdirSync('dist/skills',{recursive:true});fs.copyFileSync('src/skills/frontend-design.md','dist/skills/frontend-design.md')\"",
     "start": "node --env-file=../../deployment/.env dist/index.js",
     "dev": "tsc --watch --preserveWatchOutput & node --env-file=../../deployment/.env --watch-path=./dist dist/index.js",
     "clean": "rm -rf dist",
