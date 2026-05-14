@@ -43,10 +43,7 @@ import { ThemeModal } from "./microsite/ThemeModal";
 import { ThemeFullPreview } from "./microsite/ThemeFullPreview";
 import { ThemePreviewCard } from "./microsite/ThemePreviewCard";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
-import {
-  useMicrositeHistory,
-  getHistoryCount,
-} from "@/lib/useMicrositeHistory";
+import { useMicrositeHistory } from "@/lib/useMicrositeHistory";
 
 // ── Pipeline steps ───────────────────────────────────────────────────────────
 type StepId = "upload" | "brand" | "plugin" | "generate" | "preview";
@@ -544,12 +541,9 @@ export function PresentationPage() {
     return !!(_snap?.lockedFromProposal);
   });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
   const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace, apiKey);
-  // Count reported directly from MicrositeHistory (combined local + server, always accurate)
-  const [totalHistoryCount, setTotalHistoryCount] = useState(() =>
-    getHistoryCount(),
-  );
+  // Count is reported via onCountChange from MicrositeHistory after server fetch
+  const [totalHistoryCount, setTotalHistoryCount] = useState(0);
 
   // Unified preview handler — opens ThemeFullPreview and closes ThemeModal
   const handlePreview = (id: string) => {
@@ -3114,7 +3108,7 @@ export function PresentationPage() {
                           {urlLayout && (
                             <div style={sectionStyle}>
                               <span style={labelStyle}>Layout Structure</span>
-                              {(urlLayout.sections as string[] | undefined)?.length > 0 && (
+                              {((urlLayout.sections as string[] | undefined)?.length ?? 0) > 0 && (
                                 <div style={{ ...rowStyle, marginBottom: 6 }}>
                                   {(urlLayout.sections as string[]).map((s, i) => (
                                     <span key={i} style={{ ...chipStyle, background: "rgba(99,102,241,0.15)" }}>{s}</span>
@@ -3122,12 +3116,12 @@ export function PresentationPage() {
                                 </div>
                               )}
                               <div style={rowStyle}>
-                                {urlLayout.heroStyle && <span style={chipStyle}>Hero: {String(urlLayout.heroStyle)}</span>}
-                                {urlLayout.gridColumns && <span style={chipStyle}>{String(urlLayout.gridColumns)}-col grid</span>}
-                                {urlLayout.layoutDensity && <span style={chipStyle}>{String(urlLayout.layoutDensity)}</span>}
-                                {urlLayout.visualHierarchy && <span style={chipStyle}>{String(urlLayout.visualHierarchy)}</span>}
-                                {urlLayout.isImageHeavy && <span style={chipStyle}>Image heavy</span>}
-                                {urlLayout.hasVideo && <span style={chipStyle}>Has video</span>}
+                                {!!urlLayout.heroStyle && <span style={chipStyle}>Hero: {String(urlLayout.heroStyle)}</span>}
+                                {!!urlLayout.gridColumns && <span style={chipStyle}>{String(urlLayout.gridColumns)}-col grid</span>}
+                                {!!urlLayout.layoutDensity && <span style={chipStyle}>{String(urlLayout.layoutDensity)}</span>}
+                                {!!urlLayout.visualHierarchy && <span style={chipStyle}>{String(urlLayout.visualHierarchy)}</span>}
+                                {!!urlLayout.isImageHeavy && <span style={chipStyle}>Image heavy</span>}
+                                {!!urlLayout.hasVideo && <span style={chipStyle}>Has video</span>}
                               </div>
                             </div>
                           )}

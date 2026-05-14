@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Globe, X, MoreHorizontal, Trash2 } from "lucide-react";
+import { Globe, MoreHorizontal, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/ui/Icon";
 import { Microsite } from "./Microsite";
@@ -10,19 +10,9 @@ import {
   useMicrositeHistory,
   type MicrositeHistoryEntry,
 } from "@/lib/useMicrositeHistory";
-import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useNamespace } from "@/lib/namespace-context";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
-import type { LayoutAST } from "@/types/presentation";
-
-interface CombinedEntry {
-  id: string;
-  savedAt: string;
-  namespace: string;
-  ast: LayoutAST;
-  source: "local" | "server";
-}
 
 function getPluginAccent(plugin: string): string {
   try {
@@ -51,23 +41,27 @@ function formatDate(iso: string): string {
 export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChange?: (count: number) => void; onGenerateNew?: () => void }) {
   const { apiKey } = useAuth();
   const { namespaces } = useNamespace();
-  // All local history (no namespace filter)
-  const { history: localHistory, deleteEntry, addEntry, updateEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
-  const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
-  const [loadingServer, setLoadingServer] = useState(false);
-  const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
-  const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
+  const { history: allEntries, loading, deleteEntry, addEntry, updateEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
+
+  const [previewEntry, setPreviewEntry] = useState<MicrositeHistoryEntry | null>(null);
+  const [editingEntry, setEditingEntry] = useState<MicrositeHistoryEntry | null>(null);
 
   // Delete state
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
-  const [menuEntry, setMenuEntry] = useState<CombinedEntry | null>(null);
+  const [menuEntry, setMenuEntry] = useState<MicrositeHistoryEntry | null>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
-  const [confirmEntry, setConfirmEntry] = useState<CombinedEntry | null>(null);
+  const [confirmEntry, setConfirmEntry] = useState<MicrositeHistoryEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const menuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  const openMenu = useCallback((entry: CombinedEntry) => {
+  const entries = allEntries.filter(
+    (e) => namespaces.length === 0 || namespaces.includes(e.namespace),
+  ).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+
+  useEffect(() => { onCountChange?.(entries.length); }, [entries.length, onCountChange]);
+
+  const openMenu = useCallback((entry: MicrositeHistoryEntry) => {
     const btn = menuBtnRefs.current[entry.id];
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
@@ -86,75 +80,16 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
   }, [menuEntry]);
 
   const handleDeleteConfirmed = async () => {
-    if (!confirmEntry || !apiKey) return;
+    if (!confirmEntry) return;
     setDeleting(true);
     try {
-      if (confirmEntry.source === "local") {
-        deleteEntry(confirmEntry.id);
-      } else {
-        await deleteMicrositeHistoryFromServer(apiKey, confirmEntry.namespace);
-        setServerEntries(prev => prev.filter(e => e.id !== confirmEntry.id));
-      }
-      refresh();
-    } catch { /* ignore */ } finally {
+      deleteEntry(confirmEntry.id);
+    } finally {
       setDeleting(false);
       setConfirmEntry(null);
     }
   };
 
-  // Fetch server-side history on mount
-  useEffect(() => {
-    if (!apiKey) return;
-    setLoadingServer(true);
-    fetchAllMicrositeHistory(apiKey)
-      .then((items) => {
-        setServerEntries(
-          items
-            .filter(
-              (item) =>
-                item.ast &&
-                (item.ast as { sections?: unknown[] }).sections?.length,
-            )
-            .map((item) => ({
-              id: `server::${item.namespace}`,
-              savedAt: item.savedAt,
-              namespace: item.namespace,
-              ast: item.ast as LayoutAST,
-              source: "server" as const,
-            })),
-        );
-      })
-      .catch(() => {})
-      .finally(() => setLoadingServer(false));
-  }, [apiKey]);
-
-  // Merge local + server, deduplicate by namespace (prefer local/newer)
-  const combined: CombinedEntry[] = (() => {
-    const localMapped: CombinedEntry[] = localHistory
-      .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
-      .map((e) => ({
-        id: e.id,
-        savedAt: e.savedAt,
-        namespace: e.namespace,
-        ast: e.ast,
-        source: "local" as const,
-      }));
-
-    // Add server entries that aren't already covered by a local entry
-    const localNamespaces = new Set(localMapped.map((e) => e.namespace));
-    const serverOnly = serverEntries.filter(
-      (e) => !localNamespaces.has(e.namespace),
-    );
-
-    return [...localMapped, ...serverOnly]
-      .filter(e => namespaces.length === 0 || namespaces.includes(e.namespace))
-      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
-  })();
-
-  // Report combined count to parent whenever it changes
-  useEffect(() => { onCountChange?.(combined.length); }, [combined.length, onCountChange]);
-
-  // Editor mode — opened from preview or history card
   if (editingEntry) {
     return (
       <MicrositeEditorPro
@@ -163,18 +98,9 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
         proposalId={editingEntry.id}
         onClose={() => setEditingEntry(null)}
         onSaved={(updatedAst) => {
-          // Update in-place for local entries; create new local entry for server-only entries
-          const saved = editingEntry.source === 'local'
-            ? updateEntry(editingEntry.id, updatedAst)
-            : addEntry(updatedAst, editingEntry.namespace);
+          const saved = updateEntry(editingEntry.id, updatedAst);
           refresh();
-          setPreviewEntry({
-            id: saved.id,
-            savedAt: saved.savedAt,
-            namespace: saved.namespace,
-            ast: updatedAst,
-            source: 'local',
-          });
+          setPreviewEntry({ id: saved.id, savedAt: saved.savedAt, namespace: saved.namespace, ast: updatedAst });
           setEditingEntry(null);
         }}
       />
@@ -193,7 +119,7 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
     );
   }
 
-  if (!loadingServer && combined.length === 0) {
+  if (!loading && entries.length === 0) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240, padding: '40px 20px' }}>
         <div style={{ maxWidth: 320, textAlign: 'center' }}>
@@ -216,17 +142,15 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
     );
   }
 
-  // Version numbers scoped to namespace+client — matches the namespace panel's per-namespace grouping.
-  // Newest = highest version; key = "namespace::clientName" so "mergecompany" in two namespaces version independently.
-  const combinedWithVersion = (() => {
+  // Version numbers scoped to namespace+client
+  const entriesWithVersion = (() => {
     const groupCount = new Map<string, number>();
-    for (const e of combined) {
-      const clientName = e.ast.brand?.companyName || 'Untitled';
-      const key = `${e.namespace}::${clientName}`;
+    for (const e of entries) {
+      const key = `${e.namespace}::${e.ast.brand?.companyName || 'Untitled'}`;
       groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
     }
     const seen = new Map<string, number>();
-    return combined.map(e => {
+    return entries.map((e) => {
       const companyName = e.ast.brand?.companyName || 'Untitled';
       const key = `${e.namespace}::${companyName}`;
       const total = groupCount.get(key) ?? 1;
@@ -238,7 +162,7 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
 
   return (
     <>
-      {loadingServer && (
+      {loading && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
           <span style={{
             display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
@@ -250,7 +174,7 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
       )}
 
       <div className="proposal-cards-grid" style={{ padding: 0, maxWidth: 'none', margin: 0 }}>
-        {combinedWithVersion.map(({ entry, companyName, version }) => {
+        {entriesWithVersion.map(({ entry, companyName, version }) => {
           const accent = getPluginAccent(entry.ast.plugin);
           const pluginName = entry.ast.plugin || "default";
           const isHovered = hoveredCard === entry.id;

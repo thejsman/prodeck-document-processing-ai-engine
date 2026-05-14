@@ -33,7 +33,7 @@ import { listSkills as listSkillsFromDisk, createSkill, loadSkill } from '../ski
 import { generateSkillFromDescription } from '../skills/skill-generator.js';
 import { listDesignSkills as listDesignSkillsFromDisk, getDesignSkill } from '../skills/design-skill.service.js';
 import type { DesignSkill } from '../skills/design-skill.types.js';
-import { buildDesignPromptFromSkill, generateThemeCSSTokens, type CSSTheme } from '../skills/design-skill-microsite.js';
+import { buildDesignPromptFromSkill, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
 import { generateStructuredMicrosite, assignSectionIds } from '../presentation/structured-microsite-generator.js';
 import { ContextService } from './context.service.js';
 import crypto from 'node:crypto';
@@ -552,7 +552,6 @@ export async function handleGenerateMicrosite(
   const astRaw = ast as unknown as Record<string, unknown>;
 
   // Inject CSS theme into brand so colours/fonts render via CSS variables.
-  // Phase 3 (per-section custom HTML) is skipped to stay within proxy timeout.
   if (cssTheme) {
     astRaw.brand = {
       ...(ast.brand ?? {}),
@@ -568,6 +567,47 @@ export async function handleGenerateMicrosite(
   const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
   await mkdir(path.dirname(astPath), { recursive: true });
   await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+
+  // Phase 3 — generate per-section custom HTML using the main model (Sonnet).
+  // Runs in the background so the chat response is returned immediately.
+  // Re-writes site-ast.json when all sections are done.
+  if (cssTheme) {
+    const capturedAst = ast;
+    const capturedAstPath = astPath;
+    const capturedTone = skillTone as Tone;
+    const capturedOverride = designPromptOverride ?? null;
+    const capturedCssVars = cssTheme.cssVars;
+
+    void (async () => {
+      try {
+        const sectionsAsRecords = capturedAst.sections as unknown as Record<string, unknown>[];
+        const targets = sectionsAsRecords.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType as string));
+        const CONCURRENCY = 4;
+        let cursor = 0;
+
+        async function htmlWorker() {
+          while (cursor < targets.length) {
+            const section = targets[cursor++];
+            const idx = sectionsAsRecords.indexOf(section);
+            try {
+              section.customHtml = await generateSectionHtml(
+                section,
+                capturedTone,
+                capturedCssVars,
+                null,
+                generateFn,
+                idx,
+                capturedOverride ?? undefined,
+              );
+            } catch { /* non-fatal — section falls back to generic layout */ }
+          }
+        }
+
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
+        await writeFile(capturedAstPath, JSON.stringify(capturedAst, null, 2), 'utf-8');
+      } catch { /* non-fatal background task */ }
+    })();
+  }
 
   const usedSkillLabel = designSkillSlug ? `design skill "${designSkillSlug}"` : 'base design theme';
   return {

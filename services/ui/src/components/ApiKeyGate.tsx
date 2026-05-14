@@ -9,8 +9,9 @@ interface Props {
 export function ApiKeyGate({ onSubmit }: Props) {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = key.trim();
     if (!trimmed) {
@@ -18,7 +19,21 @@ export function ApiKeyGate({ onSubmit }: Props) {
       return;
     }
     setError('');
-    onSubmit(trimmed);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/namespaces', {
+        headers: { Authorization: `Bearer ${trimmed}` },
+      });
+      if (!res.ok) {
+        setError('Invalid or missing API key');
+        return;
+      }
+      onSubmit(trimmed);
+    } catch {
+      setError('Could not reach the server');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -33,10 +48,11 @@ export function ApiKeyGate({ onSubmit }: Props) {
           value={key}
           onChange={(e) => setKey(e.target.value)}
           autoFocus
+          disabled={loading}
         />
         {error && <p className="error">{error}</p>}
-        <button type="submit" className="btn btn-primary">
-          Connect
+        <button type="submit" className="btn btn-primary" disabled={loading}>
+          {loading ? 'Connecting…' : 'Connect'}
         </button>
       </form>
     </div>

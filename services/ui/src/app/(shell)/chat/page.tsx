@@ -3,7 +3,20 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Brain, Database, Download, Eraser, Pencil, PanelRightClose, PanelRightOpen, Plus, SlidersHorizontal, Upload, X } from 'lucide-react';
+import {
+  ArrowUp,
+  Brain,
+  Database,
+  Download,
+  Eraser,
+  Pencil,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  SlidersHorizontal,
+  Upload,
+  X,
+} from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
@@ -32,7 +45,12 @@ import { ExtractionConfirmationCard } from '@/components/chat/ExtractionConfirma
 import { useBrief } from '@/hooks/useBrief';
 import type { RequirementKey, DocumentClassification } from '@/lib/api';
 import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
-import { confirmExtractionCard, discardExtractionCard, reclassifyExtractionCard, fetchPendingExtractions } from '@/lib/api';
+import {
+  confirmExtractionCard,
+  discardExtractionCard,
+  reclassifyExtractionCard,
+  fetchPendingExtractions,
+} from '@/lib/api';
 import { useIngestionProgressStore } from '@/core/execution/ingestion-progress-store';
 import { CollectionPanel } from '@/components/collection/CollectionPanel';
 import { useCollectionStatus } from '@/lib/use-collection-status';
@@ -61,7 +79,6 @@ interface Message {
   };
 }
 
-
 // ── Page ───────────────────────────────────────────────────────────
 
 // ── System query interception ───────────────────────────────────
@@ -79,7 +96,7 @@ const SYSTEM_QUERIES: SystemQueryHandler[] = [
     fetch: async (apiKey) => {
       const res = await fetch('/api/namespaces', { headers: { Authorization: `Bearer ${apiKey}` } });
       if (!res.ok) return 'Could not retrieve namespaces.';
-      const data = await res.json() as { namespaces?: string[] };
+      const data = (await res.json()) as { namespaces?: string[] };
       const list = data.namespaces ?? [];
       if (list.length === 0) return 'No namespaces found. Create one to get started.';
       return `Available namespaces:\n\n${list.map((n) => `- \`${n}\``).join('\n')}`;
@@ -87,11 +104,7 @@ const SYSTEM_QUERIES: SystemQueryHandler[] = [
   },
 ];
 
-async function trySystemQuery(
-  q: string,
-  apiKey: string,
-  namespace: string,
-): Promise<string | null> {
+async function trySystemQuery(q: string, apiKey: string, namespace: string): Promise<string | null> {
   for (const handler of SYSTEM_QUERIES) {
     if (handler.pattern.test(q)) {
       return handler.fetch(apiKey, namespace);
@@ -123,7 +136,9 @@ interface PersistedUpload {
 
 const UPLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-function uploadStorageKey(ns: string) { return `prodeck-chat-uploads-${ns}`; }
+function uploadStorageKey(ns: string) {
+  return `prodeck-chat-uploads-${ns}`;
+}
 
 function loadPersistedUploads(ns: string): PersistedUpload[] {
   try {
@@ -131,11 +146,17 @@ function loadPersistedUploads(ns: string): PersistedUpload[] {
     if (!raw) return [];
     const now = Date.now();
     return (JSON.parse(raw) as PersistedUpload[]).filter((u) => now - u.createdAt < UPLOAD_TTL_MS);
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function savePersistedUploads(ns: string, uploads: PersistedUpload[]): void {
-  try { localStorage.setItem(uploadStorageKey(ns), JSON.stringify(uploads)); } catch { /* storage full */ }
+  try {
+    localStorage.setItem(uploadStorageKey(ns), JSON.stringify(uploads));
+  } catch {
+    /* storage full */
+  }
 }
 
 function upsertPersistedUpload(ns: string, patch: Partial<PersistedUpload> & { id: string }): void {
@@ -206,13 +227,10 @@ export default function ChatPage() {
   const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const briefFields = brief.context?.requirements?.fields ?? {};
-  const briefTier1Count = (['clientName', 'clientIndustry', 'projectType'] as RequirementKey[])
-    .filter(k => briefFields[k]?.value).length;
-  const briefColor = briefTier1Count === 3
-    ? 'var(--success)'
-    : briefTier1Count > 0
-    ? 'var(--warning)'
-    : 'var(--muted)';
+  const briefTier1Count = (['clientName', 'clientIndustry', 'projectType'] as RequirementKey[]).filter(
+    (k) => briefFields[k]?.value,
+  ).length;
+  const briefColor = briefTier1Count === 3 ? 'var(--success)' : briefTier1Count > 0 ? 'var(--warning)' : 'var(--muted)';
   const [isGeneratingFromModal, setIsGeneratingFromModal] = useState(false);
   const [generatedDoc, setGeneratedDoc] = useState<ProposalDocument | null>(null);
 
@@ -240,7 +258,18 @@ export default function ChatPage() {
   const rafRef = useRef<number | null>(null);
   const revealedLenRef = useRef(0);
 
-  const { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, confirmationRequest, startStream, reset } = useSSE(apiKey, '/api/chat/message');
+  const {
+    chunks,
+    phase,
+    isStreaming,
+    error,
+    sections,
+    toolEvents,
+    doneActions,
+    confirmationRequest,
+    startStream,
+    reset,
+  } = useSSE(apiKey, '/api/chat/message');
 
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
@@ -253,20 +282,22 @@ export default function ChatPage() {
   // "Extracting requirements" that precede clarifying questions), lock into
   // proposal stream mode so the progress bar never flickers back to dots.
   const GENERATION_PHASE_PREFIXES = [
-    'Planning proposal structure', 'Building section outline',
-    'Preparing template', 'Generating proposal',
-    'Saved as version', 'Checking proposal consistency',
+    'Planning proposal structure',
+    'Building section outline',
+    'Preparing template',
+    'Generating proposal',
+    'Saved as version',
+    'Checking proposal consistency',
   ];
   const hadPhaseRef = useRef(false);
-  if (isStreaming && phase && GENERATION_PHASE_PREFIXES.some(p => phase.startsWith(p))) hadPhaseRef.current = true;
+  if (isStreaming && phase && GENERATION_PHASE_PREFIXES.some((p) => phase.startsWith(p))) hadPhaseRef.current = true;
   if (!isStreaming) hadPhaseRef.current = false;
 
   // Reactive signal: which generation tool is running (null if none).
   // Derived from toolEvents (state) so JSX re-renders when it arrives.
   // Computed early so it can be referenced in the useEffect below.
-  const generationTool = toolEvents.find(
-    (ev) => ev.tool === 'generate_proposal' || ev.tool === 'generate_microsite',
-  )?.tool ?? null;
+  const generationTool =
+    toolEvents.find((ev) => ev.tool === 'generate_proposal' || ev.tool === 'generate_microsite')?.tool ?? null;
 
   // True when this stream included a proposal/microsite generation (V2 path).
   // Stays true after streaming ends so the completion footer renders.
@@ -313,14 +344,19 @@ export default function ChatPage() {
     startExecutionTransport(apiKey); // idempotent — no-op if already connected
   }, [generationTool, sections.length, addExecution, apiKey]);
 
-  const fetchInsights = useCallback((ns: string) => {
-    fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    })
-      .then((res) => (res.ok ? res.json() : { suggestions: [] }))
-      .then((data: { suggestions: string[] }) => setInsights(data.suggestions ?? []))
-      .catch(() => { /* insights unavailable — leave as-is */ });
-  }, [apiKey]);
+  const fetchInsights = useCallback(
+    (ns: string) => {
+      fetch(`/api/namespace/${encodeURIComponent(ns)}/insights`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+        .then((res) => (res.ok ? res.json() : { suggestions: [] }))
+        .then((data: { suggestions: string[] }) => setInsights(data.suggestions ?? []))
+        .catch(() => {
+          /* insights unavailable — leave as-is */
+        });
+    },
+    [apiKey],
+  );
 
   useEffect(() => {
     if (!viewMicrosite || !apiKey) return;
@@ -358,38 +394,47 @@ export default function ChatPage() {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
       .then((res) => (res.ok ? res.json() : { messages: [] }))
-      .then((data: { messages: Array<{ id: string; role: 'user' | 'assistant'; content: string; metadata?: { proposalArtifactId?: string } }> }) => {
-        // Recover persisted upload messages for this namespace
-        const persisted = loadPersistedUploads(ns);
-        // Interrupted uploads (still 'uploading' means the XHR never completed)
-        const normalized = persisted.map((u) =>
-          u.status === 'uploading' ? { ...u, status: 'error' as const } : u,
-        );
-        savePersistedUploads(ns, normalized);
+      .then(
+        (data: {
+          messages: Array<{
+            id: string;
+            role: 'user' | 'assistant';
+            content: string;
+            metadata?: { proposalArtifactId?: string };
+          }>;
+        }) => {
+          // Recover persisted upload messages for this namespace
+          const persisted = loadPersistedUploads(ns);
+          // Interrupted uploads (still 'uploading' means the XHR never completed)
+          const normalized = persisted.map((u) => (u.status === 'uploading' ? { ...u, status: 'error' as const } : u));
+          savePersistedUploads(ns, normalized);
 
-        const uploadMessages: Message[] = normalized.map((u) => ({
-          id: u.id,
-          role: 'upload' as const,
-          content: '',
-          uploadData: {
-            fileName: u.displayName,
-            fileSize: u.fileSize,
-            progress: u.status === 'done' ? 100 : 0,
-            status: u.status,
-            stage: u.status === 'processing' ? 'Queued' : undefined,
-          },
-        }));
+          const uploadMessages: Message[] = normalized.map((u) => ({
+            id: u.id,
+            role: 'upload' as const,
+            content: '',
+            uploadData: {
+              fileName: u.displayName,
+              fileSize: u.fileSize,
+              progress: u.status === 'done' ? 100 : 0,
+              status: u.status,
+              stage: u.status === 'processing' ? 'Queued' : undefined,
+            },
+          }));
 
-        skipNextScrollRef.current = true;
-        setMessages([...data.messages, ...uploadMessages]);
+          skipNextScrollRef.current = true;
+          setMessages([...data.messages, ...uploadMessages]);
 
-        // Resume polling for any still-processing uploads
-        const processing = normalized.filter((u) => u.status === 'processing' && u.fileNames.length > 0);
-        for (const u of processing) {
-          setActiveUploadPoll({ msgId: u.id, fileNames: u.fileNames });
-        }
-      })
-      .catch(() => { /* history unavailable — start fresh */ });
+          // Resume polling for any still-processing uploads
+          const processing = normalized.filter((u) => u.status === 'processing' && u.fileNames.length > 0);
+          for (const u of processing) {
+            setActiveUploadPoll({ msgId: u.id, fileNames: u.fileNames });
+          }
+        },
+      )
+      .catch(() => {
+        /* history unavailable — start fresh */
+      });
 
     // Page-load recovery: restore pending extraction cards from previous session
     fetchPendingExtractions(apiKey, ns)
@@ -416,7 +461,9 @@ export default function ChatPage() {
           })),
         );
       })
-      .catch(() => { /* pending extractions unavailable */ });
+      .catch(() => {
+        /* pending extractions unavailable */
+      });
 
     fetchInsights(ns);
     setTimeout(() => textareaRef.current?.focus(), 0);
@@ -449,10 +496,7 @@ export default function ChatPage() {
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setHeaderScrolled(!entry.isIntersecting),
-      { threshold: 0 },
-    );
+    const observer = new IntersectionObserver(([entry]) => setHeaderScrolled(!entry.isIntersecting), { threshold: 0 });
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, []);
@@ -461,10 +505,9 @@ export default function ChatPage() {
   useEffect(() => {
     const sentinel = msSentinelRef.current;
     if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setMsHeaderScrolled(!entry.isIntersecting),
-      { threshold: 0 },
-    );
+    const observer = new IntersectionObserver(([entry]) => setMsHeaderScrolled(!entry.isIntersecting), {
+      threshold: 0,
+    });
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [viewMicrosite]);
@@ -540,7 +583,9 @@ export default function ChatPage() {
       }
     }
     typeTimerRef.current = setTimeout(tick, 20);
-    return () => { if (typeTimerRef.current) clearTimeout(typeTimerRef.current); };
+    return () => {
+      if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+    };
   }, [typeTarget]);
 
   // Auto-grow textarea
@@ -591,123 +636,156 @@ export default function ChatPage() {
     // Intercept system queries — answer from API directly, skip RAG
     trySystemQuery(q, apiKey, ns).then((answer) => {
       if (answer !== null) {
-        setMessages((prev) => [
-          ...prev,
-          { id: `assistant-${Date.now()}`, role: 'assistant', content: answer },
-        ]);
+        setMessages((prev) => [...prev, { id: `assistant-${Date.now()}`, role: 'assistant', content: answer }]);
         return;
       }
       startStream({ message: q, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     });
-  }, [input, isStreaming, chunks, sections, confirmationRequest, namespace, apiKey, reset, startStream, removeExecution]);
+  }, [
+    input,
+    isStreaming,
+    chunks,
+    sections,
+    confirmationRequest,
+    namespace,
+    apiKey,
+    reset,
+    startStream,
+    removeExecution,
+  ]);
 
   // ── Extraction card handlers ───────────────────────────────────
 
-  const handleCardConfirm = useCallback(async (
-    cardId: string,
-    overrides?: Record<string, { value: string }>,
-    resolvedConflicts?: Record<string, string>,
-  ) => {
-    const ns = namespace ?? 'default';
-    try {
-      const result = await confirmExtractionCard(apiKey, ns, cardId, overrides, resolvedConflicts);
-      useExtractionCardStore.getState().updateCardState(cardId, 'confirmed', {
-        fieldsWritten: result.fieldsWritten.length,
-      });
-      brief.refresh();
-    } catch (err) {
-      console.error('[Chat] failed to confirm extraction card', err);
-    }
-  }, [apiKey, namespace, brief]);
+  const handleCardConfirm = useCallback(
+    async (
+      cardId: string,
+      overrides?: Record<string, { value: string }>,
+      resolvedConflicts?: Record<string, string>,
+    ) => {
+      const ns = namespace ?? 'default';
+      try {
+        const result = await confirmExtractionCard(apiKey, ns, cardId, overrides, resolvedConflicts);
+        useExtractionCardStore.getState().updateCardState(cardId, 'confirmed', {
+          fieldsWritten: result.fieldsWritten.length,
+        });
+        brief.refresh();
+      } catch (err) {
+        console.error('[Chat] failed to confirm extraction card', err);
+      }
+    },
+    [apiKey, namespace, brief],
+  );
 
-  const handleCardDiscard = useCallback(async (cardId: string) => {
-    const ns = namespace ?? 'default';
-    try {
-      await discardExtractionCard(apiKey, ns, cardId);
-      useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
-    } catch (err) {
-      console.error('[Chat] failed to discard extraction card', err);
-    }
-  }, [apiKey, namespace]);
+  const handleCardDiscard = useCallback(
+    async (cardId: string) => {
+      const ns = namespace ?? 'default';
+      try {
+        await discardExtractionCard(apiKey, ns, cardId);
+        useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
+      } catch (err) {
+        console.error('[Chat] failed to discard extraction card', err);
+      }
+    },
+    [apiKey, namespace],
+  );
 
-  const handleCardReclassify = useCallback(async (cardId: string, newClassification: DocumentClassification) => {
-    const ns = namespace ?? 'default';
-    try {
-      await reclassifyExtractionCard(apiKey, ns, cardId, newClassification);
-      useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
-    } catch (err) {
-      console.error('[Chat] failed to reclassify extraction card', err);
-    }
-  }, [apiKey, namespace]);
+  const handleCardReclassify = useCallback(
+    async (cardId: string, newClassification: DocumentClassification) => {
+      const ns = namespace ?? 'default';
+      try {
+        await reclassifyExtractionCard(apiKey, ns, cardId, newClassification);
+        useExtractionCardStore.getState().updateCardState(cardId, 'discarded');
+      } catch (err) {
+        console.error('[Chat] failed to reclassify extraction card', err);
+      }
+    },
+    [apiKey, namespace],
+  );
 
   const handleCardFill = useCallback((cardId: string, fieldKey: RequirementKey) => {
-    const label = fieldKey.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+    const label = fieldKey
+      .replace(/([A-Z])/g, ' $1')
+      .toLowerCase()
+      .trim();
     setInput(`What is the ${label} for this engagement?`);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
 
   // ── File upload inline progress callbacks ─────────────────────────
 
-  const handleUploadStart = useCallback((files: File[]) => {
-    const id = crypto.randomUUID();
-    const displayName = files.length > 1
-      ? `${files[0].name} +${files.length - 1} more`
-      : files[0].name;
-    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
-    const fileNames = files.map((f) => f.name);
-    uploadMsgIdRef.current = id;
-    uploadedFileNamesRef.current = fileNames;
-    upsertPersistedUpload(namespace || 'default', {
-      id, displayName, fileSize: totalSize, status: 'uploading', fileNames, createdAt: Date.now(),
-    });
-    setMessages((prev) => [
-      ...prev,
-      { id, role: 'upload', content: '', uploadData: { fileName: displayName, fileSize: totalSize, progress: 0, status: 'uploading' } },
-    ]);
-  }, [namespace]);
+  const handleUploadStart = useCallback(
+    (files: File[]) => {
+      const id = crypto.randomUUID();
+      const displayName = files.length > 1 ? `${files[0].name} +${files.length - 1} more` : files[0].name;
+      const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+      const fileNames = files.map((f) => f.name);
+      uploadMsgIdRef.current = id;
+      uploadedFileNamesRef.current = fileNames;
+      upsertPersistedUpload(namespace || 'default', {
+        id,
+        displayName,
+        fileSize: totalSize,
+        status: 'uploading',
+        fileNames,
+        createdAt: Date.now(),
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id,
+          role: 'upload',
+          content: '',
+          uploadData: { fileName: displayName, fileSize: totalSize, progress: 0, status: 'uploading' },
+        },
+      ]);
+    },
+    [namespace],
+  );
 
   const handleUploadProgress = useCallback((progress: number) => {
     const id = uploadMsgIdRef.current;
     if (!id) return;
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, progress } } : m,
-      ),
+      prev.map((m) => (m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, progress } } : m)),
     );
   }, []);
 
-  const handleUploadDone = useCallback((queued: Array<{ fileName: string; jobId: string }>) => {
-    for (const { fileName, jobId } of queued) {
-      addExecution({ id: jobId, type: 'ingestion', status: 'queued', title: fileName });
-    }
+  const handleUploadDone = useCallback(
+    (queued: Array<{ fileName: string; jobId: string }>) => {
+      for (const { fileName, jobId } of queued) {
+        addExecution({ id: jobId, type: 'ingestion', status: 'queued', title: fileName });
+      }
 
-    const id = uploadMsgIdRef.current;
-    if (!id) return;
-    upsertPersistedUpload(namespace || 'default', { id, status: 'processing' });
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === id && m.uploadData
-          ? { ...m, uploadData: { ...m.uploadData, progress: 100, status: 'processing', stage: 'Queued' } }
-          : m,
-      ),
-    );
-    setActiveUploadPoll({ msgId: id, fileNames: queued.map((q) => q.fileName) });
-  }, [addExecution, namespace]);
+      const id = uploadMsgIdRef.current;
+      if (!id) return;
+      upsertPersistedUpload(namespace || 'default', { id, status: 'processing' });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id && m.uploadData
+            ? { ...m, uploadData: { ...m.uploadData, progress: 100, status: 'processing', stage: 'Queued' } }
+            : m,
+        ),
+      );
+      setActiveUploadPoll({ msgId: id, fileNames: queued.map((q) => q.fileName) });
+    },
+    [addExecution, namespace],
+  );
 
-  const handleUploadError = useCallback((errorMessage?: string) => {
-    const id = uploadMsgIdRef.current;
-    if (!id) return;
-    upsertPersistedUpload(namespace || 'default', { id, status: 'error' });
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === id && m.uploadData
-          ? { ...m, uploadData: { ...m.uploadData, status: 'error', errorMessage } }
-          : m,
-      ),
-    );
-    uploadMsgIdRef.current = null;
-    uploadedFileNamesRef.current = [];
-  }, [namespace]);
+  const handleUploadError = useCallback(
+    (errorMessage?: string) => {
+      const id = uploadMsgIdRef.current;
+      if (!id) return;
+      upsertPersistedUpload(namespace || 'default', { id, status: 'error' });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, status: 'error', errorMessage } } : m,
+        ),
+      );
+      uploadMsgIdRef.current = null;
+      uploadedFileNamesRef.current = [];
+    },
+    [namespace],
+  );
 
   useEffect(() => {
     if (!activeUploadPoll || !apiKey || !namespace) return;
@@ -717,8 +795,8 @@ export default function ChatPage() {
         const fetched = await fetchKnowledgeFiles(apiKey, namespace || 'default');
         const relevant = fetched.filter((f) => fileNames.includes(f.fileName));
         if (relevant.length === 0) return;
-        const allTerminal = relevant.every((f) =>
-          f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed',
+        const allTerminal = relevant.every(
+          (f) => f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed',
         );
         if (allTerminal) {
           clearInterval(interval);
@@ -728,9 +806,7 @@ export default function ChatPage() {
           const anySuccess = relevant.some((f) => f.status === 'indexed' || f.status === 'extracted');
           const terminalStatus = anySuccess ? 'done' : 'error';
           const failedFiles = relevant.filter((f) => f.status === 'failed');
-          const errorMessage = failedFiles.length > 0
-            ? (failedFiles[0]?.error ?? 'Processing failed')
-            : undefined;
+          const errorMessage = failedFiles.length > 0 ? (failedFiles[0]?.error ?? 'Processing failed') : undefined;
           upsertPersistedUpload(namespace || 'default', { id: msgId, status: terminalStatus });
           setMessages((prev) =>
             prev.map((m) =>
@@ -745,36 +821,37 @@ export default function ChatPage() {
           const hasProcessing = relevant.some((f) => f.status === 'processing');
           const stage = hasExtracting ? 'Extracting…' : hasProcessing ? 'Indexing…' : 'Queued';
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msgId && m.uploadData
-                ? { ...m, uploadData: { ...m.uploadData, stage } }
-                : m,
-            ),
+            prev.map((m) => (m.id === msgId && m.uploadData ? { ...m, uploadData: { ...m.uploadData, stage } } : m)),
           );
         }
-      } catch { /* ignore transient errors */ }
+      } catch {
+        /* ignore transient errors */
+      }
     }, 2500);
     return () => clearInterval(interval);
   }, [activeUploadPoll, apiKey, namespace]);
-  const sendConfirmation = useCallback((msg: string) => {
-    if (isStreaming) return;
-    // Commit current stream to history first
-    if (chunks || confirmationRequest) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: chunks,
-          confirmation: confirmationRequest ?? undefined,
-        },
-      ]);
-      reset();
-    }
-    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }]);
-    const ns = namespace || 'default';
-    startStream({ message: msg, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
-  }, [isStreaming, chunks, confirmationRequest, namespace, startStream, reset]);
+  const sendConfirmation = useCallback(
+    (msg: string) => {
+      if (isStreaming) return;
+      // Commit current stream to history first
+      if (chunks || confirmationRequest) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: chunks,
+            confirmation: confirmationRequest ?? undefined,
+          },
+        ]);
+        reset();
+      }
+      setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }]);
+      const ns = namespace || 'default';
+      startStream({ message: msg, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
+    },
+    [isStreaming, chunks, confirmationRequest, namespace, startStream, reset],
+  );
 
   function handleClear() {
     // Rotate to a new session ID so the fresh chat has clean history
@@ -827,7 +904,11 @@ export default function ChatPage() {
 
   if (viewMicrosite) {
     const { name } = parseMicrositeInfo(viewMicrosite.proposalId);
-    const dismiss = () => { setViewMicrosite(null); setViewMicrositeAST(null); setEditingMicrosite(false); };
+    const dismiss = () => {
+      setViewMicrosite(null);
+      setViewMicrositeAST(null);
+      setEditingMicrosite(false);
+    };
 
     if (editingMicrosite && viewMicrositeAST) {
       return (
@@ -836,7 +917,10 @@ export default function ChatPage() {
           namespace={viewMicrosite.namespace}
           proposalId={viewMicrosite.proposalId}
           onClose={() => setEditingMicrosite(false)}
-          onExport={(editedAst) => { setViewMicrositeAST(editedAst); setEditingMicrosite(false); }}
+          onExport={(editedAst) => {
+            setViewMicrositeAST(editedAst);
+            setEditingMicrosite(false);
+          }}
         />
       );
     }
@@ -851,10 +935,18 @@ export default function ChatPage() {
             <div className="chat-v2-header-right">
               {viewMicrositeAST && (
                 <>
-                  <button className="chat-v2-clear-btn" onClick={() => micrositeRef.current?.downloadPdf()} aria-label="Download PDF">
+                  <button
+                    className="chat-v2-clear-btn"
+                    onClick={() => micrositeRef.current?.downloadPdf()}
+                    aria-label="Download PDF"
+                  >
                     <Icon icon={Download} size="md" />
                   </button>
-                  <button className="chat-v2-clear-btn" onClick={() => setEditingMicrosite(true)} aria-label="Edit microsite">
+                  <button
+                    className="chat-v2-clear-btn"
+                    onClick={() => setEditingMicrosite(true)}
+                    aria-label="Edit microsite"
+                  >
                     <Icon icon={Pencil} size="md" />
                   </button>
                 </>
@@ -867,7 +959,16 @@ export default function ChatPage() {
           <div style={{ flex: 1, overflow: 'auto' }}>
             <div ref={msSentinelRef} style={{ height: 0, flexShrink: 0 }} />
             {viewMicrositeLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                  color: 'var(--muted)',
+                  fontSize: 14,
+                }}
+              >
                 Loading…
               </div>
             )}
@@ -906,13 +1007,17 @@ export default function ChatPage() {
             <button
               onClick={() => setBriefModalOpen(true)}
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                height: 30, padding: '0 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 30,
+                padding: '0 10px',
                 borderRadius: 6,
                 background: 'var(--panel-soft)',
                 border: '1px solid var(--border)',
                 cursor: 'pointer',
-                fontSize: 12, fontWeight: 500,
+                fontSize: 12,
+                fontWeight: 500,
                 color: 'var(--text)',
                 flexShrink: 0,
               }}
@@ -922,13 +1027,13 @@ export default function ChatPage() {
               Brief
               <span style={{ fontSize: 11, color: briefColor, fontWeight: 600 }}>{briefTier1Count}/3</span>
             </button>
-            <button
+            {/* <button
               className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
               onClick={() => setTraceOpen((v) => !v)}
               title={traceOpen ? 'Hide trace' : 'Show execution trace'}
             >
               ⚡
-            </button>
+            </button> */}
             <ThemeToggle />
             {panelHasContent && (
               <button
@@ -969,457 +1074,722 @@ export default function ChatPage() {
         {/* ── Body ── */}
         <div className="chat-v2-body">
           <div className="chat-v2-main">
-          {/* Messages */}
-          <div className="chat-v2-messages">
-            <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
-            {!hasContent && extractionCards.filter((c) => c.cardState === 'pending').length === 0 ? (
-              <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
-            ) : hasContent ? (
-              <>
-                {messages.map((m, i) => {
-                  if (m.role === 'upload' && m.uploadData) {
+            {/* Messages */}
+            <div className="chat-v2-messages">
+              <div ref={sentinelRef} style={{ height: 0, flexShrink: 0 }} />
+              {!hasContent && extractionCards.filter((c) => c.cardState === 'pending').length === 0 ? (
+                <ChatEmptyState namespace={namespace} onSuggestion={handleSuggestion} insights={insights} />
+              ) : hasContent ? (
+                <>
+                  {messages.map((m, i) => {
+                    if (m.role === 'upload' && m.uploadData) {
+                      return (
+                        <div
+                          key={m.id}
+                          className="chat-v2-message chat-v2-message--user"
+                          style={{ '--msg-i': i } as React.CSSProperties}
+                        >
+                          <ChatFileUpload
+                            {...m.uploadData}
+                            chunkProgress={
+                              m.uploadData.status === 'processing'
+                                ? ingestionProgress[m.uploadData.fileName]
+                                : undefined
+                            }
+                          />
+                        </div>
+                      );
+                    }
                     return (
                       <div
                         key={m.id}
-                        className="chat-v2-message chat-v2-message--user"
+                        className={`chat-v2-message chat-v2-message--${m.role === 'extraction_card' ? 'assistant' : m.role}`}
                         style={{ '--msg-i': i } as React.CSSProperties}
                       >
-                        <ChatFileUpload
-                          {...m.uploadData}
-                          chunkProgress={m.uploadData.status === 'processing'
-                            ? ingestionProgress[m.uploadData.fileName]
-                            : undefined}
-                        />
-                      </div>
-                    );
-                  }
-                  return (
-                  <div
-                    key={m.id}
-                    className={`chat-v2-message chat-v2-message--${m.role === 'extraction_card' ? 'assistant' : m.role}`}
-                    style={{ '--msg-i': i } as React.CSSProperties}
-                  >
-                    {(m.role === 'assistant' || m.role === 'extraction_card') && <div className="chat-v2-avatar">AI</div>}
-                    <div className="chat-v2-bubble" style={m.role === 'extraction_card' ? { padding: 0, background: 'none', border: 'none' } : undefined}>
-                      {m.role === 'extraction_card' && m.extractionCardId ? (
-                        <ExtractionConfirmationCard
-                          cardId={m.extractionCardId}
-                          namespace={namespace ?? 'default'}
-                          apiKey={apiKey}
-                          onConfirm={handleCardConfirm}
-                          onDiscard={handleCardDiscard}
-                          onReclassify={handleCardReclassify}
-                          onFill={handleCardFill}
-                        />
-                      ) : m.role === 'assistant' ? (
-                        (() => {
-                          // In-memory sections from active stream
-                          if (m.sections?.length) {
-                            return (
-                              <div className="proposal-sections-wrap">
-                                {m.sections.map((s) => (
-                                  <ProposalSectionBlock
-                                    key={s.section}
-                                    section={s.section}
-                                    content={s.content}
-                                    artifactId={s.artifactId}
-                                    namespace={namespace || 'default'}
-                                    apiKey={apiKey}
-                                  />
-                                ))}
-                              </div>
-                            );
+                        {(m.role === 'assistant' || m.role === 'extraction_card') && (
+                          <div className="chat-v2-avatar">AI</div>
+                        )}
+                        <div
+                          className="chat-v2-bubble"
+                          style={
+                            m.role === 'extraction_card'
+                              ? { padding: 0, background: 'none', border: 'none' }
+                              : undefined
                           }
-                          // History load: show persistent proposal card if artifact exists
-                          const artifactId = m.metadata?.proposalArtifactId as string | undefined;
-                          if (artifactId) {
-                            const historyClient = m.content?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'Proposal';
-                            const artifactNs = (m.metadata?.proposalNamespace as string | undefined) || namespace || 'default';
-                            const historyHref = `/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(artifactNs)}&from=chat`;
-                            return (
-                              <div style={{ maxWidth: '33.33%' }}>
-                                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>Proposal generated</span>
-                                <div className="proposal-card" style={{ background: 'var(--panel)', cursor: 'default' }}>
-                                  <div className="proposal-card-header">
-                                    <div style={{ minWidth: 0, flex: 1 }}>
-                                      <span className="proposal-card-name">{historyClient}</span>
-                                    </div>
-                                    <span style={{ flexShrink: 0, background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>v1</span>
-                                  </div>
-                                  <div className="proposal-card-footer">
-                                    <div className="proposal-card-meta">
-                                      <span className="proposal-card-ns">{namespace || 'default'}</span>
-                                      <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
-                                    </div>
-                                    <Link href={historyHref} className="proposal-card-view-btn">View →</Link>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          }
-                          return (
-                            <>
-                              <div className="prose">
-                                <ReactMarkdown>{m.content}</ReactMarkdown>
-                              </div>
-                              {m.confirmation && (
-                                <ConfirmationBlock
-                                  request={m.confirmation}
-                                  onConfirm={sendConfirmation}
-                                  disabled={isStreaming}
-                                />
-                              )}
-                            </>
-                          );
-                        })()
-                      ) : (
-                        m.content
-                      )}
-                    </div>
-                  </div>
-                  );
-                })}
-
-                {/* ── Modal-triggered generation: loading + done card ── */}
-                {isGeneratingFromModal && (
-                  <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
-                    <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble">
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16 }}>
-                        <span className="ppb-dots"><span /><span /><span /></span>
-                        Generating proposal
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {generatedDoc && !isGeneratingFromModal && (() => {
-                  const clientName = (generatedDoc.metadata?.client as string) || namespace || 'New Proposal';
-                  const dateLabel = new Date(generatedDoc.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                  return (
-                    <div className="chat-v2-message chat-v2-message--assistant" style={{ '--msg-i': messages.length } as React.CSSProperties}>
-                      <div className="chat-v2-avatar">AI</div>
-                      <div className="chat-v2-bubble" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: '33.33%' }}>
-                        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>Proposal generated</span>
-                        <div className="proposal-card" style={{ background: 'var(--panel)', margin: 0, cursor: 'default' }}>
-                          <div className="proposal-card-header">
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <span className="proposal-card-name">{clientName}</span>
-                              <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
-                            </div>
-                            <span style={{ flexShrink: 0, background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>v1</span>
-                          </div>
-                          <div className="proposal-card-footer">
-                            <div className="proposal-card-meta">
-                              <span className="proposal-card-ns">{namespace || 'default'}</span>
-                              <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
-                            </div>
-                            <Link href={generatedProposalHref ?? '/proposal'} className="proposal-card-view-btn">View →</Link>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* ── Proposal generation: progress bar + sections + done card ── */}
-                {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool))) && (
-                  <div
-                    className="chat-v2-message chat-v2-message--assistant"
-                    style={{ '--msg-i': messages.length } as React.CSSProperties}
-                  >
-                    <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble chat-v2-bubble--sections">
-
-                      {/* Progress bar — always shown while streaming */}
-                      {isStreaming && (
-                        <ProposalProgressBar
-                          phase={phase}
-                          toolEvents={toolEvents}
-                          sectionCount={sections.length}
-                          isStreaming={isStreaming}
-                        />
-                      )}
-
-                      {/* In-progress — V2 path: tool event detected but no sections stream */}
-                      {isStreaming && generationTool !== null && sections.length === 0 && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16 }}>
-                          <span className="ppb-dots"><span /><span /><span /></span>
-                          {generationTool === 'generate_microsite' ? 'Generating microsite' : 'Generating proposal'}
-                        </span>
-                      )}
-
-                      {/* Section blocks — V1 path streams sections one by one */}
-                      {sections.length > 0 && (
-                        <div className="proposal-sections-wrap">
-                          {sections.map((s) => (
-                            <ProposalSectionBlock
-                              key={s.section}
-                              section={s.section}
-                              content={s.content}
-                              artifactId={s.artifactId}
-                              namespace={namespace || 'default'}
+                        >
+                          {m.role === 'extraction_card' && m.extractionCardId ? (
+                            <ExtractionConfirmationCard
+                              cardId={m.extractionCardId}
+                              namespace={namespace ?? 'default'}
                               apiKey={apiKey}
+                              onConfirm={handleCardConfirm}
+                              onDiscard={handleCardDiscard}
+                              onReclassify={handleCardReclassify}
+                              onFill={handleCardFill}
                             />
-                          ))}
-                          {/* After sections: in-progress card if type known, skeleton otherwise */}
-                          {isStreaming && (
-                            generationTool !== null ? (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16, marginTop: 8 }}>
-                                <span className="ppb-dots"><span /><span /><span /></span>
-                                {generationTool === 'generate_microsite' ? 'Generating microsite' : 'Generating proposal'}
-                              </span>
-                            ) : (
-                              <div className="psb psb--skeleton">
-                                <div className="psb-header">
-                                  <div className="psb-skeleton-title" />
-                                </div>
-                                <div className="psb-skeleton-lines">
-                                  <div className="psb-skeleton-line" />
-                                  <div className="psb-skeleton-line psb-skeleton-line--short" />
-                                </div>
-                              </div>
-                            )
+                          ) : m.role === 'assistant' ? (
+                            (() => {
+                              // In-memory sections from active stream
+                              if (m.sections?.length) {
+                                return (
+                                  <div className="proposal-sections-wrap">
+                                    {m.sections.map((s) => (
+                                      <ProposalSectionBlock
+                                        key={s.section}
+                                        section={s.section}
+                                        content={s.content}
+                                        artifactId={s.artifactId}
+                                        namespace={namespace || 'default'}
+                                        apiKey={apiKey}
+                                      />
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              // History load: show persistent proposal card if artifact exists
+                              const artifactId = m.metadata?.proposalArtifactId as string | undefined;
+                              if (artifactId) {
+                                const historyClient =
+                                  m.content?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'Proposal';
+                                const artifactNs =
+                                  (m.metadata?.proposalNamespace as string | undefined) || namespace || 'default';
+                                const historyHref = `/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(artifactNs)}&from=chat`;
+                                return (
+                                  <div style={{ maxWidth: '33.33%' }}>
+                                    <span
+                                      style={{
+                                        display: 'block',
+                                        fontSize: 12,
+                                        color: 'var(--muted)',
+                                        marginBottom: 8,
+                                        fontWeight: 400,
+                                      }}
+                                    >
+                                      Proposal generated
+                                    </span>
+                                    <div
+                                      className="proposal-card"
+                                      style={{ background: 'var(--panel)', cursor: 'default' }}
+                                    >
+                                      <div className="proposal-card-header">
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                          <span className="proposal-card-name">{historyClient}</span>
+                                        </div>
+                                        <span
+                                          style={{
+                                            flexShrink: 0,
+                                            background: 'var(--primary-soft)',
+                                            color: 'var(--primary)',
+                                            borderRadius: 100,
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            padding: '2px 8px',
+                                            letterSpacing: '0.06em',
+                                            lineHeight: 1.4,
+                                          }}
+                                        >
+                                          v1
+                                        </span>
+                                      </div>
+                                      <div className="proposal-card-footer">
+                                        <div className="proposal-card-meta">
+                                          <span className="proposal-card-ns">{namespace || 'default'}</span>
+                                          <span className="badge--draft" style={{ fontSize: 10 }}>
+                                            DRAFT
+                                          </span>
+                                        </div>
+                                        <Link href={historyHref} className="proposal-card-view-btn">
+                                          View →
+                                        </Link>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <>
+                                  <div className="prose">
+                                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                                  </div>
+                                  {m.confirmation && (
+                                    <ConfirmationBlock
+                                      request={m.confirmation}
+                                      onConfirm={sendConfirmation}
+                                      disabled={isStreaming}
+                                    />
+                                  )}
+                                </>
+                              );
+                            })()
+                          ) : (
+                            m.content
                           )}
                         </div>
-                      )}
+                      </div>
+                    );
+                  })}
 
-                      {/* Completion card */}
-                      {!isStreaming && (sections.length > 0 || hadGenerationTool) && (() => {
-                        if (doneActions?.openMicrositeUrl) {
-                          return (
-                            <div className="proposal-done-footer">
-                              <div className="proposal-done-actions">
-                                <a href={doneActions.openMicrositeUrl} className="proposal-done-link proposal-done-link--primary">View microsite</a>
-                                {doneActions.openProposalUrl && <a href={`${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`} className="proposal-done-link">View proposal</a>}
-                              </div>
-                            </div>
-                          );
-                        }
-                        const clientName = chunks?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'New Proposal';
-                        const fallbackArtifact = sections[0]?.artifactId;
-                        const proposalHref = doneActions?.openProposalUrl
-                          ? `${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`
-                          : fallbackArtifact
-                            ? `/proposal?artifact=${encodeURIComponent(fallbackArtifact)}&namespace=${encodeURIComponent(namespace || 'default')}&from=chat`
-                            : `/proposal?from=chat`;
-                        const dateLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                        return (
-                          <div style={{ marginTop: 12, maxWidth: '33.33%' }}>
-                            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>Proposal generated</span>
-                            <div className="proposal-card" style={{ background: 'var(--panel-soft)', cursor: 'default' }}>
+                  {/* ── Modal-triggered generation: loading + done card ── */}
+                  {isGeneratingFromModal && (
+                    <div
+                      className="chat-v2-message chat-v2-message--assistant"
+                      style={{ '--msg-i': messages.length } as React.CSSProperties}
+                    >
+                      <div className="chat-v2-avatar">AI</div>
+                      <div className="chat-v2-bubble">
+                        <span
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 16 }}
+                        >
+                          <span className="ppb-dots">
+                            <span />
+                            <span />
+                            <span />
+                          </span>
+                          Generating proposal
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {generatedDoc &&
+                    !isGeneratingFromModal &&
+                    (() => {
+                      const clientName = (generatedDoc.metadata?.client as string) || namespace || 'New Proposal';
+                      const dateLabel = new Date(generatedDoc.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                      return (
+                        <div
+                          className="chat-v2-message chat-v2-message--assistant"
+                          style={{ '--msg-i': messages.length } as React.CSSProperties}
+                        >
+                          <div className="chat-v2-avatar">AI</div>
+                          <div
+                            className="chat-v2-bubble"
+                            style={{
+                              padding: '12px 14px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10,
+                              maxWidth: '33.33%',
+                            }}
+                          >
+                            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>
+                              Proposal generated
+                            </span>
+                            <div
+                              className="proposal-card"
+                              style={{ background: 'var(--panel)', margin: 0, cursor: 'default' }}
+                            >
                               <div className="proposal-card-header">
                                 <div style={{ minWidth: 0, flex: 1 }}>
                                   <span className="proposal-card-name">{clientName}</span>
-                                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{dateLabel}</span>
+                                  <span
+                                    style={{
+                                      display: 'block',
+                                      fontSize: 12,
+                                      color: 'var(--muted)',
+                                      marginTop: 3,
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    {dateLabel}
+                                  </span>
                                 </div>
-                                <span style={{ flexShrink: 0, background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>v1</span>
+                                <span
+                                  style={{
+                                    flexShrink: 0,
+                                    background: 'var(--primary-soft)',
+                                    color: 'var(--primary)',
+                                    borderRadius: 100,
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    padding: '2px 8px',
+                                    letterSpacing: '0.06em',
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  v1
+                                </span>
                               </div>
                               <div className="proposal-card-footer">
                                 <div className="proposal-card-meta">
                                   <span className="proposal-card-ns">{namespace || 'default'}</span>
-                                  <span className="badge--draft" style={{ fontSize: 10 }}>DRAFT</span>
+                                  <span className="badge--draft" style={{ fontSize: 10 }}>
+                                    DRAFT
+                                  </span>
                                 </div>
-                                <Link href={proposalHref} className="proposal-card-view-btn">View →</Link>
+                                <Link href={generatedProposalHref ?? '/proposal'} className="proposal-card-view-btn">
+                                  View →
+                                </Link>
                               </div>
                             </div>
                           </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Thinking dots — non-proposal streams waiting for first chunk ── */}
-                {isStreaming && !chunks && !isProposalStream && (
-                  <div className="chat-v2-message chat-v2-message--assistant">
-                    <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble chat-v2-bubble--thinking">
-                      <span className="chat-thinking-dot" />
-                      <span className="chat-thinking-dot" />
-                      <span className="chat-thinking-dot" />
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Live streaming response — plain text (non-section streams) ── */}
-                {chunks && sections.length === 0 && (
-                  <div
-                    className="chat-v2-message chat-v2-message--assistant"
-                    style={{ '--msg-i': messages.length } as React.CSSProperties}
-                  >
-                    <div className="chat-v2-avatar">AI</div>
-                    <div className="chat-v2-bubble">
-                      {isStreaming || displayed.length < chunks.length ? (
-                        <>
-                          <span className="chat-stream-text">{displayed}</span>
-                          <span className="chat-cursor" />
-                        </>
-                      ) : (
-                        <div className="prose">
-                          <ReactMarkdown>{displayed}</ReactMarkdown>
                         </div>
-                      )}
-                      {!isStreaming && (doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl) && (
-                        <div className="proposal-done-actions" style={{ marginTop: 12 }}>
-                          <a href={(doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl)!} className="proposal-done-link proposal-done-link--primary">
-                            View Templates ↗
-                          </a>
-                        </div>
-                      )}
-                      {!isStreaming && doneActions?.openTemplateUrl && (
-                        <div className="proposal-done-actions" style={{ marginTop: 12 }}>
-                          <a href={`${doneActions.openTemplateUrl}&from=chat`} className="proposal-done-link proposal-done-link--primary">
-                            View Template Draft ↗
-                          </a>
-                        </div>
-                      )}
-                      {/* ── Confirmation block for active stream ── */}
-                      {!isStreaming && confirmationRequest && (
-                        <ConfirmationBlock
-                          request={confirmationRequest}
-                          onConfirm={sendConfirmation}
-                          disabled={isStreaming}
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
+                      );
+                    })()}
 
-                {/* Phase label while plain text tokens are already streaming */}
-                {isStreaming && chunks && sections.length === 0 && phase && (
-                  <div className="chat-phase-strip">{phase}…</div>
-                )}
-
-                {error && <div className="chat-v2-error">{error}</div>}
-              </>
-            ) : null}
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Upload modal */}
-          {showUpload && (
-            <ChatUploadDrawer
-              namespace={namespace}
-              onUploadStart={handleUploadStart}
-              onProgress={handleUploadProgress}
-              onUploaded={handleUploadDone}
-              onUploadError={handleUploadError}
-              onClose={() => {
-                setShowUpload(false);
-                textareaRef.current?.focus();
-              }}
-            />
-          )}
-
-          {/* Input composer */}
-          <div className="chat-v2-composer-wrap">
-            <div className={`chat-v2-composer${composerPulse ? ' chat-v2-composer--pulse' : ''}`}>
-              <div ref={menuRef} style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  className={`chat-v2-attach-btn${showMenu ? ' active' : ''}`}
-                  onClick={() => setShowMenu((v) => !v)}
-                  aria-label="More options"
-                >
-                  <Icon icon={Plus} size="md" />
-                </button>
-                {showMenu && (
-                  <div style={{
-                    position: 'absolute',
-                    bottom: 'calc(100% + 8px)',
-                    left: 0,
-                    background: 'var(--panel)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
-                    overflow: 'hidden',
-                    minWidth: 160,
-                    zIndex: 200,
-                  }}>
-                    {[
-                      { label: 'Ingest', icon: Upload, action: () => { setShowUpload(true); setShowMenu(false); } },
-                      { label: 'Memory', icon: Brain, action: () => { setShowMemoryModal(true); setShowMenu(false); } },
-                      { label: 'Configuration', icon: SlidersHorizontal, action: () => { setShowConfigModal(true); setShowMenu(false); } },
-                    ].map(item => (
-                      <button
-                        key={item.label}
-                        onClick={item.action}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text)', transition: 'background 0.1s' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--panel-soft)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                      >
-                        <Icon icon={item.icon} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                        {item.label}
-                      </button>
-                    ))}
-                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-                    <button
-                      onClick={() => { if (hasContent && !isStreaming) { setShowClearConfirm(true); setShowMenu(false); } }}
-                      disabled={!hasContent || isStreaming}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'none', border: 'none', cursor: hasContent && !isStreaming ? 'pointer' : 'not-allowed', fontSize: 13, color: hasContent ? 'var(--danger)' : 'var(--muted)', transition: 'background 0.1s', opacity: !hasContent || isStreaming ? 0.4 : 1 }}
-                      onMouseEnter={e => { if (hasContent && !isStreaming) e.currentTarget.style.background = 'var(--panel-soft)'; }}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  {/* ── Proposal generation: progress bar + sections + done card ── */}
+                  {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool))) && (
+                    <div
+                      className="chat-v2-message chat-v2-message--assistant"
+                      style={{ '--msg-i': messages.length } as React.CSSProperties}
                     >
-                      <Icon icon={Eraser} size="sm" style={{ flexShrink: 0 }} />
-                      Clear Chat
-                    </button>
-                  </div>
-                )}
-              </div>
-              <textarea
-                ref={textareaRef}
-                className="chat-v2-input"
-                rows={1}
-                placeholder="Ask AI to generate proposal, ingest documents, or analyse knowledge…"
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                disabled={isStreaming}
+                      <div className="chat-v2-avatar">AI</div>
+                      <div className="chat-v2-bubble chat-v2-bubble--sections">
+                        {/* Progress bar — always shown while streaming */}
+                        {isStreaming && (
+                          <ProposalProgressBar
+                            phase={phase}
+                            toolEvents={toolEvents}
+                            sectionCount={sections.length}
+                            isStreaming={isStreaming}
+                          />
+                        )}
+
+                        {/* In-progress — V2 path: tool event detected but no sections stream */}
+                        {isStreaming && generationTool !== null && sections.length === 0 && (
+                          <span
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              color: 'var(--muted)',
+                              fontSize: 16,
+                            }}
+                          >
+                            <span className="ppb-dots">
+                              <span />
+                              <span />
+                              <span />
+                            </span>
+                            {generationTool === 'generate_microsite' ? 'Generating microsite' : 'Generating proposal'}
+                          </span>
+                        )}
+
+                        {/* Section blocks — V1 path streams sections one by one */}
+                        {sections.length > 0 && (
+                          <div className="proposal-sections-wrap">
+                            {sections.map((s) => (
+                              <ProposalSectionBlock
+                                key={s.section}
+                                section={s.section}
+                                content={s.content}
+                                artifactId={s.artifactId}
+                                namespace={namespace || 'default'}
+                                apiKey={apiKey}
+                              />
+                            ))}
+                            {/* After sections: in-progress card if type known, skeleton otherwise */}
+                            {isStreaming &&
+                              (generationTool !== null ? (
+                                <span
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    color: 'var(--muted)',
+                                    fontSize: 16,
+                                    marginTop: 8,
+                                  }}
+                                >
+                                  <span className="ppb-dots">
+                                    <span />
+                                    <span />
+                                    <span />
+                                  </span>
+                                  {generationTool === 'generate_microsite'
+                                    ? 'Generating microsite'
+                                    : 'Generating proposal'}
+                                </span>
+                              ) : (
+                                <div className="psb psb--skeleton">
+                                  <div className="psb-header">
+                                    <div className="psb-skeleton-title" />
+                                  </div>
+                                  <div className="psb-skeleton-lines">
+                                    <div className="psb-skeleton-line" />
+                                    <div className="psb-skeleton-line psb-skeleton-line--short" />
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+
+                        {/* Completion card */}
+                        {!isStreaming &&
+                          (sections.length > 0 || hadGenerationTool) &&
+                          (() => {
+                            if (doneActions?.openMicrositeUrl) {
+                              return (
+                                <div className="proposal-done-footer">
+                                  <div className="proposal-done-actions">
+                                    <a
+                                      href={doneActions.openMicrositeUrl}
+                                      className="proposal-done-link proposal-done-link--primary"
+                                    >
+                                      View microsite
+                                    </a>
+                                    {doneActions.openProposalUrl && (
+                                      <a
+                                        href={`${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`}
+                                        className="proposal-done-link"
+                                      >
+                                        View proposal
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            const clientName =
+                              chunks?.match(/Proposal for "([^"]+)"/)?.[1] || namespace || 'New Proposal';
+                            const fallbackArtifact = sections[0]?.artifactId;
+                            const proposalHref = doneActions?.openProposalUrl
+                              ? `${doneActions.openProposalUrl}${doneActions.openProposalUrl.includes('?') ? '&' : '?'}from=chat`
+                              : fallbackArtifact
+                                ? `/proposal?artifact=${encodeURIComponent(fallbackArtifact)}&namespace=${encodeURIComponent(namespace || 'default')}&from=chat`
+                                : `/proposal?from=chat`;
+                            const dateLabel = new Date().toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            });
+                            return (
+                              <div style={{ marginTop: 12, maxWidth: '33.33%' }}>
+                                <span
+                                  style={{
+                                    display: 'block',
+                                    fontSize: 12,
+                                    color: 'var(--muted)',
+                                    marginBottom: 8,
+                                    fontWeight: 400,
+                                  }}
+                                >
+                                  Proposal generated
+                                </span>
+                                <div
+                                  className="proposal-card"
+                                  style={{ background: 'var(--panel-soft)', cursor: 'default' }}
+                                >
+                                  <div className="proposal-card-header">
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                      <span className="proposal-card-name">{clientName}</span>
+                                      <span
+                                        style={{
+                                          display: 'block',
+                                          fontSize: 12,
+                                          color: 'var(--muted)',
+                                          marginTop: 3,
+                                          lineHeight: 1.4,
+                                        }}
+                                      >
+                                        {dateLabel}
+                                      </span>
+                                    </div>
+                                    <span
+                                      style={{
+                                        flexShrink: 0,
+                                        background: 'var(--primary-soft)',
+                                        color: 'var(--primary)',
+                                        borderRadius: 100,
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        padding: '2px 8px',
+                                        letterSpacing: '0.06em',
+                                        lineHeight: 1.4,
+                                      }}
+                                    >
+                                      v1
+                                    </span>
+                                  </div>
+                                  <div className="proposal-card-footer">
+                                    <div className="proposal-card-meta">
+                                      <span className="proposal-card-ns">{namespace || 'default'}</span>
+                                      <span className="badge--draft" style={{ fontSize: 10 }}>
+                                        DRAFT
+                                      </span>
+                                    </div>
+                                    <Link href={proposalHref} className="proposal-card-view-btn">
+                                      View →
+                                    </Link>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Thinking dots — non-proposal streams waiting for first chunk ── */}
+                  {isStreaming && !chunks && !isProposalStream && (
+                    <div className="chat-v2-message chat-v2-message--assistant">
+                      <div className="chat-v2-avatar">AI</div>
+                      <div className="chat-v2-bubble chat-v2-bubble--thinking">
+                        <span className="chat-thinking-dot" />
+                        <span className="chat-thinking-dot" />
+                        <span className="chat-thinking-dot" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Live streaming response — plain text (non-section streams) ── */}
+                  {chunks && sections.length === 0 && (
+                    <div
+                      className="chat-v2-message chat-v2-message--assistant"
+                      style={{ '--msg-i': messages.length } as React.CSSProperties}
+                    >
+                      <div className="chat-v2-avatar">AI</div>
+                      <div className="chat-v2-bubble">
+                        {isStreaming || displayed.length < chunks.length ? (
+                          <>
+                            <span className="chat-stream-text">{displayed}</span>
+                            <span className="chat-cursor" />
+                          </>
+                        ) : (
+                          <div className="prose">
+                            <ReactMarkdown>{displayed}</ReactMarkdown>
+                          </div>
+                        )}
+                        {!isStreaming && (doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl) && (
+                          <div className="proposal-done-actions" style={{ marginTop: 12 }}>
+                            <a
+                              href={(doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl)!}
+                              className="proposal-done-link proposal-done-link--primary"
+                            >
+                              View Templates ↗
+                            </a>
+                          </div>
+                        )}
+                        {!isStreaming && doneActions?.openTemplateUrl && (
+                          <div className="proposal-done-actions" style={{ marginTop: 12 }}>
+                            <a
+                              href={`${doneActions.openTemplateUrl}&from=chat`}
+                              className="proposal-done-link proposal-done-link--primary"
+                            >
+                              View Template Draft ↗
+                            </a>
+                          </div>
+                        )}
+                        {/* ── Confirmation block for active stream ── */}
+                        {!isStreaming && confirmationRequest && (
+                          <ConfirmationBlock
+                            request={confirmationRequest}
+                            onConfirm={sendConfirmation}
+                            disabled={isStreaming}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Phase label while plain text tokens are already streaming */}
+                  {isStreaming && chunks && sections.length === 0 && phase && (
+                    <div className="chat-phase-strip">{phase}…</div>
+                  )}
+
+                  {error && <div className="chat-v2-error">{error}</div>}
+                </>
+              ) : null}
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Upload modal */}
+            {showUpload && (
+              <ChatUploadDrawer
+                namespace={namespace}
+                onUploadStart={handleUploadStart}
+                onProgress={handleUploadProgress}
+                onUploaded={handleUploadDone}
+                onUploadError={handleUploadError}
+                onClose={() => {
+                  setShowUpload(false);
+                  textareaRef.current?.focus();
+                }}
               />
-              <button
-                className="chat-v2-send-btn"
-                onClick={submit}
-                disabled={isStreaming || !input.trim()}
-                aria-label="Send"
-              >
-                {isStreaming ? (
-                  <span className="spinner chat-spinner-sm" />
-                ) : (
-                  <Icon icon={ArrowUp} size="md" />
-                )}
-              </button>
+            )}
+
+            {/* Input composer */}
+            <div className="chat-v2-composer-wrap">
+              <div className={`chat-v2-composer${composerPulse ? ' chat-v2-composer--pulse' : ''}`}>
+                <div ref={menuRef} style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    className={`chat-v2-attach-btn${showMenu ? ' active' : ''}`}
+                    onClick={() => setShowMenu((v) => !v)}
+                    aria-label="More options"
+                  >
+                    <Icon icon={Plus} size="md" />
+                  </button>
+                  {showMenu && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 'calc(100% + 8px)',
+                        left: 0,
+                        background: 'var(--panel)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+                        overflow: 'hidden',
+                        minWidth: 160,
+                        zIndex: 200,
+                      }}
+                    >
+                      {[
+                        {
+                          label: 'Ingest',
+                          icon: Upload,
+                          action: () => {
+                            setShowUpload(true);
+                            setShowMenu(false);
+                          },
+                        },
+                        {
+                          label: 'Memory',
+                          icon: Brain,
+                          action: () => {
+                            setShowMemoryModal(true);
+                            setShowMenu(false);
+                          },
+                        },
+                        {
+                          label: 'Configuration',
+                          icon: SlidersHorizontal,
+                          action: () => {
+                            setShowConfigModal(true);
+                            setShowMenu(false);
+                          },
+                        },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          onClick={item.action}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '10px 14px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            color: 'var(--text)',
+                            transition: 'background 0.1s',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--panel-soft)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                        >
+                          <Icon icon={item.icon} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                          {item.label}
+                        </button>
+                      ))}
+                      <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                      <button
+                        onClick={() => {
+                          if (hasContent && !isStreaming) {
+                            setShowClearConfirm(true);
+                            setShowMenu(false);
+                          }
+                        }}
+                        disabled={!hasContent || isStreaming}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '10px 14px',
+                          background: 'none',
+                          border: 'none',
+                          cursor: hasContent && !isStreaming ? 'pointer' : 'not-allowed',
+                          fontSize: 13,
+                          color: hasContent ? 'var(--danger)' : 'var(--muted)',
+                          transition: 'background 0.1s',
+                          opacity: !hasContent || isStreaming ? 0.4 : 1,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (hasContent && !isStreaming) e.currentTarget.style.background = 'var(--panel-soft)';
+                        }}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                      >
+                        <Icon icon={Eraser} size="sm" style={{ flexShrink: 0 }} />
+                        Clear Chat
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  className="chat-v2-input"
+                  rows={1}
+                  placeholder="Ask AI to generate proposal, ingest documents, or analyse knowledge…"
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  disabled={isStreaming}
+                />
+                <button
+                  className="chat-v2-send-btn"
+                  onClick={submit}
+                  disabled={isStreaming || !input.trim()}
+                  aria-label="Send"
+                >
+                  {isStreaming ? <span className="spinner chat-spinner-sm" /> : <Icon icon={ArrowUp} size="md" />}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-
-          </div>
-        </div>
+      </div>
 
       {/* ── Right panel: full height, not under header ── */}
-      <div style={{ width: panelVisible && panelHasContent ? 256 : 0, flexShrink: 0, overflow: 'hidden', transition: 'width 0.22s ease' }}>
-        <NamespacePanel namespace={namespace} onMicrositeClick={setViewMicrosite} fileRefreshTick={fileRefreshTick} onHasContent={setPanelHasContent} />
+      <div
+        style={{
+          width: panelVisible && panelHasContent ? 256 : 0,
+          flexShrink: 0,
+          overflow: 'hidden',
+          transition: 'width 0.22s ease',
+        }}
+      >
+        <NamespacePanel
+          namespace={namespace}
+          onMicrositeClick={setViewMicrosite}
+          fileRefreshTick={fileRefreshTick}
+          onHasContent={setPanelHasContent}
+        />
       </div>
 
       {/* ── Collection progress panel ── */}
-      <div style={{
-        width: collectionPanelOpen && !!namespace ? 304 : 0,
-        flexShrink: 0,
-        overflow: 'hidden',
-        transition: 'width 0.22s ease',
-        borderLeft: collectionPanelOpen && !!namespace ? '1px solid var(--border)' : 'none',
-      }}>
+      <div
+        style={{
+          width: collectionPanelOpen && !!namespace ? 304 : 0,
+          flexShrink: 0,
+          overflow: 'hidden',
+          transition: 'width 0.22s ease',
+          borderLeft: collectionPanelOpen && !!namespace ? '1px solid var(--border)' : 'none',
+        }}
+      >
         {collectionPanelOpen && !!namespace && (
           <div style={{ width: 304, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{
-              padding: '12px 16px',
-              borderBottom: '1px solid var(--border)',
-              fontSize: 11,
-              fontWeight: 600,
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              flexShrink: 0,
-            }}>
+            <div
+              style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border)',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                flexShrink: 0,
+              }}
+            >
               Collection Progress
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1431,54 +1801,121 @@ export default function ChatPage() {
 
       {/* Execution trace panel */}
       {traceOpen && chatSessionIdRef.current && (
-        <ExecutionTracePanel
-          chatSessionId={chatSessionIdRef.current}
-          apiKey={apiKey}
-          live={isStreaming}
-        />
+        <ExecutionTracePanel chatSessionId={chatSessionIdRef.current} apiKey={apiKey} live={isStreaming} />
       )}
 
       {/* Clear Chat confirmation dialog */}
-      {showClearConfirm && createPortal(
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onMouseDown={e => { if (e.target === e.currentTarget) setShowClearConfirm(false); }}
-        >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: '100%', maxWidth: 420, boxShadow: '0 24px 80px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-            <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid var(--border)', background: 'var(--panel-soft)' }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Clear chat</span>
-              <button
-                onClick={() => setShowClearConfirm(false)}
-                style={{ width: 30, height: 30, borderRadius: '50%', background: 'none', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                aria-label="Close"
-              ><Icon icon={X} size="sm" /></button>
-            </div>
-            <div style={{ padding: 24 }}>
-              <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-                Clear all messages in the <strong>"{namespace || 'default'}"</strong> session?
-              </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+      {showClearConfirm &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 20000,
+              background: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setShowClearConfirm(false);
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                width: '100%',
+                maxWidth: 420,
+                boxShadow: '0 24px 80px rgba(0,0,0,0.35)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: 52,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 20px',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'var(--panel-soft)',
+                }}
+              >
+                <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Clear chat</span>
                 <button
-                  onClick={() => { handleClear(); setShowClearConfirm(false); }}
-                  style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: 'pointer' }}
-                >Clear Chat</button>
+                  onClick={() => setShowClearConfirm(false)}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: '50%',
+                    background: 'none',
+                    border: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    color: 'var(--muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  aria-label="Close"
+                >
+                  <Icon icon={X} size="sm" />
+                </button>
+              </div>
+              <div style={{ padding: 24 }}>
+                <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+                  Clear all messages in the <strong>"{namespace || 'default'}"</strong> session?
+                </p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => {
+                      handleClear();
+                      setShowClearConfirm(false);
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: 'var(--danger)',
+                      color: '#fff',
+                      fontSize: 14,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear Chat
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* Generate Proposal modal */}
       {showGenerateModal && (
-        <div className="ai-editor-overlay" onClick={() => { if (!isGeneratingFromModal) setShowGenerateModal(false); }}>
+        <div
+          className="ai-editor-overlay"
+          onClick={() => {
+            if (!isGeneratingFromModal) setShowGenerateModal(false);
+          }}
+        >
           <div className="ai-editor-modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
             <div className="ai-editor-header">
               <h3>Generate Proposal</h3>
               <button
                 onClick={() => setShowGenerateModal(false)}
                 disabled={isGeneratingFromModal}
-                style={{ background: 'none', border: 'none', cursor: isGeneratingFromModal ? 'not-allowed' : 'pointer', padding: 4, display: 'flex', alignItems: 'center', color: 'var(--muted)' }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: isGeneratingFromModal ? 'not-allowed' : 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: 'var(--muted)',
+                }}
                 aria-label="Close"
               >
                 <Icon icon={X} size="md" />
@@ -1486,7 +1923,10 @@ export default function ChatPage() {
             </div>
             <div style={{ padding: '0 20px 20px', overflowY: 'auto', maxHeight: 'calc(80vh - 60px)' }}>
               <ProposalForm
-                onGenerate={(doc) => { setGeneratedDoc(doc); setShowGenerateModal(false); }}
+                onGenerate={(doc) => {
+                  setGeneratedDoc(doc);
+                  setShowGenerateModal(false);
+                }}
                 isGenerating={isGeneratingFromModal}
                 setIsGenerating={setIsGeneratingFromModal}
               />
@@ -1498,22 +1938,60 @@ export default function ChatPage() {
       {/* Memory modal */}
       {showMemoryModal && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={e => { if (e.target === e.currentTarget) setShowMemoryModal(false); }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 20000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowMemoryModal(false);
+          }}
         >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: 'min(580px, 92vw)', maxHeight: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div
+            style={{
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: 'min(580px, 92vw)',
+              maxHeight: '88vh',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
             {/* Header */}
             <div style={{ padding: '22px 24px 18px', flexShrink: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
                 <div>
-                  <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px', lineHeight: 1.4 }}>Namespace Memory</p>
+                  <p
+                    style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px', lineHeight: 1.4 }}
+                  >
+                    Namespace Memory
+                  </p>
                   <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
-                    Namespace memory lets you store structured context that persists across sessions. Paste or write JSON below to define it.
+                    Namespace memory lets you store structured context that persists across sessions. Paste or write
+                    JSON below to define it.
                   </p>
                 </div>
                 <button
                   onClick={() => setShowMemoryModal(false)}
-                  style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', marginTop: 2 }}
+                  style={{
+                    flexShrink: 0,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--muted)',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginTop: 2,
+                  }}
                   aria-label="Close"
                 >
                   <Icon icon={X} size="md" />
@@ -1532,22 +2010,59 @@ export default function ChatPage() {
       {/* Configuration modal */}
       {showConfigModal && (
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={e => { if (e.target === e.currentTarget) setShowConfigModal(false); }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 20000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowConfigModal(false);
+          }}
         >
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 14, width: 'min(580px, 92vw)', maxHeight: '88vh', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div
+            style={{
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              width: 'min(580px, 92vw)',
+              maxHeight: '88vh',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
             {/* Header */}
             <div style={{ padding: '22px 24px 18px', flexShrink: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
                 <div>
-                  <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px', lineHeight: 1.4 }}>Namespace Configuration</p>
+                  <p
+                    style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px', lineHeight: 1.4 }}
+                  >
+                    Namespace Configuration
+                  </p>
                   <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
                     Configuration controls pipeline behavior for this namespace. Edit the JSON below to define defaults.
                   </p>
                 </div>
                 <button
                   onClick={() => setShowConfigModal(false)}
-                  style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', marginTop: 2 }}
+                  style={{
+                    flexShrink: 0,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--muted)',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginTop: 2,
+                  }}
                   aria-label="Close"
                 >
                   <Icon icon={X} size="md" />
