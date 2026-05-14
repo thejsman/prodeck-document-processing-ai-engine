@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
+import type { DesignSkill } from './design-skill.types.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
@@ -445,10 +446,12 @@ export async function generateThemeCSSTokens(
   brandPrimaryColor: string | undefined,
   generateFn: (prompt: string) => Promise<string>,
   clientIndustry?: string,
+  designPromptOverride?: string,
 ): Promise<CSSTheme | null> {
   if (!SKILL_CONTENT) return null;
   try {
-    const raw = await generateFn(buildCSSPrompt(tone, brandPrimaryColor, clientIndustry));
+    const effectiveTone = designPromptOverride ?? tone;
+    const raw = await generateFn(buildCSSPrompt(effectiveTone, brandPrimaryColor, clientIndustry));
     const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
@@ -531,4 +534,33 @@ export async function injectThemeCSS(
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Design Skill → prompt helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Converts a stored DesignSkill into a design prompt string for CSS token generation.
+ * Used when the user explicitly selects a design skill in the microsite wizard,
+ * overriding the auto-tone selection from applyDesignSkill().
+ */
+export function buildDesignPromptFromSkill(skill: DesignSkill): { tone: string; prompt: string } {
+  const parts: string[] = [
+    skill.aestheticTone,
+    `Primary color: ${skill.colorPalette.primary}`,
+  ];
+  if (skill.colorPalette.secondary) parts.push(`Secondary: ${skill.colorPalette.secondary}`);
+  if (skill.colorPalette.background) parts.push(`Background: ${skill.colorPalette.background}`);
+  parts.push(`Heading font: ${skill.typography.headingFont}`);
+  parts.push(`Body font: ${skill.typography.bodyFont}`);
+  parts.push(`Heading style: ${skill.typography.headingStyle}`);
+  parts.push(`Animations: ${skill.animations}`);
+  parts.push(`Theme: ${skill.themeClass}`);
+  if (skill.customInstructions?.trim()) parts.push(skill.customInstructions.trim());
+
+  return {
+    tone: skill.aestheticTone,
+    prompt: parts.join(' | '),
+  };
 }

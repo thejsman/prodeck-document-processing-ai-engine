@@ -316,13 +316,14 @@ async function buildChatContext(
   chatSessionId: string,
   workdir: string,
 ): Promise<ChatContext> {
-  const [proposals, templates, ingestedDocuments, lastAssistantMeta, pendingTemplateApproval, skillsList] = await Promise.all([
+  const [proposals, templates, ingestedDocuments, lastAssistantMeta, pendingTemplateApproval, skillsList, designSkillsList] = await Promise.all([
     loadProposals(workdir, namespace),
     loadTemplates(workdir),
     loadIngestedDocuments(workdir, namespace),
     loadLastAssistantMeta(workdir, namespace, chatSessionId),
     loadPendingTemplateApproval(workdir, namespace),
     import('../skills/skill.service.js').then(({ listSkills }) => listSkills(workdir)).catch(() => [] as { slug: string; displayName: string }[]),
+    import('../skills/design-skill.service.js').then(({ listDesignSkills }) => listDesignSkills(workdir)).catch(() => [] as { slug: string; displayName: string; aestheticTone: string; themeClass: string }[]),
   ]);
 
   // Chat history is the primary source for awaitingConfirmation.
@@ -338,6 +339,7 @@ async function buildChatContext(
     templates,
     ingestedDocuments,
     skills: skillsList.map((s) => ({ slug: s.slug, displayName: s.displayName })),
+    designSkills: designSkillsList.map((s) => ({ slug: s.slug, displayName: s.displayName, aestheticTone: (s as { aestheticTone?: string }).aestheticTone ?? '', themeClass: (s as { themeClass?: string }).themeClass ?? '' })),
     recentTopic: (lastAssistantMeta.meta?.recentTopic as string | undefined) ?? undefined,
     awaitingInput: lastAssistantMeta.meta?.awaitingInput as { intent: string } | undefined,
     awaitingConfirmation,

@@ -931,13 +931,14 @@ export async function generateMicrositeDirectly(
   apiKey: string,
   namespace: string,
   proposalId: string,
+  designSkillSlug?: string,
 ): Promise<{ html: string; elapsed: number }> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-direct`,
     {
       method: 'POST',
       headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(designSkillSlug ? { designSkillSlug } : {}),
     },
   );
   if (!res.ok) {
@@ -1301,6 +1302,98 @@ export async function listSkillAssetsApi(apiKey: string, slug: string): Promise<
   });
   const data = await handleResponse<{ assets: AssetInfoApi[] }>(res);
   return data.assets;
+}
+
+// ---------------------------------------------------------------------------
+// Design Skills
+// ---------------------------------------------------------------------------
+
+export type AestheticToneApi =
+  | 'brutally minimal'
+  | 'maximalist chaos'
+  | 'retro-futuristic'
+  | 'organic/natural'
+  | 'luxury/refined'
+  | 'playful/toy-like'
+  | 'editorial/magazine'
+  | 'brutalist/raw'
+  | 'art deco/geometric'
+  | 'soft/pastel'
+  | 'industrial/utilitarian';
+
+export interface DesignSkillApi {
+  slug: string
+  displayName: string
+  description: string
+  aestheticTone: AestheticToneApi
+  colorPalette: { primary: string; secondary?: string; background?: string }
+  typography: {
+    headingFont: string
+    bodyFont: string
+    headingStyle: 'bold' | 'playful' | 'editorial' | 'minimal' | 'strong'
+  }
+  animations: 'none' | 'minimal' | 'smooth' | 'playful' | 'bounce'
+  customInstructions: string
+  themeClass: 'dark' | 'light' | 'colorful'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DesignSkillSummaryApi {
+  slug: string
+  displayName: string
+  description: string
+  aestheticTone: AestheticToneApi
+  themeClass: 'dark' | 'light' | 'colorful'
+  colorPalette: { primary: string; secondary?: string; background?: string }
+  updatedAt: string
+}
+
+export async function listDesignSkillsApi(apiKey: string): Promise<DesignSkillSummaryApi[]> {
+  const res = await fetch('/api/design-skills', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ skills: DesignSkillSummaryApi[] }>(res);
+  return data.skills;
+}
+
+export async function getDesignSkillApi(apiKey: string, slug: string): Promise<DesignSkillApi> {
+  const res = await fetch(`/api/design-skills/${encodeURIComponent(slug)}`, { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ skill: DesignSkillApi }>(res);
+  return data.skill;
+}
+
+export async function createDesignSkillApi(
+  apiKey: string,
+  skill: Partial<DesignSkillApi> & { displayName: string },
+): Promise<DesignSkillApi> {
+  const res = await fetch('/api/design-skills', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(skill),
+  });
+  const data = await handleResponse<{ skill: DesignSkillApi }>(res);
+  return data.skill;
+}
+
+export async function updateDesignSkillApi(
+  apiKey: string,
+  slug: string,
+  updates: Partial<Omit<DesignSkillApi, 'slug' | 'createdAt'>>,
+): Promise<DesignSkillApi> {
+  const res = await fetch(`/api/design-skills/${encodeURIComponent(slug)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(updates),
+  });
+  const data = await handleResponse<{ skill: DesignSkillApi }>(res);
+  return data.skill;
+}
+
+export async function deleteDesignSkillApi(apiKey: string, slug: string): Promise<void> {
+  const res = await fetch(`/api/design-skills/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
 }
 
 // ---------------------------------------------------------------------------

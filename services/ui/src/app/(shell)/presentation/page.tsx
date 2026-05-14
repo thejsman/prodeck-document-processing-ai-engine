@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PresentationPage } from '@/components/PresentationPage';
 import { useAuth } from '@/lib/auth-context';
-import { generateMicrositeDirectly } from '@/lib/api';
+import { generateMicrositeDirectly, listDesignSkillsApi } from '@/lib/api';
+import { DesignSkillPicker } from '@/components/microsite/DesignSkillPicker';
 
 const SS_KEY   = 'ms_wizard_state';
 const LS_KEY   = 'ms_fast_gen_target';
@@ -72,22 +73,22 @@ export default function PresentationRoutePage() {
   const [target] = useState<Target | null>(captureTarget);
   const handlerRef = useRef<() => void>(() => {});
 
-  const handleGenerate = useCallback(async () => {
+  // Design skill picker state
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [hasDesignSkills, setHasDesignSkills] = useState(false);
+  const pendingResolvedRef = useRef<Target | null>(null);
+
+  // Check if any design skills exist (once) to decide whether to show picker
+  useEffect(() => {
+    if (!apiKey) return;
+    listDesignSkillsApi(apiKey)
+      .then((skills) => setHasDesignSkills(skills.length > 0))
+      .catch(() => {});
+  }, [apiKey]);
+
+  const runGenerate = useCallback(async (resolved: Target, designSkillSlug: string | null) => {
     const btn = document.getElementById(BTN_ID) as HTMLButtonElement | null;
-    if (!btn || btn.dataset.state === 'generating') return;
-
-    if (btn.dataset.state === 'done') {
-      window.open(btn.dataset.url ?? '', '_blank');
-      return;
-    }
-
-    if (!apiKey) { alert('Not authenticated.'); return; }
-
-    const resolved = target ?? captureTarget();
-    if (!resolved) {
-      alert('Could not resolve the selected proposal. Please select a proposal first.');
-      return;
-    }
+    if (!btn) return;
 
     btn.dataset.state = 'generating';
     btn.textContent   = '⏳ Generating…';
@@ -97,7 +98,8 @@ export default function PresentationRoutePage() {
 
     try {
       const { elapsed } = await generateMicrositeDirectly(
-        apiKey, resolved.namespace, resolved.proposalId,
+        apiKey!, resolved.namespace, resolved.proposalId,
+        designSkillSlug ?? undefined,
       );
       const viewerUrl      = `/microsite-view/${resolved.namespace}/${resolved.proposalId}`;
       btn.dataset.state    = 'done';
@@ -117,7 +119,54 @@ export default function PresentationRoutePage() {
       btn.style.background = '#f59e0b';
       alert(`Generation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [apiKey, target]);
+  }, [apiKey]);
+
+  const handlePickerSelect = useCallback((designSkillSlug: string | null) => {
+    setPickerOpen(false);
+    const resolved = pendingResolvedRef.current;
+    if (resolved) void runGenerate(resolved, designSkillSlug);
+  }, [runGenerate]);
+
+  const handlePickerCancel = useCallback(() => {
+    setPickerOpen(false);
+    pendingResolvedRef.current = null;
+    const btn = document.getElementById(BTN_ID) as HTMLButtonElement | null;
+    if (btn) {
+      btn.dataset.state = 'idle';
+      btn.textContent   = '⚡ Generate Fast Microsite';
+      btn.disabled      = false;
+      btn.style.opacity = '1';
+      btn.style.cursor  = 'pointer';
+    }
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    const btn = document.getElementById(BTN_ID) as HTMLButtonElement | null;
+    if (!btn || btn.dataset.state === 'generating') return;
+
+    if (btn.dataset.state === 'done') {
+      window.open(btn.dataset.url ?? '', '_blank');
+      return;
+    }
+
+    if (!apiKey) { alert('Not authenticated.'); return; }
+
+    const resolved = target ?? captureTarget();
+    if (!resolved) {
+      alert('Could not resolve the selected proposal. Please select a proposal first.');
+      return;
+    }
+
+    if (hasDesignSkills) {
+      // Store resolved target and show picker — runGenerate fires from handlePickerSelect
+      pendingResolvedRef.current = resolved;
+      setPickerOpen(true);
+      return;
+    }
+
+    // No design skills exist — generate directly with default
+    void runGenerate(resolved, null);
+  }, [apiKey, target, hasDesignSkills, runGenerate]);
 
   useEffect(() => { handlerRef.current = handleGenerate; }, [handleGenerate]);
 
@@ -183,5 +232,15 @@ export default function PresentationRoutePage() {
     };
   }, []);
 
-  return <PresentationPage />;
+  return (
+    <>
+      <PresentationPage />
+      {pickerOpen && (
+        <DesignSkillPicker
+          onSelect={handlePickerSelect}
+          onCancel={handlePickerCancel}
+        />
+      )}
+    </>
+  );
 }

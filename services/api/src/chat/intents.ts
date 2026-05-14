@@ -19,6 +19,7 @@ export type Intent =
   | 'CREATE_SKILL'     // create a new reusable proposal skill
   | 'MODIFY_SKILL'     // edit an existing skill
   | 'LIST_SKILLS'      // list available skills
+  | 'LIST_DESIGN_SKILLS' // list available design skills
   | 'CLIENT_DATA_COLLECTION'  // chat-driven client data collection for proposal prerequisites
 
 export const VALID_INTENTS: readonly Intent[] = [
@@ -39,6 +40,7 @@ export const VALID_INTENTS: readonly Intent[] = [
   'CREATE_SKILL',
   'MODIFY_SKILL',
   'LIST_SKILLS',
+  'LIST_DESIGN_SKILLS',
   'CLIENT_DATA_COLLECTION',
 ] as const
 
@@ -82,4 +84,6 @@ export interface ChatContext {
   lastAssistantMessage?: string
   /** Available skills — populated by chat-agent for planner context. */
   skills?: Array<{ slug: string; displayName: string }>
+  /** Available design skills — populated by chat-agent for planner context. */
+  designSkills?: Array<{ slug: string; displayName: string; aestheticTone: string; themeClass: string }>
 }

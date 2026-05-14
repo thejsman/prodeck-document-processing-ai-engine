@@ -22,6 +22,7 @@ import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js'
 import { registerImageRoutes } from './image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { registerSkillRoutes } from './skills/skill-routes.js';
+import { registerDesignSkillRoutes } from './skills/design-skill-routes.js';
 import { registerChatRoutes } from './chat-routes.js';
 import { registerClientMemoryRoutes } from './client-memory-routes.js';
 import { registerContextRoutes } from './context-routes.js';
@@ -121,6 +122,7 @@ export async function createServer(opts: ServerOptions) {
   registerImageRoutes(app, opts.workdir);
   registerPluginRoutes(app, presenterRegistry);
   registerSkillRoutes(app, opts.workdir, policyConfig);
+  registerDesignSkillRoutes(app, opts.workdir);
   registerClientMemoryRoutes(app, opts.workdir);
   app.register(clientDataRoutes);
 

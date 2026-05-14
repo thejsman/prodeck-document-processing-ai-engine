@@ -140,12 +140,11 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema exactly. No markdown 
       "content": {
         "eyebrow": "What We Deliver",
         "headline": "8-12 words",
-        "body": "2-3 sentences overview of scope",
         "items": [
           {
-            "title": "Workstream name EXACTLY as in proposal",
-            "description": "2-3 sentence description of deliverables in this workstream",
-            "highlights": ["specific deliverable 1", "specific deliverable 2"]
+            "iconHint": "icon keyword e.g. content|website|document|strategy|launch|photo|campaign",
+            "name": "Workstream name EXACTLY as in proposal",
+            "detail": "2-3 sentence description of deliverables in this workstream"
           }
         ],
         "imageQuery": "photo search term",
@@ -158,9 +157,13 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema exactly. No markdown 
       "content": {
         "eyebrow": "Methodology",
         "headline": "8-12 words",
-        "body": "3-4 sentences on approach and methodology",
+        "subheadline": "1-2 sentences on approach and methodology",
         "pillars": [
-          { "title": "Phase/pillar name", "body": "2-3 sentences of detail" }
+          {
+            "iconHint": "icon keyword e.g. strategy|research|launch|content|identity|digital",
+            "name": "Phase/pillar name EXACTLY as in proposal",
+            "description": "2-3 sentences of detail on this phase or pillar"
+          }
         ],
         "imageQuery": "photo search term",
         "variant": "editorial"
@@ -179,10 +182,12 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema exactly. No markdown 
         ],
         "phases": [
           {
-            "phase": "Phase name EXACTLY as in proposal",
+            "name": "Phase name EXACTLY as in proposal",
+            "label": "short label e.g. Phase 1 or Crawl",
             "duration": "exact duration from proposal",
-            "tasks": ["task 1", "task 2"],
-            "owner": "Agency|Client|Joint"
+            "description": "1-2 sentence overview of what happens in this phase",
+            "outcomes": ["key outcome 1", "key outcome 2"],
+            "deliverables": ["deliverable 1", "deliverable 2"]
           }
         ],
         "imageQuery": "photo search term",
@@ -195,15 +200,14 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema exactly. No markdown 
       "content": {
         "eyebrow": "Investment",
         "headline": "8-12 words",
-        "body": "2-3 sentences linking investment to outcomes",
-        "tiers": [
-          {
-            "name": "line item name EXACTLY as in proposal",
-            "price": "exact price from proposal",
-            "description": "what this covers",
-            "features": ["feature 1", "feature 2"]
-          }
+        "subheadline": "2-3 sentences linking investment to outcomes",
+        "rows": [
+          ["Line item name EXACTLY as in proposal", "What this covers in 1 sentence", "Exact price from proposal"],
+          ["Next line item", "What it covers", "Price"]
         ],
+        "totalLabel": "Total Investment: $X (exact from proposal or omit if not stated)",
+        "footnote": "any payment terms, notes, or conditions from the proposal",
+        "cta": "3-5 word action label",
         "imageQuery": "photo search term",
         "variant": "table"
       }
@@ -230,7 +234,7 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema exactly. No markdown 
         "headline": "8-12 words",
         "body": "1-2 sentences CTA",
         "steps": [
-          { "step": "1", "title": "step name", "description": "1-2 sentences" }
+          { "stepNumber": "1", "title": "step name", "description": "1-2 sentences" }
         ],
         "ctaPrimary": "action label",
         "imageQuery": "photo search term",

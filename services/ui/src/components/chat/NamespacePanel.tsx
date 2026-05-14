@@ -12,10 +12,12 @@ import {
   deleteKnowledgeFile,
   deleteProposal,
   deleteMicrositeHistoryFromServer,
+  listDesignSkillsApi,
   type IngestionFile,
   type Presentation,
   type PresentationConfig,
   type ProposalFile,
+  type DesignSkillSummaryApi,
 } from '@/lib/api';
 import { Icon } from '@/components/ui/Icon';
 import { useNamespacePanelStore } from '@/lib/namespace-panel-store';
@@ -189,6 +191,10 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   const [loadingMicrosites, setLoadingMicrosites] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
 
+  // Design skills — global, not namespace-scoped
+  const [designSkills, setDesignSkills] = useState<DesignSkillSummaryApi[]>([]);
+  const [loadingDesignSkills, setLoadingDesignSkills] = useState(false);
+
   // True if the namespace has never been fetched yet (undefined vs empty array).
   // This prevents the panel from returning null on the first render after a namespace
   // switch before the fetch effects have had a chance to set loadingProposals/Microsites.
@@ -336,6 +342,16 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
       .finally(() => setLoadingMicrosites(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, apiKey]);
+
+  useEffect(() => {
+    if (!apiKey) return;
+    setLoadingDesignSkills(true);
+    listDesignSkillsApi(apiKey)
+      .then(skills => setDesignSkills(skills))
+      .catch(() => setDesignSkills([]))
+      .finally(() => setLoadingDesignSkills(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey]);
 
   useEffect(() => {
     if (!namespace || !apiKey) return;
@@ -618,6 +634,34 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
             })
           )}
         </Section>
+
+        {/* ── Design Skills ── */}
+        {(loadingDesignSkills || designSkills.length > 0) && (
+          <Section label="Design Skills" loading={loadingDesignSkills}>
+            {designSkills.length === 0 ? (
+              <div style={{ padding: '2px 8px 4px 12px' }}>
+                <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No design skills yet</span>
+              </div>
+            ) : (
+              designSkills.map(ds => (
+                <div
+                  key={ds.slug}
+                  className="sidebar-link"
+                  onClick={() => router.push('/skills?mode=design')}
+                  style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: 6 }}
+                >
+                  <span style={{ flexShrink: 0, width: 10, height: 10, borderRadius: '50%', background: ds.colorPalette.primary, border: '1px solid rgba(255,255,255,0.15)', marginRight: 6 }} />
+                  <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
+                    {ds.displayName}
+                  </span>
+                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, color: 'var(--muted)', opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}>
+                    {ds.aestheticTone}
+                  </span>
+                </div>
+              ))
+            )}
+          </Section>
+        )}
 
         <MemorySection namespace={namespace} onHasMemory={setHasMemory} onLoadingChange={setLoadingMemory} />
 

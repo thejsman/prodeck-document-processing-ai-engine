@@ -217,6 +217,48 @@ async function embedImagesAsBase64(
   return ast;
 }
 
+// ---------------------------------------------------------------------------
+// CSS token cache
+// Keyed by a hash of (tone + primaryColor + industry + designPromptOverride).
+// Only used on design-skill-aware paths where the tone is deterministic.
+// Auto-selection paths (random industry-based tone) skip the cache intentionally.
+// TTL: 24 h — design skills don't change frequently.
+// ---------------------------------------------------------------------------
+
+const CSS_TOKEN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function getCachedCSSTokens(
+  cacheDir: string,
+  tone: string,
+  brandPrimaryColor: string | undefined,
+  generateFn: (prompt: string) => Promise<string>,
+  clientIndustry: string | undefined,
+  designPromptOverride: string | undefined,
+): Promise<CSSTheme | null> {
+  const keySource = [tone, brandPrimaryColor ?? '', clientIndustry ?? '', designPromptOverride ?? ''].join('::');
+  const key       = crypto.createHash('md5').update(keySource).digest('hex');
+  const cachePath = path.join(cacheDir, `${key}.json`);
+
+  try {
+    const s = await stat(cachePath);
+    if (Date.now() - s.mtimeMs < CSS_TOKEN_CACHE_TTL_MS) {
+      const theme = JSON.parse(await readFile(cachePath, 'utf-8')) as CSSTheme;
+      console.log(`[css-cache] HIT  tone="${tone}" key=${key.slice(0, 8)}`);
+      return theme;
+    }
+  } catch { /* cache miss */ }
+
+  const theme = await generateThemeCSSTokens(tone, brandPrimaryColor, generateFn, clientIndustry, designPromptOverride);
+  if (theme) {
+    try {
+      await mkdir(cacheDir, { recursive: true });
+      await writeFile(cachePath, JSON.stringify(theme), 'utf-8');
+      console.log(`[css-cache] MISS tone="${tone}" key=${key.slice(0, 8)} — stored`);
+    } catch { /* non-fatal */ }
+  }
+  return theme;
+}
+
 export function registerPresentationRoutes(
   app: FastifyInstance,
   workdir: string,
@@ -2173,10 +2215,19 @@ ${layoutSummary}`;
         structuredTone = tone as string;
       }
 
+      // Use disk cache for CSS tokens when a design skill is explicitly selected —
+      // the tone is deterministic so caching is safe. Auto-selection paths bypass
+      // the cache because the random seed variation there is intentional.
+      const cssTokenFn = designPromptOverride
+        ? () => getCachedCSSTokens(
+            path.join(workdir, 'cache', 'css-tokens'),
+            structuredTone, brandHint.primaryColor, llmGenerateFn, clientIndustry, designPromptOverride,
+          ).catch(() => null)
+        : () => generateThemeCSSTokens(structuredTone, brandHint.primaryColor, llmGenerateFn, clientIndustry).catch(() => null);
+
       const [ast, cssTheme] = await Promise.all([
         generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
-        generateThemeCSSTokens(structuredTone, brandHint.primaryColor, llmGenerateFn, clientIndustry, designPromptOverride)
-          .catch(() => null),
+        cssTokenFn(),
       ]);
 
       const sections = assignSectionIds(ast.sections);
@@ -2215,8 +2266,10 @@ ${layoutSummary}`;
       // chat, proposals, and agents). Includes 429 retry so it's production-safe.
       send({ type: 'progress', message: 'Generating section HTML in parallel…' });
       if (cssTheme) {
-        // Dedicated generate function for microsite HTML — does NOT use the global
-        // LLM_BRIDGE_POOL so the rest of the app is unaffected.
+        // Haiku handles per-section HTML — mechanical template-filling task that
+        // doesn't need Sonnet reasoning. ~5× faster, ~10× cheaper per call.
+        // Isolated from the global LLM_BRIDGE_POOL so chat/proposals are unaffected.
+        const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
         const micrositeGenerateFn = async (prompt: string): Promise<string> => {
           const MAX_RETRIES = 3;
           for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -2228,14 +2281,13 @@ ${layoutSummary}`;
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model,
+                model: HAIKU_MODEL,
                 max_tokens: 8000,
                 messages: [{ role: 'user', content: prompt }],
               }),
             });
 
             if (r.status === 429) {
-              // Rate limited — back off before retrying
               const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
               const delay = retryAfter * 1000 * (attempt + 1);
               console.warn(`[structured-gen] 429 rate limit — retrying in ${delay}ms (attempt ${attempt + 1})`);
@@ -2250,7 +2302,7 @@ ${layoutSummary}`;
           throw new Error('Microsite HTML generation: max retries exceeded');
         };
 
-        const CONCURRENCY = 5; // isolated from the global pool; rest of app unaffected
+        const CONCURRENCY = 8; // Haiku handles higher concurrency cheaply
         const targets = sections.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType));
         let cursor = 0;
 
@@ -2389,7 +2441,6 @@ ${layoutSummary}`;
     if (!sectionId) return reply.code(400).send({ error: 'sectionId is required' });
 
     const apiKey = env.ANTHROPIC_API_KEY ?? '';
-    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
     if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
 
     // Load AST from body or fall back to saved file
@@ -2410,13 +2461,13 @@ ${layoutSummary}`;
     const cssVars = (brand?.extractedCssVariables as Record<string, string> | undefined) ?? {};
     const tone: import('../skills/design-skill-microsite.js').Tone = 'editorial/magazine';
 
-    // Dedicated generate function with retry — isolated from global bridge pool
+    // Haiku for single-section regeneration — same mechanical task as Phase 3
     const regenFn = async (prompt: string): Promise<string> => {
       for (let attempt = 0; attempt < 3; attempt++) {
         const r = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
         });
         if (r.status === 429) {
           const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);

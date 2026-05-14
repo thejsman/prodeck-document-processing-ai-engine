@@ -233,6 +233,7 @@ export default function ChatPage() {
   const [activeUploadPoll, setActiveUploadPoll] = useState<{ msgId: string; fileNames: string[] } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const skipNextScrollRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [headerScrolled, setHeaderScrolled] = useState(false);
@@ -345,6 +346,7 @@ export default function ChatPage() {
 
     // Clear current chat state immediately so the old namespace's messages
     // and insights don't linger while the new namespace's data loads.
+    skipNextScrollRef.current = true;
     setMessages([]);
     setInsights([]);
     setGeneratedDoc(null);
@@ -378,6 +380,7 @@ export default function ChatPage() {
           },
         }));
 
+        skipNextScrollRef.current = true;
         setMessages([...data.messages, ...uploadMessages]);
 
         // Resume polling for any still-processing uploads
@@ -507,8 +510,12 @@ export default function ChatPage() {
     };
   }, [chunks]);
 
-  // Auto-scroll when messages or displayed text changes
+  // Auto-scroll when messages or displayed text changes, but skip bulk loads (history restore)
   useEffect(() => {
+    if (skipNextScrollRef.current) {
+      skipNextScrollRef.current = false;
+      return;
+    }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, displayed]);
 
