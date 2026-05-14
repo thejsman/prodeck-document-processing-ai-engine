@@ -1,0 +1,108 @@
+{
+  "slug": "fintech-saas",
+  "displayName": "Fintech SaaS Proposals",
+  "description": "For technology consulting firms writing proposals for fintech and financial services SaaS platforms. Covers SOC 2, PCI-DSS, tiered pricing, and cloud-native architecture.",
+  "industries": [
+    "Fintech",
+    "Financial Services",
+    "Banking",
+    "Payments"
+  ],
+  "projectTypes": [
+    "SaaS Platform",
+    "Web Application",
+    "API Integration",
+    "Mobile App",
+    "Platform Modernization"
+  ],
+  "tags": [
+    "fintech",
+    "compliance",
+    "tiered-pricing",
+    "soc2",
+    "pci-dss",
+    "cloud-native"
+  ],
+  "toneDescription": "Confident, technical, and ROI-focused. Frame costs as investments. Quantify outcomes in dollar terms wherever possible.",
+  "micrositeDefaults": {
+    "theme": "Cobalt Executive",
+    "primaryColor": "#1a3a5c",
+    "secondaryColor": "#c8a96e",
+    "tagline": "Secure. Scalable. Compliant."
+  },
+  "pricingDefaults": {
+    "model": "tiered",
+    "rates": {
+      "Principal Architect": 275,
+      "Senior Engineer": 225,
+      "Mid-Level Engineer": 165,
+      "Junior Engineer": 115,
+      "Project Manager": 145,
+      "QA Engineer": 125
+    },
+    "tiers": [
+      {
+        "name": "MVP",
+        "description": "Core platform with essential features and foundational security controls. Ideal for validating market fit with a production-grade, compliance-ready foundation.",
+        "priceRange": "$80k – $130k",
+        "features": [
+          "Core API (REST + auth)",
+          "Admin dashboard",
+          "Role-based access control",
+          "Basic SOC 2 controls",
+          "2 third-party integrations",
+          "CI/CD pipeline",
+          "Staging + production environments",
+          "3-month post-launch support"
+        ],
+        "duration": "10–14 weeks"
+      },
+      {
+        "name": "Scale",
+        "description": "Full-featured platform with advanced compliance, analytics, and expanded integrations. Built for series A/B companies ready to grow without re-architecture.",
+        "priceRange": "$180k – $280k",
+        "features": [
+          "Everything in MVP",
+          "Full SOC 2 Type II readiness",
+          "PCI-DSS Level 1 controls",
+          "Advanced analytics & reporting",
+          "Audit trail & immutable logging",
+          "Up to 8 third-party integrations",
+          "Multi-region deployment",
+          "Load testing & performance tuning",
+          "6-month post-launch support"
+        ],
+        "duration": "18–24 weeks"
+      },
+      {
+        "name": "Enterprise",
+        "description": "White-glove engagement with custom architecture, dedicated security review, and full regulatory certification support. For enterprises and regulated institutions.",
+        "priceRange": "$350k – $600k",
+        "features": [
+          "Everything in Scale",
+          "Custom architecture design",
+          "Dedicated security architect",
+          "SOC 2 Type II audit support",
+          "PCI-DSS QSA coordination",
+          "GDPR / data residency compliance",
+          "Disaster recovery & BCP",
+          "Unlimited integrations",
+          "On-site workshops & stakeholder alignment",
+          "12-month post-launch support + SLA"
+        ],
+        "duration": "30–40 weeks"
+      }
+    ],
+    "discounts": [
+      "8% discount for annual retainer commitment",
+      "5% discount for referral from existing client",
+      "10% early-signing discount (signed within 2 weeks of proposal)"
+    ],
+    "currency": "USD"
+  },
+  "author": "prodeck-demo",
+  "version": "1.1",
+  "createdAt": "2026-04-01T09:00:00.000Z",
+  "updatedAt": "2026-04-30T12:21:56.777Z",
+  "scope": "global"
+}
