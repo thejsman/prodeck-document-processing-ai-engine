@@ -3988,8 +3988,8 @@ export function PresentationPage() {
                         </div>
                       )}
 
-                      {/* Pipeline progress — hidden once preview is active */}
-                      <div style={{ marginBottom: 20, display: step === 'preview' ? 'none' : undefined }}>
+                      {/* Pipeline progress */}
+                      <div style={{ marginBottom: 20 }}>
                         {progress.map((p, i) => (
                           <div
                             key={i}
