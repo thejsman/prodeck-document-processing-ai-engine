@@ -810,6 +810,9 @@ export interface GenerateStreamOptions {
   urlReferenceDesign?: ReferenceDesign | null;
   urlLayout?: Record<string, unknown> | null;
   urlImages?: string[];
+  /** 'classic' skips the design-skill pipeline (plugin theme drives styling).
+   *  'pro' or absent uses the full skill pipeline for URL-driven generation. */
+  generationMode?: 'pro' | 'classic';
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -836,6 +839,7 @@ export async function generateMicrositeStream(
       ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
       ...(opts.urlLayout ? { urlLayout: opts.urlLayout } : {}),
       ...(opts.urlImages?.length ? { urlImages: opts.urlImages } : {}),
+      ...(opts.generationMode ? { generationMode: opts.generationMode } : {}),
     }),
     signal: opts.signal,
   });
@@ -843,6 +847,83 @@ export async function generateMicrositeStream(
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => 'Unknown error');
     throw new Error(`Stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as StreamEvent;
+          opts.onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Classic microsite generation — always hits generate-classic-stream
+// No design-skill pipeline; plugin theme drives styling; TypeScript section components render
+// ---------------------------------------------------------------------------
+
+export interface ClassicStreamOptions {
+  proposalMarkdown: string;
+  plugin?: string | null;
+  brand?: Record<string, unknown>;
+  customInstructions?: string;
+  fullDesignPrompt?: string;
+  designBrief?: string;
+  preSynthesizedDesignSystem?: Record<string, unknown>;
+  pdfFriendly?: boolean;
+  referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
+  /** Only heroImageUrl is used by Classic — no CSS extraction */
+  urlReferenceDesign?: ReferenceDesign | null;
+  urlImages?: string[];
+  onEvent: (event: StreamEvent) => void;
+  signal?: AbortSignal;
+}
+
+export async function generateClassicMicrositeStream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: ClassicStreamOptions,
+): Promise<void> {
+  const res = await fetch(`/api/presentations/${namespace}/${proposalId}/generate-stream`, {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      proposalMarkdown: opts.proposalMarkdown,
+      plugin: opts.plugin ?? 'cobalt',
+      brand: opts.brand ?? {},
+      generationMode: 'classic',
+      ...(opts.customInstructions ? { customInstructions: opts.customInstructions } : {}),
+      ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
+      ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
+      ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
+      ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
+      ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
+      ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
+      ...(opts.urlImages?.length ? { urlImages: opts.urlImages } : {}),
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Classic stream request failed (${res.status}): ${text}`);
   }
 
   const reader = res.body.getReader();

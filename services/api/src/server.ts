@@ -13,6 +13,7 @@ import { registerProposalRoutes } from './proposal-routes.js';
 import { registerMemoryRoutes } from './memory-routes.js';
 import { registerUploadRoutes } from './upload-routes.js';
 import { registerPresentationRoutes } from './presentation/presentation-routes.js';
+import { registerClassicPresentationRoutes } from './presentation/presentation-classic-routes.js';
 import { registerKnowledgeRoutes } from './ingestion/knowledge-routes.js';
 import { registerConfigRoutes } from './config-routes.js';
 import { registerTemplateAgentRoutes } from './template-agent-routes.js';
@@ -106,6 +107,7 @@ export async function createServer(opts: ServerOptions) {
   registerMemoryRoutes(app, opts.workdir);
   registerUploadRoutes(app, opts.workdir, policyConfig);
   registerPresentationRoutes(app, opts.workdir);
+  registerClassicPresentationRoutes(app, opts.workdir);
   registerKnowledgeRoutes(app, opts.workdir);
   registerConfigRoutes(app, opts.workdir, opts.auditLogPath);
   registerTemplateAgentRoutes(app);

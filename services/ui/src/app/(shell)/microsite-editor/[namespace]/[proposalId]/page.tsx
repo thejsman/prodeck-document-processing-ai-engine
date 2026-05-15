@@ -4,18 +4,18 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { fetchMicrositeContent } from '@/lib/api';
-import { MicrositeEditorPro } from '@/components/microsite/editor/MicrositeEditorPro';
+import { fetchMicrositeContent, saveMicrositeAst } from '@/lib/api';
+import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import type { LayoutAST } from '@/types/presentation';
 
-export default function MicrositeEditorProPage() {
+export default function MicrositeEditorClassicPage() {
   const { namespace, proposalId } = useParams<{ namespace: string; proposalId: string }>();
-  const { apiKey }  = useAuth();
-  const router      = useRouter();
+  const { apiKey } = useAuth();
+  const router = useRouter();
 
-  const [ast, setAst]       = useState<LayoutAST | null>(null);
+  const [ast, setAst] = useState<LayoutAST | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
@@ -62,11 +62,15 @@ export default function MicrositeEditorProPage() {
   }
 
   return (
-    <MicrositeEditorPro
+    <MicrositeEditor
       ast={ast}
       namespace={namespace}
       proposalId={proposalId}
       onClose={() => router.back()}
+      onExport={(editedAst) => {
+        saveMicrositeAst(apiKey, namespace, proposalId, editedAst).catch(() => {});
+        router.back();
+      }}
     />
   );
 }

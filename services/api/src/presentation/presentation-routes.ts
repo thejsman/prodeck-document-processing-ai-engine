@@ -91,7 +91,7 @@ function extractPreparedBy(
   return '';
 }
 
-function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
+export function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
   const sep = fileName.indexOf('::');
   if (sep !== -1) {
     return path.join(workdir, 'namespaces', fileName.slice(0, sep), 'proposals', fileName.slice(sep + 2));
@@ -102,7 +102,7 @@ function resolveProposalMdPath(workdir: string, fileName: string, contextNamespa
   return path.join(workdir, 'output', fileName);
 }
 
-function checkNamespaceAccess(
+export function checkNamespaceAccess(
   auth: AuthContext,
   namespace: string,
   reply: FastifyReply,
@@ -113,7 +113,7 @@ function checkNamespaceAccess(
   return false;
 }
 
-function getAuth(req: FastifyRequest): AuthContext {
+export function getAuth(req: FastifyRequest): AuthContext {
   return (req as FastifyRequest & { auth: AuthContext }).auth;
 }
 
@@ -122,7 +122,7 @@ function getAuth(req: FastifyRequest): AuthContext {
  * never expires. Returns the persistent local URL to store in the AST.
  * Falls back to the original remote URL if download fails.
  */
-async function saveImagePersistently(
+export async function saveImagePersistently(
   remoteUrl: string,
   namespace: string,
   sectionId: string,
@@ -1708,10 +1708,9 @@ ${layoutSummary}`;
     return words.length >= 2 ? words.join(' ') : (TYPE_DEFAULTS[sectionType] ?? 'professional business office');
   }
 
-  // POST /presentations/:namespace/:proposalId/generate-stream
-  // Like /generate but streams progress via SSE. Each section completes → SSE event.
-  // Events: plan | section | images | complete | error
-  app.post('/presentations/:namespace/:proposalId/generate-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+  // POST /presentations/:namespace/:proposalId/generate-stream (alias: generate-classic-stream)
+  // Multi-pass AST pipeline — streams SSE events: plan | section | images | complete | error
+  const _classicStreamHandler = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
@@ -1757,7 +1756,7 @@ ${layoutSummary}`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         send({ type: 'error', message });
-        return reply.raw.end();
+        reply.raw.end(); return;
       }
     }
 
@@ -1765,7 +1764,7 @@ ${layoutSummary}`;
     let runner;
     try { runner = await buildRunner(workdir); } catch (err) {
       send({ type: 'error', message: `Runner init failed: ${err instanceof Error ? err.message : String(err)}` });
-      return reply.raw.end();
+      reply.raw.end(); return;
     }
 
     // Pre-compute image config so parallel fetches can start during section generation
@@ -1829,7 +1828,6 @@ ${layoutSummary}`;
     const _generationStart = Date.now();
 
     // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs.
-    // Pass clientIndustry so the skill can select a contextually appropriate tone.
     const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
       'microsite-generator-agent',
       {
@@ -1866,14 +1864,13 @@ ${layoutSummary}`;
       throw new Error('Anthropic HTML API: max retries exceeded');
     };
 
-    // Start CSS token generation in parallel with the agent — tone is already known.
-    // This means CSS vars are ready (or nearly ready) when the first sections arrive.
+    // Start CSS token generation in parallel with the agent for zero wait.
     const cssThemePromise: Promise<CSSTheme | null> = generateThemeCSSTokens(
-      designTone as string,
-      body?.brand?.primaryColor as string | undefined,
-      llmGenerateFn,
-      streamClientIndustry,
-    ).catch(() => null);
+          designTone as string,
+          body?.brand?.primaryColor as string | undefined,
+          llmGenerateFn,
+          streamClientIndustry,
+        ).catch(() => null);
 
     // Track per-section HTML generated during streaming so we can inject it into the final AST
     const streamedHtmlMap = new Map<string, string>(); // sectionId → customHtml
@@ -2095,8 +2092,7 @@ ${layoutSummary}`;
         }
       }
 
-      // Design skill Phase 2+3 — pass cached CSS theme so Phase 2 is skipped;
-      // Phase 3 only runs for sections that didn't receive HTML during streaming
+      // Design skill Phase 2+3 — inject LLM-generated CSS theme.
       const cachedTheme = await cssThemePromise;
       if (ast) {
         await injectThemeCSS(
@@ -2128,7 +2124,8 @@ ${layoutSummary}`;
     } finally {
       reply.raw.end();
     }
-  });
+  };
+  app.post('/presentations/:namespace/:proposalId/generate-stream', _classicStreamHandler);
 
   // ── Direct single-pass generation routes ──────────────────────────────────
   // These bypass the multi-step agent pipeline entirely. One LLM call reads

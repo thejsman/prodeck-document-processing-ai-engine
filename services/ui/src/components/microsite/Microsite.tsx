@@ -180,7 +180,23 @@ function renderSection(
   namespace?: string,
   proposalId?: string,
   meta?: LayoutAST['meta'],
+  generationMode?: string,
 ) {
+  // Pro mode: section carries pre-generated HTML — render it directly.
+  const customHtml = (section as unknown as Record<string, unknown>).customHtml as string | undefined;
+  if (customHtml) {
+    return <div dangerouslySetInnerHTML={{ __html: customHtml }} />;
+  }
+  // Pro mode streaming: section structure arrived but HTML not generated yet — show skeleton.
+  if (generationMode === 'pro') {
+    return (
+      <div style={{ padding: '60px 24px', textAlign: 'center', opacity: 0.45, background: 'var(--color-surface, #f8f8f8)' }}>
+        <div style={{ display: 'inline-block', width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--color-border, #e0e0e0)', borderTopColor: 'var(--color-primary, #2563eb)', animation: 'spin 0.9s linear infinite', marginBottom: 12 }} />
+        <div style={{ fontSize: 13, color: 'var(--color-text-muted, #888)' }}>Generating {section.sectionType} section…</div>
+      </div>
+    );
+  }
+
   // Root-relative paths (/presentation-images/...) are served by the API.
   // Rewrite them through the Next.js /api proxy so they work in the UI.
   const rawUrl = section.image?.url;
@@ -188,14 +204,6 @@ function renderSection(
   const sid = section.id;
 
   let inner: React.ReactNode;
-
-  const sectionRaw = section as unknown as Record<string, unknown>;
-  if (typeof sectionRaw.customHtml === 'string' && sectionRaw.customHtml) {
-    return (
-      // eslint-disable-next-line react/no-danger
-      <div dangerouslySetInnerHTML={{ __html: sectionRaw.customHtml }} />
-    );
-  }
 
   switch (section.sectionType) {
     case 'hero': {
@@ -512,6 +520,7 @@ function SectionWithOverlay({
   namespace,
   proposalId,
   meta,
+  generationMode,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -526,9 +535,10 @@ function SectionWithOverlay({
   namespace?: string;
   proposalId?: string;
   meta?: LayoutAST['meta'];
+  generationMode?: string;
 }) {
   const editCtx = useEditContext();
-  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId, meta);
+  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId, meta, generationMode);
   // Apply per-section background override using scoped CSS to beat inline styles
   const sel = `[data-section-id="${section.id}"] section,[data-section-id="${section.id}"] > div > section`;
   const hasBgColor = !!section.bgColor;
@@ -1367,6 +1377,7 @@ ${el.innerHTML}
                         namespace={namespace}
                         proposalId={proposalId ?? ast.proposalId}
                         meta={ast.meta}
+                        generationMode={ast.generationMode}
                       />
                     )}
                   </TypewriterSection>

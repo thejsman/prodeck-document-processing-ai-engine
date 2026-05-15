@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Globe, X, MoreHorizontal, Trash2 } from "lucide-react";
+import { Globe, X, MoreHorizontal, Trash2, Edit2 } from "lucide-react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { Microsite } from "./Microsite";
-import { MicrositeEditorPro } from "./editor/MicrositeEditorPro";
 import {
   useMicrositeHistory,
   type MicrositeHistoryEntry,
 } from "@/lib/useMicrositeHistory";
-import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from "@/lib/api";
+import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer, saveMicrositeAst } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useNamespace } from "@/lib/namespace-context";
 import { getPlugin } from "@/lib/presentation/pluginRegistry";
@@ -51,12 +51,11 @@ function formatDate(iso: string): string {
 export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChange?: (count: number) => void; onGenerateNew?: () => void }) {
   const { apiKey } = useAuth();
   const { namespaces } = useNamespace();
-  // All local history (no namespace filter)
+  const router = useRouter();
   const { history: localHistory, deleteEntry, addEntry, updateEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
-  const [editingEntry, setEditingEntry] = useState<CombinedEntry | null>(null);
 
   // Delete state
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
@@ -102,7 +101,21 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
     }
   };
 
-  // Fetch server-side history on mount
+  const handleEdit = useCallback((entry: CombinedEntry) => {
+    const pid = entry.ast.proposalId ?? entry.id;
+    const ns = entry.namespace;
+    const dest = entry.ast.generationMode === 'classic'
+      ? `/microsite-editor/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`
+      : `/microsite-editor-pro/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`;
+    // Ensure server has the latest AST before navigating; navigate regardless of save outcome.
+    const go = () => router.push(dest);
+    if (apiKey) {
+      saveMicrositeAst(apiKey, ns, pid, entry.ast).then(go).catch(go);
+    } else {
+      go();
+    }
+  }, [router, apiKey]);
+
   useEffect(() => {
     if (!apiKey) return;
     setLoadingServer(true);
@@ -128,7 +141,6 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
       .finally(() => setLoadingServer(false));
   }, [apiKey]);
 
-  // Merge local + server, deduplicate by namespace (prefer local/newer)
   const combined: CombinedEntry[] = (() => {
     const localMapped: CombinedEntry[] = localHistory
       .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
@@ -140,7 +152,6 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
         source: "local" as const,
       }));
 
-    // Add server entries that aren't already covered by a local entry
     const localNamespaces = new Set(localMapped.map((e) => e.namespace));
     const serverOnly = serverEntries.filter(
       (e) => !localNamespaces.has(e.namespace),
@@ -151,42 +162,14 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
       .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
   })();
 
-  // Report combined count to parent whenever it changes
   useEffect(() => { onCountChange?.(combined.length); }, [combined.length, onCountChange]);
-
-  // Editor mode — opened from preview or history card
-  if (editingEntry) {
-    return (
-      <MicrositeEditorPro
-        ast={editingEntry.ast}
-        namespace={editingEntry.namespace}
-        proposalId={editingEntry.id}
-        onClose={() => setEditingEntry(null)}
-        onSaved={(updatedAst) => {
-          // Update in-place for local entries; create new local entry for server-only entries
-          const saved = editingEntry.source === 'local'
-            ? updateEntry(editingEntry.id, updatedAst)
-            : addEntry(updatedAst, editingEntry.namespace);
-          refresh();
-          setPreviewEntry({
-            id: saved.id,
-            savedAt: saved.savedAt,
-            namespace: saved.namespace,
-            ast: updatedAst,
-            source: 'local',
-          });
-          setEditingEntry(null);
-        }}
-      />
-    );
-  }
 
   if (previewEntry) {
     return (
       <Microsite
         ast={previewEntry.ast}
         onBack={() => { refresh(); setPreviewEntry(null); }}
-        onEdit={() => setEditingEntry(previewEntry)}
+        onEdit={() => handleEdit(previewEntry)}
         namespace={previewEntry.namespace}
         proposalId={previewEntry.id}
       />
@@ -195,29 +178,29 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
 
   if (!loadingServer && combined.length === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 240, padding: '40px 20px' }}>
-        <div style={{ maxWidth: 320, textAlign: 'center' }}>
-          <Globe size={40} strokeWidth={1.5} style={{ color: 'var(--subtle)', marginBottom: 14 }} />
-          <p style={{ fontSize: 16, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300, padding: '40px 20px' }}>
+        <div style={{ maxWidth: 340, textAlign: 'center' }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--panel-soft)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+            <Globe size={24} strokeWidth={1.5} style={{ color: 'var(--muted)' }} />
+          </div>
+          <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px' }}>
             No microsites yet
           </p>
-          <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
-            Publish your first microsite.
+          <p style={{ fontSize: 14, color: 'var(--muted)', margin: '0 0 20px', lineHeight: 1.5 }}>
+            Generate your first microsite to see it here.
           </p>
           <button
             onClick={() => onGenerateNew?.()}
             className="btn btn-primary btn-sm"
-            style={{ marginTop: 20, width: 'auto' }}
+            style={{ width: 'auto' }}
           >
-            New Microsite
+            + Generate Microsite
           </button>
         </div>
       </div>
     );
   }
 
-  // Version numbers scoped to namespace+client — matches the namespace panel's per-namespace grouping.
-  // Newest = highest version; key = "namespace::clientName" so "mergecompany" in two namespaces version independently.
   const combinedWithVersion = (() => {
     const groupCount = new Map<string, number>();
     for (const e of combined) {
@@ -253,56 +236,106 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
         {combinedWithVersion.map(({ entry, companyName, version }) => {
           const accent = getPluginAccent(entry.ast.plugin);
           const pluginName = entry.ast.plugin || "default";
+          const isPro = entry.ast.generationMode !== 'classic';
           const isHovered = hoveredCard === entry.id;
+          const primaryColor = entry.ast.brand?.primaryColor || '#4f46e5';
+          const secondaryColor = entry.ast.brand?.secondaryColor || '#7c3aed';
 
           return (
             <div
               key={entry.id}
               className="proposal-card"
-              style={{ gap: 10, position: 'relative' }}
+              style={{ gap: 0, position: 'relative', padding: 0, overflow: 'hidden' }}
               onMouseEnter={() => setHoveredCard(entry.id)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              <button
-                ref={el => { menuBtnRefs.current[entry.id] = el; }}
-                className="btn btn-sm"
-                title="Options"
-                onClick={e => { e.stopPropagation(); openMenu(entry); }}
-                style={{ position: 'absolute', top: 8, right: 8, padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0, pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none', transition: 'opacity 0.15s', zIndex: 1 }}
-              >
-                <Icon icon={MoreHorizontal} size="sm" />
-              </button>
+              {/* Brand color strip */}
+              <div style={{
+                height: 36,
+                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                flexShrink: 0,
+              }} />
 
-              <div className="proposal-card-header">
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <span className="proposal-card-name">{companyName}</span>
-                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
+              {/* Card body */}
+              <div style={{ padding: '10px 12px 0', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Mode badge + version row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      background: isPro ? 'rgba(59,130,246,0.12)' : 'rgba(100,116,139,0.12)',
+                      color: isPro ? '#3b82f6' : '#94a3b8',
+                      borderRadius: 100, fontSize: 10, fontWeight: 700,
+                      padding: '2px 8px', letterSpacing: '0.04em', lineHeight: 1.4,
+                    }}>
+                      {isPro ? '⚡' : '🎨'} {isPro ? 'Pro' : 'Classic'}
+                    </span>
+                    {!isPro && (
+                      <span style={{
+                        display: 'inline-block', background: `${accent}18`, color: accent,
+                        borderRadius: 100, fontSize: 10, fontWeight: 600,
+                        padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4,
+                        textTransform: 'uppercase' as const,
+                      }}>
+                        {pluginName}
+                      </span>
+                    )}
+                    <span style={{
+                      marginLeft: 'auto', flexShrink: 0,
+                      display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)',
+                      borderRadius: 100, fontSize: 10, fontWeight: 600,
+                      padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4,
+                    }}>
+                      v{version}
+                    </span>
+                  </div>
+
+                  {/* Company name */}
+                  <span className="proposal-card-name" style={{ display: 'block', marginBottom: 2 }}>
+                    {companyName}
+                  </span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
                     {formatDate(entry.savedAt)}
                   </span>
-                  <span style={{
-                    display: 'inline-block', background: `${accent}18`, color: accent,
-                    borderRadius: 100, fontSize: 10, fontWeight: 600,
-                    padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4,
-                    textTransform: 'uppercase' as const, marginTop: 4,
-                  }}>
-                    {pluginName}
-                  </span>
                 </div>
-                <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                  v{version}
-                </span>
+
+                {/* Options menu button */}
+                <button
+                  ref={el => { menuBtnRefs.current[entry.id] = el; }}
+                  className="btn btn-sm"
+                  title="Options"
+                  onClick={e => { e.stopPropagation(); openMenu(entry); }}
+                  style={{
+                    padding: '1px 5px', border: 'none', lineHeight: 1, flexShrink: 0,
+                    opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0,
+                    pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none',
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  <Icon icon={MoreHorizontal} size="sm" />
+                </button>
               </div>
 
-              <div className="proposal-card-footer">
+              {/* Footer */}
+              <div className="proposal-card-footer" style={{ padding: '8px 12px 10px', marginTop: 'auto' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
-                  Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{entry.namespace}</span>
+                  <span style={{ color: 'var(--text)', fontWeight: 500 }}>{entry.namespace}</span>
                 </span>
-                <button
-                  className="chat-v2-clear-btn"
-                  onClick={() => setPreviewEntry(entry)}
-                >
-                  View
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    className="chat-v2-clear-btn"
+                    onClick={() => handleEdit(entry)}
+                    title="Edit in editor"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="chat-v2-clear-btn"
+                    onClick={() => setPreviewEntry(entry)}
+                  >
+                    View
+                  </button>
+                </div>
               </div>
             </div>
           );

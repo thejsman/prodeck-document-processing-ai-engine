@@ -15,6 +15,7 @@ import {
   fetchMicrositeContent,
   fetchPresentations,
   generateMicrositeStream,
+  generateClassicMicrositeStream,
   saveMicrositeAst,
   extractUrlDesign,
   type StreamEvent,
@@ -36,7 +37,8 @@ import {
   type ThemeDefinition,
 } from "@/lib/presentation/pluginRegistry";
 import type { PluginMeta } from "@/types/presentation";
-import { Microsite } from "./microsite/Microsite";
+import { Microsite as MicrositeClassic } from "./microsite/Microsite";
+import { MicrositePro } from "./MicrositePro";
 import { MicrositeEditor } from "./microsite/editor/MicrositeEditor";
 import { MicrositeHistory } from "./microsite/MicrositeHistory";
 import { ThemeModal } from "./microsite/ThemeModal";
@@ -49,22 +51,15 @@ import {
 } from "@/lib/useMicrositeHistory";
 
 // ── Pipeline steps ───────────────────────────────────────────────────────────
-type StepId = "upload" | "brand" | "plugin" | "generate" | "preview";
+type StepId = "upload" | "method" | "brand" | "plugin" | "generate" | "preview";
 
-const STEPS: Array<{ id: StepId; label: string; description: string }> = [
-  {
-    id: "upload",
-    label: "Select Proposal",
-    description: "Choose a source proposal",
-  },
-  { id: "brand", label: "Brand Setup", description: "Your identity & colors" },
-  { id: "plugin", label: "Choose Style", description: "Pick a design system" },
-  {
-    id: "generate",
-    label: "Generate",
-    description: "AI builds your microsite",
-  },
-];
+const ALL_STEP_DEFS: Record<string, { id: StepId; label: string; description: string }> = {
+  upload:   { id: "upload",   label: "Select Proposal", description: "Choose a source proposal" },
+  method:   { id: "method",   label: "Generation Mode", description: "Choose your approach" },
+  brand:    { id: "brand",    label: "Brand Setup",     description: "Your identity & colors" },
+  plugin:   { id: "plugin",   label: "Choose Style",    description: "Pick a design system" },
+  generate: { id: "generate", label: "Generate",        description: "AI builds your microsite" },
+};
 
 interface ProgressItem {
   text: string;
@@ -263,6 +258,7 @@ interface WizardSnapshot {
   selectedProposal: ProposalFile | null;
   generationStartedAt?: number;
   lockedFromProposal?: boolean;
+  generationMethod?: 'pro' | 'classic';
 }
 
 function readSnapshot(): WizardSnapshot | null {
@@ -393,6 +389,23 @@ export function PresentationPage() {
       return _snap.step;
     return "upload";
   });
+
+  const [generationMethod, setGenerationMethod] = useState<'pro' | 'classic'>('classic');
+  // Ref always tracks latest value so runPipeline closure is never stale
+  const generationMethodRef = useRef<'pro' | 'classic'>('classic');
+  useEffect(() => {
+    generationMethodRef.current = generationMethod;
+  }, [generationMethod]);
+
+  // Active steps depend on the chosen generation mode.
+  // Pro mode routes through the plugin step (URL/image/prompt) but relabels it and hides themes.
+  const activeSteps = generationMethod === 'pro'
+    ? [
+        ALL_STEP_DEFS.upload,
+        ALL_STEP_DEFS.method,
+        { ...ALL_STEP_DEFS.plugin, label: "Configure & Generate", description: "URL, image & prompt" },
+      ]
+    : [ALL_STEP_DEFS.upload, ALL_STEP_DEFS.method, ALL_STEP_DEFS.brand, ALL_STEP_DEFS.plugin, ALL_STEP_DEFS.generate];
 
   // Step 1
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -594,6 +607,7 @@ export function PresentationPage() {
         selectedNamespace,
         selectedProposal,
         generationStartedAt: generationStartedAtRef.current,
+        generationMethod,
       });
     } else {
       // Back to earlier steps — clear the snapshot
@@ -607,6 +621,7 @@ export function PresentationPage() {
     error,
     selectedNamespace,
     selectedProposal,
+    generationMethod,
   ]);
 
   // ── When restored to generate step with wasGenerating, poll until result is ready ──
@@ -728,6 +743,14 @@ export function PresentationPage() {
     } catch { /* ignore quota errors */ }
   }, [brand]);
 
+  // Auto-fill company name from proposal when entering the brand step
+  useEffect(() => {
+    if (step !== 'brand') return;
+    if (brand.companyName.trim()) return; // don't overwrite if user already typed something
+    const fallback = selectedProposal?.client || selectedNamespace;
+    if (fallback) setBrand((b) => ({ ...b, companyName: fallback }));
+  }, [step]);
+
   // Fetch plugin list from API once on mount (Phase 5: dynamic discovery)
   useEffect(() => {
     if (!apiKey) return;
@@ -831,9 +854,11 @@ export function PresentationPage() {
     setLayoutAST(null);
     setGeneratedMarkdown(null);
     setWasGenerating(false);
+    setGenerationMethod('classic');
+    generationMethodRef.current = 'classic';
   }, []);
 
-  const stepIdx = STEPS.findIndex((s) => s.id === step);
+  const stepIdx = activeSteps.findIndex((s) => s.id === step);
 
   // Restore layoutAST from disk when navigating to preview without an in-memory AST
   useEffect(() => {
@@ -866,7 +891,10 @@ export function PresentationPage() {
       .finally(() => setLoadingAST(false));
   }, [step, layoutAST, apiKey, selectedNamespace, selectedProposal]);
 
-  const runPipeline = useCallback(async () => {
+  const runPipeline = useCallback(async (modeOverride?: 'pro' | 'classic') => {
+    // modeOverride is passed explicitly from the button click closure so it's always current
+    const effectiveMethod = modeOverride ?? generationMethodRef.current;
+    console.log('[runPipeline] modeOverride=', modeOverride, 'generationMethodRef=', generationMethodRef.current, 'effectiveMethod=', effectiveMethod);
     if (!apiKey || !selectedNamespace) return;
 
     // Build stable refs before any state updates
@@ -980,10 +1008,14 @@ export function PresentationPage() {
     userCancelledRef.current = false;
     setGenerating(true);
     setError(null);
-    setProgress([
-      { text: "Analyzing proposal — generating hero...", done: false },
-      { text: "Planning section structure...", done: false },
-    ]);
+    setProgress(
+      effectiveMethod === 'classic'
+        ? [{ text: "Analyzing proposal...", done: false }]
+        : [
+            { text: "Analyzing proposal — generating hero...", done: false },
+            { text: "Planning section structure...", done: false },
+          ]
+    );
     setStreamingSections([]);
     setStreamingTotal(0);
     setPlanSectionTypes([]);
@@ -999,10 +1031,13 @@ export function PresentationPage() {
       },
       brief: {} as LayoutAST["brief"],
       brand: brandConfig,
-      plugin: selectedPlugin ?? "ivory",
+      plugin: effectiveMethod === 'pro' ? "none" : (selectedPlugin ?? "none"),
       sections: [],
+      generationMode: effectiveMethod,
     });
-    // Stay on generate step — switch to preview only when first section arrives
+    // Classic: switch to preview immediately so skeletons appear before any section arrives.
+    // Pro: stay on generate step — switch to preview when first section arrives (~3-5s hero).
+    if (effectiveMethod === 'classic') setStep("preview");
 
     const execId = crypto.randomUUID();
     addExecution({
@@ -1019,47 +1054,44 @@ export function PresentationPage() {
       setProgress([{ text: "Connecting to AI pipeline...", done: true }]);
       setProgress((p) => [
         ...p,
-        { text: "Running design synthesis + section planning...", done: false },
+        {
+          text: effectiveMethod === 'classic'
+            ? "Planning section structure..."
+            : "Running design synthesis + section planning...",
+          done: false,
+        },
       ]);
 
       const isCustomSynth =
         selectedPlugin === "custom-synthesized" && synthesizedDesign;
       const sourceMarkdown = generatedMarkdown ?? mdContent;
 
-      await generateMicrositeStream(apiKey, selectedNamespace, proposalId, {
-        proposalMarkdown: sourceMarkdown,
-        plugin: selectedPlugin ?? "none",
-        brand: brandConfig,
-        ...((customPrompt || designBrief).trim()
-          ? { customInstructions: (customPrompt || designBrief).trim() }
-          : {}),
-        ...((customPrompt || designBrief).trim()
-          ? { fullDesignPrompt: (customPrompt || designBrief).trim() }
-          : {}),
-        ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
-        ...(isCustomSynth
-          ? {
-              preSynthesizedDesignSystem: {
-                rawTokens: synthesizedDesign.designSystem,
-              },
-            }
-          : {}),
-        ...(pdfFriendly ? { pdfFriendly: true } : {}),
-        ...(referenceFile ? { referenceFile } : {}),
-        // URL reference design — file tokens take priority if both provided
-        ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
-        // URL layout structure and images — always passed when available
-        ...(urlLayout ? { urlLayout } : {}),
-        ...(urlImages.length > 0 ? { urlImages } : {}),
-        signal: abortCtrl.signal,
-        onEvent: (event: StreamEvent) => {
-          console.log(
-            "[stream]",
-            event.type,
-            event.type === "section"
-              ? (event as { sectionType?: string }).sectionType
-              : "",
-          );
+      // ── Mode-specific generation params ──────────────────────────────────────
+      // Pro: URL-extracted design drives everything; no theme, no designBrief.
+      // Classic: user-chosen plugin + brand colors + optional designBrief; URL optional.
+      const modeParams = effectiveMethod === 'pro'
+        ? {
+            plugin: "none" as const,
+            ...(customPrompt.trim() ? { customInstructions: customPrompt.trim(), fullDesignPrompt: customPrompt.trim() } : {}),
+            ...(referenceFile ? { referenceFile } : {}),
+            ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+            ...(urlLayout ? { urlLayout } : {}),
+            ...(urlImages.length > 0 ? { urlImages } : {}),
+          }
+        : {
+            plugin: selectedPlugin ?? "none",
+            ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
+            ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
+            ...((customPrompt || designBrief).trim() ? { fullDesignPrompt: (customPrompt || designBrief).trim() } : {}),
+            ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
+            ...(referenceFile ? { referenceFile } : {}),
+            // Classic can optionally use a URL reference — passed only when present
+            ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+            ...(urlLayout ? { urlLayout } : {}),
+            ...(urlImages.length > 0 ? { urlImages } : {}),
+          };
+
+      const streamHandler = (event: StreamEvent) => {
           if (event.type === "start") {
             setProgress((p) =>
               p.map((x, i) => (i === p.length - 1 ? { ...x, done: true } : x)),
@@ -1116,7 +1148,7 @@ export function PresentationPage() {
               });
             }
             setProgress([
-              { text: "Hero generated ✓", done: true },
+              { text: effectiveMethod === 'classic' ? "Plan ready ✓" : "Hero generated ✓", done: true },
               {
                 text: `Generating ${planEvent.totalSections} sections...`,
                 done: true,
@@ -1183,6 +1215,11 @@ export function PresentationPage() {
             const raw = (event as { type: "complete"; ast: unknown }).ast;
             if (raw && typeof raw === "object") {
               const ast = raw as LayoutAST;
+              // Preserve generationMode from what was set at generation start —
+              // the server never echoes it back so it must be injected client-side.
+              ast.generationMode = effectiveMethod;
+              // Pro always uses "none" plugin; Classic uses the chosen plugin.
+              ast.plugin = effectiveMethod === 'pro' ? "none" : (selectedPlugin ?? "none");
               // Merge UI brand on top of agent brand, then re-apply reference CSS vars last so
               // brandConfig (plugin theme + primaryColor) cannot overwrite the extracted tokens.
               ast.brand = { ...(ast.brand ?? {}), ...brandConfig };
@@ -1199,10 +1236,12 @@ export function PresentationPage() {
                     : {}),
                 };
               }
-              ast.plugin = selectedPlugin ?? "ivory";
               setLayoutAST(ast);
               const saved = addEntry(ast);
               currentHistoryIdRef.current = saved.id;
+              // Persist to server immediately so history Edit works without requiring
+              // the user to click Edit from the preview first.
+              saveMicrositeAst(apiKey, selectedNamespace, proposalId, ast).catch(() => {});
               setGeneratedMarkdown(sourceMarkdown);
             }
             setStep("preview");
@@ -1219,8 +1258,35 @@ export function PresentationPage() {
               (event as { type: "error"; message: string }).message,
             );
           }
-        },
-      });
+      };
+
+      console.log('[streamCall] effectiveMethod=', effectiveMethod, '→ endpoint:', effectiveMethod === 'classic' ? 'generate-classic-stream' : 'generate-structured-stream');
+      const streamCall = effectiveMethod === 'classic'
+        ? generateClassicMicrositeStream(apiKey, selectedNamespace, proposalId, {
+            proposalMarkdown: sourceMarkdown,
+            brand: brandConfig,
+            plugin: selectedPlugin ?? "none",
+            ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign?.designSystem } } : {}),
+            ...((customPrompt || designBrief).trim() ? { customInstructions: (customPrompt || designBrief).trim() } : {}),
+            ...((customPrompt || designBrief).trim() ? { fullDesignPrompt: (customPrompt || designBrief).trim() } : {}),
+            ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
+            ...(referenceFile ? { referenceFile } : {}),
+            ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+            ...(urlImages.length > 0 ? { urlImages } : {}),
+            ...(pdfFriendly ? { pdfFriendly: true } : {}),
+            signal: abortCtrl.signal,
+            onEvent: streamHandler,
+          })
+        : generateMicrositeStream(apiKey, selectedNamespace, proposalId, {
+            proposalMarkdown: sourceMarkdown,
+            brand: brandConfig,
+            generationMode: 'pro',
+            ...modeParams,
+            ...(pdfFriendly ? { pdfFriendly: true } : {}),
+            signal: abortCtrl.signal,
+            onEvent: streamHandler,
+          });
+      await streamCall;
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
         setError((e as Error).message);
@@ -1268,6 +1334,9 @@ export function PresentationPage() {
     pdfFriendly,
     referenceFile,
     urlReferenceDesign,
+    generationMethod,
+    urlLayout,
+    urlImages,
   ]);
 
   // ── Preview loading state ──────────────────────────────────────────────────
@@ -1343,31 +1412,37 @@ export function PresentationPage() {
         />
       );
     }
-    return (
-      <Microsite
-        ast={layoutAST}
-        generating={generating}
-        streamingTotal={generating ? streamingTotal : undefined}
-        planSectionTypes={generating ? planSectionTypes : undefined}
-        onBack={generating ? undefined : () => {
-          if (lockedFromProposal) {
-            if (selectedNamespace) setGlobalNamespace(selectedNamespace);
-            router.push('/chat');
-          } else {
-            setStep("upload");
-          }
-        }}
-        onRegenerate={generating ? undefined : () => setStep("generate")}
-        onEdit={generating ? undefined : () => {
-          // Navigate to MicrositeEditorPro — fire-and-forget save so AST is fresh on load
-          const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
-          saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST).catch(() => {});
-          router.push(`/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`);
-        }}
-        namespace={selectedNamespace}
-        proposalId={layoutAST.proposalId}
-      />
-    );
+    {
+      const MicrositeComponent = layoutAST.generationMode === 'pro' ? MicrositePro : MicrositeClassic;
+      const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
+      return (
+        <MicrositeComponent
+          ast={layoutAST}
+          generating={generating}
+          streamingTotal={generating ? streamingTotal : undefined}
+          planSectionTypes={generating ? planSectionTypes : undefined}
+          onBack={generating ? undefined : () => {
+            if (lockedFromProposal) {
+              if (selectedNamespace) setGlobalNamespace(selectedNamespace);
+              router.push('/chat');
+            } else {
+              setStep("upload");
+            }
+          }}
+          onRegenerate={generating ? undefined : () => setStep("generate")}
+          onEdit={generating ? undefined : () => {
+            saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST).catch(() => {});
+            if (layoutAST.generationMode === 'pro') {
+              router.push(`/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`);
+            } else {
+              router.push(`/microsite-editor/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`);
+            }
+          }}
+          namespace={selectedNamespace}
+          proposalId={layoutAST.proposalId}
+        />
+      );
+    }
   }
 
   // ── Wizard steps ─────────────────────────────────────────────────────────
@@ -1383,7 +1458,7 @@ export function PresentationPage() {
             Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ""}
           </span>
           <button
-            onClick={() => setShowGenerateModal(true)}
+            onClick={() => (() => { clearSnapshot(); setStep('upload'); setShowGenerateModal(true); })()}
             style={{
               height: 30, padding: "0 14px",
               background: "var(--primary)", color: "#fff",
@@ -1399,7 +1474,7 @@ export function PresentationPage() {
         <div style={{ height: 1, background: "var(--border)", marginBottom: 24 }} />
 
         {/* History — always visible */}
-        <MicrositeHistory onCountChange={setTotalHistoryCount} onGenerateNew={() => setShowGenerateModal(true)} />
+        <MicrositeHistory onCountChange={setTotalHistoryCount} onGenerateNew={() => (() => { clearSnapshot(); setStep('upload'); setShowGenerateModal(true); })()} />
       </div>
 
       {/* Generate Microsite modal — always mounted so wizard state persists */}
@@ -1457,7 +1532,7 @@ export function PresentationPage() {
                 zIndex: 0,
               }}
             />
-            {STEPS.map((s, i) => {
+            {activeSteps.map((s, i) => {
               const isActive = s.id === step;
               const isDone = stepIdx > i;
               return (
@@ -1576,7 +1651,7 @@ export function PresentationPage() {
                       lineHeight: 1.2,
                     }}
                   >
-                    {STEPS[stepIdx].label}
+                    {activeSteps[stepIdx]?.label}
                   </p>
                   <p
                     style={{
@@ -1585,7 +1660,7 @@ export function PresentationPage() {
                       margin: 0,
                     }}
                   >
-                    {STEPS[stepIdx].description}
+                    {activeSteps[stepIdx]?.description}
                   </p>
                 </div>
               </div>
@@ -1809,7 +1884,70 @@ export function PresentationPage() {
                 </div>
               )}
 
-              {/* ═══ STEP 2: BRAND SETUP ═══ */}
+              {/* ═══ STEP 2: GENERATION MODE ═══ */}
+              {step === "method" && (
+                <div>
+                  <p style={{ fontSize: 13, color: "var(--color-text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+                    Choose how you want to generate and edit your microsite.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                    {/* Pro card */}
+                    <button
+                      onClick={() => setGenerationMethod('pro')}
+                      style={{
+                        border: `2px solid ${generationMethod === 'pro' ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        borderRadius: 12,
+                        padding: "20px 18px",
+                        background: generationMethod === 'pro' ? 'var(--color-primary-soft, rgba(37,99,235,0.06))' : 'var(--color-surface)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'border-color 0.15s, background 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 18, lineHeight: 1 }}>⚡</span>
+                        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>Microsite Generator Pro</span>
+                        {generationMethod === 'pro' && (
+                          <span style={{ marginLeft: 'auto', background: 'var(--color-primary)', color: '#fff', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '2px 8px' }}>Selected</span>
+                        )}
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.8 }}>
+                        <li>URL reference · image upload · custom prompt</li>
+                        <li>Per-section AI regeneration in editor</li>
+                        <li>Opens in dedicated editor page</li>
+                      </ul>
+                    </button>
+                    {/* Classic card */}
+                    <button
+                      onClick={() => setGenerationMethod('classic')}
+                      style={{
+                        border: `2px solid ${generationMethod === 'classic' ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        borderRadius: 12,
+                        padding: "20px 18px",
+                        background: generationMethod === 'classic' ? 'var(--color-primary-soft, rgba(37,99,235,0.06))' : 'var(--color-surface)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'border-color 0.15s, background 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 18, lineHeight: 1 }}>🎨</span>
+                        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>Classic Generation</span>
+                        {generationMethod === 'classic' && (
+                          <span style={{ marginLeft: 'auto', background: 'var(--color-primary)', color: '#fff', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '2px 8px' }}>Selected</span>
+                        )}
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.8 }}>
+                        <li>Full brand setup · theme selection</li>
+                        <li>URL reference · image upload · custom prompt</li>
+                        <li>Inline editor with design agent panel</li>
+                      </ul>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ═══ STEP 3: BRAND SETUP ═══ */}
               {step === "brand" && (
                 <div>
                   <div className="form-row">
@@ -2127,9 +2265,10 @@ export function PresentationPage() {
                 </div>
               )}
 
-              {/* ═══ STEP 3: CHOOSE STYLE ═══ */}
+              {/* ═══ STEP 3: CHOOSE STYLE (Classic) / CONFIGURE & GENERATE (Pro) ═══ */}
               {step === "plugin" && (
                 <div>
+                  {generationMethod === 'classic' && <>
                   <div
                     style={{
                       display: "grid",
@@ -2365,6 +2504,7 @@ export function PresentationPage() {
                       </>
                     );
                   })()}
+                  </>}
 
                   {/* Custom prompt */}
                   <div
@@ -3114,7 +3254,7 @@ export function PresentationPage() {
                           {urlLayout && (
                             <div style={sectionStyle}>
                               <span style={labelStyle}>Layout Structure</span>
-                              {(urlLayout.sections as string[] | undefined)?.length > 0 && (
+                              {((urlLayout.sections as string[] | undefined) ?? []).length > 0 && (
                                 <div style={{ ...rowStyle, marginBottom: 6 }}>
                                   {(urlLayout.sections as string[]).map((s, i) => (
                                     <span key={i} style={{ ...chipStyle, background: "rgba(99,102,241,0.15)" }}>{s}</span>
@@ -3122,12 +3262,12 @@ export function PresentationPage() {
                                 </div>
                               )}
                               <div style={rowStyle}>
-                                {urlLayout.heroStyle && <span style={chipStyle}>Hero: {String(urlLayout.heroStyle)}</span>}
-                                {urlLayout.gridColumns && <span style={chipStyle}>{String(urlLayout.gridColumns)}-col grid</span>}
-                                {urlLayout.layoutDensity && <span style={chipStyle}>{String(urlLayout.layoutDensity)}</span>}
-                                {urlLayout.visualHierarchy && <span style={chipStyle}>{String(urlLayout.visualHierarchy)}</span>}
-                                {urlLayout.isImageHeavy && <span style={chipStyle}>Image heavy</span>}
-                                {urlLayout.hasVideo && <span style={chipStyle}>Has video</span>}
+                                {urlLayout.heroStyle != null && <span style={chipStyle}>Hero: {String(urlLayout.heroStyle)}</span>}
+                                {urlLayout.gridColumns != null && <span style={chipStyle}>{String(urlLayout.gridColumns)}-col grid</span>}
+                                {urlLayout.layoutDensity != null && <span style={chipStyle}>{String(urlLayout.layoutDensity)}</span>}
+                                {urlLayout.visualHierarchy != null && <span style={chipStyle}>{String(urlLayout.visualHierarchy)}</span>}
+                                {!!urlLayout.isImageHeavy && <span style={chipStyle}>Image heavy</span>}
+                                {!!urlLayout.hasVideo && <span style={chipStyle}>Has video</span>}
                               </div>
                             </div>
                           )}
@@ -3392,7 +3532,7 @@ export function PresentationPage() {
                           className="btn btn-sm btn-primary"
                           style={{ flexShrink: 0 }}
                           onClick={() => {
-                            setStep("plugin");
+                            setStep(generationMethod === 'pro' ? 'plugin' : 'plugin');
                             setError(null);
                             setProgress([]);
                             setStreamingSections([]);
@@ -3404,8 +3544,8 @@ export function PresentationPage() {
                     </div>
                   )}
 
-                  {/* Pipeline progress */}
-                  <div style={{ marginBottom: 20 }}>
+                  {/* Pipeline progress — hidden once preview is active */}
+                  <div style={{ marginBottom: 20, display: step === 'preview' ? 'none' : undefined }}>
                     {progress.map((p, i) => (
                       <div
                         key={i}
@@ -3525,13 +3665,9 @@ export function PresentationPage() {
                 <button
                   className="btn"
                   onClick={() => {
-                    const prev: Record<StepId, StepId | null> = {
-                      upload: null,
-                      brand: "upload",
-                      plugin: "brand",
-                      generate: "plugin",
-                      preview: "plugin",
-                    };
+                    const prev: Record<StepId, StepId | null> = generationMethod === 'pro'
+                      ? { upload: null, method: "upload", brand: "method", plugin: "method", generate: "plugin", preview: "plugin" }
+                      : { upload: null, method: "upload", brand: "method", plugin: "brand", generate: "plugin", preview: "plugin" };
                     const p = prev[step];
                     if (p) setStep(p);
                   }}
@@ -3546,8 +3682,17 @@ export function PresentationPage() {
               {step === "upload" && (
                 <button
                   className="btn btn-primary"
-                  onClick={() => setStep("brand")}
+                  onClick={() => setStep("method")}
                   disabled={!mdContent.trim() || loadingContent}
+                  style={{ minWidth: 120, width: "auto" }}
+                >
+                  Next →
+                </button>
+              )}
+              {step === "method" && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setStep(generationMethod === 'pro' ? 'plugin' : 'brand')}
                   style={{ minWidth: 120, width: "auto" }}
                 >
                   Next →
@@ -3556,8 +3701,14 @@ export function PresentationPage() {
               {step === "brand" && (
                 <button
                   className="btn btn-primary"
-                  onClick={() => setStep("plugin")}
-                  disabled={!brand.companyName.trim()}
+                  onClick={() => {
+                    // Brand step only exists on the Classic path — lock Classic mode here
+                    // so Generate on the plugin step can never accidentally use Pro mode.
+                    setGenerationMethod('classic');
+                    generationMethodRef.current = 'classic';
+                    setStep("plugin");
+                  }}
+                  disabled={!brand.companyName.trim() && !selectedProposal?.client && !selectedNamespace}
                   style={{ minWidth: 120, width: "auto" }}
                 >
                   Next →
@@ -3575,8 +3726,13 @@ export function PresentationPage() {
                   <button
                     className="btn btn-primary"
                     onClick={() => {
+                      // Capture mode in local variable at click time — immune to stale closures
+                      const modeAtClick = generationMethod;
+                      console.log('[Generate clicked] generationMethod=', generationMethod, 'modeAtClick=', modeAtClick);
                       setStep("generate");
-                      setTimeout(runPipeline, 100);
+                      setTimeout(() => {
+                        runPipeline(modeAtClick).catch(err => console.error('[runPipeline error]', err));
+                      }, 100);
                     }}
                     disabled={urlExtractionState === "loading"}
                     style={{
@@ -3591,7 +3747,7 @@ export function PresentationPage() {
                   >
                     {urlExtractionState === "loading"
                       ? "Extracting design…"
-                      : "⚡ Generate Microsite"}
+                      : generationMethod === 'classic' ? "⚡ Generate Classic Microsite" : "⚡ Generate Pro Microsite"}
                   </button>
                 </div>
               )}
