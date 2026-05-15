@@ -397,6 +397,20 @@ export async function fetchKnowledgeFiles(apiKey: string, namespace: string): Pr
   return data.files;
 }
 
+export async function postUploadMessage(
+  apiKey: string,
+  chatSessionId: string,
+  namespace: string,
+  upload: { id: string; displayName: string; fileSize: number; fileNames: string[] },
+): Promise<void> {
+  const res = await fetch(`/api/chat/session/${encodeURIComponent(chatSessionId)}/upload-message`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ namespace, ...upload }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
 export async function deleteKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(
     `/api/knowledge/files/${encodeURIComponent(fileName)}?namespace=${encodeURIComponent(namespace)}`,
