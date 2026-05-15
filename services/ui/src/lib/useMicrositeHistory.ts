@@ -118,11 +118,14 @@ export function useMicrositeHistory(namespace?: string, apiKey?: string) {
 
   const deleteEntry = useCallback((id: string) => {
     const inner = id.startsWith('server::') ? id.slice(8) : (namespace ?? '');
-    // inner may be "<ns>::chat" for chat-generated entries
-    const isChatEntry = inner.endsWith('::chat');
-    const targetNs = isChatEntry ? inner.slice(0, -6) : inner;
+    // inner is "<ns>::<mode>" (e.g. "lnp2::pro") or just "<ns>" for legacy
+    const lastSep = inner.lastIndexOf('::');
+    const targetNs = lastSep >= 0 ? inner.slice(0, lastSep) : inner;
+    const rawMode = lastSep >= 0 ? inner.slice(lastSep + 2) : undefined;
+    // 'unknown' means no generationMode — delete all files for the namespace
+    const modeParam = (rawMode && rawMode !== 'unknown') ? rawMode : undefined;
     if (apiKey && targetNs) {
-      deleteMicrositeHistoryFromServer(apiKey, targetNs, isChatEntry ? 'chat' : undefined)
+      deleteMicrositeHistoryFromServer(apiKey, targetNs, modeParam)
         .then(() => load()).catch(() => {});
     }
   }, [namespace, apiKey, load]);

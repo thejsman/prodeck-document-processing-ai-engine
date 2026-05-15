@@ -187,14 +187,10 @@ function renderSection(
   if (customHtml) {
     return <div dangerouslySetInnerHTML={{ __html: customHtml }} />;
   }
-  // Pro mode streaming: section structure arrived but HTML not generated yet — show skeleton.
+  // Pro mode streaming: section HTML not yet ready — render nothing.
+  // The bottom progress chip ("Section X of Y") already provides feedback.
   if (generationMode === 'pro') {
-    return (
-      <div style={{ padding: '60px 24px', textAlign: 'center', opacity: 0.45, background: 'var(--color-surface, #f8f8f8)' }}>
-        <div style={{ display: 'inline-block', width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--color-border, #e0e0e0)', borderTopColor: 'var(--color-primary, #2563eb)', animation: 'spin 0.9s linear infinite', marginBottom: 12 }} />
-        <div style={{ fontSize: 13, color: 'var(--color-text-muted, #888)' }}>Generating {section.sectionType} section…</div>
-      </div>
-    );
+    return null;
   }
 
   // Root-relative paths (/presentation-images/...) are served by the API.

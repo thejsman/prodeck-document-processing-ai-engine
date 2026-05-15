@@ -21,7 +21,7 @@ export default function MicrositeEditorClassicPage() {
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
-    fetchMicrositeContent(apiKey, namespace, proposalId)
+    fetchMicrositeContent(apiKey, namespace, proposalId, 'classic')
       .then(({ ast: data }) => {
         if (!data) { setError('No microsite found — generate one first.'); setLoading(false); return; }
         setAst(data as LayoutAST);

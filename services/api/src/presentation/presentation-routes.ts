@@ -1367,38 +1367,59 @@ ${layoutSummary}`;
     const allEntries: { id: string; namespace: string; savedAt: string; ast: unknown; source: string }[] = [];
     const primaryNamespaces = new Set<string>();
 
-    // Primary path: workdir/assets/presentations/<ns>/site-ast.json  (UI builder writes here)
+    // Primary path: workdir/assets/presentations/<ns>/  (UI builder writes here)
+    // Mode-specific files take precedence; site-ast.json is the legacy/generation-cache fallback.
     let primaryDirs: string[] = [];
     try { primaryDirs = await readdir(assetsDir); } catch { /* directory may not exist yet */ }
     await Promise.all(
       primaryDirs.map(async (ns) => {
-        try {
-          const astPath = path.join(assetsDir, ns, 'site-ast.json');
-          const raw = await readFile(astPath, 'utf-8');
-          const ast = JSON.parse(raw);
-          const fileStat = await stat(astPath);
-          primaryNamespaces.add(ns);
-          allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
-        } catch { /* skip */ }
+        const modeFiles = [
+          { filename: 'site-ast-pro.json',     idSuffix: '::pro' },
+          { filename: 'site-ast-classic.json', idSuffix: '::classic' },
+        ] as const;
+        let hasModeSpecific = false;
+        for (const { filename, idSuffix } of modeFiles) {
+          try {
+            const astPath = path.join(assetsDir, ns, filename);
+            const raw = await readFile(astPath, 'utf-8');
+            const ast = JSON.parse(raw);
+            const fileStat = await stat(astPath);
+            primaryNamespaces.add(ns);
+            allEntries.push({ id: `${ns}${idSuffix}`, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
+            hasModeSpecific = true;
+          } catch { /* file doesn't exist for this mode — skip */ }
+        }
+        // Legacy fallback: include site-ast.json only when no mode-specific files exist
+        if (!hasModeSpecific) {
+          try {
+            const astPath = path.join(assetsDir, ns, 'site-ast.json');
+            const raw = await readFile(astPath, 'utf-8');
+            const ast = JSON.parse(raw);
+            const fileStat = await stat(astPath);
+            primaryNamespaces.add(ns);
+            allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
+          } catch { /* skip */ }
+        }
       }),
     );
 
     // Fallback path: workdir/data/namespaces/<ns>/assets/presentations/<ns>/site-ast.json
     // (save-asset tool writes here; chat-generated microsites land here)
-    // Always include these — even if a primary entry exists for the same namespace,
-    // chat and UI can produce independent microsites that should both appear in history.
+    // Skip if the namespace already has mode-specific primary files (site-ast-pro.json or
+    // site-ast-classic.json) — the agent's save-asset writes here as a side-effect of UI
+    // generation, producing a phantom entry with no generationMode that shows as a spurious card.
     let fallbackDirs: string[] = [];
     try { fallbackDirs = await readdir(namespacesDir); } catch { /* directory may not exist */ }
     await Promise.all(
       fallbackDirs.map(async (ns) => {
+        // Suppress chat entry when mode-specific primary files already cover this namespace.
+        if (primaryNamespaces.has(ns)) return;
         try {
           const astPath = path.join(namespacesDir, ns, 'assets', 'presentations', ns, 'site-ast.json');
           const raw = await readFile(astPath, 'utf-8');
           const ast = JSON.parse(raw);
           const fileStat = await stat(astPath);
-          // Use a distinct id so it coexists with the primary entry for the same namespace
-          const id = primaryNamespaces.has(ns) ? `${ns}::chat` : ns;
-          allEntries.push({ id, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
+          allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
         } catch { /* namespace has no saved AST — skip */ }
       }),
     );
@@ -1417,21 +1438,38 @@ ${layoutSummary}`;
       return reply.code(400).send({ error: 'Missing required fields: namespace, ast' });
     }
     const { namespace, ast } = body;
+    const astObj = ast as Record<string, unknown>;
+    const mode = typeof astObj?.generationMode === 'string' ? astObj.generationMode : null;
+    const filename = mode === 'pro' ? 'site-ast-pro.json'
+                   : mode === 'classic' ? 'site-ast-classic.json'
+                   : 'site-ast.json';
     const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
     await mkdir(nsDir, { recursive: true });
-    await writeFile(path.join(nsDir, 'site-ast.json'), JSON.stringify(ast, null, 2), 'utf-8');
+    await writeFile(path.join(nsDir, filename), JSON.stringify(ast, null, 2), 'utf-8');
     return reply.send({ ok: true });
   });
 
-  // DELETE /presentations/history/:namespace — remove a namespace's saved AST (both primary and chat paths).
+  // DELETE /presentations/history/:namespace — remove a saved AST.
+  // ?mode=pro|classic|chat deletes only that mode's file; omit to delete all.
   app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string };
-    const primaryPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    const { mode } = req.query as { mode?: string };
+    const base = path.join(workdir, 'assets', 'presentations', namespace);
     const chatPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
-    await Promise.all([
-      rm(primaryPath).catch(() => {}),
-      rm(chatPath).catch(() => {}),
-    ]);
+    if (mode === 'pro') {
+      await rm(path.join(base, 'site-ast-pro.json')).catch(() => {});
+    } else if (mode === 'classic') {
+      await rm(path.join(base, 'site-ast-classic.json')).catch(() => {});
+    } else if (mode === 'chat') {
+      await rm(chatPath).catch(() => {});
+    } else {
+      await Promise.all([
+        rm(path.join(base, 'site-ast.json')).catch(() => {}),
+        rm(path.join(base, 'site-ast-pro.json')).catch(() => {}),
+        rm(path.join(base, 'site-ast-classic.json')).catch(() => {}),
+        rm(chatPath).catch(() => {}),
+      ]);
+    }
     return reply.send({ ok: true });
   });
 
@@ -2640,16 +2678,24 @@ ${layoutSummary}`;
 
   // GET /presentations/:namespace/:proposalId/microsite
   // Returns the previously generated site AST (null if not yet generated).
-  // Checks primary path first, then fallback path used by the chat pipeline's save-asset tool.
+  // Optional ?mode=pro|classic — tries mode-specific file first, then site-ast.json, then chat path.
   app.get('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string; proposalId: string };
+    const { mode } = req.query as { mode?: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    const primaryPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    const fallbackPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
+    const base = path.join(workdir, 'assets', 'presentations', namespace);
+    const modeFile = mode === 'pro' ? 'site-ast-pro.json'
+                   : mode === 'classic' ? 'site-ast-classic.json'
+                   : null;
+    const candidates = [
+      ...(modeFile ? [path.join(base, modeFile)] : []),
+      path.join(base, 'site-ast.json'),
+      path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
+    ];
 
-    for (const astPath of [primaryPath, fallbackPath]) {
+    for (const astPath of candidates) {
       try {
         const raw = await readFile(astPath, 'utf-8');
         const fileStat = await stat(astPath);
@@ -2671,7 +2717,11 @@ ${layoutSummary}`;
     const body = req.body as { ast?: Record<string, unknown> } | undefined;
     if (!body?.ast) return reply.code(400).send({ error: 'ast is required' });
 
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    const mode = typeof body.ast.generationMode === 'string' ? body.ast.generationMode : null;
+    const filename = mode === 'pro' ? 'site-ast-pro.json'
+                   : mode === 'classic' ? 'site-ast-classic.json'
+                   : 'site-ast.json';
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, filename);
     await mkdir(path.dirname(astPath), { recursive: true });
     await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
 

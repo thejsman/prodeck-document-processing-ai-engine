@@ -108,13 +108,16 @@ export function MicrositeHistory({
         setServerEntries(
           items
             .filter((item) => item.ast && (item.ast as { sections?: unknown[] }).sections?.length)
-            .map((item) => ({
-              id: `server::${item.namespace}`,
-              savedAt: item.savedAt,
-              namespace: item.namespace,
-              ast: item.ast as LayoutAST,
-              source: 'server' as const,
-            })),
+            .map((item) => {
+              const mode = (item.ast as LayoutAST)?.generationMode;
+              return {
+                id: `server::${item.namespace}::${mode || 'unknown'}`,
+                savedAt: item.savedAt,
+                namespace: item.namespace,
+                ast: item.ast as LayoutAST,
+                source: 'server' as const,
+              };
+            }),
         );
       })
       .catch(() => {})
@@ -158,15 +161,19 @@ export function MicrositeHistory({
     if (!confirmEntry || !apiKey) return;
     setDeleting(true);
     const ns = confirmEntry.namespace;
+    const mode = confirmEntry.ast.generationMode;
+    const deletedKey = mode ? `${ns}::${mode}` : ns;
     // Optimistically hide the entry immediately so it vanishes before the async fetch.
-    setDeletedNamespaces((prev) => new Set([...prev, ns]));
+    setDeletedNamespaces((prev) => new Set([...prev, deletedKey]));
     try {
-      await deleteMicrositeHistoryFromServer(apiKey, ns);
-      setServerEntries((prev) => prev.filter((e) => e.namespace !== ns));
+      await deleteMicrositeHistoryFromServer(apiKey, ns, mode ?? undefined);
+      setServerEntries((prev) =>
+        prev.filter((e) => !(e.namespace === ns && e.ast.generationMode === mode)),
+      );
       refresh();
     } catch {
       // Rollback optimistic removal on failure.
-      setDeletedNamespaces((prev) => { const next = new Set(prev); next.delete(ns); return next; });
+      setDeletedNamespaces((prev) => { const next = new Set(prev); next.delete(deletedKey); return next; });
     } finally {
       setDeleting(false);
       setConfirmEntry(null);
@@ -206,17 +213,23 @@ export function MicrositeHistory({
     const localMapped: CombinedEntry[] = localHistory
       .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
       .map((e) => ({ id: e.id, savedAt: e.savedAt, namespace: e.namespace, ast: e.ast, source: 'local' as const }));
-    const localNamespaces = new Set(localMapped.map((e) => e.namespace));
-    const serverOnly = serverEntries.filter((e) => !localNamespaces.has(e.namespace));
+    // Deduplicate by namespace::mode — local entry wins over server for the same mode,
+    // but a different mode from the server is still included.
+    const localKeys = new Set(localMapped.map((e) => `${e.namespace}::${e.ast.generationMode || ''}`));
+    const serverOnly = serverEntries.filter((e) => !localKeys.has(`${e.namespace}::${e.ast.generationMode || ''}`));
     const sorted = [...localMapped, ...serverOnly]
-      .filter((e) => !deletedNamespaces.has(e.namespace))
+      .filter((e) => {
+        const mode = e.ast.generationMode;
+        return !deletedNamespaces.has(mode ? `${e.namespace}::${mode}` : e.namespace);
+      })
       .filter((e) => namespaces.length === 0 || namespaces.includes(e.namespace))
       .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
-    // One card per namespace — keep the most recently saved entry only.
+    // Final dedup by namespace+mode — keep most recent per mode.
     const seen = new Set<string>();
     return sorted.filter((e) => {
-      if (seen.has(e.namespace)) return false;
-      seen.add(e.namespace);
+      const key = `${e.namespace}::${e.ast.generationMode || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
   })();
