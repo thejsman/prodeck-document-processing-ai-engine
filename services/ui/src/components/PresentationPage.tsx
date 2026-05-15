@@ -1910,7 +1910,7 @@ export function PresentationPage() {
                           key={mode}
                           onClick={() => setGenerationMethod(mode)}
                           style={{
-                            border: `2px solid ${isSelected ? accentColor : 'var(--color-border)'}`,
+                            border: `2px solid ${isSelected ? accentColor : 'var(--border-strong, var(--color-border))'}`,
                             borderRadius: 14,
                             padding: 0,
                             background: 'var(--color-surface)',
@@ -1994,10 +1994,10 @@ export function PresentationPage() {
                               padding: '7px 0',
                               borderRadius: 8,
                               background: isSelected ? accentColor : 'transparent',
-                              border: `1.5px solid ${isSelected ? accentColor : 'var(--color-border)'}`,
+                              border: `1.5px solid ${isSelected ? accentColor : 'var(--border-strong, var(--color-border))'}`,
                               textAlign: 'center' as const,
                               fontSize: 12, fontWeight: 700,
-                              color: isSelected ? '#fff' : 'var(--color-text-muted)',
+                              color: isSelected ? '#fff' : 'var(--color-text)',
                               transition: 'all 0.18s',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                             }}>
