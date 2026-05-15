@@ -2589,7 +2589,7 @@ export function PresentationPage() {
                         gap: 8,
                       }}
                     >
-                      Prompt & Design Instructions
+                      How would you like to style your microsite?
                       {designBrief.trim() && (
                         <span
                           style={{
@@ -2606,10 +2606,16 @@ export function PresentationPage() {
                         </span>
                       )}
                     </label>
+                    <p style={{ margin: "4px 0 12px", fontSize: 13, color: "#6B7280", lineHeight: 1.4 }}>
+                      Use any one — or combine all three inputs below.
+                    </p>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--color-text-muted)", marginBottom: 6, letterSpacing: "0.02em" }}>
+                      ① Write a prompt  <span style={{ fontWeight: 400 }}>(optional)</span>
+                    </label>
                     <textarea
                       className="input"
                       rows={8}
-                      placeholder="e.g. dark premium theme, 3 sections, remove pricing, add fade-in animations…"
+                      placeholder="Describe your style... e.g. 'dark premium theme, bold typography, 3 sections, remove pricing, add fade-in animations'"
                       value={designBrief}
                       onChange={(e) => setDesignBrief(e.target.value)}
                       style={{
@@ -2817,6 +2823,10 @@ export function PresentationPage() {
                       }}
                     />
                     {/* ── Attach + URL in one row ── */}
+                    <p style={{ margin: "8px 0 4px", fontSize: 12, color: "#6B7280", lineHeight: 1.4 }}>
+                      Tip: You can use just one input or combine all three for best results.
+                    </p>
+
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                       {/* Attach button */}
                       <button
@@ -2838,7 +2848,7 @@ export function PresentationPage() {
                         }}
                       >
                         <Paperclip size={12} />
-                        {referenceFile ? referenceFile.fileName.slice(0, 18) + (referenceFile.fileName.length > 18 ? "…" : "") : "Attach design screenshot"}
+                        {referenceFile ? referenceFile.fileName.slice(0, 18) + (referenceFile.fileName.length > 18 ? "…" : "") : "② Attach a design screenshot  — we'll match its visual style"}
                         {referenceFile && (
                           <span
                             onMouseDown={(e) => { e.stopPropagation(); setReferenceFile(null); }}
@@ -2867,7 +2877,7 @@ export function PresentationPage() {
                         <input
                           type="url"
                           className="input"
-                          placeholder="Paste a website URL to extract design tokens"
+                          placeholder="③ Paste a website URL  — we'll extract its design tokens & colors"
                           value={urlInput}
                           onChange={(e) => {
                             const val = e.target.value;
