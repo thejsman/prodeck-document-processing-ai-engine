@@ -591,9 +591,11 @@ export async function fetchMicrositeContent(
   apiKey: string,
   namespace: string,
   proposalId: string,
+  mode?: 'pro' | 'classic',
 ): Promise<{ ast: unknown | null; savedAt: string | null }> {
+  const qs = mode ? `?mode=${mode}` : '';
   const res = await fetch(
-    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`,
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite${qs}`,
     { headers: authHeaders(apiKey) },
   );
   const data = await handleResponse<{ ast: unknown | null; savedAt: string | null }>(res);
@@ -626,8 +628,8 @@ export async function saveMicrositeHistoryToServer(apiKey: string, namespace: st
   await handleResponse<{ ok: boolean }>(res);
 }
 
-export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, source?: string): Promise<void> {
-  const qs = source ? `?source=${encodeURIComponent(source)}` : '';
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, mode?: string): Promise<void> {
+  const qs = mode ? `?mode=${encodeURIComponent(mode)}` : '';
   const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}${qs}`, {
     method: 'DELETE',
     headers: authHeadersNoBody(apiKey),

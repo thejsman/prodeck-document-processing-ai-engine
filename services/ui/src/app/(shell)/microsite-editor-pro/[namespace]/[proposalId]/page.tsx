@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { fetchMicrositeContent } from '@/lib/api';
+import { fetchMicrositeContent, saveMicrositeHistoryToServer } from '@/lib/api';
+import { persistMicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
 import { MicrositeEditorPro } from '@/components/microsite/editor/MicrositeEditorPro';
 import type { LayoutAST } from '@/types/presentation';
 
@@ -20,7 +21,7 @@ export default function MicrositeEditorProPage() {
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
-    fetchMicrositeContent(apiKey, namespace, proposalId)
+    fetchMicrositeContent(apiKey, namespace, proposalId, 'pro')
       .then(({ ast: data }) => {
         if (!data) { setError('No microsite found — generate one first.'); setLoading(false); return; }
         setAst(data as LayoutAST);
@@ -67,6 +68,12 @@ export default function MicrositeEditorProPage() {
       namespace={namespace}
       proposalId={proposalId}
       onClose={() => router.back()}
+      onSaved={async (updatedAst) => {
+        await Promise.all([
+          apiKey ? saveMicrositeHistoryToServer(apiKey, namespace, updatedAst).catch(() => {}) : Promise.resolve(),
+        ]);
+        persistMicrositeHistoryEntry(namespace, updatedAst, apiKey ?? undefined);
+      }}
     />
   );
 }

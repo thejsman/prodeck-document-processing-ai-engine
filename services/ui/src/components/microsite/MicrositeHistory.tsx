@@ -6,8 +6,9 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
 import { Microsite } from './Microsite';
-import { useMicrositeHistory, type MicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
-import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer, saveMicrositeAst } from '@/lib/api';
+import { MicrositePro } from './MicrositePro';
+import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
+import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { getPlugin } from '@/lib/presentation/pluginRegistry';
@@ -97,6 +98,31 @@ export function MicrositeHistory({
   const { history: localHistory, deleteEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
+  const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(new Set());
+
+  const loadServerEntries = useCallback(() => {
+    if (!apiKey) return;
+    setLoadingServer(true);
+    fetchAllMicrositeHistory(apiKey)
+      .then((items) => {
+        setServerEntries(
+          items
+            .filter((item) => item.ast && (item.ast as { sections?: unknown[] }).sections?.length)
+            .map((item) => {
+              const mode = (item.ast as LayoutAST)?.generationMode;
+              return {
+                id: `server::${item.namespace}::${mode || 'unknown'}`,
+                savedAt: item.savedAt,
+                namespace: item.namespace,
+                ast: item.ast as LayoutAST,
+                source: 'server' as const,
+              };
+            }),
+        );
+      })
+      .catch(() => {})
+      .finally(() => setLoadingServer(false));
+  }, [apiKey]);
   const [previewEntry, setPreviewEntry] = useState<CombinedEntry | null>(null);
 
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
@@ -134,16 +160,20 @@ export function MicrositeHistory({
   const handleDeleteConfirmed = async () => {
     if (!confirmEntry || !apiKey) return;
     setDeleting(true);
+    const ns = confirmEntry.namespace;
+    const mode = confirmEntry.ast.generationMode;
+    const deletedKey = mode ? `${ns}::${mode}` : ns;
+    // Optimistically hide the entry immediately so it vanishes before the async fetch.
+    setDeletedNamespaces((prev) => new Set([...prev, deletedKey]));
     try {
-      if (confirmEntry.source === 'local') {
-        deleteEntry(confirmEntry.id);
-      } else {
-        await deleteMicrositeHistoryFromServer(apiKey, confirmEntry.namespace);
-        setServerEntries((prev) => prev.filter((e) => e.id !== confirmEntry.id));
-      }
+      await deleteMicrositeHistoryFromServer(apiKey, ns, mode ?? undefined);
+      setServerEntries((prev) =>
+        prev.filter((e) => !(e.namespace === ns && e.ast.generationMode === mode)),
+      );
       refresh();
     } catch {
-      /* ignore */
+      // Rollback optimistic removal on failure.
+      setDeletedNamespaces((prev) => { const next = new Set(prev); next.delete(deletedKey); return next; });
     } finally {
       setDeleting(false);
       setConfirmEntry(null);
@@ -152,52 +182,56 @@ export function MicrositeHistory({
 
   const handleEdit = useCallback(
     (entry: CombinedEntry) => {
-      const pid = entry.ast.proposalId ?? entry.id;
       const ns = entry.namespace;
+      // API ignores proposalId for file lookup (keys by namespace only);
+      // use namespace as a safe fallback when proposalId is absent.
+      const pid = entry.ast.proposalId || ns;
       const dest =
         entry.ast.generationMode === 'classic'
           ? `/microsite-editor/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`
           : `/microsite-editor-pro/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`;
-      const go = () => router.push(dest);
-      if (apiKey) {
-        saveMicrositeAst(apiKey, ns, pid, entry.ast).then(go).catch(go);
-      } else {
-        go();
-      }
+      router.push(dest);
     },
-    [router, apiKey],
+    [router],
   );
 
+  useEffect(() => { loadServerEntries(); }, [loadServerEntries]);
+
+  // Re-fetch when the user navigates back from an editor page.
   useEffect(() => {
-    if (!apiKey) return;
-    setLoadingServer(true);
-    fetchAllMicrositeHistory(apiKey)
-      .then((items) => {
-        setServerEntries(
-          items
-            .filter((item) => item.ast && (item.ast as { sections?: unknown[] }).sections?.length)
-            .map((item) => ({
-              id: `server::${item.namespace}`,
-              savedAt: item.savedAt,
-              namespace: item.namespace,
-              ast: item.ast as LayoutAST,
-              source: 'server' as const,
-            })),
-        );
-      })
-      .catch(() => {})
-      .finally(() => setLoadingServer(false));
-  }, [apiKey]);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadServerEntries();
+        refresh();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [loadServerEntries, refresh]);
 
   const combined: CombinedEntry[] = (() => {
     const localMapped: CombinedEntry[] = localHistory
       .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
       .map((e) => ({ id: e.id, savedAt: e.savedAt, namespace: e.namespace, ast: e.ast, source: 'local' as const }));
-    const localNamespaces = new Set(localMapped.map((e) => e.namespace));
-    const serverOnly = serverEntries.filter((e) => !localNamespaces.has(e.namespace));
-    return [...localMapped, ...serverOnly]
+    // Deduplicate by namespace::mode — local entry wins over server for the same mode,
+    // but a different mode from the server is still included.
+    const localKeys = new Set(localMapped.map((e) => `${e.namespace}::${e.ast.generationMode || ''}`));
+    const serverOnly = serverEntries.filter((e) => !localKeys.has(`${e.namespace}::${e.ast.generationMode || ''}`));
+    const sorted = [...localMapped, ...serverOnly]
+      .filter((e) => {
+        const mode = e.ast.generationMode;
+        return !deletedNamespaces.has(mode ? `${e.namespace}::${mode}` : e.namespace);
+      })
       .filter((e) => namespaces.length === 0 || namespaces.includes(e.namespace))
       .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+    // Final dedup by namespace+mode — keep most recent per mode.
+    const seen = new Set<string>();
+    return sorted.filter((e) => {
+      const key = `${e.namespace}::${e.ast.generationMode || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   })();
 
   useEffect(() => {
@@ -205,11 +239,13 @@ export function MicrositeHistory({
   }, [combined.length, onCountChange]);
 
   if (previewEntry) {
+    const PreviewComponent = previewEntry.ast.generationMode !== 'classic' ? MicrositePro : Microsite;
     return (
-      <Microsite
+      <PreviewComponent
         ast={previewEntry.ast}
         onBack={() => {
           refresh();
+          loadServerEntries();
           setPreviewEntry(null);
         }}
         onEdit={() => handleEdit(previewEntry)}

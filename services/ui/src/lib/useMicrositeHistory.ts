@@ -12,6 +12,22 @@ export interface MicrositeHistoryEntry {
   source?: string;
 }
 
+const STORAGE_KEY = 'microsite_history';
+
+function readAll(): MicrositeHistoryEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function writeAll(entries: MicrositeHistoryEntry[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+
 /**
  * Standalone (non-hook) utility: update or insert a history entry for the given
  * namespace in localStorage and sync to the server.  Call this from editor pages
@@ -102,11 +118,14 @@ export function useMicrositeHistory(namespace?: string, apiKey?: string) {
 
   const deleteEntry = useCallback((id: string) => {
     const inner = id.startsWith('server::') ? id.slice(8) : (namespace ?? '');
-    // inner may be "<ns>::chat" for chat-generated entries
-    const isChatEntry = inner.endsWith('::chat');
-    const targetNs = isChatEntry ? inner.slice(0, -6) : inner;
+    // inner is "<ns>::<mode>" (e.g. "lnp2::pro") or just "<ns>" for legacy
+    const lastSep = inner.lastIndexOf('::');
+    const targetNs = lastSep >= 0 ? inner.slice(0, lastSep) : inner;
+    const rawMode = lastSep >= 0 ? inner.slice(lastSep + 2) : undefined;
+    // 'unknown' means no generationMode — delete all files for the namespace
+    const modeParam = (rawMode && rawMode !== 'unknown') ? rawMode : undefined;
     if (apiKey && targetNs) {
-      deleteMicrositeHistoryFromServer(apiKey, targetNs, isChatEntry ? 'chat' : undefined)
+      deleteMicrositeHistoryFromServer(apiKey, targetNs, modeParam)
         .then(() => load()).catch(() => {});
     }
   }, [namespace, apiKey, load]);
