@@ -390,9 +390,9 @@ export function PresentationPage() {
     return "upload";
   });
 
-  const [generationMethod, setGenerationMethod] = useState<'pro' | 'classic'>('classic');
+  const [generationMethod, setGenerationMethod] = useState<'pro' | 'classic'>('pro');
   // Ref always tracks latest value so runPipeline closure is never stale
-  const generationMethodRef = useRef<'pro' | 'classic'>('classic');
+  const generationMethodRef = useRef<'pro' | 'classic'>('pro');
   useEffect(() => {
     generationMethodRef.current = generationMethod;
   }, [generationMethod]);
@@ -854,8 +854,8 @@ export function PresentationPage() {
     setLayoutAST(null);
     setGeneratedMarkdown(null);
     setWasGenerating(false);
-    setGenerationMethod('classic');
-    generationMethodRef.current = 'classic';
+    setGenerationMethod('pro');
+    generationMethodRef.current = 'pro';
   }, []);
 
   const stepIdx = activeSteps.findIndex((s) => s.id === step);
@@ -1888,62 +1888,132 @@ export function PresentationPage() {
               {/* ═══ STEP 2: GENERATION MODE ═══ */}
               {step === "method" && (
                 <div>
-                  <p style={{ fontSize: 13, color: "var(--color-text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
-                    Choose how you want to generate and edit your microsite.
+                  <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+                    Choose your generation mode. You can always switch before generating.
                   </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                    {/* Pro card */}
-                    <button
-                      onClick={() => setGenerationMethod('pro')}
-                      style={{
-                        border: `2px solid ${generationMethod === 'pro' ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                        borderRadius: 12,
-                        padding: "20px 18px",
-                        background: generationMethod === 'pro' ? 'var(--color-primary-soft, rgba(37,99,235,0.06))' : 'var(--color-surface)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'border-color 0.15s, background 0.15s',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <span style={{ fontSize: 18, lineHeight: 1 }}>⚡</span>
-                        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>Microsite Generator Pro</span>
-                        {generationMethod === 'pro' && (
-                          <span style={{ marginLeft: 'auto', background: 'var(--color-primary)', color: '#fff', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '2px 8px' }}>Selected</span>
-                        )}
-                      </div>
-                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.8 }}>
-                        <li>URL reference · image upload · custom prompt</li>
-                        <li>Per-section AI regeneration in editor</li>
-                        <li>Opens in dedicated editor page</li>
-                      </ul>
-                    </button>
-                    {/* Classic card */}
-                    <button
-                      onClick={() => setGenerationMethod('classic')}
-                      style={{
-                        border: `2px solid ${generationMethod === 'classic' ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                        borderRadius: 12,
-                        padding: "20px 18px",
-                        background: generationMethod === 'classic' ? 'var(--color-primary-soft, rgba(37,99,235,0.06))' : 'var(--color-surface)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'border-color 0.15s, background 0.15s',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <span style={{ fontSize: 18, lineHeight: 1 }}>🎨</span>
-                        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>Classic Generation</span>
-                        {generationMethod === 'classic' && (
-                          <span style={{ marginLeft: 'auto', background: 'var(--color-primary)', color: '#fff', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '2px 8px' }}>Selected</span>
-                        )}
-                      </div>
-                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.8 }}>
-                        <li>Full brand setup · theme selection</li>
-                        <li>URL reference · image upload · custom prompt</li>
-                        <li>Inline editor with design agent panel</li>
-                      </ul>
-                    </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    {/* ── Pro card ── */}
+                    {(['pro', 'classic'] as const).map((mode) => {
+                      const isPro = mode === 'pro';
+                      const isSelected = generationMethod === mode;
+                      const accentColor = isPro ? '#2563eb' : '#7c3aed';
+                      const gradientA = isPro ? '#1e3a8a' : '#4c1d95';
+                      const gradientB = isPro ? '#1d4ed8' : '#6d28d9';
+                      const features = isPro
+                        ? ['Custom HTML per section', 'URL · image · prompt input', 'Per-section AI regeneration', 'Dedicated editor page']
+                        : ['Plugin-themed components', 'Full brand + color setup', 'Theme gallery selection', 'Inline design agent panel'];
+                      const icon = isPro ? '⚡' : '🎨';
+                      const title = isPro ? 'Pro Generator' : 'Classic Mode';
+                      const tagline = isPro ? 'AI-crafted HTML · maximum control' : 'Themed components · guided flow';
+                      return (
+                        <button
+                          key={mode}
+                          onClick={() => setGenerationMethod(mode)}
+                          style={{
+                            border: `2px solid ${isSelected ? accentColor : 'var(--color-border)'}`,
+                            borderRadius: 14,
+                            padding: 0,
+                            background: 'var(--color-surface)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            overflow: 'hidden',
+                            transition: 'border-color 0.18s, box-shadow 0.18s, transform 0.15s',
+                            boxShadow: isSelected ? `0 0 0 3px ${accentColor}22, 0 8px 24px rgba(0,0,0,0.18)` : '0 2px 8px rgba(0,0,0,0.1)',
+                            transform: isSelected ? 'translateY(-1px)' : 'translateY(0)',
+                            position: 'relative' as const,
+                          }}
+                        >
+                          {/* Header gradient area */}
+                          <div style={{
+                            background: `linear-gradient(135deg, ${gradientA} 0%, ${gradientB} 100%)`,
+                            padding: '18px 18px 14px',
+                            position: 'relative' as const,
+                            overflow: 'hidden',
+                          }}>
+                            {/* Background glow orb */}
+                            <div style={{
+                              position: 'absolute' as const, top: -20, right: -20,
+                              width: 90, height: 90, borderRadius: '50%',
+                              background: `radial-gradient(circle, ${accentColor}66 0%, transparent 70%)`,
+                              pointerEvents: 'none' as const,
+                            }} />
+                            {/* Recommended badge */}
+                            {isPro && (
+                              <div style={{
+                                position: 'absolute' as const, top: 12, right: 12,
+                                background: 'linear-gradient(90deg, #f59e0b, #f97316)',
+                                color: '#000', borderRadius: 100,
+                                fontSize: 9, fontWeight: 800, padding: '2px 8px',
+                                letterSpacing: '0.06em', textTransform: 'uppercase' as const,
+                              }}>
+                                Recommended
+                              </div>
+                            )}
+                            {/* Icon + title */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                              <div style={{
+                                width: 36, height: 36, borderRadius: 10,
+                                background: 'rgba(255,255,255,0.15)',
+                                backdropFilter: 'blur(4px)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 18, flexShrink: 0,
+                              }}>
+                                {icon}
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>{title}</div>
+                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>{tagline}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Feature list */}
+                          <div style={{ padding: '12px 18px 16px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 7 }}>
+                              {features.map((f, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{
+                                    width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                                    background: isSelected ? `${accentColor}18` : 'var(--color-border)',
+                                    border: `1.5px solid ${isSelected ? accentColor : 'var(--color-border)'}`,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    transition: 'background 0.15s, border-color 0.15s',
+                                  }}>
+                                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                                      <path d="M1.5 4L3 5.5L6.5 2" stroke={isSelected ? accentColor : 'var(--color-text-muted)'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  </div>
+                                  <span style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.4 }}>{f}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Select indicator */}
+                            <div style={{
+                              marginTop: 14,
+                              padding: '7px 0',
+                              borderRadius: 8,
+                              background: isSelected ? accentColor : 'transparent',
+                              border: `1.5px solid ${isSelected ? accentColor : 'var(--color-border)'}`,
+                              textAlign: 'center' as const,
+                              fontSize: 12, fontWeight: 700,
+                              color: isSelected ? '#fff' : 'var(--color-text-muted)',
+                              transition: 'all 0.18s',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                            }}>
+                              {isSelected ? (
+                                <>
+                                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                    <path d="M2 6L5 9L10 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                  Selected
+                                </>
+                              ) : `Use ${title}`}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
