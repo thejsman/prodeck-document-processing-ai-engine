@@ -31,7 +31,7 @@ services:
       # Embedding provider
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
       - VOYAGE_API_KEY=${VOYAGE_API_KEY:-}
-      - VOYAGE_EMBEDDING_MODEL=${VOYAGE_EMBEDDING_MODEL:-voyage-3-large}
+      - VOYAGE_EMBEDDING_MODEL=${VOYAGE_EMBEDDING_MODEL:-voyage-4}
       # Vector store — Qdrant is the default for production
       - VECTOR_STORE=${VECTOR_STORE:-qdrant}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
