@@ -1423,19 +1423,15 @@ ${layoutSummary}`;
     return reply.send({ ok: true });
   });
 
-  // DELETE /presentations/history/:namespace — remove a namespace's saved AST
-  // Accepts optional ?source=chat to delete the chat-generated (fallback) entry instead.
+  // DELETE /presentations/history/:namespace — remove a namespace's saved AST (both primary and chat paths).
   app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string };
-    const { source } = (req.query as Record<string, string | undefined>);
-    const astPath = source === 'chat'
-      ? path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json')
-      : path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    try {
-      await rm(astPath);
-    } catch {
-      // File didn't exist — still return ok
-    }
+    const primaryPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    const chatPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
+    await Promise.all([
+      rm(primaryPath).catch(() => {}),
+      rm(chatPath).catch(() => {}),
+    ]);
     return reply.send({ ok: true });
   });
 
