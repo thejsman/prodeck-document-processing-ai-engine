@@ -152,20 +152,17 @@ export function MicrositeHistory({
 
   const handleEdit = useCallback(
     (entry: CombinedEntry) => {
-      const pid = entry.ast.proposalId ?? entry.id;
       const ns = entry.namespace;
+      // API ignores proposalId for file lookup (keys by namespace only);
+      // use namespace as a safe fallback when proposalId is absent.
+      const pid = entry.ast.proposalId || ns;
       const dest =
         entry.ast.generationMode === 'classic'
           ? `/microsite-editor/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`
           : `/microsite-editor-pro/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`;
-      const go = () => router.push(dest);
-      if (apiKey) {
-        saveMicrositeAst(apiKey, ns, pid, entry.ast).then(go).catch(go);
-      } else {
-        go();
-      }
+      router.push(dest);
     },
-    [router, apiKey],
+    [router],
   );
 
   useEffect(() => {
