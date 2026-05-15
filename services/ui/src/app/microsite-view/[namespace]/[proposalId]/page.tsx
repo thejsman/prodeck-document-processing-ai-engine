@@ -7,6 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { fetchMicrositeContent, fetchMicrositeDirectHtml, generateMicrositeDirectStream } from '@/lib/api';
 import { Microsite } from '@/components/microsite/Microsite';
+import { MicrositePro } from '@/components/microsite/MicrositePro';
 import type { LayoutAST } from '@/types/presentation';
 
 type ViewMode = 'direct' | 'ast';
@@ -231,14 +232,20 @@ export default function MicrositeViewPage() {
     );
   }
 
+  const isPro = ast?.generationMode === 'pro';
+  const editorPath = isPro
+    ? `/microsite-editor-pro/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`
+    : `/microsite-editor/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`;
+  const MicrositeComponent = isPro ? MicrositePro : Microsite;
+
   return (
     <>
       {genOverlay}
       {toolbar}
-      <Microsite
+      <MicrositeComponent
         ast={ast!}
         mode="fullscreen"
-        onEdit={() => router.push(`/microsite-editor-pro/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`)}
+        onEdit={() => router.push(editorPath)}
       />
     </>
   );

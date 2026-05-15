@@ -197,8 +197,8 @@ function renderSection(
   // Rewrite them through the Next.js /api proxy so they work in the UI.
   const rawUrl = section.image?.url;
   const resolvedUrl = rawUrl?.startsWith('/presentation-images/') ? `/api${rawUrl}` : (rawUrl ?? null);
-  // Classic mode: only the hero section shows an image.
-  const imageUrl = (generationMode === 'classic' && section.sectionType !== 'hero') ? null : resolvedUrl;
+  // Only the hero section shows an image — all other section types suppress it.
+  const imageUrl = section.sectionType === 'hero' ? resolvedUrl : null;
   const sid = section.id;
 
   let inner: React.ReactNode;
@@ -543,13 +543,8 @@ function SectionWithOverlay({
   // Background image only applies to hero by default.
   // For other sections it only applies when the user explicitly set it via
   // the toolbar (source === 'custom').
-  // Classic mode: only hero gets a background image (no overview or custom-auto images).
-  const isHeroLike = section.sectionType === 'hero' || section.sectionType === 'overview';
-  const hasBgImage = !!section.image?.url && (
-    generationMode === 'classic'
-      ? section.sectionType === 'hero'
-      : (isHeroLike || section.image.source === 'custom')
-  );
+  // Only the hero section gets a background image — all other sections suppress it.
+  const hasBgImage = !!section.image?.url && section.sectionType === 'hero';
   let bgCssRule = '';
   if (hasBgColor) {
     // Allow CSS variable syntax (hyphens) and all valid CSS value chars.
