@@ -638,7 +638,7 @@ body {
 }
 
 .gate .card {
-  width: 360px;
+  width: min(360px, calc(100vw - 32px));
   text-align: center;
 }
 
@@ -7390,4 +7390,373 @@ body {
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* ============================================
+   MOBILE RESPONSIVENESS FIXES — Phase 1
+   ============================================ */
+
+/* Fix 1 — Proposal Cards
+   Selector: .proposal-cards-grid
+   Desktop: repeat(auto-fill, minmax(240px, 1fr)), padding: 20px 24px
+   Fix: single column + halved horizontal padding at ≤768px */
+@media (max-width: 768px) {
+  .proposal-cards-grid {
+    grid-template-columns: 1fr;
+    padding: 20px 12px;
+  }
+}
+
+/* Fix 2 — Dashboard Stat Grid + Main Grid
+   Selectors: .dash-stat-grid, .dash-main-grid
+   .dash-stat-grid desktop: repeat(4, 1fr); existing overrides: 2-col at 1024px, 1-col at 600px
+   Explicit 768px rule reinforces 2-col intent between the two existing breakpoints.
+   .dash-main-grid desktop: 1fr 320px; existing override collapses at 900px
+   Explicit 768px rule makes intent clear for viewport range 768–900px. */
+@media (max-width: 768px) {
+  .dash-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dash-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Fix 3 — Presentation Config Panel
+   Selectors: .presentation-layout, .presentation-config-panel
+   Desktop: 300px 1fr grid; existing override collapses at 900px
+   Explicit 768px rule covers the 768–900px range with the same collapse + unstick. */
+@media (max-width: 768px) {
+  .presentation-layout {
+    grid-template-columns: 1fr;
+  }
+  .presentation-config-panel {
+    position: static;
+  }
+}
+
+/* Fix 4 — Admin Nav Grid
+   Selector: .admin-nav
+   Desktop: repeat(auto-fill, minmax(200px, 1fr))
+   Fix: single column at ≤768px — minmax(200px) fits ~1.8 cards on 375px, causing overflow */
+@media (max-width: 768px) {
+  .admin-nav {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Fix 5 — Knowledge Stats Row (Issue A)
+   Selectors: .kb-stats, .kb-stat
+   Desktop: .kb-stats is display:flex gap:12px (no wrap); .kb-stat has min-width:80px
+   Fix: wrap into 2-col grid at ≤768px using flex-wrap + flex-basis 50%
+   calc(50% - 4px) = half the 8px gap, giving ~167px per chip on a 375px screen (enough
+   for the widest label "Processing" at 11px font-size) */
+@media (max-width: 768px) {
+  .kb-stats {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .kb-stat {
+    flex: 1 1 calc(50% - 4px);
+  }
+}
+
+/* Fix 6 — Knowledge Table Horizontal Scroll (Issue B)
+   Selector: .kb-table
+   Desktop: width:100%, border-collapse:collapse (no overflow handling)
+   Option 1 chosen (CSS only, no TSX wrapper needed): display:block on <table> enables
+   overflow-x to work — cells inside keep their table layout, the element itself becomes
+   a scrollable block container. -webkit-overflow-scrolling adds iOS momentum scrolling. */
+@media (max-width: 768px) {
+  .kb-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Fix 7A — Chat Panel Backdrop
+   Selector: .chat-panel-backdrop
+   Rendered in chat/page.tsx when (panelVisible && panelHasContent) || (collectionPanelOpen && namespace).
+   display:none by default so it is invisible (and zero-size) on desktop. */
+.chat-panel-backdrop {
+  display: none;
+}
+@media (max-width: 768px) {
+  .chat-panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Fix 7B — Chat Side Panels (mobile overlay)
+   Selectors: .chat-side-panel, .chat-collection-panel
+   These classes were added to the anonymous panel wrapper divs in chat/page.tsx (the only
+   TSX change). At ≤768px, position:fixed takes both panels out of .chat-v2-body's flex
+   flow so .chat-v2-main always gets full width — regardless of panel open state.
+   The existing inline width (0=closed / 256|304=open) and width transition still control
+   visibility and animation. background:var(--panel) is needed because the wrapper div
+   has no background of its own. z-index:200 sits above shell content (z-index:0) and the
+   mobile sidebar drawer (z-index:100) but below modals/toasts.
+   Desktop: no position:fixed applied — panels continue to push .chat-v2-main as before. */
+@media (max-width: 768px) {
+  .chat-side-panel,
+  .chat-collection-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    z-index: 200;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* Fix 8 — Skills List Panel (mobile overlay)
+   .skills-list-toggle: toggle button added to topbar in skills/page.tsx; hidden on desktop.
+   .skills-resize-handle: drag handle; hidden on mobile (panel is fixed-width 260px on mobile).
+   .skills-list-panel: the right panel wrapper; hidden by default on mobile, shown as fixed
+     overlay when .is-open is present (class driven by listPanelOpen state).
+     width:260px !important overrides the inline rightPanelWidth style on mobile only.
+   .skills-panel-backdrop: fullscreen tap-to-close backdrop; display:none by default so it
+     is invisible on desktop even though the JSX always renders it when listPanelOpen=true. */
+.skills-list-toggle {
+  display: none;
+}
+.skills-panel-backdrop {
+  display: none;
+}
+@media (max-width: 768px) {
+  .skills-list-toggle {
+    display: block;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .skills-resize-handle {
+    display: none;
+  }
+  .skills-list-panel {
+    display: none;
+  }
+  .skills-list-panel.is-open {
+    display: flex;
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 260px !important;
+    z-index: 200;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+    overflow-y: auto;
+    flex-direction: column;
+  }
+  .skills-panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Fix 9 — Microsite Editor Toolbar (overflow at narrow viewports)
+   Selectors: .mse-bar, .mse-bar .mse-save-label
+   Context: MicrositeEditor.tsx injects .mse-bar styles via an inline <style> tag which
+   has higher document order than globals.css. overflow-x is a new property (no conflict).
+   padding uses !important (scoped to ≤480px only) to beat the inline style's specificity.
+   At ≤768px: allow horizontal scroll so all toolbar controls stay reachable.
+   At ≤480px: tighten padding and hide the verbose save label ("Saved 12:34") to let more
+   controls be visible without scrolling. Desktop toolbar (>768px) is completely unchanged. */
+@media (max-width: 768px) {
+  .mse-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+@media (max-width: 480px) {
+  .mse-bar {
+    padding: 0 8px !important;
+  }
+  .mse-bar .mse-save-label {
+    display: none;
+  }
+}
+
+/* Fix 10 — Dashboard Stat Card sizing (2-col layout at ≤768px)
+   Selectors: .stat-card-body, .stat-card-icon, .stat-card-value
+   At ≤768px the stat grid is 2-col (each card ~167px wide on a 375px screen).
+   Desktop values: body padding 20-24px, icon 28px, value 32px font-size.
+   With 24px left + 20px right padding and a 28px icon + 16px gap consuming 88px,
+   only ~79px remains for the value — a 5-digit number at 32px would overflow.
+   Reduce to tighter values; cards still clearly display their numbers and labels. */
+@media (max-width: 768px) {
+  .stat-card-body {
+    padding: 14px 14px 14px 18px;
+    gap: 10px;
+  }
+  .stat-card-icon {
+    font-size: 20px;
+  }
+  .stat-card-value {
+    font-size: 24px;
+  }
+}
+
+/* ============================================
+   MOBILE RESPONSIVENESS FIXES — Phase 2 Polish
+   ============================================ */
+
+/* Global: smooth scrolling for anchor links and programmatic scrollTo calls.
+   Already applied to .chat-v2-messages specifically; this covers the whole document. */
+html {
+  scroll-behavior: smooth;
+}
+
+@media (max-width: 768px) {
+  /* ── Tap targets ──────────────────────────────────────────────────
+     Apple HIG and WCAG 2.5.5 require interactive targets ≥ 44×44px.
+     Targets below that threshold on mobile:
+       .topbar-hamburger  34×34px  (most critical — opens sidebar nav)
+       .btn-sm            ~31px h  (padding: 5px 12px, font 14px)
+       .chat-v2-send-btn  36×36px  (primary send action)
+       .chat-v2-attach-btn 34×34px (attachment/menu trigger)
+     Desktop values are unchanged — these rules only fire at ≤768px. */
+  .topbar-hamburger {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 44px;
+  }
+
+  .chat-v2-send-btn,
+  .chat-v2-attach-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* ── Text overflow safety ──────────────────────────────────────────
+     Long unbroken strings (URLs, API keys, slugs) inside .page-container
+     would cause the container to overflow the viewport horizontally.
+     break-word: wraps at arbitrary points only when no valid break exists.
+     overflow-wrap: break-word is the standard alias (break-word is legacy). */
+  .page-container {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* ── Topbar sticky note (skipped — not needed) ────────────────────
+     .shell-main has overflow:hidden and is a flex column. .shell-content
+     is the scroll container (overflow-y:auto). The topbar is a flex sibling
+     above .shell-content and never scrolls out of view. No CSS change needed. */
+
+  .chat-v2-composer-hint {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-v2-input::placeholder {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-v2-input {
+    max-height: 88px;
+    font-size: 16px;
+  }
+
+  .chat-v2-composer {
+    align-items: center;
+  }
+
+  .chat-v2-header {
+    padding-left: 8px;
+    padding-right: 12px;
+  }
+
+  .topbar-hamburger {
+    background: var(--panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    min-width: unset;
+    min-height: unset;
+    margin-right: 0;
+    padding: 7px;
+  }
+
+  /* ── Chat panel toggle icons + panel content — re-show on mobile ──
+     A 900px rule hides both .chat-v2-panel-toggle and .chat-ctx-panel.
+     Since panels are now fixed overlays on mobile (Fix 7B), the inner
+     content and toggle icons must be visible. These rules come after the
+     900px rule in source order so they win at ≤768px.
+     Toggle visual size stays 30×30px; padding expands the tap target to ~44px. */
+  .chat-v2-panel-toggle {
+    display: flex !important;
+    padding: 7px;
+  }
+
+  .chat-ctx-panel {
+    display: flex !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .page-theme-toggle-corner {
+    display: none;
+  }
+
+  .welcome-mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: absolute;
+    top: 8px;
+    left: 12px;
+  }
+
+  .welcome-mobile-brand {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+}
+
+@media (min-width: 769px) {
+  .welcome-mobile-header,
+  .welcome-mobile-brand { display: none; }
+}
+
+@media (max-width: 768px) {
+  .create-ns-backdrop {
+    padding: 16px !important;
+    align-items: flex-end !important;
+  }
+
+  .create-ns-modal {
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-radius: 16px 16px 0 0 !important;
+  }
+
+  .create-ns-modal .btn-primary {
+    min-height: 44px;
+  }
 }
