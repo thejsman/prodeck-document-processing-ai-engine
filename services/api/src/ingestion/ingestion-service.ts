@@ -9,7 +9,6 @@
 
 import { readFile, writeFile, mkdir, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 
 // Per-namespace mutex — prevents concurrent read-modify-write on files.json.
 const namespaceLocks = new Map<string, Promise<void>>();
@@ -111,9 +110,10 @@ export async function saveFilesIndex(
   files: IngestionFile[],
 ): Promise<void> {
   const filePath = filesIndexPath(workdir, namespace);
-  await mkdir(path.dirname(filePath), { recursive: true });
-  // Write to a temp file then rename — atomic on Linux, prevents partial reads.
-  const tmp = path.join(os.tmpdir(), `files-${namespace}-${process.pid}-${Date.now()}.json`);
+  const dir = path.dirname(filePath);
+  await mkdir(dir, { recursive: true });
+  // Temp file must be on the same filesystem as the target so rename() is atomic.
+  const tmp = path.join(dir, `.files-${process.pid}-${Date.now()}.json.tmp`);
   await writeFile(tmp, JSON.stringify(files, null, 2), 'utf-8');
   await rename(tmp, filePath);
 }
