@@ -9,6 +9,7 @@ import {
   Database,
   Download,
   Eraser,
+  Menu,
   Pencil,
   PanelRightClose,
   PanelRightOpen,
@@ -21,6 +22,7 @@ import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
+import { useMobileNav } from '@/lib/mobile-nav-store';
 import { useSSE, type ProposalSection, type ConfirmationRequest } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatFileUpload } from '@/components/chat/ChatFileUpload';
@@ -170,6 +172,7 @@ function upsertPersistedUpload(ns: string, patch: Partial<PersistedUpload> & { i
 export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
+  const { openMobileNav } = useMobileNav();
 
   const brief = useBrief(namespace || 'default', apiKey);
   const { status: collectionStatus, loading: collectionLoading } = useCollectionStatus();
@@ -1001,6 +1004,13 @@ export default function ChatPage() {
       <div className="chat-v2-center">
         <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
           <div className="chat-v2-header-left">
+            <button
+              className="topbar-hamburger"
+              onClick={openMobileNav}
+              aria-label="Open navigation"
+            >
+              <Icon icon={Menu} size="md" />
+            </button>
             <span className="chat-v2-ns">{namespace || 'default'}</span>
           </div>
           <div className="chat-v2-header-right">
@@ -1749,8 +1759,17 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {/* Mobile backdrop — tap outside to close whichever panel is open */}
+      {((panelVisible && panelHasContent) || (collectionPanelOpen && !!namespace)) && (
+        <div
+          className="chat-panel-backdrop"
+          onClick={() => { setPanelVisible(false); setCollectionPanelOpen(false); }}
+        />
+      )}
+
       {/* ── Right panel: full height, not under header ── */}
       <div
+        className="chat-side-panel"
         style={{
           width: panelVisible && panelHasContent ? 256 : 0,
           flexShrink: 0,
@@ -1768,6 +1787,7 @@ export default function ChatPage() {
 
       {/* ── Collection progress panel ── */}
       <div
+        className="chat-collection-panel"
         style={{
           width: collectionPanelOpen && !!namespace ? 304 : 0,
           flexShrink: 0,

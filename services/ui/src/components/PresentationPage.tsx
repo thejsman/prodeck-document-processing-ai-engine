@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Globe, ImageIcon, Paperclip, X } from 'lucide-react';
+import { Check, Globe, ImageIcon, Menu, Paperclip, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
+import { useMobileNav } from '@/lib/mobile-nav-store';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import {
   fetchNamespaces,
@@ -355,6 +356,7 @@ function MotivationalQuotes({ active }: MotivationalQuotesProps) {
 export function PresentationPage() {
   const { apiKey } = useAuth();
   const { setNamespace: setGlobalNamespace } = useNamespace();
+  const { openMobileNav } = useMobileNav();
   const router = useRouter();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
@@ -1406,12 +1408,19 @@ export function PresentationPage() {
   // ── Wizard steps ─────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', height: '100%' }}>
-      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+      <div className="page-theme-toggle-corner" style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
         <ThemeToggle />
       </div>
       <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
         {/* ── Header — same style as Proposals page ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
+          <button
+            className="topbar-hamburger"
+            onClick={openMobileNav}
+            aria-label="Open navigation"
+          >
+            <Icon icon={Menu} size="md" />
+          </button>
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>
             Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ''}
           </span>
