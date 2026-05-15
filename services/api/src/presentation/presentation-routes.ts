@@ -1332,6 +1332,7 @@ ${layoutSummary}`;
     // be invisible to the namespace panel. We synthesize a minimal entry from the AST.
     const existingIds = new Set(presentations.map((p) => p.proposalId));
     const astCandidates = [
+      path.join(workdir, 'assets', 'presentations', namespace, 'site-ast-chat.json'),
       path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json'),
       path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
     ];
@@ -1400,6 +1401,15 @@ ${layoutSummary}`;
             allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
           } catch { /* skip */ }
         }
+        // Always surface chat-mode file when present (written by handleGenerateMicrosite)
+        try {
+          const chatAstPath = path.join(assetsDir, ns, 'site-ast-chat.json');
+          const raw = await readFile(chatAstPath, 'utf-8');
+          const ast = JSON.parse(raw);
+          const fileStat = await stat(chatAstPath);
+          primaryNamespaces.add(ns);
+          allEntries.push({ id: `${ns}::chat`, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
+        } catch { /* no chat AST — skip */ }
       }),
     );
 
@@ -1461,9 +1471,11 @@ ${layoutSummary}`;
     } else if (mode === 'classic') {
       await rm(path.join(base, 'site-ast-classic.json')).catch(() => {});
     } else if (mode === 'chat') {
+      await rm(path.join(base, 'site-ast-chat.json')).catch(() => {});
       await rm(chatPath).catch(() => {});
     } else {
       await Promise.all([
+        rm(path.join(base, 'site-ast-chat.json')).catch(() => {}),
         rm(path.join(base, 'site-ast.json')).catch(() => {}),
         rm(path.join(base, 'site-ast-pro.json')).catch(() => {}),
         rm(path.join(base, 'site-ast-classic.json')).catch(() => {}),
@@ -2691,6 +2703,7 @@ ${layoutSummary}`;
                    : null;
     const candidates = [
       ...(modeFile ? [path.join(base, modeFile)] : []),
+      path.join(base, 'site-ast-chat.json'),
       path.join(base, 'site-ast.json'),
       path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
     ];

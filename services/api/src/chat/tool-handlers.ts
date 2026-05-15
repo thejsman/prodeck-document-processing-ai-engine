@@ -564,7 +564,7 @@ export async function handleGenerateMicrosite(
 
   astRaw.plugin = designSkillSlug ?? skill.slug;
 
-  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast-chat.json');
   await mkdir(path.dirname(astPath), { recursive: true });
   await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
 
