@@ -12,6 +12,36 @@ export interface MicrositeHistoryEntry {
   source?: string;
 }
 
+/**
+ * Standalone (non-hook) utility: update or insert a history entry for the given
+ * namespace in localStorage and sync to the server.  Call this from editor pages
+ * after saving edits so the history list reflects the latest AST.
+ */
+export function persistMicrositeHistoryEntry(namespace: string, ast: LayoutAST, apiKey?: string): void {
+  const astForStorage: LayoutAST = ast.brand?.logoUrl?.startsWith('data:')
+    ? { ...ast, brand: { ...ast.brand, logoUrl: null } }
+    : ast;
+  const current = readAll();
+  const idx = current.findIndex(e => e.namespace === namespace);
+  let next: MicrositeHistoryEntry[];
+  if (idx >= 0) {
+    const updated: MicrositeHistoryEntry = { ...current[idx], savedAt: new Date().toISOString(), ast: astForStorage };
+    next = current.map((e, i) => (i === idx ? updated : e));
+  } else {
+    const entry: MicrositeHistoryEntry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      savedAt: new Date().toISOString(),
+      namespace,
+      ast: astForStorage,
+    };
+    next = [entry, ...current].slice(0, 50);
+  }
+  writeAll(next);
+  if (apiKey && namespace) {
+    saveMicrositeHistoryToServer(apiKey, namespace, astForStorage).catch(() => {});
+  }
+}
+
 export function useMicrositeHistory(namespace?: string, apiKey?: string) {
   const [entries, setEntries] = useState<MicrositeHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);

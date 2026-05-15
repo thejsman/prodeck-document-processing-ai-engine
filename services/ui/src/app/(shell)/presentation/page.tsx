@@ -170,24 +170,6 @@ export default function PresentationRoutePage() {
 
   useEffect(() => { handlerRef.current = handleGenerate; }, [handleGenerate]);
 
-  // Intercept the "Generate Microsite" button's fetch call and redirect it to
-  // the fast structured endpoint — single LLM call, same SSE event format,
-  // PresentationPage never knows the difference.
-  useEffect(() => {
-    const origFetch = window.fetch;
-
-    window.fetch = function (input, init) {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
-      // Only intercept the streaming generation call — leave everything else alone
-      if (url.includes('/generate-stream') && !url.includes('generate-structured') && !url.includes('generate-direct')) {
-        const fastUrl = url.replace('/generate-stream', '/generate-structured-stream');
-        return origFetch(fastUrl, init);
-      }
-      return origFetch(input, init);
-    };
-
-    return () => { window.fetch = origFetch; };
-  }, []);
 
   useEffect(() => {
     function inject() {

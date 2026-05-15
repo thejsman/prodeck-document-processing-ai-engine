@@ -19,7 +19,7 @@ import {
   saveMicrositeAst,
   publishMicrosite,
 } from '@/lib/api';
-import { Microsite } from '../Microsite';
+import { MicrositePro as Microsite } from '../MicrositePro';
 import type { LayoutAST, LayoutSection } from '@/types/presentation';
 
 // ---------------------------------------------------------------------------

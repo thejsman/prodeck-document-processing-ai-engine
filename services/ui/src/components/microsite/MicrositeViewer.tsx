@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { Microsite } from './Microsite';
+import { Microsite as MicrositeClassic } from './Microsite';
+import { MicrositePro } from '../MicrositePro';
+import { MicrositeEditor } from './editor/MicrositeEditor';
 import { MicrositeEditorPro } from './editor/MicrositeEditorPro';
 import type { MicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
 import type { LayoutAST } from '@/types/presentation';
@@ -22,9 +24,11 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
   const title     = currentEntry.ast.meta.client || currentEntry.ast.brand?.companyName || 'Microsite';
   const namespace = currentEntry.namespace;
 
+  const MicrositeComponent = currentEntry.ast.generationMode === 'pro' ? MicrositePro : MicrositeClassic;
+
   if (showPreview) {
     return (
-      <Microsite
+      <MicrositeComponent
         ast={currentEntry.ast}
         onBack={() => setShowPreview(false)}
         mode="fullscreen"
@@ -57,19 +61,34 @@ export function MicrositeViewer({ entry, onClose, onUpdateEntry }: Props) {
 
       <div id="ms-embedded-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {showEditor ? (
-          <MicrositeEditorPro
-            ast={currentEntry.ast}
-            namespace={namespace}
-            proposalId={currentEntry.ast.proposalId || currentEntry.id}
-            onClose={() => setShowEditor(false)}
-            onSaved={(updatedAst: LayoutAST) => {
-              const updated = { ...currentEntry, ast: updatedAst };
-              setCurrentEntry(updated);
-              onUpdateEntry?.(updated);
-            }}
-          />
+          currentEntry.ast.generationMode === 'pro' ? (
+            <MicrositeEditorPro
+              ast={currentEntry.ast}
+              namespace={namespace}
+              proposalId={currentEntry.ast.proposalId || currentEntry.id}
+              onClose={() => setShowEditor(false)}
+              onSaved={(updatedAst: LayoutAST) => {
+                const updated = { ...currentEntry, ast: updatedAst };
+                setCurrentEntry(updated);
+                onUpdateEntry?.(updated);
+              }}
+            />
+          ) : (
+            <MicrositeEditor
+              ast={currentEntry.ast}
+              namespace={namespace}
+              proposalId={currentEntry.ast.proposalId || currentEntry.id}
+              onClose={() => setShowEditor(false)}
+              onExport={(editedAst: LayoutAST) => {
+                const updated = { ...currentEntry, ast: editedAst };
+                setCurrentEntry(updated);
+                onUpdateEntry?.(updated);
+                setShowEditor(false);
+              }}
+            />
+          )
         ) : (
-          <Microsite
+          <MicrositeComponent
             ast={currentEntry.ast}
             onEdit={() => setShowEditor(true)}
             mode="embedded"
