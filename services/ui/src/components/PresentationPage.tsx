@@ -1482,13 +1482,14 @@ export function PresentationPage() {
         display: showGenerateModal ? "flex" : "none",
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(0,0,0,0.5)", zIndex: 200,
-        alignItems: "center", justifyContent: "center",
+        alignItems: "flex-start", justifyContent: "center",
         padding: "24px", overflowY: "auto",
       }} onClick={() => { if (step === "generate" && generating) { setShowCancelConfirm(true); } else { resetWizard(); setShowGenerateModal(false); } }}>
         <div style={{
           background: "var(--color-surface)", border: "1px solid var(--color-border)",
           borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
           width: "100%", maxWidth: 860, display: "flex", flexDirection: "column", overflow: "hidden",
+          margin: "auto",
         }} onClick={(e) => e.stopPropagation()}>
           {/* Modal header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>

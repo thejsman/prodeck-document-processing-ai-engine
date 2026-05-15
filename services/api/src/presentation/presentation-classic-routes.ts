@@ -22,19 +22,18 @@ import {
   generateDalle3Image,
   buildDallePrompt,
   downloadImageToFile,
-  buildPicsumUrl,
 } from '../image-routes.js';
 
-// Matches optimization branch: only hero/showcase get real images; picsum is the no-key fallback.
+// Only hero sections get real images when an API key is available; otherwise use gradient.
 function resolveClassicImageSource(
   sectionType: string,
   hasUnsplash: boolean,
   hasDalle: boolean,
-): 'dalle' | 'unsplash' | 'picsum' | 'gradient' {
+): 'dalle' | 'unsplash' | 'gradient' {
   if (sectionType !== 'hero') return 'gradient';
   if (hasDalle) return 'dalle';
   if (hasUnsplash) return 'unsplash';
-  return 'picsum';
+  return 'gradient';
 }
 import {
   resolveProposalMdPath,
@@ -212,7 +211,9 @@ export function registerClassicPresentationRoutes(
 
             const sectionType = section.sectionType as string | undefined;
             const chosenSource = sectionType ? resolveClassicImageSource(sectionType, hasUnsplash, hasDalle) : 'gradient';
-            const imageForClient = chosenSource === 'gradient'
+            const sectionImgUrl = (section.image as { url?: string } | undefined)?.url;
+            const agentHasUrl = !!(sectionImgUrl && sectionImgUrl.startsWith('http'));
+            const imageForClient = (chosenSource === 'gradient' && !agentHasUrl)
               ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
               : section.image;
             send({ type: 'section', ...section, image: imageForClient, content, index: adjustedIdx });
@@ -230,12 +231,6 @@ export function registerClassicPresentationRoutes(
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
             const chosenSource = resolveClassicImageSource(sec.sectionType, hasUnsplash, hasDalle);
 
-            if (chosenSource === 'gradient') {
-              sec.image.url = null;
-              sec.image.source = 'gradient';
-              return;
-            }
-
             if (sec.sectionType === 'hero' && urlHeroImageUrl) {
               try {
                 const localUrl = await saveImagePersistently(urlHeroImageUrl, namespace, `${secId}-og`, workdir);
@@ -245,8 +240,18 @@ export function registerClassicPresentationRoutes(
               } catch { /* fall through */ }
             }
 
+            // Use the URL the agent already resolved (loremflickr / DALL-E) when available.
             const agentUrl = sec.image?.url;
-            let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
+            const agentRemoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
+
+            // No API key and no agent URL → gradient, no image fetch.
+            if (chosenSource === 'gradient' && !agentRemoteUrl) {
+              sec.image.url = null;
+              sec.image.source = 'gradient';
+              return;
+            }
+
+            let remoteUrl: string | null = agentRemoteUrl;
 
             if (!remoteUrl) {
               const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
@@ -254,8 +259,6 @@ export function registerClassicPresentationRoutes(
               if (chosenSource === 'dalle') {
                 const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
                 remoteUrl = await generateDalle3Image(prompt);
-              } else if (chosenSource === 'picsum') {
-                remoteUrl = buildPicsumUrl(query);
               } else {
                 remoteUrl = await fetchUnsplashImageUrl(query);
               }
