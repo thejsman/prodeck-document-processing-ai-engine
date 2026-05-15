@@ -264,7 +264,7 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
             >
               {/* ── Header: gradient + section lane visualization ── */}
               <div style={{
-                height: 76,
+                height: 52,
                 background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
                 position: 'relative',
                 flexShrink: 0,
@@ -327,7 +327,7 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
               <div style={{ padding: '12px 14px 0' }}>
 
                 {/* Company name + options menu */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 6 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{
                       display: 'block', fontSize: 15, fontWeight: 700,
@@ -341,6 +341,26 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
                         for {clientName}
                       </span>
                     )}
+                    {/* Namespace badge — prominent, directly under company name */}
+                    <span
+                      title={entry.namespace}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        marginTop: 5,
+                        background: `${primaryColor}14`,
+                        border: `1px solid ${primaryColor}30`,
+                        borderRadius: 6,
+                        padding: '2px 8px 2px 6px',
+                        fontSize: 11, fontWeight: 700,
+                        color: primaryColor,
+                        maxWidth: '100%',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      <FolderOpen size={10} style={{ flexShrink: 0 }} />
+                      {entry.namespace}
+                    </span>
                   </div>
                   <button
                     ref={el => { menuBtnRefs.current[entry.id] = el; }}
@@ -358,7 +378,7 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
                   </button>
                 </div>
 
-                {/* Theme badge row */}
+                {/* Theme badge + timestamp row */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, flexWrap: 'wrap' as const }}>
                   {!isPro && (
                     <span style={{
@@ -380,22 +400,20 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
                   </span>
                 </div>
 
-                {/* Stats row */}
+                {/* Stats row — section count + color dots only */}
                 <div style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
+                  display: 'flex', alignItems: 'center', gap: 10,
                   padding: '8px 0', borderTop: '1px solid var(--border)',
                   marginBottom: 0,
                 }}>
-                  {/* Section count */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                     <Layers size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
                       {sectionCount} section{sectionCount !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  {/* Section color dots */}
                   <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                    {sections.slice(0, 6).map((s, i) => (
+                    {sections.slice(0, 8).map((s, i) => (
                       <div
                         key={i}
                         title={s.sectionType ?? 'section'}
@@ -406,19 +424,9 @@ export function MicrositeHistory({ onCountChange, onGenerateNew }: { onCountChan
                         }}
                       />
                     ))}
-                    {sections.length > 6 && (
-                      <span style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 1 }}>+{sections.length - 6}</span>
+                    {sections.length > 8 && (
+                      <span style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 1 }}>+{sections.length - 8}</span>
                     )}
-                  </div>
-                  {/* Namespace */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
-                    <FolderOpen size={10} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, color: 'var(--text)',
-                      maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {entry.namespace}
-                    </span>
                   </div>
                 </div>
               </div>
