@@ -12,6 +12,22 @@ export interface MicrositeHistoryEntry {
   source?: string;
 }
 
+const STORAGE_KEY = 'microsite_history';
+
+function readAll(): MicrositeHistoryEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function writeAll(entries: MicrositeHistoryEntry[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+
 /**
  * Standalone (non-hook) utility: update or insert a history entry for the given
  * namespace in localStorage and sync to the server.  Call this from editor pages
