@@ -3,12 +3,30 @@
  *
  * Storage: <workdir>/namespaces/<namespace>/files.json
  *
- * All functions use a read-modify-write pattern. Safe for single-process use
- * (no file locking required).
+ * All mutations go through withNamespaceLock() to prevent concurrent
+ * read-modify-write races when parallel ingestion branches run simultaneously.
  */
 
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
+
+// Per-namespace mutex — prevents concurrent read-modify-write on files.json.
+const namespaceLocks = new Map<string, Promise<void>>();
+
+async function withNamespaceLock<T>(namespace: string, fn: () => Promise<T>): Promise<T> {
+  const prev = namespaceLocks.get(namespace) ?? Promise.resolve();
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => { release = resolve; });
+  namespaceLocks.set(namespace, prev.then(() => next));
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (namespaceLocks.get(namespace) === next) namespaceLocks.delete(namespace);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,7 +112,10 @@ export async function saveFilesIndex(
 ): Promise<void> {
   const filePath = filesIndexPath(workdir, namespace);
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(files, null, 2), 'utf-8');
+  // Write to a temp file then rename — atomic on Linux, prevents partial reads.
+  const tmp = path.join(os.tmpdir(), `files-${namespace}-${process.pid}-${Date.now()}.json`);
+  await writeFile(tmp, JSON.stringify(files, null, 2), 'utf-8');
+  await rename(tmp, filePath);
 }
 
 export async function upsertFile(
@@ -102,14 +123,16 @@ export async function upsertFile(
   namespace: string,
   file: IngestionFile,
 ): Promise<void> {
-  const files = await loadFilesIndex(workdir, namespace);
-  const idx = files.findIndex((f) => f.fileName === file.fileName);
-  if (idx >= 0) {
-    files[idx] = file;
-  } else {
-    files.push(file);
-  }
-  await saveFilesIndex(workdir, namespace, files);
+  return withNamespaceLock(namespace, async () => {
+    const files = await loadFilesIndex(workdir, namespace);
+    const idx = files.findIndex((f) => f.fileName === file.fileName);
+    if (idx >= 0) {
+      files[idx] = file;
+    } else {
+      files.push(file);
+    }
+    await saveFilesIndex(workdir, namespace, files);
+  });
 }
 
 /** Update file status using the legacy single-status model (sequential path). */
@@ -120,30 +143,31 @@ export async function updateFileStatus(
   status: IngestionStatus,
   error?: string,
 ): Promise<void> {
-  const files = await loadFilesIndex(workdir, namespace);
-  const idx = files.findIndex((f) => f.fileName === fileName);
-  if (idx < 0) return; // file not tracked — skip silently
+  return withNamespaceLock(namespace, async () => {
+    const files = await loadFilesIndex(workdir, namespace);
+    const idx = files.findIndex((f) => f.fileName === fileName);
+    if (idx < 0) return; // file not tracked — skip silently
 
-  // Map legacy status to dual fields so files.json stays consistent
-  const indexingStatus: IndexingStatus =
-    status === 'failed' ? 'failed' :
-    status === 'processing' ? 'processing' :
-    status === 'indexed' || status === 'extracting' || status === 'extracted' ? 'indexed' :
-    'pending';
+    const indexingStatus: IndexingStatus =
+      status === 'failed' ? 'failed' :
+      status === 'processing' ? 'processing' :
+      status === 'indexed' || status === 'extracting' || status === 'extracted' ? 'indexed' :
+      'pending';
 
-  const extractionStatus: ExtractionStatus =
-    status === 'failed' ? 'failed' :
-    status === 'extracting' ? 'processing' :
-    status === 'extracted' ? 'extracted' :
-    files[idx].extractionStatus; // preserve if indexing-only change
+    const extractionStatus: ExtractionStatus =
+      status === 'failed' ? 'failed' :
+      status === 'extracting' ? 'processing' :
+      status === 'extracted' ? 'extracted' :
+      files[idx].extractionStatus;
 
-  files[idx] = {
-    ...files[idx],
-    indexingStatus,
-    extractionStatus,
-    ...(error !== undefined ? { error } : { error: undefined }),
-  };
-  await saveFilesIndex(workdir, namespace, files);
+    files[idx] = {
+      ...files[idx],
+      indexingStatus,
+      extractionStatus,
+      ...(error !== undefined ? { error } : { error: undefined }),
+    };
+    await saveFilesIndex(workdir, namespace, files);
+  });
 }
 
 /** Update only the indexing branch status (parallel path). */
@@ -154,15 +178,17 @@ export async function updateIndexingStatus(
   status: IndexingStatus,
   error?: string,
 ): Promise<void> {
-  const files = await loadFilesIndex(workdir, namespace);
-  const idx = files.findIndex((f) => f.fileName === fileName);
-  if (idx < 0) return;
-  files[idx] = {
-    ...files[idx],
-    indexingStatus: status,
-    ...(error !== undefined ? { error } : {}),
-  };
-  await saveFilesIndex(workdir, namespace, files);
+  return withNamespaceLock(namespace, async () => {
+    const files = await loadFilesIndex(workdir, namespace);
+    const idx = files.findIndex((f) => f.fileName === fileName);
+    if (idx < 0) return;
+    files[idx] = {
+      ...files[idx],
+      indexingStatus: status,
+      ...(error !== undefined ? { error } : {}),
+    };
+    await saveFilesIndex(workdir, namespace, files);
+  });
 }
 
 /** Update only the extraction branch status (parallel path). */
@@ -173,15 +199,17 @@ export async function updateExtractionStatus(
   status: ExtractionStatus,
   error?: string,
 ): Promise<void> {
-  const files = await loadFilesIndex(workdir, namespace);
-  const idx = files.findIndex((f) => f.fileName === fileName);
-  if (idx < 0) return;
-  files[idx] = {
-    ...files[idx],
-    extractionStatus: status,
-    ...(error !== undefined ? { error } : {}),
-  };
-  await saveFilesIndex(workdir, namespace, files);
+  return withNamespaceLock(namespace, async () => {
+    const files = await loadFilesIndex(workdir, namespace);
+    const idx = files.findIndex((f) => f.fileName === fileName);
+    if (idx < 0) return;
+    files[idx] = {
+      ...files[idx],
+      extractionStatus: status,
+      ...(error !== undefined ? { error } : {}),
+    };
+    await saveFilesIndex(workdir, namespace, files);
+  });
 }
 
 export async function updateFileChunkCount(
@@ -190,11 +218,13 @@ export async function updateFileChunkCount(
   fileName: string,
   chunkCount: number,
 ): Promise<void> {
-  const files = await loadFilesIndex(workdir, namespace);
-  const idx = files.findIndex((f) => f.fileName === fileName);
-  if (idx < 0) return;
-  files[idx] = { ...files[idx], chunkCount };
-  await saveFilesIndex(workdir, namespace, files);
+  return withNamespaceLock(namespace, async () => {
+    const files = await loadFilesIndex(workdir, namespace);
+    const idx = files.findIndex((f) => f.fileName === fileName);
+    if (idx < 0) return;
+    files[idx] = { ...files[idx], chunkCount };
+    await saveFilesIndex(workdir, namespace, files);
+  });
 }
 
 export async function removeFileEntry(
@@ -202,9 +232,11 @@ export async function removeFileEntry(
   namespace: string,
   fileName: string,
 ): Promise<void> {
-  const files = await loadFilesIndex(workdir, namespace);
-  const filtered = files.filter((f) => f.fileName !== fileName);
-  await saveFilesIndex(workdir, namespace, filtered);
+  return withNamespaceLock(namespace, async () => {
+    const files = await loadFilesIndex(workdir, namespace);
+    const filtered = files.filter((f) => f.fileName !== fileName);
+    await saveFilesIndex(workdir, namespace, filtered);
+  });
 }
 
 // ---------------------------------------------------------------------------
