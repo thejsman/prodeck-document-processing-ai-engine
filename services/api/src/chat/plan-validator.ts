@@ -58,7 +58,7 @@ const PlanSchema = z.object({
           tool: ToolNameEnum,
           params: z.record(z.unknown()),
         }),
-        z.object({ type: z.literal('RESPOND'), message: z.string().min(1).max(2000) }),
+        z.object({ type: z.literal('RESPOND'), message: z.string().min(1).max(8000) }),
       ]),
     )
     .min(1)
