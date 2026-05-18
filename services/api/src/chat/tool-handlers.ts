@@ -11,6 +11,7 @@
 
 import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { env } from 'node:process';
 import yaml from 'js-yaml';
 import { recommendTemplate } from '../templates/template-recommendation.service.js';
 import {
@@ -29,79 +30,15 @@ import {
 } from '../proposal-meta.js';
 import { createVersionFromEdit } from '../proposals/proposal-version.service.js';
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from '../provider-policy.js';
+import { llmGenerateFn } from '../agent-routes.js';
 import type { ToolName } from './planner.js';
 import { listSkills as listSkillsFromDisk, createSkill, loadSkill } from '../skills/skill.service.js';
+import { listDesignSkills as listDesignSkillsFromDisk } from '../skills/design-skill.service.js';
 import { generateSkillFromDescription } from '../skills/skill-generator.js';
-import { listDesignSkills as listDesignSkillsFromDisk, getDesignSkill } from '../skills/design-skill.service.js';
-import type { DesignSkill } from '../skills/design-skill.types.js';
-import { buildDesignPromptFromSkill, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
 import { generateStructuredMicrosite, assignSectionIds } from '../presentation/structured-microsite-generator.js';
+import { generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES } from '../skills/design-skill-microsite.js';
+import { applyDesignSkill } from '../skills/design-skill-microsite.js';
 import { ContextService } from './context.service.js';
-import crypto from 'node:crypto';
-
-// ---------------------------------------------------------------------------
-// CSS token cache (shared with presentation-routes logic)
-// ---------------------------------------------------------------------------
-
-const CSS_TOKEN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-async function getCachedCSSTokens(
-  cacheDir: string,
-  tone: string,
-  brandPrimaryColor: string | undefined,
-  generateFn: (prompt: string) => Promise<string>,
-  clientIndustry: string | undefined,
-  designPromptOverride: string | undefined,
-): Promise<CSSTheme | null> {
-  const keySource = [tone, brandPrimaryColor ?? '', clientIndustry ?? '', designPromptOverride ?? ''].join('::');
-  const key       = crypto.createHash('md5').update(keySource).digest('hex');
-  const cachePath = path.join(cacheDir, `${key}.json`);
-
-  try {
-    const s = await stat(cachePath);
-    if (Date.now() - s.mtimeMs < CSS_TOKEN_CACHE_TTL_MS) {
-      const theme = JSON.parse(await readFile(cachePath, 'utf-8')) as CSSTheme;
-      console.log(`[css-cache] HIT  tone="${tone}" key=${key.slice(0, 8)}`);
-      return theme;
-    }
-  } catch { /* cache miss */ }
-
-  const theme = await generateThemeCSSTokens(tone, brandPrimaryColor, generateFn, clientIndustry, designPromptOverride);
-  if (theme) {
-    try {
-      await mkdir(cacheDir, { recursive: true });
-      await writeFile(cachePath, JSON.stringify(theme), 'utf-8');
-      console.log(`[css-cache] MISS tone="${tone}" key=${key.slice(0, 8)} — stored`);
-    } catch { /* non-fatal */ }
-  }
-  return theme;
-}
-
-// ---------------------------------------------------------------------------
-// Base design skill — used when no explicit skill is requested from chat
-// ---------------------------------------------------------------------------
-
-const BASE_DESIGN_SKILL: DesignSkill = {
-  slug: 'base-default',
-  displayName: 'Base Default',
-  description: 'Clean, professional default for any proposal type.',
-  aestheticTone: 'luxury/refined',
-  colorPalette: {
-    primary: '#2563EB',
-    secondary: '#1E40AF',
-    background: '#FFFFFF',
-  },
-  typography: {
-    headingFont: 'Raleway',
-    bodyFont: 'DM Sans',
-    headingStyle: 'bold',
-  },
-  animations: 'minimal',
-  customInstructions: '',
-  themeClass: 'light',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
-};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -496,8 +433,7 @@ export async function handleGenerateMicrosite(
   ctx: ToolContext,
 ): Promise<PartialResult> {
   const proposalFileName = ((params.proposalFileName as string | undefined) ?? '').trim();
-  const designSkillSlug  = (params.designSkillSlug as string | undefined) ?? null;
-  const { workdir, namespace, generateFn } = ctx;
+  const { workdir, namespace } = ctx;
 
   const filePath = resolveProposalPath(proposalFileName, workdir, namespace);
   let proposalContent: string;
@@ -507,122 +443,117 @@ export async function handleGenerateMicrosite(
     return { success: false, message: `Proposal not found: "${proposalFileName}"` };
   }
 
-  const apiKey = (process.env.ANTHROPIC_API_KEY ?? '').trim();
-  const model  = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  if (!apiKey) return { success: false, message: 'ANTHROPIC_API_KEY is not configured.' };
+  const apiKey  = env.ANTHROPIC_API_KEY ?? '';
+  const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+  const proposalId = proposalFileName.replace(/\.md$/i, '');
+  const designOverride = (params.customInstructions as string | undefined) || undefined;
 
-  // Load brand context from context.json
-  let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
-  let clientIndustry = '';
+  // Build brandHint from context.json + params
+  let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {
+    companyName:  (params.companyName as string | undefined) ?? '',
+    primaryColor: (params.primaryColor as string | undefined) ?? '',
+  };
+  let structuredCtx: Record<string, unknown> | null = null;
   try {
     const ctxSvc = new ContextService(workdir);
-    const ctx2 = await ctxSvc.get(namespace);
-    const fields = (ctx2?.requirements as { fields?: Record<string, { value?: unknown }> } | undefined)?.fields ?? {};
+    structuredCtx = await ctxSvc.get(namespace) as Record<string, unknown> | null;
+    const fields = ((structuredCtx as Record<string, unknown>)?.requirements as Record<string, Record<string, { value?: unknown }>> | undefined)?.fields ?? {};
     brandHint = {
-      companyName: (fields.clientName?.value as string | undefined) ?? '',
-      clientName:  (fields.clientName?.value as string | undefined) ?? '',
+      ...brandHint,
+      clientName:  (fields.clientName?.value  as string | undefined) ?? brandHint.companyName ?? '',
       industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+      primaryColor: brandHint.primaryColor || (fields.primaryColor?.value as string | undefined),
     };
-    clientIndustry = brandHint.industry ?? '';
   } catch { /* non-fatal */ }
 
-  // Resolve skill: explicit slug → disk (fallback to BASE_DESIGN_SKILL on miss), no slug → BASE_DESIGN_SKILL
-  let skill: DesignSkill = BASE_DESIGN_SKILL;
-  if (designSkillSlug) {
-    try {
-      skill = await getDesignSkill(workdir, designSkillSlug);
-    } catch { /* skill not found — use base */ }
+  const clientIndustry = brandHint.industry ?? '';
+  const { tone: industryTone } = applyDesignSkill('microsite-generator-agent', { proposalMarkdown: proposalContent, clientIndustry });
+
+  // Phase 1: single LLM call → complete AST
+  let ast: Awaited<ReturnType<typeof generateStructuredMicrosite>>;
+  try {
+    ast = await generateStructuredMicrosite(proposalContent, brandHint, proposalId, apiKey, model);
+  } catch (err) {
+    return { success: false, message: `Microsite generation failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 
-  const built = buildDesignPromptFromSkill(skill);
-  const skillTone = built.tone;
-  const designPromptOverride: string | undefined = built.prompt || undefined;
+  const sections = assignSectionIds(ast.sections);
+  ast.sections = sections;
 
-  if (skill.colorPalette.primary && !brandHint.primaryColor) {
-    brandHint = { ...brandHint, primaryColor: skill.colorPalette.primary };
-  }
+  // Phase 2: CSS theme
+  const cssTheme = await generateThemeCSSTokens(
+    industryTone as string, brandHint.primaryColor, llmGenerateFn, clientIndustry, designOverride,
+  ).catch(() => null);
 
-  // Phase 1 + CSS in parallel. CSS tokens are cached by skill slug/tone so repeat
-  // generations skip the Sonnet call entirely.
-  const proposalId = proposalFileName.replace(/\.md$/i, '');
-  const cacheDir   = path.join(workdir, 'cache', 'css-tokens');
-  const [ast, cssTheme] = await Promise.all([
-    generateStructuredMicrosite(proposalContent, brandHint, proposalId, apiKey, model),
-    getCachedCSSTokens(cacheDir, skillTone, brandHint.primaryColor, generateFn, clientIndustry, designPromptOverride).catch(() => null),
-  ]);
-
-  ast.sections = assignSectionIds(ast.sections);
-
-  const astRaw = ast as unknown as Record<string, unknown>;
-
-  // Inject CSS theme into brand so colours/fonts render via CSS variables.
   if (cssTheme) {
-    astRaw.brand = {
-      ...(ast.brand ?? {}),
+    ast.brand = {
+      ...ast.brand,
       extractedCssVariables: cssTheme.cssVars,
       overrideTheme: true,
-      ...(cssTheme.googleFontsUrl ? { googleFontsUrl: cssTheme.googleFontsUrl } : {}),
+      ...(cssTheme.googleFontsUrl       ? { googleFontsUrl: cssTheme.googleFontsUrl }             : {}),
       ...(cssTheme.fontFaceDeclarations ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations } : {}),
-    };
+    } as typeof ast.brand;
   }
 
-  astRaw.plugin = designSkillSlug ?? skill.slug;
+  // Phase 3: per-section HTML (5 concurrent, direct Anthropic call — awaited).
+  // The Next.js SSE proxy uses a custom undici Agent with bodyTimeout:0 so the
+  // stream stays open for the full duration without triggering UND_ERR_BODY_TIMEOUT.
+  if (cssTheme) {
+    const htmlGenerateFn = async (prompt: string): Promise<string> => {
+      const MAX_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+          await new Promise(res => setTimeout(res, delay));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic ${r.status}`);
+        const d = await r.json() as { content: Array<{ type: string; text: string }> };
+        return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      }
+      throw new Error('HTML generation: max retries exceeded');
+    };
 
-  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast-chat.json');
+    const CONCURRENCY = 5;
+    const targets = sections.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType));
+    let cursor = 0;
+    const htmlWorker = async () => {
+      while (cursor < targets.length) {
+        const section = targets[cursor++];
+        const idx = sections.indexOf(section);
+        try {
+          section.customHtml = await generateSectionHtml(
+            section as unknown as Record<string, unknown>,
+            industryTone as import('../skills/design-skill-microsite.js').Tone,
+            cssTheme.cssVars, null, htmlGenerateFn, idx, designOverride,
+          );
+        } catch (err) {
+          console.warn(`[chat-microsite] HTML failed: ${section.sectionType}:`, err instanceof Error ? err.message : err);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
+  }
+
+  // Persist completed AST (with customHtml on every section)
+  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
   await mkdir(path.dirname(astPath), { recursive: true });
   await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
 
-  // Phase 3 — generate per-section custom HTML using the main model (Sonnet).
-  // Runs in the background so the chat response is returned immediately.
-  // Re-writes site-ast.json when all sections are done.
-  if (cssTheme) {
-    const capturedAst = ast;
-    const capturedAstPath = astPath;
-    const capturedTone = skillTone as Tone;
-    const capturedOverride = designPromptOverride ?? null;
-    const capturedCssVars = cssTheme.cssVars;
-
-    void (async () => {
-      try {
-        const sectionsAsRecords = capturedAst.sections as unknown as Record<string, unknown>[];
-        const targets = sectionsAsRecords.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType as string));
-        const CONCURRENCY = 4;
-        let cursor = 0;
-
-        async function htmlWorker() {
-          while (cursor < targets.length) {
-            const section = targets[cursor++];
-            const idx = sectionsAsRecords.indexOf(section);
-            try {
-              section.customHtml = await generateSectionHtml(
-                section,
-                capturedTone,
-                capturedCssVars,
-                null,
-                generateFn,
-                idx,
-                capturedOverride ?? undefined,
-              );
-            } catch { /* non-fatal — section falls back to generic layout */ }
-          }
-        }
-
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
-        await writeFile(capturedAstPath, JSON.stringify(capturedAst, null, 2), 'utf-8');
-      } catch { /* non-fatal background task */ }
-    })();
-  }
-
-  const usedSkillLabel = designSkillSlug ? `design skill "${designSkillSlug}"` : 'base design theme';
   return {
     success: true,
-    message: `Presentation microsite generated from "${proposalFileName}" using ${usedSkillLabel}.`,
-    data: { namespace, proposalFileName, designSkillSlug: designSkillSlug ?? skill.slug, hasAst: true },
+    message: `Presentation microsite generated from "${proposalFileName}".`,
+    data: { namespace, proposalFileName, hasAst: true },
     actionCards: [
       {
         type: 'view_microsite',
         label: 'View Presentation',
-        href: `/presentation?ns=${encodeURIComponent(namespace)}`,
+        href: `/presentation?namespace=${encodeURIComponent(namespace)}&proposalId=${encodeURIComponent(proposalId)}&mode=view`,
       },
     ],
   };
