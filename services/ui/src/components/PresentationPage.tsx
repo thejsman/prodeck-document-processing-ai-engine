@@ -833,6 +833,30 @@ export function PresentationPage() {
       .finally(() => setLoadingAST(false));
   }, [step, layoutAST, apiKey, selectedNamespace, selectedProposal]);
 
+  // When navigating from chat via ?mode=view&namespace=xxx&proposalId=yyy,
+  // load the AST directly — chat doesn't set wizard state so selectedProposal is null.
+  useEffect(() => {
+    if (layoutAST || !apiKey) return;
+    const params = new URLSearchParams(window.location.search);
+    const nsParam   = params.get("namespace");
+    const pidParam  = params.get("proposalId");
+    const modeParam = params.get("mode");
+    if (!pidParam || modeParam !== "view" || !nsParam) return;
+    // Seed local + global namespace so the rest of the page works correctly
+    setSelectedNamespace(nsParam);
+    setGlobalNamespace(nsParam);
+    setLoadingAST(true);
+    fetchMicrositeContent(apiKey, nsParam, pidParam)
+      .then(({ ast }) => {
+        if (ast && typeof ast === "object" && (ast as { sections?: unknown[] }).sections?.length) {
+          setLayoutAST(ast as LayoutAST);
+          setStep("preview");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingAST(false));
+  }, [apiKey]); // run once when apiKey is ready — URL params are stable
+
   const runPipeline = useCallback(
     async (modeOverride?: 'pro' | 'classic') => {
       // modeOverride is passed explicitly from the button click closure so it's always current
