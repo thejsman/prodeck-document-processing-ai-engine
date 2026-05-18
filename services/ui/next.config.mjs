@@ -5,9 +5,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Required for the Docker image — Dockerfile.ui copies .next/standalone into
-  // the runtime stage. Without this Next.js does not emit that directory.
-  output: "standalone",
+  // standalone output is required for the Docker image but creates symlinks that
+  // require elevated privileges on Windows (EPERM -4048). Only enable it when
+  // explicitly requested, e.g. in CI/Docker: NEXT_STANDALONE=1 pnpm build
+  ...(process.env.NEXT_STANDALONE === "1" ? { output: "standalone" } : {}),
   // Mermaid v11 is ESM-only — webpack must transpile it to avoid production
   // build failures where the mermaid chunk loads but evaluates incorrectly.
   transpilePackages: ["mermaid"],

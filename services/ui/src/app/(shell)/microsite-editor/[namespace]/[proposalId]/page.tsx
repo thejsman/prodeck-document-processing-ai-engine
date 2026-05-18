@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { fetchMicrositeContent, saveMicrositeAst } from '@/lib/api';
+import { fetchMicrositeContent, saveMicrositeAst, saveMicrositeHistoryToServer } from '@/lib/api';
 import { persistMicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
 import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import type { LayoutAST } from '@/types/presentation';
@@ -21,7 +21,7 @@ export default function MicrositeEditorClassicPage() {
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
-    fetchMicrositeContent(apiKey, namespace, proposalId)
+    fetchMicrositeContent(apiKey, namespace, proposalId, 'classic')
       .then(({ ast: data }) => {
         if (!data) { setError('No microsite found — generate one first.'); setLoading(false); return; }
         setAst(data as LayoutAST);
@@ -68,8 +68,11 @@ export default function MicrositeEditorClassicPage() {
       namespace={namespace}
       proposalId={proposalId}
       onClose={() => router.back()}
-      onExport={(editedAst) => {
-        saveMicrositeAst(apiKey, namespace, proposalId, editedAst).catch(() => {});
+      onExport={async (editedAst) => {
+        await Promise.all([
+          saveMicrositeAst(apiKey!, namespace, proposalId, editedAst).catch(() => {}),
+          apiKey ? saveMicrositeHistoryToServer(apiKey, namespace, editedAst).catch(() => {}) : Promise.resolve(),
+        ]);
         persistMicrositeHistoryEntry(namespace, editedAst, apiKey ?? undefined);
         router.back();
       }}

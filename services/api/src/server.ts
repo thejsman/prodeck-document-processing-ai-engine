@@ -118,7 +118,7 @@ export async function createServer(opts: ServerOptions) {
   registerContextRoutes(app, opts.workdir);
   registerExtractionRoutes(app, opts.workdir);
   registerTraceRoutes(app);
-  registerExecutionStreamRoutes(app);
+  registerExecutionStreamRoutes(app, opts.workdir);
   registerAssetRoutes(app, opts.workdir);
   registerStreamUploadRoutes(app, opts.workdir);
   registerImageRoutes(app, opts.workdir);

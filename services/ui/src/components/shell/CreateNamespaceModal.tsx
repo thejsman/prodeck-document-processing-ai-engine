@@ -52,6 +52,7 @@ export function CreateNamespaceModal({ onClose }: Props) {
 
   return (
     <div
+      className="create-ns-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -67,6 +68,7 @@ export function CreateNamespaceModal({ onClose }: Props) {
       }}
     >
       <div
+        className="create-ns-modal"
         style={{
           background: 'var(--panel)',
           border: '1px solid var(--border)',

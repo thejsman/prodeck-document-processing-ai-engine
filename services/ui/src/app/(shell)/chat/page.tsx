@@ -9,6 +9,7 @@ import {
   Database,
   Download,
   Eraser,
+  Menu,
   Pencil,
   PanelRightClose,
   PanelRightOpen,
@@ -21,6 +22,7 @@ import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
+import { useMobileNav } from '@/lib/mobile-nav-store';
 import { useSSE, type ProposalSection, type ConfirmationRequest } from '@/lib/use-sse';
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatFileUpload } from '@/components/chat/ChatFileUpload';
@@ -33,7 +35,7 @@ import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
 import { ProposalForm } from '@/components/ProposalForm';
-import { fetchMicrositeContent, fetchKnowledgeFiles, type ProposalDocument, type Presentation } from '@/lib/api';
+import { fetchMicrositeContent, fetchKnowledgeFiles, postUploadMessage, type ProposalDocument, type Presentation } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
 import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
@@ -124,52 +126,11 @@ function getOrCreateSessionId(namespace: string): string {
   return id;
 }
 
-// ── Upload message persistence ────────────────────────────────
-interface PersistedUpload {
-  id: string;
-  displayName: string;
-  fileSize: number;
-  status: 'uploading' | 'processing' | 'done' | 'error';
-  fileNames: string[];
-  createdAt: number;
-}
-
-const UPLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
-function uploadStorageKey(ns: string) {
-  return `prodeck-chat-uploads-${ns}`;
-}
-
-function loadPersistedUploads(ns: string): PersistedUpload[] {
-  try {
-    const raw = localStorage.getItem(uploadStorageKey(ns));
-    if (!raw) return [];
-    const now = Date.now();
-    return (JSON.parse(raw) as PersistedUpload[]).filter((u) => now - u.createdAt < UPLOAD_TTL_MS);
-  } catch {
-    return [];
-  }
-}
-
-function savePersistedUploads(ns: string, uploads: PersistedUpload[]): void {
-  try {
-    localStorage.setItem(uploadStorageKey(ns), JSON.stringify(uploads));
-  } catch {
-    /* storage full */
-  }
-}
-
-function upsertPersistedUpload(ns: string, patch: Partial<PersistedUpload> & { id: string }): void {
-  const list = loadPersistedUploads(ns);
-  const idx = list.findIndex((u) => u.id === patch.id);
-  if (idx >= 0) list[idx] = { ...list[idx], ...patch };
-  else list.push(patch as PersistedUpload);
-  savePersistedUploads(ns, list);
-}
 
 export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
+  const { openMobileNav } = useMobileNav();
 
   const brief = useBrief(namespace || 'default', apiKey);
   const { status: collectionStatus, loading: collectionLoading } = useCollectionStatus();
@@ -245,6 +206,7 @@ export default function ChatPage() {
   const chatSessionIdRef = useRef<string | null>(null);
   const uploadMsgIdRef = useRef<string | null>(null);
   const uploadedFileNamesRef = useRef<string[]>([]);
+  const uploadedFileSizeRef = useRef<number>(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Tracks active ingestion polling: set after upload completes, cleared when processing done
@@ -398,37 +360,41 @@ export default function ChatPage() {
         (data: {
           messages: Array<{
             id: string;
-            role: 'user' | 'assistant';
+            role: 'user' | 'assistant' | 'upload';
             content: string;
-            metadata?: { proposalArtifactId?: string };
+            timestamp?: string;
+            metadata?: { proposalArtifactId?: string; displayName?: string; fileSize?: number; fileNames?: string[] };
           }>;
         }) => {
-          // Recover persisted upload messages for this namespace
-          const persisted = loadPersistedUploads(ns);
-          // Interrupted uploads (still 'uploading' means the XHR never completed)
-          const normalized = persisted.map((u) => (u.status === 'uploading' ? { ...u, status: 'error' as const } : u));
-          savePersistedUploads(ns, normalized);
-
-          const uploadMessages: Message[] = normalized.map((u) => ({
-            id: u.id,
-            role: 'upload' as const,
-            content: '',
-            uploadData: {
-              fileName: u.displayName,
-              fileSize: u.fileSize,
-              progress: u.status === 'done' ? 100 : 0,
-              status: u.status,
-              stage: u.status === 'processing' ? 'Queued' : undefined,
-            },
-          }));
+          // Map server history → Message objects. Upload cards are stored server-side
+          // with role='upload'; reconstruct them in chronological order alongside chat messages.
+          const messages: Message[] = data.messages.map((m) => {
+            if (m.role !== 'upload') return m as Message;
+            return {
+              id: m.id,
+              role: 'upload' as const,
+              content: '',
+              uploadData: {
+                fileName: m.metadata?.displayName ?? '',
+                fileSize: m.metadata?.fileSize ?? 0,
+                progress: 0,
+                status: 'processing' as const,
+                stage: 'Queued',
+              },
+            };
+          });
 
           skipNextScrollRef.current = true;
-          setMessages([...data.messages, ...uploadMessages]);
+          setMessages(messages);
 
-          // Resume polling for any still-processing uploads
-          const processing = normalized.filter((u) => u.status === 'processing' && u.fileNames.length > 0);
-          for (const u of processing) {
-            setActiveUploadPoll({ msgId: u.id, fileNames: u.fileNames });
+          // Resume polling for upload messages newer than 24 h — older ones are terminal.
+          const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+          const recentUploads = data.messages.filter(
+            (m) => m.role === 'upload' && new Date(m.timestamp ?? 0).getTime() > oneDayAgo,
+          );
+          for (const m of recentUploads) {
+            const fileNames = m.metadata?.fileNames ?? [];
+            if (fileNames.length > 0) setActiveUploadPoll({ msgId: m.id, fileNames });
           }
         },
       )
@@ -721,14 +687,7 @@ export default function ChatPage() {
       const fileNames = files.map((f) => f.name);
       uploadMsgIdRef.current = id;
       uploadedFileNamesRef.current = fileNames;
-      upsertPersistedUpload(namespace || 'default', {
-        id,
-        displayName,
-        fileSize: totalSize,
-        status: 'uploading',
-        fileNames,
-        createdAt: Date.now(),
-      });
+      uploadedFileSizeRef.current = totalSize;
       setMessages((prev) => [
         ...prev,
         {
@@ -758,7 +717,21 @@ export default function ChatPage() {
 
       const id = uploadMsgIdRef.current;
       if (!id) return;
-      upsertPersistedUpload(namespace || 'default', { id, status: 'processing' });
+      const fileNames = queued.map((q) => q.fileName);
+
+      // Persist the upload card to server history so it survives page refreshes.
+      if (apiKey && chatSessionIdRef.current) {
+        const displayName = uploadedFileNamesRef.current.length > 1
+          ? `${uploadedFileNamesRef.current[0]} +${uploadedFileNamesRef.current.length - 1} more`
+          : (uploadedFileNamesRef.current[0] ?? '');
+        postUploadMessage(apiKey, chatSessionIdRef.current, namespace || 'default', {
+          id,
+          displayName,
+          fileSize: uploadedFileSizeRef.current,
+          fileNames,
+        }).catch(() => { /* non-critical */ });
+      }
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === id && m.uploadData
@@ -766,16 +739,15 @@ export default function ChatPage() {
             : m,
         ),
       );
-      setActiveUploadPoll({ msgId: id, fileNames: queued.map((q) => q.fileName) });
+      setActiveUploadPoll({ msgId: id, fileNames });
     },
-    [addExecution, namespace],
+    [addExecution, apiKey, namespace],
   );
 
   const handleUploadError = useCallback(
     (errorMessage?: string) => {
       const id = uploadMsgIdRef.current;
       if (!id) return;
-      upsertPersistedUpload(namespace || 'default', { id, status: 'error' });
       setMessages((prev) =>
         prev.map((m) =>
           m.id === id && m.uploadData ? { ...m, uploadData: { ...m.uploadData, status: 'error', errorMessage } } : m,
@@ -784,38 +756,57 @@ export default function ChatPage() {
       uploadMsgIdRef.current = null;
       uploadedFileNamesRef.current = [];
     },
-    [namespace],
+    [],
   );
 
   useEffect(() => {
     if (!activeUploadPoll || !apiKey || !namespace) return;
     const { msgId, fileNames } = activeUploadPoll;
+    const startedAt = Date.now();
+    const POLL_TIMEOUT_MS = 3 * 60 * 1000; // give up after 3 minutes
+    const MISSING_GRACE_MS = 15_000;       // treat files gone >15s as failed
+
+    function resolveAs(terminalStatus: 'done' | 'error', errorMessage?: string) {
+      clearInterval(interval);
+      setActiveUploadPoll(null);
+      uploadMsgIdRef.current = null;
+      uploadedFileNamesRef.current = [];
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId && m.uploadData
+            ? { ...m, uploadData: { ...m.uploadData, status: terminalStatus, errorMessage } }
+            : m,
+        ),
+      );
+      if (terminalStatus === 'done') setFileRefreshTick((t) => t + 1);
+    }
+
     const interval = setInterval(async () => {
       try {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > POLL_TIMEOUT_MS) {
+          resolveAs('error', 'Indexing timed out');
+          return;
+        }
+
         const fetched = await fetchKnowledgeFiles(apiKey, namespace || 'default');
         const relevant = fetched.filter((f) => fileNames.includes(f.fileName));
-        if (relevant.length === 0) return;
+
+        // Files not found — deleted or namespace reset. Give a short grace period
+        // then treat as failed so the card doesn't spin forever.
+        if (relevant.length === 0) {
+          if (elapsed > MISSING_GRACE_MS) resolveAs('error', 'Files not found');
+          return;
+        }
+
         const allTerminal = relevant.every(
           (f) => f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed',
         );
         if (allTerminal) {
-          clearInterval(interval);
-          setActiveUploadPoll(null);
-          uploadMsgIdRef.current = null;
-          uploadedFileNamesRef.current = [];
           const anySuccess = relevant.some((f) => f.status === 'indexed' || f.status === 'extracted');
-          const terminalStatus = anySuccess ? 'done' : 'error';
           const failedFiles = relevant.filter((f) => f.status === 'failed');
           const errorMessage = failedFiles.length > 0 ? (failedFiles[0]?.error ?? 'Processing failed') : undefined;
-          upsertPersistedUpload(namespace || 'default', { id: msgId, status: terminalStatus });
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msgId && m.uploadData
-                ? { ...m, uploadData: { ...m.uploadData, status: terminalStatus, errorMessage } }
-                : m,
-            ),
-          );
-          setFileRefreshTick((t) => t + 1);
+          resolveAs(anySuccess ? 'done' : 'error', errorMessage);
         } else {
           const hasExtracting = relevant.some((f) => f.status === 'extracting');
           const hasProcessing = relevant.some((f) => f.status === 'processing');
@@ -1001,6 +992,13 @@ export default function ChatPage() {
       <div className="chat-v2-center">
         <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
           <div className="chat-v2-header-left">
+            <button
+              className="topbar-hamburger"
+              onClick={openMobileNav}
+              aria-label="Open navigation"
+            >
+              <Icon icon={Menu} size="md" />
+            </button>
             <span className="chat-v2-ns">{namespace || 'default'}</span>
           </div>
           <div className="chat-v2-header-right">
@@ -1749,8 +1747,17 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {/* Mobile backdrop — tap outside to close whichever panel is open */}
+      {((panelVisible && panelHasContent) || (collectionPanelOpen && !!namespace)) && (
+        <div
+          className="chat-panel-backdrop"
+          onClick={() => { setPanelVisible(false); setCollectionPanelOpen(false); }}
+        />
+      )}
+
       {/* ── Right panel: full height, not under header ── */}
       <div
+        className="chat-side-panel"
         style={{
           width: panelVisible && panelHasContent ? 256 : 0,
           flexShrink: 0,
@@ -1768,6 +1775,7 @@ export default function ChatPage() {
 
       {/* ── Collection progress panel ── */}
       <div
+        className="chat-collection-panel"
         style={{
           width: collectionPanelOpen && !!namespace ? 304 : 0,
           flexShrink: 0,

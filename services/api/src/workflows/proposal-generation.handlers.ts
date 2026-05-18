@@ -30,6 +30,7 @@ import path from 'node:path';
 import type { ToolOutput } from '@ai-engine/core';
 import { toolRegistry } from '@ai-engine/core';
 import { spawnProposalGenerator } from '@ai-engine/plugin-proposal-generator';
+import { retrieveProposalContext } from '../proposals/proposal-rag.js';
 import { ensureTemplateYaml } from '../templates/template-yaml-bridge.js';
 import type { WorkflowInstance } from './workflow-instance.service.js';
 import type { LLMContext } from '../chat/context-builder.js';
@@ -811,11 +812,15 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
 
   onPhase('Generating proposal');
 
+  const proposalClient = requirements.client ?? namespace;
+  const proposalIndustry = requirements.industry ?? 'General';
+  const retrievedContext = await retrieveProposalContext(workdir, namespace, proposalClient, proposalIndustry);
+
   const document = await spawnProposalGenerator({
     workdir,
     outputDir: proposalsDir,
-    client: requirements.client ?? namespace,
-    industry: requirements.industry ?? 'General',
+    client: proposalClient,
+    industry: proposalIndustry,
     namespace,
     template: templateSlug,
     templateDir: path.join(workdir, 'data', 'templates'),
@@ -823,6 +828,7 @@ export async function handleGeneratingSections(ctx: HandlerContext): Promise<Han
     pricing: null,
     tone: null,
     memory: null,
+    retrievedContext,
   });
 
   // ── Validation guard ────────────────────────────────────────────

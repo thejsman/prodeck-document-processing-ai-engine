@@ -54,6 +54,12 @@ export interface MemoryPayload {
   readonly avoidPhrases?: string[];
 }
 
+export interface RetrievedChunk {
+  readonly text: string;
+  readonly score: number;
+  readonly document?: string;
+}
+
 export interface ProcessorPayload {
   readonly workdir: string;
   readonly outputDir: string;
@@ -66,6 +72,7 @@ export interface ProcessorPayload {
   readonly pricing: PricingInput | null;
   readonly tone: string | null;
   readonly memory: MemoryPayload | null;
+  readonly retrievedContext?: RetrievedChunk[] | null;
 }
 
 // ---------------------------------------------------------------------------
