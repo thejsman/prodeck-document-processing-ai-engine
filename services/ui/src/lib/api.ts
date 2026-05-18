@@ -110,11 +110,11 @@ export async function fetchNamespaces(apiKey: string): Promise<string[]> {
   return data.namespaces;
 }
 
-export async function createNamespace(apiKey: string, name: string): Promise<string> {
+export async function createNamespace(apiKey: string, name: string, clientName?: string): Promise<string> {
   const res = await fetch('/api/namespaces', {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(clientName ? { clientName } : {}) }),
   });
   const data = await handleResponse<{ namespace: string }>(res);
   return data.namespace;
@@ -397,6 +397,20 @@ export async function fetchKnowledgeFiles(apiKey: string, namespace: string): Pr
   return data.files;
 }
 
+export async function postUploadMessage(
+  apiKey: string,
+  chatSessionId: string,
+  namespace: string,
+  upload: { id: string; displayName: string; fileSize: number; fileNames: string[] },
+): Promise<void> {
+  const res = await fetch(`/api/chat/session/${encodeURIComponent(chatSessionId)}/upload-message`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ namespace, ...upload }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
 export async function deleteKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(
     `/api/knowledge/files/${encodeURIComponent(fileName)}?namespace=${encodeURIComponent(namespace)}`,
@@ -591,9 +605,11 @@ export async function fetchMicrositeContent(
   apiKey: string,
   namespace: string,
   proposalId: string,
+  mode?: 'pro' | 'classic',
 ): Promise<{ ast: unknown | null; savedAt: string | null }> {
+  const qs = mode ? `?mode=${mode}` : '';
   const res = await fetch(
-    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`,
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite${qs}`,
     { headers: authHeaders(apiKey) },
   );
   const data = await handleResponse<{ ast: unknown | null; savedAt: string | null }>(res);
@@ -610,9 +626,11 @@ export async function saveMicrositeAst(apiKey: string, namespace: string, propos
 }
 
 export interface MicrositeHistoryServerEntry {
+  id: string;
   namespace: string;
   savedAt: string;
   ast: unknown;
+  source?: string;
 }
 
 export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<void> {
@@ -624,8 +642,9 @@ export async function saveMicrositeHistoryToServer(apiKey: string, namespace: st
   await handleResponse<{ ok: boolean }>(res);
 }
 
-export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string): Promise<void> {
-  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}`, {
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, mode?: string): Promise<void> {
+  const qs = mode ? `?mode=${encodeURIComponent(mode)}` : '';
+  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}${qs}`, {
     method: 'DELETE',
     headers: authHeadersNoBody(apiKey),
   });
@@ -723,8 +742,60 @@ export type StreamEvent =
   | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
+  | { type: 'section_html'; id: string; customHtml: string }
   | { type: 'complete'; ast: unknown }
   | { type: 'error'; message: string };
+
+export interface BusinessIntel {
+  brandIdentity: {
+    brandName: string;
+    tagline: string | null;
+    missionStatement: string | null;
+    brandVoice: string;
+    brandPersonality: string;
+  };
+  businessIdentity: {
+    industry: string;
+    businessType: string;
+    companyDescription: string;
+    productsOrServices: string[];
+    pricingModel: string;
+  };
+  digitalAudit: {
+    seoTitle: string;
+    metaDescription: string | null;
+    hasAnalytics: boolean;
+    hasChatWidget: boolean;
+    techStack: string[];
+    internationalPresence: boolean;
+    languages: string[];
+  };
+  contactIntel: {
+    emails: string[];
+    phones: string[];
+    address: string | null;
+    socialProfiles: Record<string, string>;
+    hasContactForm: boolean;
+    hasLiveChat: boolean;
+  };
+  contentAnalysis: {
+    primaryCTA: string;
+    secondaryCTAs: string[];
+    keyMessages: string[];
+    contentTone: string;
+    hasTestimonials: boolean;
+    hasCaseStudies: boolean;
+    hasPricing: boolean;
+    hasVideo: boolean;
+  };
+  competitiveContext: {
+    uniqueSellingPoints: string[];
+    targetAudience: string;
+    positioning: string;
+    competitiveAdvantages: string[];
+    marketCategory: string;
+  };
+}
 
 export interface ReferenceDesign {
   colors: {
@@ -758,6 +829,9 @@ export interface GenerateStreamOptions {
   urlReferenceDesign?: ReferenceDesign | null;
   urlLayout?: Record<string, unknown> | null;
   urlImages?: string[];
+  /** 'classic' skips the design-skill pipeline (plugin theme drives styling).
+   *  'pro' or absent uses the full skill pipeline for URL-driven generation. */
+  generationMode?: 'pro' | 'classic';
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -784,6 +858,7 @@ export async function generateMicrositeStream(
       ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
       ...(opts.urlLayout ? { urlLayout: opts.urlLayout } : {}),
       ...(opts.urlImages?.length ? { urlImages: opts.urlImages } : {}),
+      ...(opts.generationMode ? { generationMode: opts.generationMode } : {}),
     }),
     signal: opts.signal,
   });
@@ -815,6 +890,228 @@ export async function generateMicrositeStream(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Classic microsite generation — always hits generate-classic-stream
+// No design-skill pipeline; plugin theme drives styling; TypeScript section components render
+// ---------------------------------------------------------------------------
+
+export interface ClassicStreamOptions {
+  proposalMarkdown: string;
+  plugin?: string | null;
+  brand?: Record<string, unknown>;
+  customInstructions?: string;
+  fullDesignPrompt?: string;
+  designBrief?: string;
+  preSynthesizedDesignSystem?: Record<string, unknown>;
+  pdfFriendly?: boolean;
+  referenceFile?: { base64: string; mediaType: string; fileName: string; dominantColors?: string[] };
+  /** Only heroImageUrl is used by Classic — no CSS extraction */
+  urlReferenceDesign?: ReferenceDesign | null;
+  urlImages?: string[];
+  onEvent: (event: StreamEvent) => void;
+  signal?: AbortSignal;
+}
+
+export async function generateClassicMicrositeStream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: ClassicStreamOptions,
+): Promise<void> {
+  const res = await fetch(`/api/presentations/${namespace}/${proposalId}/generate-stream`, {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      proposalMarkdown: opts.proposalMarkdown,
+      plugin: opts.plugin ?? 'cobalt',
+      brand: opts.brand ?? {},
+      generationMode: 'classic',
+      ...(opts.customInstructions ? { customInstructions: opts.customInstructions } : {}),
+      ...(opts.fullDesignPrompt ? { fullDesignPrompt: opts.fullDesignPrompt } : {}),
+      ...(opts.designBrief ? { designBrief: opts.designBrief } : {}),
+      ...(opts.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: opts.preSynthesizedDesignSystem } : {}),
+      ...(opts.pdfFriendly ? { pdfFriendly: true } : {}),
+      ...(opts.referenceFile ? { referenceFile: opts.referenceFile } : {}),
+      ...(opts.urlReferenceDesign ? { urlReferenceDesign: opts.urlReferenceDesign } : {}),
+      ...(opts.urlImages?.length ? { urlImages: opts.urlImages } : {}),
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Classic stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as StreamEvent;
+          opts.onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Direct single-pass generation (bypasses multi-step agent pipeline)
+// ---------------------------------------------------------------------------
+
+export interface DirectStreamEvent {
+  type: 'start' | 'html_chunk' | 'complete' | 'error';
+  chunk?: string;
+  elapsed?: number;
+  size?: number;
+  message?: string;
+}
+
+/** Stream direct single-pass HTML generation. */
+export async function generateMicrositeDirectStream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: { proposalMarkdown?: string; brandConfig?: Record<string, unknown>; signal?: AbortSignal },
+  onEvent: (event: DirectStreamEvent) => void,
+): Promise<void> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-direct-stream`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(opts.proposalMarkdown ? { proposalMarkdown: opts.proposalMarkdown } : {}),
+        ...(opts.brandConfig ? { brandConfig: opts.brandConfig } : {}),
+      }),
+      signal: opts.signal,
+    },
+  );
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Direct stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as DirectStreamEvent;
+          onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ── MicrositeEditorPro API functions ─────────────────────────────────────────
+
+/** Regenerate the customHtml for a single section without touching other sections. */
+export async function regenerateSection(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { sectionId: string; currentAst: unknown },
+): Promise<{ sectionId: string; html: string; elapsed: number }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/regenerate-section`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Regenerate failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ sectionId: string; html: string; elapsed: number }>;
+}
+
+/** Apply a natural language instruction to a section's HTML. Returns modified HTML only. */
+export async function editSectionHtml(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { sectionHtml: string; instruction: string },
+): Promise<{ html: string }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/edit-section-html`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Edit failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ html: string }>;
+}
+
+/** Non-streaming single-pass generation. One LLM call, returns when complete. */
+export async function generateMicrositeDirectly(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  designSkillSlug?: string,
+): Promise<{ html: string; elapsed: number }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-direct`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(designSkillSlug ? { designSkillSlug } : {}),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Direct generation failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ html: string; elapsed: number }>;
+}
+
+/** Fetch the directly-generated HTML file. Returns null if not yet generated. */
+export async function fetchMicrositeDirectHtml(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/site-html`,
+    { headers: authHeadersNoBody(apiKey) },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
 }
 
 export async function runAgent(apiKey: string, request: AgentRunRequest): Promise<AgentRunResult> {
@@ -1159,6 +1456,98 @@ export async function listSkillAssetsApi(apiKey: string, slug: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Design Skills
+// ---------------------------------------------------------------------------
+
+export type AestheticToneApi =
+  | 'brutally minimal'
+  | 'maximalist chaos'
+  | 'retro-futuristic'
+  | 'organic/natural'
+  | 'luxury/refined'
+  | 'playful/toy-like'
+  | 'editorial/magazine'
+  | 'brutalist/raw'
+  | 'art deco/geometric'
+  | 'soft/pastel'
+  | 'industrial/utilitarian';
+
+export interface DesignSkillApi {
+  slug: string
+  displayName: string
+  description: string
+  aestheticTone: AestheticToneApi
+  colorPalette: { primary: string; secondary?: string; background?: string }
+  typography: {
+    headingFont: string
+    bodyFont: string
+    headingStyle: 'bold' | 'playful' | 'editorial' | 'minimal' | 'strong'
+  }
+  animations: 'none' | 'minimal' | 'smooth' | 'playful' | 'bounce'
+  customInstructions: string
+  themeClass: 'dark' | 'light' | 'colorful'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DesignSkillSummaryApi {
+  slug: string
+  displayName: string
+  description: string
+  aestheticTone: AestheticToneApi
+  themeClass: 'dark' | 'light' | 'colorful'
+  colorPalette: { primary: string; secondary?: string; background?: string }
+  updatedAt: string
+}
+
+export async function listDesignSkillsApi(apiKey: string): Promise<DesignSkillSummaryApi[]> {
+  const res = await fetch('/api/design-skills', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ skills: DesignSkillSummaryApi[] }>(res);
+  return data.skills;
+}
+
+export async function getDesignSkillApi(apiKey: string, slug: string): Promise<DesignSkillApi> {
+  const res = await fetch(`/api/design-skills/${encodeURIComponent(slug)}`, { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ skill: DesignSkillApi }>(res);
+  return data.skill;
+}
+
+export async function createDesignSkillApi(
+  apiKey: string,
+  skill: Partial<DesignSkillApi> & { displayName: string },
+): Promise<DesignSkillApi> {
+  const res = await fetch('/api/design-skills', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(skill),
+  });
+  const data = await handleResponse<{ skill: DesignSkillApi }>(res);
+  return data.skill;
+}
+
+export async function updateDesignSkillApi(
+  apiKey: string,
+  slug: string,
+  updates: Partial<Omit<DesignSkillApi, 'slug' | 'createdAt'>>,
+): Promise<DesignSkillApi> {
+  const res = await fetch(`/api/design-skills/${encodeURIComponent(slug)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(updates),
+  });
+  const data = await handleResponse<{ skill: DesignSkillApi }>(res);
+  return data.skill;
+}
+
+export async function deleteDesignSkillApi(apiKey: string, slug: string): Promise<void> {
+  const res = await fetch(`/api/design-skills/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ deleted: string }>(res);
+}
+
+// ---------------------------------------------------------------------------
 // Brief Panel
 // ---------------------------------------------------------------------------
 
@@ -1403,13 +1792,174 @@ export async function deleteKnowledgeEntry(
 }
 
 // ---------------------------------------------------------------------------
+// Client Memory
+// ---------------------------------------------------------------------------
+
+export interface MemoryField {
+  value: string | string[];
+  confidence: number;
+  sourceEngagements: string[];
+  firstSeenAt: string;
+  lastConfirmedAt: string;
+}
+
+export interface ClientKnowledgeEntry {
+  id: string;
+  content: string;
+  category: 'preference' | 'constraint' | 'relationship' | 'context';
+  confidence: number;
+  sourceEngagements: string[];
+  firstSeenAt: string;
+  lastConfirmedAt: string;
+  supersededBy?: string;
+}
+
+export interface StakeholderRecord {
+  id: string;
+  name: string;
+  role: string;
+  email?: string;
+  notes?: string;
+  sourceEngagements: string[];
+  lastSeenAt: string;
+}
+
+export interface MemoryConflict {
+  id: string;
+  existingId: string;
+  existingContent: string;
+  incomingContent: string;
+  reason: string;
+  status: 'needs_review' | 'resolved';
+  resolution?: 'keep_old' | 'use_new' | 'keep_both' | 'defer';
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface ClientMemory {
+  clientSlug: string;
+  clientName: string;
+  clientIndustry: string;
+  stableFields: Partial<Record<'clientName' | 'clientIndustry' | 'contactName', MemoryField>>;
+  knowledge: ClientKnowledgeEntry[];
+  stakeholders: StakeholderRecord[];
+  conflicts: MemoryConflict[];
+  version: number;
+}
+
+export async function fetchClientMemory(apiKey: string, clientSlug: string): Promise<ClientMemory | null> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}`, { headers: authHeaders(apiKey) });
+  if (res.status === 404) return null;
+  const data = await handleResponse<{ memory: ClientMemory }>(res);
+  return data.memory;
+}
+
+export async function addKnowledgeEntry(
+  apiKey: string,
+  clientSlug: string,
+  content: string,
+  category: ClientKnowledgeEntry['category'],
+  confidence?: number,
+): Promise<ClientKnowledgeEntry> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/knowledge`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ content, category, confidence }),
+  });
+  const data = await handleResponse<{ entry: ClientKnowledgeEntry }>(res);
+  return data.entry;
+}
+
+export async function updateClientKnowledgeEntry(
+  apiKey: string,
+  clientSlug: string,
+  id: string,
+  content: string,
+): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/knowledge/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ content }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteClientKnowledgeEntry(apiKey: string, clientSlug: string, id: string): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/knowledge/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function addStakeholder(
+  apiKey: string,
+  clientSlug: string,
+  data: { name: string; role: string; email?: string; notes?: string },
+): Promise<StakeholderRecord> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/stakeholders`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(data),
+  });
+  const result = await handleResponse<{ record: StakeholderRecord }>(res);
+  return result.record;
+}
+
+export async function updateStakeholder(
+  apiKey: string,
+  clientSlug: string,
+  id: string,
+  updates: Partial<{ name: string; role: string; email: string; notes: string }>,
+): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/stakeholders/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(updates),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteStakeholder(apiKey: string, clientSlug: string, id: string): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/stakeholders/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+export async function resolveConflict(
+  apiKey: string,
+  clientSlug: string,
+  conflictId: string,
+  resolution: 'keep_old' | 'use_new' | 'keep_both' | 'defer',
+): Promise<void> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/conflicts/${encodeURIComponent(conflictId)}/resolve`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ resolution }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
+// ---------------------------------------------------------------------------
 // URL Design Extraction
 // ---------------------------------------------------------------------------
+
+export type ExtractUrlDesignResult = {
+  tokens: ReferenceDesign | null;
+  heroImageUrl?: string | null;
+  logoUrl?: string | null;
+  layout?: Record<string, unknown> | null;
+  images?: string[];
+  businessIntel?: BusinessIntel | null;
+  error?: string;
+};
 
 export async function extractUrlDesign(
   apiKey: string,
   url: string,
-): Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }> {
+): Promise<ExtractUrlDesignResult> {
   try {
     const res = await fetch('/api/microsite/extract-url-design', {
       method: 'POST',
@@ -1417,7 +1967,7 @@ export async function extractUrlDesign(
       body: JSON.stringify({ url }),
     });
     if (!res.ok) return { tokens: null, error: 'request_failed' };
-    return res.json() as Promise<{ tokens: ReferenceDesign | null; heroImageUrl?: string | null; logoUrl?: string | null; layout?: Record<string, unknown> | null; images?: string[]; error?: string }>;
+    return res.json() as Promise<ExtractUrlDesignResult>;
   } catch {
     return { tokens: null, error: 'network_error' };
   }

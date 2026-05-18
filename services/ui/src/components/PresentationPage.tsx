@@ -1,13 +1,14 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { Check, Globe, ImageIcon, Paperclip, X } from "lucide-react";
-import { Icon } from "@/components/ui/Icon";
-import { ThemeToggle } from "@/components/system/ThemeToggle";
-import { useAuth } from "@/lib/auth-context";
-import { useNamespace } from "@/lib/namespace-context";
-import { useExecutionStore } from "@/core/execution/execution-store";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { Check, Globe, ImageIcon, Menu, Paperclip, X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
+import { ThemeToggle } from '@/components/system/ThemeToggle';
+import { useAuth } from '@/lib/auth-context';
+import { useNamespace } from '@/lib/namespace-context';
+import { useMobileNav } from '@/lib/mobile-nav-store';
+import { useExecutionStore } from '@/core/execution/execution-store';
 import {
   fetchNamespaces,
   fetchProposals,
@@ -15,56 +16,44 @@ import {
   fetchMicrositeContent,
   fetchPresentations,
   generateMicrositeStream,
+  generateClassicMicrositeStream,
   saveMicrositeAst,
   extractUrlDesign,
   type StreamEvent,
   type ProposalFile,
   type SynthesizedDesignSystem,
   type ReferenceDesign,
-} from "@/lib/api";
-import { useNamespacePanelStore } from "@/lib/namespace-panel-store";
-import type {
-  LayoutAST,
-  LayoutSection,
-  BrandConfig,
-} from "@/types/presentation";
+} from '@/lib/api';
+import { useNamespacePanelStore } from '@/lib/namespace-panel-store';
+import type { LayoutAST, LayoutSection, BrandConfig } from '@/types/presentation';
 import {
   PLUGINS,
   fetchPluginsFromApi,
   DEFAULT_PLUGIN_IDS,
   THEME_REGISTRY,
   type ThemeDefinition,
-} from "@/lib/presentation/pluginRegistry";
-import type { PluginMeta } from "@/types/presentation";
-import { Microsite } from "./microsite/Microsite";
-import { MicrositeEditor } from "./microsite/editor/MicrositeEditor";
-import { MicrositeHistory } from "./microsite/MicrositeHistory";
-import { ThemeModal } from "./microsite/ThemeModal";
-import { ThemeFullPreview } from "./microsite/ThemeFullPreview";
-import { ThemePreviewCard } from "./microsite/ThemePreviewCard";
-import { getPlugin } from "@/lib/presentation/pluginRegistry";
-import {
-  useMicrositeHistory,
-  getHistoryCount,
-} from "@/lib/useMicrositeHistory";
+} from '@/lib/presentation/pluginRegistry';
+import type { PluginMeta } from '@/types/presentation';
+import { Microsite as MicrositeClassic } from './microsite/Microsite';
+import { MicrositePro } from './MicrositePro';
+import { MicrositeEditor } from './microsite/editor/MicrositeEditor';
+import { MicrositeHistory } from './microsite/MicrositeHistory';
+import { ThemeModal } from './microsite/ThemeModal';
+import { ThemeFullPreview } from './microsite/ThemeFullPreview';
+import { ThemePreviewCard } from './microsite/ThemePreviewCard';
+import { getPlugin } from '@/lib/presentation/pluginRegistry';
+import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
 
 // ── Pipeline steps ───────────────────────────────────────────────────────────
-type StepId = "upload" | "brand" | "plugin" | "generate" | "preview";
+type StepId = 'upload' | 'method' | 'brand' | 'plugin' | 'generate' | 'preview';
 
-const STEPS: Array<{ id: StepId; label: string; description: string }> = [
-  {
-    id: "upload",
-    label: "Select Proposal",
-    description: "Choose a source proposal",
-  },
-  { id: "brand", label: "Brand Setup", description: "Your identity & colors" },
-  { id: "plugin", label: "Choose Style", description: "Pick a design system" },
-  {
-    id: "generate",
-    label: "Generate",
-    description: "AI builds your microsite",
-  },
-];
+const ALL_STEP_DEFS: Record<string, { id: StepId; label: string; description: string }> = {
+  upload: { id: 'upload', label: 'Select Proposal', description: 'Choose a source proposal' },
+  method: { id: 'method', label: 'Generation Mode', description: 'Choose your approach' },
+  brand: { id: 'brand', label: 'Brand Setup', description: 'Your identity & colors' },
+  plugin: { id: 'plugin', label: 'Choose Style', description: 'Pick a design system' },
+  generate: { id: 'generate', label: 'Generate', description: 'AI builds your microsite' },
+};
 
 interface ProgressItem {
   text: string;
@@ -74,12 +63,12 @@ interface ProgressItem {
 // ── Color extraction utilities ────────────────────────────────────────────────
 
 function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.replace("#", ""), 16);
+  const n = parseInt(hex.replace('#', ''), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 function rgbToHex(r: number, g: number, b: number): string {
-  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+  return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
 
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
@@ -134,11 +123,7 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 function complementaryHex(hex: string): string {
   const [r, g, b] = hexToRgb(hex);
   const [h, s, l] = rgbToHsl(r, g, b);
-  const [nr, ng, nb] = hslToRgb(
-    (h + 0.5) % 1,
-    Math.max(s, 0.3),
-    l < 0.4 ? 0.65 : 0.25,
-  );
+  const [nr, ng, nb] = hslToRgb((h + 0.5) % 1, Math.max(s, 0.3), l < 0.4 ? 0.65 : 0.25);
   return rgbToHex(nr, ng, nb);
 }
 
@@ -149,34 +134,31 @@ function extractSvgColors(svgText: string): string[] {
   while ((m = hexRe.exec(svgText)) !== null) {
     const hex =
       m[0].length === 4
-        ? "#" +
+        ? '#' +
           m[1]
-            .split("")
+            .split('')
             .map((c) => c + c)
-            .join("")
+            .join('')
         : m[0];
     const [r, g, b] = hexToRgb(hex);
     const brightness = (r + g + b) / 3;
     const [, s] = rgbToHsl(r, g, b);
-    if (brightness > 20 && brightness < 235 && s > 0.1)
-      colors.push(hex.toLowerCase());
+    if (brightness > 20 && brightness < 235 && s > 0.1) colors.push(hex.toLowerCase());
   }
   return [...new Set(colors)];
 }
 
-function extractColorsFromCanvas(
-  dataUrl: string,
-): Promise<{ primary: string; secondary: string }> {
+function extractColorsFromCanvas(dataUrl: string): Promise<{ primary: string; secondary: string }> {
   return new Promise((resolve) => {
-    const fallback = { primary: "#C8A96E", secondary: "#1A1612" };
+    const fallback = { primary: '#C8A96E', secondary: '#1A1612' };
     const img = new Image();
     img.onload = () => {
       try {
         const size = 80;
-        const canvas = document.createElement("canvas");
+        const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
-        const ctx = canvas.getContext("2d");
+        const ctx = canvas.getContext('2d');
         if (!ctx) {
           resolve(fallback);
           return;
@@ -205,17 +187,16 @@ function extractColorsFromCanvas(
         }
 
         const toHex = (k: string) => {
-          const [r, g, b] = k.split(",").map(Number);
+          const [r, g, b] = k.split(',').map(Number);
           return rgbToHex(r, g, b);
         };
 
         const primary = toHex(sorted[0][0]);
 
         if (sorted.length >= 2) {
-          const [r1, g1, b1] = sorted[0][0].split(",").map(Number);
-          const [r2, g2, b2] = sorted[1][0].split(",").map(Number);
-          const diff =
-            Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
+          const [r1, g1, b1] = sorted[0][0].split(',').map(Number);
+          const [r2, g2, b2] = sorted[1][0].split(',').map(Number);
+          const diff = Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
           if (diff > 64) {
             resolve({ primary, secondary: toHex(sorted[1][0]) });
             return;
@@ -232,15 +213,11 @@ function extractColorsFromCanvas(
   });
 }
 
-async function extractLogoColors(
-  file: File,
-  dataUrl: string,
-): Promise<{ primary: string; secondary: string }> {
-  if (file.type === "image/svg+xml") {
+async function extractLogoColors(file: File, dataUrl: string): Promise<{ primary: string; secondary: string }> {
+  if (file.type === 'image/svg+xml') {
     const text = await file.text();
     const svgColors = extractSvgColors(text);
-    if (svgColors.length >= 2)
-      return { primary: svgColors[0], secondary: svgColors[1] };
+    if (svgColors.length >= 2) return { primary: svgColors[0], secondary: svgColors[1] };
     if (svgColors.length === 1)
       return {
         primary: svgColors[0],
@@ -251,7 +228,7 @@ async function extractLogoColors(
 }
 
 // ── Session-storage key for wizard state ──────────────────────────────────────
-const SS_KEY = "ms_wizard_state";
+const SS_KEY = 'ms_wizard_state';
 
 interface WizardSnapshot {
   step: StepId;
@@ -263,10 +240,11 @@ interface WizardSnapshot {
   selectedProposal: ProposalFile | null;
   generationStartedAt?: number;
   lockedFromProposal?: boolean;
+  generationMethod?: 'pro' | 'classic';
 }
 
 function readSnapshot(): WizardSnapshot | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === 'undefined') return null;
   try {
     const raw = sessionStorage.getItem(SS_KEY);
     return raw ? (JSON.parse(raw) as WizardSnapshot) : null;
@@ -276,7 +254,7 @@ function readSnapshot(): WizardSnapshot | null {
 }
 
 function writeSnapshot(s: WizardSnapshot) {
-  if (typeof window === "undefined") return;
+  if (typeof window === 'undefined') return;
   try {
     sessionStorage.setItem(SS_KEY, JSON.stringify(s));
   } catch {
@@ -285,7 +263,7 @@ function writeSnapshot(s: WizardSnapshot) {
 }
 
 function clearSnapshot() {
-  if (typeof window === "undefined") return;
+  if (typeof window === 'undefined') return;
   try {
     sessionStorage.removeItem(SS_KEY);
   } catch {
@@ -293,10 +271,92 @@ function clearSnapshot() {
   }
 }
 
+// ── Motivational Quote Rotator ────────────────────────────────────────────────
+
+const MS_QUOTES: string[] = [
+  'Great things take a moment to load… yours is almost ready.',
+  'Crafting your story, one pixel at a time.',
+  'Good proposals don’t just happen — they’re built with intention.',
+  'Your client is about to be impressed. Hold tight.',
+  'Turning your ideas into something unforgettable…',
+  'The best first impressions are worth the wait.',
+  'Building something worth presenting…',
+  'Every great proposal starts with a single section.',
+  'Almost there — greatness is being assembled.',
+  'Your microsite is taking shape. This is the exciting part.',
+  'Precision takes a moment. Perfection takes slightly longer.',
+  'We’re making sure every detail is exactly right.',
+  'Your story is being told beautifully. Just a moment more.',
+  'Great design is invisible — we’re making sure yours is great.',
+  'The wait makes the reveal even better.',
+];
+
+interface MotivationalQuotesProps {
+  active: boolean;
+}
+
+function MotivationalQuotes({ active }: MotivationalQuotesProps) {
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      setVisible(false);
+      const swap = setTimeout(() => {
+        setIdx((i) => (i + 1) % MS_QUOTES.length);
+        setVisible(true);
+      }, 400);
+      return () => clearTimeout(swap);
+    }, 3600);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  if (!active) return null;
+
+  return (
+    <div
+      style={{
+        marginTop: 20,
+        textAlign: 'center',
+        padding: '10px 16px',
+        opacity: visible ? 1 : 0,
+        transition: 'opacity 0.4s ease',
+        pointerEvents: 'none',
+        userSelect: 'none',
+      }}
+    >
+      <span
+        style={{
+          color: 'var(--color-primary)',
+          fontSize: 18,
+          lineHeight: 1,
+          marginRight: 4,
+          fontFamily: 'Georgia, serif',
+          verticalAlign: 'middle',
+        }}
+      >
+        &ldquo;
+      </span>
+      <span
+        style={{
+          fontSize: 12,
+          color: 'var(--color-text-muted)',
+          fontStyle: 'italic',
+          lineHeight: 1.6,
+        }}
+      >
+        {MS_QUOTES[idx]}
+      </span>
+    </div>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 export function PresentationPage() {
   const { apiKey } = useAuth();
   const { setNamespace: setGlobalNamespace } = useNamespace();
+  const { openMobileNav } = useMobileNav();
   const router = useRouter();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
@@ -308,45 +368,71 @@ export function PresentationPage() {
   // Wizard state
   const [step, setStep] = useState<StepId>(() => {
     // If there's a saved generate/preview step, restore it
-    if (_snap && (_snap.step === "generate" || _snap.step === "preview"))
-      return _snap.step;
-    return "upload";
+    if (_snap && (_snap.step === 'generate' || _snap.step === 'preview')) return _snap.step;
+    return 'upload';
   });
+
+  const [generationMethod, setGenerationMethod] = useState<'pro' | 'classic'>('pro');
+  // Ref always tracks latest value so runPipeline closure is never stale
+  const generationMethodRef = useRef<'pro' | 'classic'>('pro');
+  useEffect(() => {
+    generationMethodRef.current = generationMethod;
+  }, [generationMethod]);
+
+  // Active steps depend on the chosen generation mode.
+  // Pro mode routes through the plugin step (URL/image/prompt) but relabels it and hides themes.
+  const activeSteps =
+    generationMethod === 'pro'
+      ? [
+          ALL_STEP_DEFS.upload,
+          ALL_STEP_DEFS.method,
+          { ...ALL_STEP_DEFS.plugin, label: 'Configure & Generate', description: 'URL, image & prompt' },
+        ]
+      : [ALL_STEP_DEFS.upload, ALL_STEP_DEFS.method, ALL_STEP_DEFS.brand, ALL_STEP_DEFS.plugin, ALL_STEP_DEFS.generate];
 
   // Step 1
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [namespacesLoading, setNamespacesLoading] = useState(false);
   const [selectedNamespace, setSelectedNamespace] = useState<string>(() => {
     if (_snap?.selectedNamespace) return _snap.selectedNamespace;
-    return typeof window !== "undefined"
-      ? localStorage.getItem("ms_namespace") || ""
-      : "";
+    return typeof window !== 'undefined' ? localStorage.getItem('ms_namespace') || '' : '';
   });
   const [proposals, setProposals] = useState<ProposalFile[]>([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [proposalsError, setProposalsError] = useState<string | null>(null);
-  const [selectedProposal, setSelectedProposal] = useState<ProposalFile | null>(
-    () => _snap?.selectedProposal ?? null,
-  );
-  const [lockedFromProposal] = useState<boolean>(
-    () => _snap?.lockedFromProposal ?? false,
-  );
-  const [mdContent, setMdContent] = useState("");
+  const [selectedProposal, setSelectedProposal] = useState<ProposalFile | null>(() => _snap?.selectedProposal ?? null);
+  const [lockedFromProposal] = useState<boolean>(() => _snap?.lockedFromProposal ?? false);
+  const [mdContent, setMdContent] = useState('');
   const [loadingContent, setLoadingContent] = useState(false);
 
   // Step 2 — agency brand persisted to localStorage so it survives namespace switches
-  const prevNamespaceRef = useRef<string>("");
+  const prevNamespaceRef = useRef<string>('');
   const [brand, setBrand] = useState<BrandConfig>(() => {
-    if (typeof window === 'undefined') return {
-      companyName: '', tagline: '',
-      logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612',
-    };
-    const clientName = (_snap?.lockedFromProposal && _snap?.selectedProposal?.client) ? _snap.selectedProposal.client : '';
+    if (typeof window === 'undefined')
+      return {
+        companyName: '',
+        tagline: '',
+        logoUrl: null,
+        logoText: '',
+        primaryColor: '#C8A96E',
+        secondaryColor: '#1A1612',
+      };
+    const clientName =
+      _snap?.lockedFromProposal && _snap?.selectedProposal?.client ? _snap.selectedProposal.client : '';
     try {
       const saved = localStorage.getItem('agency-brand');
       if (saved) return { ...JSON.parse(saved), logoUrl: null, ...(clientName ? { companyName: clientName } : {}) };
-    } catch { /* ignore */ }
-    return { companyName: clientName, tagline: '', logoUrl: null, logoText: '', primaryColor: '#C8A96E', secondaryColor: '#1A1612' };
+    } catch {
+      /* ignore */
+    }
+    return {
+      companyName: clientName,
+      tagline: '',
+      logoUrl: null,
+      logoText: '',
+      primaryColor: '#C8A96E',
+      secondaryColor: '#1A1612',
+    };
   });
 
   // Step 2 – logo extraction
@@ -357,39 +443,35 @@ export function PresentationPage() {
   const [pluginList, setPluginList] = useState<PluginMeta[]>(PLUGINS);
 
   // Step 3
-  const [designBrief, setDesignBrief] = useState("");
+  const [designBrief, setDesignBrief] = useState('');
   const [referenceFile, setReferenceFile] = useState<{
     base64: string;
     mediaType: string;
     fileName: string;
     dominantColors?: string[];
   } | null>(null);
-  const [urlInput, setUrlInput] = useState("");
-  const [urlReferenceDesign, setUrlReferenceDesign] =
-    useState<ReferenceDesign | null>(null);
+  const [urlInput, setUrlInput] = useState('');
+  const [urlReferenceDesign, setUrlReferenceDesign] = useState<ReferenceDesign | null>(null);
   const [urlLayout, setUrlLayout] = useState<Record<string, unknown> | null>(null);
   const [urlImages, setUrlImages] = useState<string[]>([]);
-  const [urlExtractionState, setUrlExtractionState] = useState<
-    "idle" | "loading" | "success" | "error" | "blocked"
-  >("idle");
+  const [urlBusinessIntel, setUrlBusinessIntel] = useState<import('../lib/api').BusinessIntel | null>(null);
+  const [urlIntelExpanded, setUrlIntelExpanded] = useState(false);
+  const [urlExtractionState, setUrlExtractionState] = useState<'idle' | 'loading' | 'success' | 'error' | 'blocked'>(
+    'idle',
+  );
   const urlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [imagePreviewModal, setImagePreviewModal] = useState<{ type: 'hero' | 'logo'; src: string } | null>(null);
-  const [synthStatus, setSynthStatus] = useState<
-    null | "scanning" | "building" | "ready"
-  >(null);
-  const [synthesizedDesign, setSynthesizedDesign] =
-    useState<SynthesizedDesignSystem | null>(null);
+  const [synthStatus, setSynthStatus] = useState<null | 'scanning' | 'building' | 'ready'>(null);
+  const [synthesizedDesign, setSynthesizedDesign] = useState<SynthesizedDesignSystem | null>(null);
   const [synthError, setSynthError] = useState<string | null>(null);
   // Step 3 — null means "no theme / default styling"
   const [selectedPlugin, setSelectedPlugin] = useState<string | null>(() => {
-    if (typeof window === "undefined") return "obsidian";
-    return localStorage.getItem("presentation-builder-theme") ?? "obsidian";
+    if (typeof window === 'undefined') return 'obsidian';
+    return localStorage.getItem('presentation-builder-theme') ?? 'obsidian';
   });
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
-  const [previewTheme, setPreviewTheme] = useState<ThemeDefinition | null>(
-    null,
-  );
-  const [customPrompt, setCustomPrompt] = useState("");
+  const [previewTheme, setPreviewTheme] = useState<ThemeDefinition | null>(null);
+  const [customPrompt, setCustomPrompt] = useState('');
   const [pdfFriendly, setPdfFriendly] = useState(false);
 
   // Step 4
@@ -397,25 +479,19 @@ export function PresentationPage() {
   const [streamingTotal, setStreamingTotal] = useState(0);
   const [planSectionTypes, setPlanSectionTypes] = useState<string[]>([]);
   // If we restored a snapshot where generation was running, track that separately
-  const [wasGenerating, setWasGenerating] = useState(
-    () => !!(_snap?.wasGenerating && _snap.step === "generate"),
-  );
+  const [wasGenerating, setWasGenerating] = useState(() => !!(_snap?.wasGenerating && _snap.step === 'generate'));
   const [progress, setProgress] = useState<ProgressItem[]>(() =>
-    _snap?.step === "generate" ? (_snap.progress ?? []) : [],
+    _snap?.step === 'generate' ? (_snap.progress ?? []) : [],
   );
-  const [error, setError] = useState<string | null>(() =>
-    _snap?.step === "generate" ? (_snap.error ?? null) : null,
-  );
+  const [error, setError] = useState<string | null>(() => (_snap?.step === 'generate' ? (_snap.error ?? null) : null));
   const [streamingSections, setStreamingSections] = useState<string[]>(() =>
-    _snap?.step === "generate" ? (_snap.streamingSections ?? []) : [],
+    _snap?.step === 'generate' ? (_snap.streamingSections ?? []) : [],
   );
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentHistoryIdRef = useRef<string | null>(null);
   const layoutASTRef = useRef<LayoutAST | null>(null);
   const userCancelledRef = useRef(false);
-  const generationStartedAtRef = useRef<number>(
-    _snap?.generationStartedAt ?? 0,
-  );
+  const generationStartedAtRef = useRef<number>(_snap?.generationStartedAt ?? 0);
   // Holds reference CSS vars + font URL from Pass 0.5 so they survive the complete-event brandConfig merge
   const referenceCssVarsRef = useRef<{
     cssVars: Record<string, string>;
@@ -445,28 +521,25 @@ export function PresentationPage() {
       try {
         await saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST);
         lastSavedAstRef.current = serialized;
-      } catch { /* best-effort — don't show error for background save */ }
+      } catch {
+        /* best-effort — don't show error for background save */
+      }
     }, 1000);
   }, [layoutAST, apiKey, selectedNamespace, selectedProposal]);
   const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal
-  const [generatedMarkdown, setGeneratedMarkdown] = useState<string | null>(
-    null,
-  );
+  const [generatedMarkdown, setGeneratedMarkdown] = useState<string | null>(null);
 
   // Generate modal
   const [showGenerateModal, setShowGenerateModal] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return !!(_snap?.lockedFromProposal);
+    if (typeof window === 'undefined') return false;
+    return !!_snap?.lockedFromProposal;
   });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  // addEntry scoped to selectedNamespace; count read directly from localStorage for accuracy
   const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace, apiKey);
-  // Count reported directly from MicrositeHistory (combined local + server, always accurate)
-  const [totalHistoryCount, setTotalHistoryCount] = useState(() =>
-    getHistoryCount(),
-  );
+  // Count is reported via onCountChange from MicrositeHistory after server fetch
+  const [totalHistoryCount, setTotalHistoryCount] = useState(0);
 
   // Unified preview handler — opens ThemeFullPreview and closes ThemeModal
   const handlePreview = (id: string) => {
@@ -480,28 +553,28 @@ export function PresentationPage() {
   // Persist selected theme to localStorage
   const handleSelectPlugin = (id: string | null) => {
     setSelectedPlugin(id);
-    if (typeof window !== "undefined") {
-      if (id) localStorage.setItem("presentation-builder-theme", id);
-      else localStorage.removeItem("presentation-builder-theme");
+    if (typeof window !== 'undefined') {
+      if (id) localStorage.setItem('presentation-builder-theme', id);
+      else localStorage.removeItem('presentation-builder-theme');
     }
   };
 
   // ── Escape key: close ThemeModal (ThemeFullPreview handles its own Escape) ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== 'Escape') return;
       // ThemeFullPreview has its own Escape handler — let it fire first.
       // We only close the modal when no preview is open.
       if (previewTheme) return;
       if (isThemeModalOpen) setIsThemeModalOpen(false);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [previewTheme, isThemeModalOpen]);
 
   // ── Persist wizard step + generation state to sessionStorage ──────────────
   useEffect(() => {
-    if (step === "generate" || step === "preview") {
+    if (step === 'generate' || step === 'preview') {
       writeSnapshot({
         step,
         wasGenerating: generating,
@@ -511,37 +584,28 @@ export function PresentationPage() {
         selectedNamespace,
         selectedProposal,
         generationStartedAt: generationStartedAtRef.current,
+        generationMethod,
       });
     } else {
       // Back to earlier steps — clear the snapshot
       clearSnapshot();
     }
-  }, [
-    step,
-    generating,
-    progress,
-    streamingSections,
-    error,
-    selectedNamespace,
-    selectedProposal,
-  ]);
+  }, [step, generating, progress, streamingSections, error, selectedNamespace, selectedProposal, generationMethod]);
 
   // ── When restored to generate step with wasGenerating, poll until result is ready ──
   useEffect(() => {
-    if (!wasGenerating || !apiKey || !selectedNamespace || !selectedProposal)
-      return;
+    if (!wasGenerating || !apiKey || !selectedNamespace || !selectedProposal) return;
     setWasGenerating(false);
     setProgress((p) => {
       const last = p[p.length - 1];
-      if (!last || last.text.startsWith("Checking"))
-        return [...p, { text: "Checking for results…", done: false }];
+      if (!last || last.text.startsWith('Checking')) return [...p, { text: 'Checking for results…', done: false }];
       return p;
     });
 
     const startedAt = generationStartedAtRef.current;
     const key = apiKey;
     const ns = selectedNamespace;
-    const pid = selectedProposal.fileName.replace(/\.md$/, "");
+    const pid = selectedProposal.fileName.replace(/\.md$/, '');
     let stopped = false;
     let pollCount = 0;
     const MAX_POLLS = 60; // 5 minutes at 5s intervals
@@ -552,12 +616,7 @@ export function PresentationPage() {
         const { ast, savedAt } = await fetchMicrositeContent(key, ns, pid);
         if (stopped) return;
         const isNew = savedAt ? new Date(savedAt).getTime() > startedAt : false;
-        if (
-          ast &&
-          typeof ast === "object" &&
-          (ast as { sections?: unknown[] }).sections?.length &&
-          isNew
-        ) {
+        if (ast && typeof ast === 'object' && (ast as { sections?: unknown[] }).sections?.length && isNew) {
           const recovered = ast as LayoutAST;
           setLayoutAST(recovered);
           if (!currentHistoryIdRef.current) {
@@ -565,16 +624,12 @@ export function PresentationPage() {
             currentHistoryIdRef.current = saved.id;
           }
           setProgress((p) =>
-            p.map((x, i) =>
-              i === p.length - 1
-                ? { ...x, text: "Microsite ready!", done: true }
-                : x,
-            ),
+            p.map((x, i) => (i === p.length - 1 ? { ...x, text: 'Microsite ready!', done: true } : x)),
           );
           stopped = true;
           setTimeout(() => {
             clearSnapshot();
-            setStep("preview");
+            setStep('preview');
           }, 600);
         } else {
           pollCount++;
@@ -597,7 +652,7 @@ export function PresentationPage() {
                 i === p.length - 1
                   ? {
                       ...x,
-                      text: "Generation was interrupted — click Generate to restart.",
+                      text: 'Generation was interrupted — click Generate to restart.',
                       done: false,
                     }
                   : x,
@@ -612,7 +667,7 @@ export function PresentationPage() {
               i === p.length - 1
                 ? {
                     ...x,
-                    text: "Generation was interrupted — click Generate to restart.",
+                    text: 'Generation was interrupted — click Generate to restart.',
                     done: false,
                   }
                 : x,
@@ -642,8 +697,18 @@ export function PresentationPage() {
     try {
       const { logoUrl: _skip, ...saveable } = brand;
       localStorage.setItem('agency-brand', JSON.stringify(saveable));
-    } catch { /* ignore quota errors */ }
+    } catch {
+      /* ignore quota errors */
+    }
   }, [brand]);
+
+  // Auto-fill company name from proposal when entering the brand step
+  useEffect(() => {
+    if (step !== 'brand') return;
+    if (brand.companyName.trim()) return; // don't overwrite if user already typed something
+    const fallback = selectedProposal?.client || selectedNamespace;
+    if (fallback) setBrand((b) => ({ ...b, companyName: fallback }));
+  }, [step]);
 
   // Fetch plugin list from API once on mount (Phase 5: dynamic discovery)
   useEffect(() => {
@@ -654,7 +719,7 @@ export function PresentationPage() {
   }, [apiKey]);
 
   useEffect(() => {
-    if (step !== "upload" || !apiKey) return;
+    if (step !== 'upload' || !apiKey) return;
     setNamespacesLoading(true);
     fetchNamespaces(apiKey)
       .then(setNamespaces)
@@ -666,28 +731,26 @@ export function PresentationPage() {
     if (lockedFromProposal) return;
     setProposals([]);
     setSelectedProposal(null);
-    setMdContent("");
+    setMdContent('');
     setProposalsError(null);
   }, [selectedNamespace, lockedFromProposal]);
 
   useEffect(() => {
-    if (step !== "upload" || !apiKey || !selectedNamespace || lockedFromProposal) return;
+    if (step !== 'upload' || !apiKey || !selectedNamespace || lockedFromProposal) return;
     setProposalsLoading(true);
     fetchProposals(apiKey)
       .then((all) =>
         setProposals(
           all.filter((p) => {
-            if (p.status !== "approved") return false;
+            if (p.status !== 'approved') return false;
             // Namespace-scoped proposals have fileName like "km-digital::file.md"
-            if (p.fileName.includes("::")) {
-              const fileNs = p.fileName.split("::")[0];
+            if (p.fileName.includes('::')) {
+              const fileNs = p.fileName.split('::')[0];
               return fileNs === selectedNamespace;
             }
             // Legacy proposals (no namespace prefix): fall back to fuzzy client name match
-            const nsKey = selectedNamespace
-              .toLowerCase()
-              .replace(/[^a-z0-9]/g, "");
-            const clientKey = p.client.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const nsKey = selectedNamespace.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const clientKey = p.client.toLowerCase().replace(/[^a-z0-9]/g, '');
             return clientKey.includes(nsKey) || nsKey.includes(clientKey);
           }),
         ),
@@ -704,7 +767,7 @@ export function PresentationPage() {
       .then((doc) => setMdContent(doc.content))
       .catch(() => {})
       .finally(() => setLoadingContent(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockedFromProposal, apiKey, selectedProposal?.fileName]);
 
   const selectProposal = useCallback(
@@ -728,17 +791,18 @@ export function PresentationPage() {
 
   const resetWizard = useCallback(() => {
     clearSnapshot();
-    setStep("upload");
+    setStep('upload');
     setSelectedProposal(null);
-    setMdContent("");
+    setMdContent('');
     setProposalsError(null);
-    setBrand((b) => ({ ...b, companyName: "", tagline: "", logoUrl: null, logoText: "" }));
+    setBrand((b) => ({ ...b, companyName: '', tagline: '', logoUrl: null, logoText: '' }));
     setColorsAutoExtracted(false);
-    setDesignBrief("");
+    setDesignBrief('');
     setReferenceFile(null);
-    setUrlInput("");
+    setUrlInput('');
     setUrlReferenceDesign(null);
-    setUrlExtractionState("idle");
+    setUrlBusinessIntel(null);
+    setUrlExtractionState('idle');
     setProgress([]);
     setStreamingSections([]);
     setStreamingTotal(0);
@@ -747,32 +811,19 @@ export function PresentationPage() {
     setLayoutAST(null);
     setGeneratedMarkdown(null);
     setWasGenerating(false);
+    setGenerationMethod('pro');
+    generationMethodRef.current = 'pro';
   }, []);
 
-  const stepIdx = STEPS.findIndex((s) => s.id === step);
+  const stepIdx = activeSteps.findIndex((s) => s.id === step);
 
   // Restore layoutAST from disk when navigating to preview without an in-memory AST
   useEffect(() => {
-    if (
-      step !== "preview" ||
-      layoutAST ||
-      !apiKey ||
-      !selectedNamespace ||
-      !selectedProposal
-    )
-      return;
+    if (step !== 'preview' || layoutAST || !apiKey || !selectedNamespace || !selectedProposal) return;
     setLoadingAST(true);
-    fetchMicrositeContent(
-      apiKey,
-      selectedNamespace,
-      selectedProposal.fileName.replace(/\.md$/, ""),
-    )
+    fetchMicrositeContent(apiKey, selectedNamespace, selectedProposal.fileName.replace(/\.md$/, ''))
       .then(({ ast }) => {
-        if (
-          ast &&
-          typeof ast === "object" &&
-          (ast as { sections?: unknown[] }).sections?.length
-        ) {
+        if (ast && typeof ast === 'object' && (ast as { sections?: unknown[] }).sections?.length) {
           setLayoutAST(ast as LayoutAST);
         }
       })
@@ -782,235 +833,241 @@ export function PresentationPage() {
       .finally(() => setLoadingAST(false));
   }, [step, layoutAST, apiKey, selectedNamespace, selectedProposal]);
 
-  const runPipeline = useCallback(async () => {
-    if (!apiKey || !selectedNamespace) return;
+  const runPipeline = useCallback(
+    async (modeOverride?: 'pro' | 'classic') => {
+      // modeOverride is passed explicitly from the button click closure so it's always current
+      const effectiveMethod = modeOverride ?? generationMethodRef.current;
+      console.log(
+        '[runPipeline] modeOverride=',
+        modeOverride,
+        'generationMethodRef=',
+        generationMethodRef.current,
+        'effectiveMethod=',
+        effectiveMethod,
+      );
+      if (!apiKey || !selectedNamespace) return;
 
-    // Build stable refs before any state updates
-    const proposalId =
-      selectedProposal?.fileName.replace(/\.md$/, "") ?? selectedNamespace;
-    // Build base brand config from brand setup
-    const baseBrandConfig = {
-      companyName: brand.companyName,
-      tagline: brand.tagline,
-      logoUrl: brand.logoUrl,
-      logoText: brand.logoText,
-      primaryColor: brand.primaryColor,
-      secondaryColor: brand.secondaryColor,
-    };
-
-    // If URL design was extracted, convert its colors/typography into CSS variable overrides
-    // so the microsite renders the extracted design from the very first skeleton frame.
-    // The existing Pass 0.5 (image attachment) path still takes priority — it re-applies
-    // extractedCssVariables at stream-complete time, overwriting these.
-    const urlDesignOverride = (() => {
-      if (!urlReferenceDesign) return {};
-
-      // Relative luminance of a hex color (WCAG formula)
-      const hexLum = (hex: string): number => {
-        const h = hex.replace("#", "").slice(0, 6);
-        if (h.length < 6) return 0;
-        const r = parseInt(h.slice(0, 2), 16) / 255;
-        const g = parseInt(h.slice(2, 4), 16) / 255;
-        const b = parseInt(h.slice(4, 6), 16) / 255;
-        const lin = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+      // Build stable refs before any state updates
+      const proposalId = selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
+      // Build base brand config from brand setup
+      const baseBrandConfig = {
+        companyName: brand.companyName,
+        tagline: brand.tagline,
+        logoUrl: brand.logoUrl,
+        logoText: brand.logoText,
+        primaryColor: brand.primaryColor,
+        secondaryColor: brand.secondaryColor,
       };
 
-      // WCAG contrast ratio between two hex colors
-      const contrastRatio = (a: string, b: string): number => {
-        const l1 = hexLum(a), l2 = hexLum(b);
-        const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1];
-        return (lighter + 0.05) / (darker + 0.05);
+      // If URL design was extracted, convert its colors/typography into CSS variable overrides
+      // so the microsite renders the extracted design from the very first skeleton frame.
+      // The existing Pass 0.5 (image attachment) path still takes priority — it re-applies
+      // extractedCssVariables at stream-complete time, overwriting these.
+      const urlDesignOverride = (() => {
+        if (!urlReferenceDesign) return {};
+
+        // Relative luminance of a hex color (WCAG formula)
+        const hexLum = (hex: string): number => {
+          const h = hex.replace('#', '').slice(0, 6);
+          if (h.length < 6) return 0;
+          const r = parseInt(h.slice(0, 2), 16) / 255;
+          const g = parseInt(h.slice(2, 4), 16) / 255;
+          const b = parseInt(h.slice(4, 6), 16) / 255;
+          const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+          return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        };
+
+        // WCAG contrast ratio between two hex colors
+        const contrastRatio = (a: string, b: string): number => {
+          const l1 = hexLum(a),
+            l2 = hexLum(b);
+          const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1];
+          return (lighter + 0.05) / (darker + 0.05);
+        };
+
+        // Ensure text has at least 4.5:1 contrast against its background.
+        // If not, fall back to pure white or pure black — whichever wins.
+        const ensureContrast = (textHex: string, bgHex: string): string => {
+          if (contrastRatio(textHex, bgHex) >= 4.5) return textHex;
+          const whiteContrast = contrastRatio('#ffffff', bgHex);
+          const blackContrast = contrastRatio('#111111', bgHex);
+          return whiteContrast >= blackContrast ? '#ffffff' : '#111111';
+        };
+
+        const bg = urlReferenceDesign.colors.background;
+        const surface = urlReferenceDesign.colors.surface;
+        const bgLum = hexLum(bg);
+        const isDark = bgLum < 0.179;
+
+        // Validate and correct all text colors against their respective backgrounds
+        const safeText = ensureContrast(urlReferenceDesign.colors.text, bg);
+        const safeTextMuted = ensureContrast(urlReferenceDesign.colors.textMuted, bg);
+        const safeTextOnSurface = ensureContrast(urlReferenceDesign.colors.text, surface);
+
+        const radiusMap: Record<string, string> = {
+          sharp: '4px',
+          soft: '8px',
+          rounded: '16px',
+        };
+        const cssVars: Record<string, string> = {
+          '--ms-bg': bg,
+          '--ms-bg2': surface,
+          '--ms-bg3': surface,
+          '--ms-surface': surface,
+          '--ms-accent': urlReferenceDesign.colors.primary,
+          '--ms-accent2': urlReferenceDesign.colors.secondary,
+          '--ms-text': safeText,
+          '--ms-text2': safeTextMuted,
+          '--ms-text3': safeTextOnSurface,
+          '--ms-border': surface,
+          '--ms-is-dark': isDark ? '1' : '0',
+          '--ms-font-heading': urlReferenceDesign.typography.headingFont,
+          '--ms-font-body': urlReferenceDesign.typography.bodyFont,
+          '--ms-r-card': radiusMap[urlReferenceDesign.style.borderRadius] ?? '8px',
+        };
+        // Build Google Fonts URL for the extracted fonts
+        const uniqueFonts = [
+          ...new Set(
+            [urlReferenceDesign.typography.headingFont, urlReferenceDesign.typography.bodyFont].filter(Boolean),
+          ),
+        ] as string[];
+        const googleFontsUrl =
+          uniqueFonts.length > 0
+            ? `https://fonts.googleapis.com/css2?${uniqueFonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
+            : undefined;
+        return {
+          overrideTheme: true as const,
+          extractedCssVariables: cssVars,
+          ...(googleFontsUrl ? { googleFontsUrl } : {}),
+        };
+      })();
+
+      const brandConfig = {
+        ...baseBrandConfig,
+        ...urlDesignOverride,
       };
 
-      // Ensure text has at least 4.5:1 contrast against its background.
-      // If not, fall back to pure white or pure black — whichever wins.
-      const ensureContrast = (textHex: string, bgHex: string): string => {
-        if (contrastRatio(textHex, bgHex) >= 4.5) return textHex;
-        const whiteContrast = contrastRatio("#ffffff", bgHex);
-        const blackContrast = contrastRatio("#111111", bgHex);
-        return whiteContrast >= blackContrast ? "#ffffff" : "#111111";
-      };
-
-      const bg = urlReferenceDesign.colors.background;
-      const surface = urlReferenceDesign.colors.surface;
-      const bgLum = hexLum(bg);
-      const isDark = bgLum < 0.179;
-
-      // Validate and correct all text colors against their respective backgrounds
-      const safeText     = ensureContrast(urlReferenceDesign.colors.text, bg);
-      const safeTextMuted = ensureContrast(urlReferenceDesign.colors.textMuted, bg);
-      const safeTextOnSurface = ensureContrast(urlReferenceDesign.colors.text, surface);
-
-      const radiusMap: Record<string, string> = {
-        sharp: "4px",
-        soft: "8px",
-        rounded: "16px",
-      };
-      const cssVars: Record<string, string> = {
-        "--ms-bg": bg,
-        "--ms-bg2": surface,
-        "--ms-bg3": surface,
-        "--ms-surface": surface,
-        "--ms-accent": urlReferenceDesign.colors.primary,
-        "--ms-accent2": urlReferenceDesign.colors.secondary,
-        "--ms-text": safeText,
-        "--ms-text2": safeTextMuted,
-        "--ms-text3": safeTextOnSurface,
-        "--ms-border": surface,
-        "--ms-is-dark": isDark ? "1" : "0",
-        "--ms-font-heading": urlReferenceDesign.typography.headingFont,
-        "--ms-font-body": urlReferenceDesign.typography.bodyFont,
-        "--ms-r-card":
-          radiusMap[urlReferenceDesign.style.borderRadius] ?? "8px",
-      };
-      // Build Google Fonts URL for the extracted fonts
-      const uniqueFonts = [
-        ...new Set(
-          [
-            urlReferenceDesign.typography.headingFont,
-            urlReferenceDesign.typography.bodyFont,
-          ].filter(Boolean),
-        ),
-      ] as string[];
-      const googleFontsUrl =
-        uniqueFonts.length > 0
-          ? `https://fonts.googleapis.com/css2?${uniqueFonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, "+")}:wght@300;400;500;600;700;800`).join("&")}&display=swap`
-          : undefined;
-      return {
-        overrideTheme: true as const,
-        extractedCssVariables: cssVars,
-        ...(googleFontsUrl ? { googleFontsUrl } : {}),
-      };
-    })();
-
-    const brandConfig = {
-      ...baseBrandConfig,
-      ...urlDesignOverride,
-    };
-
-    // ── Immediately switch to preview with an empty AST + skeletons ──────────
-    // This gives the Gamma-like effect: all skeleton slides appear right away,
-    // then fill in as sections arrive — no blank waiting screen.
-    generationStartedAtRef.current = Date.now();
-    userCancelledRef.current = false;
-    setGenerating(true);
-    setError(null);
-    setProgress([
-      { text: "Analyzing proposal — generating hero...", done: false },
-      { text: "Planning section structure...", done: false },
-    ]);
-    setStreamingSections([]);
-    setStreamingTotal(0);
-    setPlanSectionTypes([]);
-    referenceCssVarsRef.current = null;
-    setLayoutAST({
-      proposalId,
-      generatedAt: new Date().toISOString(),
-      meta: {
-        title: selectedProposal?.client ?? selectedNamespace,
-        client: selectedProposal?.client ?? "",
-        date: "",
-        author: "",
-      },
-      brief: {} as LayoutAST["brief"],
-      brand: brandConfig,
-      plugin: selectedPlugin ?? "ivory",
-      sections: [],
-    });
-    // Stay on generate step — switch to preview only when first section arrives
-
-    const execId = crypto.randomUUID();
-    addExecution({
-      id: execId,
-      type: "microsite",
-      status: "running",
-      title: selectedProposal?.client ?? selectedNamespace,
-    });
-
-    const abortCtrl = new AbortController();
-    abortCtrlRef.current = abortCtrl;
-
-    try {
-      setProgress([{ text: "Connecting to AI pipeline...", done: true }]);
-      setProgress((p) => [
-        ...p,
-        { text: "Running design synthesis + section planning...", done: false },
-      ]);
-
-      const isCustomSynth =
-        selectedPlugin === "custom-synthesized" && synthesizedDesign;
-      const sourceMarkdown = generatedMarkdown ?? mdContent;
-
-      await generateMicrositeStream(apiKey, selectedNamespace, proposalId, {
-        proposalMarkdown: sourceMarkdown,
-        plugin: selectedPlugin ?? "none",
+      // ── Immediately switch to preview with an empty AST + skeletons ──────────
+      // This gives the Gamma-like effect: all skeleton slides appear right away,
+      // then fill in as sections arrive — no blank waiting screen.
+      generationStartedAtRef.current = Date.now();
+      userCancelledRef.current = false;
+      setGenerating(true);
+      setError(null);
+      setProgress(
+        effectiveMethod === 'classic'
+          ? [{ text: 'Analyzing proposal...', done: false }]
+          : [
+              { text: 'Analyzing proposal — generating hero...', done: false },
+              { text: 'Planning section structure...', done: false },
+            ],
+      );
+      setStreamingSections([]);
+      setStreamingTotal(0);
+      setPlanSectionTypes([]);
+      referenceCssVarsRef.current = null;
+      setLayoutAST({
+        proposalId,
+        generatedAt: new Date().toISOString(),
+        meta: {
+          title: selectedProposal?.client ?? selectedNamespace,
+          client: selectedProposal?.client ?? '',
+          date: '',
+          author: '',
+        },
+        brief: {} as LayoutAST['brief'],
         brand: brandConfig,
-        ...((customPrompt || designBrief).trim()
-          ? { customInstructions: (customPrompt || designBrief).trim() }
-          : {}),
-        ...((customPrompt || designBrief).trim()
-          ? { fullDesignPrompt: (customPrompt || designBrief).trim() }
-          : {}),
-        ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
-        ...(isCustomSynth
-          ? {
-              preSynthesizedDesignSystem: {
-                rawTokens: synthesizedDesign.designSystem,
-              },
-            }
-          : {}),
-        ...(pdfFriendly ? { pdfFriendly: true } : {}),
-        ...(referenceFile ? { referenceFile } : {}),
-        // URL reference design — file tokens take priority if both provided
-        ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
-        // URL layout structure and images — always passed when available
-        ...(urlLayout ? { urlLayout } : {}),
-        ...(urlImages.length > 0 ? { urlImages } : {}),
-        signal: abortCtrl.signal,
-        onEvent: (event: StreamEvent) => {
-          console.log(
-            "[stream]",
-            event.type,
-            event.type === "section"
-              ? (event as { sectionType?: string }).sectionType
-              : "",
-          );
-          if (event.type === "start") {
-            setProgress((p) =>
-              p.map((x, i) => (i === p.length - 1 ? { ...x, done: true } : x)),
-            );
-            setProgress((p) => [
-              ...p,
-              { text: "Generating sections...", done: false },
-            ]);
-          } else if (event.type === "plan") {
+        plugin: effectiveMethod === 'pro' ? 'none' : (selectedPlugin ?? 'none'),
+        sections: [],
+        generationMode: effectiveMethod,
+      });
+      // Classic: switch to preview immediately so skeletons appear before any section arrives.
+      // Pro: stay on generate step — switch to preview when first section arrives (~3-5s hero).
+      if (effectiveMethod === 'classic') setStep('preview');
+
+      const execId = crypto.randomUUID();
+      addExecution({
+        id: execId,
+        type: 'microsite',
+        status: 'running',
+        title: selectedProposal?.client ?? selectedNamespace,
+      });
+
+      const abortCtrl = new AbortController();
+      abortCtrlRef.current = abortCtrl;
+
+      try {
+        setProgress([{ text: 'Connecting to AI pipeline...', done: true }]);
+        setProgress((p) => [
+          ...p,
+          {
+            text:
+              effectiveMethod === 'classic'
+                ? 'Planning section structure...'
+                : 'Running design synthesis + section planning...',
+            done: false,
+          },
+        ]);
+
+        const isCustomSynth = selectedPlugin === 'custom-synthesized' && synthesizedDesign;
+        const sourceMarkdown = generatedMarkdown ?? mdContent;
+
+        // ── Mode-specific generation params ──────────────────────────────────────
+        // Pro: URL-extracted design drives everything; no theme, no designBrief.
+        // Classic: user-chosen plugin + brand colors + optional designBrief; URL optional.
+        const modeParams =
+          effectiveMethod === 'pro'
+            ? {
+                plugin: 'none' as const,
+                ...(customPrompt.trim()
+                  ? { customInstructions: customPrompt.trim(), fullDesignPrompt: customPrompt.trim() }
+                  : {}),
+                ...(referenceFile ? { referenceFile } : {}),
+                ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+                ...(urlLayout ? { urlLayout } : {}),
+                ...(urlImages.length > 0 ? { urlImages } : {}),
+              }
+            : {
+                plugin: selectedPlugin ?? 'none',
+                ...(isCustomSynth ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign.designSystem } } : {}),
+                ...((customPrompt || designBrief).trim()
+                  ? { customInstructions: (customPrompt || designBrief).trim() }
+                  : {}),
+                ...((customPrompt || designBrief).trim()
+                  ? { fullDesignPrompt: (customPrompt || designBrief).trim() }
+                  : {}),
+                ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
+                ...(referenceFile ? { referenceFile } : {}),
+                // Classic can optionally use a URL reference — passed only when present
+                ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+                ...(urlLayout ? { urlLayout } : {}),
+                ...(urlImages.length > 0 ? { urlImages } : {}),
+              };
+
+        const streamHandler = (event: StreamEvent) => {
+          if (event.type === 'start') {
+            setProgress((p) => p.map((x, i) => (i === p.length - 1 ? { ...x, done: true } : x)));
+            setProgress((p) => [...p, { text: 'Generating sections...', done: false }]);
+          } else if (event.type === 'plan') {
             const planEvent = event as {
-              type: "plan";
+              type: 'plan';
               totalSections: number;
               sectionTypes?: string[];
               referenceCssVars?: Record<string, string>;
             };
             setStreamingTotal(planEvent.totalSections);
-            if (planEvent.sectionTypes)
-              setPlanSectionTypes(planEvent.sectionTypes);
+            if (planEvent.sectionTypes) setPlanSectionTypes(planEvent.sectionTypes);
             // If Pass 0.5 extracted design tokens from attached image, inject them as CSS overrides
             if (planEvent.referenceCssVars) {
               // Build a Google Fonts URL from the extracted font names so they actually load
-              const headingFont = planEvent.referenceCssVars[
-                "--ms-font-heading"
-              ]
+              const headingFont = planEvent.referenceCssVars['--ms-font-heading']
                 ?.match(/['"]?([^'",]+)['"]?/)?.[1]
                 ?.trim();
-              const bodyFont = planEvent.referenceCssVars["--ms-font-body"]
-                ?.match(/['"]?([^'",]+)['"]?/)?.[1]
-                ?.trim();
-              const uniqueFonts = [
-                ...new Set([headingFont, bodyFont].filter(Boolean)),
-              ] as string[];
+              const bodyFont = planEvent.referenceCssVars['--ms-font-body']?.match(/['"]?([^'",]+)['"]?/)?.[1]?.trim();
+              const uniqueFonts = [...new Set([headingFont, bodyFont].filter(Boolean))] as string[];
               const googleFontsUrl =
                 uniqueFonts.length > 0
-                  ? `https://fonts.googleapis.com/css2?${uniqueFonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, "+")}:wght@300;400;500;600;700;800`).join("&")}&display=swap`
+                  ? `https://fonts.googleapis.com/css2?${uniqueFonts.map((f) => `family=${encodeURIComponent(f).replace(/%20/g, '+')}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
                   : undefined;
 
               referenceCssVarsRef.current = {
@@ -1032,30 +1089,30 @@ export function PresentationPage() {
               });
             }
             setProgress([
-              { text: "Hero generated ✓", done: true },
+              { text: effectiveMethod === 'classic' ? 'Plan ready ✓' : 'Hero generated ✓', done: true },
               {
                 text: `Generating ${planEvent.totalSections} sections...`,
                 done: true,
               },
             ]);
-          } else if (event.type === "section") {
+          } else if (event.type === 'section') {
             const sec = event;
             const newSection: LayoutSection = {
               id: sec.id,
               heading: sec.heading,
-              sectionType: sec.sectionType as LayoutSection["sectionType"],
-              content: sec.content as unknown as LayoutSection["content"],
-              image: (sec.image as LayoutSection["image"]) ?? {
-                source: "gradient",
-                query: "",
+              sectionType: sec.sectionType as LayoutSection['sectionType'],
+              content: sec.content as unknown as LayoutSection['content'],
+              image: (sec.image as LayoutSection['image']) ?? {
+                source: 'gradient',
+                query: '',
                 url: null,
-                fallback: "gradient-mesh",
+                fallback: 'gradient-mesh',
               },
               editable: sec.editable ?? true,
               version: sec.version ?? 1,
             };
             setStreamingSections((s) => [...s, sec.sectionType]);
-            setStep("preview"); // Switch to preview on first section — user sees hero within 3-5s
+            setStep('preview'); // Switch to preview on first section — user sees hero within 3-5s
 
             setLayoutAST((prev) => {
               if (!prev) return prev;
@@ -1064,7 +1121,7 @@ export function PresentationPage() {
               sections.splice(targetIdx, 0, newSection);
               return { ...prev, sections };
             });
-          } else if (event.type === "image") {
+          } else if (event.type === 'image') {
             // Image resolved — update that section's URL in place
             setLayoutAST((prev) => {
               if (!prev) return prev;
@@ -1077,17 +1134,31 @@ export function PresentationPage() {
                         image: {
                           ...s.image,
                           url: event.url,
-                          source: "unsplash" as const,
+                          source: 'unsplash' as const,
                         },
                       }
                     : s,
                 ),
               };
             });
-          } else if (event.type === "complete") {
-            const raw = (event as { type: "complete"; ast: unknown }).ast;
-            if (raw && typeof raw === "object") {
+          } else if (event.type === 'section_html') {
+            const { id, customHtml } = event as { type: 'section_html'; id: string; customHtml: string };
+            setLayoutAST((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                sections: prev.sections.map((s) => (s.id === id ? { ...s, customHtml } : s)),
+              };
+            });
+          } else if (event.type === 'complete') {
+            const raw = (event as { type: 'complete'; ast: unknown }).ast;
+            if (raw && typeof raw === 'object') {
               const ast = raw as LayoutAST;
+              // Preserve generationMode from what was set at generation start —
+              // the server never echoes it back so it must be injected client-side.
+              ast.generationMode = effectiveMethod;
+              // Pro always uses "none" plugin; Classic uses the chosen plugin.
+              ast.plugin = effectiveMethod === 'pro' ? 'none' : (selectedPlugin ?? 'none');
               // Merge UI brand on top of agent brand, then re-apply reference CSS vars last so
               // brandConfig (plugin theme + primaryColor) cannot overwrite the extracted tokens.
               ast.brand = { ...(ast.brand ?? {}), ...brandConfig };
@@ -1098,108 +1169,151 @@ export function PresentationPage() {
                   extractedCssVariables: referenceCssVarsRef.current.cssVars,
                   ...(referenceCssVarsRef.current.googleFontsUrl
                     ? {
-                        googleFontsUrl:
-                          referenceCssVarsRef.current.googleFontsUrl,
+                        googleFontsUrl: referenceCssVarsRef.current.googleFontsUrl,
                       }
                     : {}),
                 };
               }
-              ast.plugin = selectedPlugin ?? "ivory";
               setLayoutAST(ast);
               const saved = addEntry(ast);
               currentHistoryIdRef.current = saved.id;
+              // Persist to server immediately so history Edit works without requiring
+              // the user to click Edit from the preview first.
+              saveMicrositeAst(apiKey, selectedNamespace, proposalId, ast).catch(() => {});
               setGeneratedMarkdown(sourceMarkdown);
             }
-            setStep("preview");
-            updateExecution(execId, { status: "completed" });
+            setStep('preview');
+            updateExecution(execId, { status: 'completed' });
             clearSnapshot();
             // Prime the namespace panel store so the microsite appears immediately on return to /chat
             if (selectedNamespace) {
               fetchPresentations(apiKey, selectedNamespace)
-                .then(ms => setPanelMicrosites(selectedNamespace, ms))
+                .then((ms) => setPanelMicrosites(selectedNamespace, ms))
                 .catch(() => {});
             }
-          } else if (event.type === "error") {
-            throw new Error(
-              (event as { type: "error"; message: string }).message,
-            );
+          } else if (event.type === 'error') {
+            throw new Error((event as { type: 'error'; message: string }).message);
           }
-        },
-      });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") {
-        setError((e as Error).message);
-        updateExecution(execId, {
-          status: "failed",
-          errorMessage: (e as Error).message,
-        });
-      }
-    } finally {
-      if (userCancelledRef.current) {
-        // User cancelled — discard any partial entry already saved during streaming
-        if (currentHistoryIdRef.current) {
-          deleteEntry(currentHistoryIdRef.current);
-          currentHistoryIdRef.current = null;
+        };
+
+        console.log(
+          '[streamCall] effectiveMethod=',
+          effectiveMethod,
+          '→ endpoint:',
+          effectiveMethod === 'classic' ? 'generate-classic-stream' : 'generate-structured-stream',
+        );
+        const streamCall =
+          effectiveMethod === 'classic'
+            ? generateClassicMicrositeStream(apiKey, selectedNamespace, proposalId, {
+                proposalMarkdown: sourceMarkdown,
+                brand: brandConfig,
+                plugin: selectedPlugin ?? 'none',
+                ...(isCustomSynth
+                  ? { preSynthesizedDesignSystem: { rawTokens: synthesizedDesign?.designSystem } }
+                  : {}),
+                ...((customPrompt || designBrief).trim()
+                  ? { customInstructions: (customPrompt || designBrief).trim() }
+                  : {}),
+                ...((customPrompt || designBrief).trim()
+                  ? { fullDesignPrompt: (customPrompt || designBrief).trim() }
+                  : {}),
+                ...(designBrief.trim() ? { designBrief: designBrief.trim() } : {}),
+                ...(referenceFile ? { referenceFile } : {}),
+                ...(!referenceFile && urlReferenceDesign ? { urlReferenceDesign } : {}),
+                ...(urlImages.length > 0 ? { urlImages } : {}),
+                ...(pdfFriendly ? { pdfFriendly: true } : {}),
+                signal: abortCtrl.signal,
+                onEvent: streamHandler,
+              })
+            : generateMicrositeStream(apiKey, selectedNamespace, proposalId, {
+                proposalMarkdown: sourceMarkdown,
+                brand: brandConfig,
+                generationMode: 'pro',
+                ...modeParams,
+                ...(pdfFriendly ? { pdfFriendly: true } : {}),
+                signal: abortCtrl.signal,
+                onEvent: streamHandler,
+              });
+        await streamCall;
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') {
+          setError((e as Error).message);
+          updateExecution(execId, {
+            status: 'failed',
+            errorMessage: (e as Error).message,
+          });
         }
-      } else {
-        // Safety net: if complete event never fired (e.g. server error during image fetch),
-        // save whatever sections we have so history is never lost.
-        const latestAST = layoutASTRef.current;
-        if (latestAST?.sections?.length) {
-          if (!currentHistoryIdRef.current) {
-            const saved = addEntry(latestAST);
-            currentHistoryIdRef.current = saved.id;
+      } finally {
+        if (userCancelledRef.current) {
+          // User cancelled — discard any partial entry already saved during streaming
+          if (currentHistoryIdRef.current) {
+            deleteEntry(currentHistoryIdRef.current);
+            currentHistoryIdRef.current = null;
           }
-          setStep("preview");
+        } else {
+          // Safety net: if complete event never fired (e.g. server error during image fetch),
+          // save whatever sections we have so history is never lost.
+          const latestAST = layoutASTRef.current;
+          if (latestAST?.sections?.length) {
+            if (!currentHistoryIdRef.current) {
+              const saved = addEntry(latestAST);
+              currentHistoryIdRef.current = saved.id;
+            }
+            setStep('preview');
+          }
         }
+        setGenerating(false);
       }
-      setGenerating(false);
-    }
-  }, [
-    apiKey,
-    selectedNamespace,
-    mdContent,
-    generatedMarkdown,
-    selectedPlugin,
-    brand,
-    customPrompt,
-    designBrief,
-    synthesizedDesign,
-    addExecution,
-    updateExecution,
-    selectedProposal,
-    addEntry,
-    deleteEntry,
-    pdfFriendly,
-    referenceFile,
-    urlReferenceDesign,
-  ]);
+    },
+    [
+      apiKey,
+      selectedNamespace,
+      mdContent,
+      generatedMarkdown,
+      selectedPlugin,
+      brand,
+      customPrompt,
+      designBrief,
+      synthesizedDesign,
+      addExecution,
+      updateExecution,
+      selectedProposal,
+      addEntry,
+      deleteEntry,
+      pdfFriendly,
+      referenceFile,
+      urlReferenceDesign,
+      generationMethod,
+      urlLayout,
+      urlImages,
+    ],
+  );
 
   // ── Preview loading state ──────────────────────────────────────────────────
   // If not actively loading and still no AST, fall back to upload step.
   // Must be in a useEffect — calling setStep during render causes an infinite loop.
   useEffect(() => {
-    if (step === "preview" && !loadingAST && !layoutAST) {
+    if (step === 'preview' && !loadingAST && !layoutAST) {
       clearSnapshot();
-      setStep("upload");
+      setStep('upload');
     }
   }, [step, loadingAST, layoutAST]);
 
   // While the effect above transitions back to upload, render nothing
-  if (step === "preview" && !loadingAST && !layoutAST) return null;
+  if (step === 'preview' && !loadingAST && !layoutAST) return null;
 
-  if (step === "preview" && loadingAST) {
+  if (step === 'preview' && loadingAST) {
     return (
       <div
         style={{
-          position: "fixed",
+          position: 'fixed',
           inset: 0,
           zIndex: 9999,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "var(--color-bg, #0a0a0a)",
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--color-bg, #0a0a0a)',
           gap: 16,
         }}
       >
@@ -1207,20 +1321,20 @@ export function PresentationPage() {
           style={{
             width: 48,
             height: 48,
-            borderRadius: "50%",
-            border: "3px solid var(--color-border, #333)",
-            borderTopColor: "var(--color-accent, #7c6aff)",
-            animation: "spin 0.8s linear infinite",
+            borderRadius: '50%',
+            border: '3px solid var(--color-border, #333)',
+            borderTopColor: 'var(--color-accent, #7c6aff)',
+            animation: 'spin 0.8s linear infinite',
           }}
         />
         <p
           style={{
-            color: "var(--color-text-muted, #888)",
-            fontFamily: "sans-serif",
+            color: 'var(--color-text-muted, #888)',
+            fontFamily: 'sans-serif',
             fontSize: 14,
           }}
         >
-          {loadingAST ? "Loading microsite…" : "Building preview…"}
+          {loadingAST ? 'Loading microsite…' : 'Building preview…'}
         </p>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
@@ -1228,15 +1342,13 @@ export function PresentationPage() {
   }
 
   // ── Preview mode: delegate entirely to Microsite (it handles fullscreen + portal buttons) ──
-  if (step === "preview" && layoutAST) {
+  if (step === 'preview' && layoutAST) {
     if (showEditor) {
       return (
         <MicrositeEditor
           ast={layoutAST}
           namespace={selectedNamespace}
-          proposalId={
-            selectedProposal?.fileName.replace(/\.md$/, "") ?? selectedNamespace
-          }
+          proposalId={selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace}
           onClose={() => setShowEditor(false)}
           onExport={(editedAst) => {
             setLayoutAST(editedAst);
@@ -1248,80 +1360,166 @@ export function PresentationPage() {
         />
       );
     }
-    return (
-      <Microsite
-        ast={layoutAST}
-        generating={generating}
-        streamingTotal={generating ? streamingTotal : undefined}
-        planSectionTypes={generating ? planSectionTypes : undefined}
-        onBack={generating ? undefined : () => {
-          if (lockedFromProposal) {
-            if (selectedNamespace) setGlobalNamespace(selectedNamespace);
-            router.push('/chat');
-          } else {
-            setStep("upload");
+    {
+      const MicrositeComponent = layoutAST.generationMode === 'pro' ? MicrositePro : MicrositeClassic;
+      const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
+      return (
+        <MicrositeComponent
+          ast={layoutAST}
+          generating={generating}
+          streamingTotal={generating ? streamingTotal : undefined}
+          planSectionTypes={generating ? planSectionTypes : undefined}
+          onBack={
+            generating
+              ? undefined
+              : () => {
+                  if (lockedFromProposal) {
+                    if (selectedNamespace) setGlobalNamespace(selectedNamespace);
+                    router.push('/chat');
+                  } else {
+                    setStep('upload');
+                  }
+                }
           }
-        }}
-        onRegenerate={generating ? undefined : () => setStep("generate")}
-        onEdit={generating ? undefined : () => setShowEditor(true)}
-        namespace={selectedNamespace}
-        proposalId={layoutAST.proposalId}
-      />
-    );
+          onRegenerate={generating ? undefined : () => setStep('generate')}
+          onEdit={
+            generating
+              ? undefined
+              : () => {
+                  saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST).catch(() => {});
+                  if (layoutAST.generationMode === 'pro') {
+                    router.push(
+                      `/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`,
+                    );
+                  } else {
+                    router.push(
+                      `/microsite-editor/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`,
+                    );
+                  }
+                }
+          }
+          namespace={selectedNamespace}
+          proposalId={layoutAST.proposalId}
+        />
+      );
+    }
   }
 
   // ── Wizard steps ─────────────────────────────────────────────────────────
   return (
-    <div style={{ position: "relative", height: "100%" }}>
-      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 10 }}>
+    <div style={{ position: 'relative', height: '100%' }}>
+      <div className="page-theme-toggle-corner" style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
         <ThemeToggle />
       </div>
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "59px 24px 0" }}>
+      <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
         {/* ── Header — same style as Proposals page ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 14 }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", marginRight: "auto" }}>
-            Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ""}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
+          <button
+            className="topbar-hamburger"
+            onClick={openMobileNav}
+            aria-label="Open navigation"
+          >
+            <Icon icon={Menu} size="md" />
+          </button>
+          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>
+            Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ''}
           </span>
           <button
-            onClick={() => setShowGenerateModal(true)}
+            onClick={() =>
+              (() => {
+                clearSnapshot();
+                setStep('upload');
+                setShowGenerateModal(true);
+              })()
+            }
             style={{
-              height: 30, padding: "0 14px",
-              background: "var(--primary)", color: "#fff",
-              border: "none", borderRadius: "var(--radius)",
-              fontSize: 13, fontWeight: 500,
-              cursor: "pointer",
-              flexShrink: 0, whiteSpace: "nowrap",
+              height: 30,
+              padding: '0 14px',
+              background: 'var(--primary)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 'var(--radius)',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
             }}
           >
             + Generate Microsite
           </button>
         </div>
-        <div style={{ height: 1, background: "var(--border)", marginBottom: 24 }} />
+        <div style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
 
         {/* History — always visible */}
-        <MicrositeHistory onCountChange={setTotalHistoryCount} onGenerateNew={() => setShowGenerateModal(true)} />
+        <MicrositeHistory
+          onCountChange={setTotalHistoryCount}
+          onGenerateNew={() =>
+            (() => {
+              clearSnapshot();
+              setStep('upload');
+              setShowGenerateModal(true);
+            })()
+          }
+        />
       </div>
 
       {/* Generate Microsite modal — always mounted so wizard state persists */}
-      <div style={{
-        display: showGenerateModal ? "flex" : "none",
-        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.5)", zIndex: 200,
-        alignItems: "center", justifyContent: "center",
-        padding: "24px", overflowY: "auto",
-      }} onClick={() => { if (step === "generate" && generating) { setShowCancelConfirm(true); } else { resetWizard(); setShowGenerateModal(false); } }}>
-        <div style={{
-          background: "var(--color-surface)", border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-          width: "100%", maxWidth: 860, display: "flex", flexDirection: "column", overflow: "hidden",
-        }} onClick={(e) => e.stopPropagation()}>
+      <div
+        style={{
+          display: showGenerateModal ? 'flex' : 'none',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          zIndex: 200,
+          alignItems: 'flex-start',
+          justifyContent: 'center',
+          padding: '24px',
+          overflowY: 'auto',
+        }}
+        onClick={() => {
+          if (step === 'generate' && generating) {
+            setShowCancelConfirm(true);
+          } else {
+            resetWizard();
+            setShowGenerateModal(false);
+          }
+        }}
+      >
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            width: '100%',
+            maxWidth: 860,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            margin: 'auto',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Modal header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--color-border)',
+              flexShrink: 0,
+            }}
+          >
             <h3 style={{ fontSize: 16, fontWeight: 400, margin: 0 }}>Generate Microsite</h3>
             <button
               className="chat-v2-panel-toggle"
               onClick={() => {
-                if (step === "generate" && generating) {
+                if (step === 'generate' && generating) {
                   setShowCancelConfirm(true);
                 } else {
                   resetWizard();
@@ -1335,887 +1533,1180 @@ export function PresentationPage() {
           </div>
           {/* Modal body — wizard content */}
           <div style={{ padding: 24 }}>
-        <div>
-          {/* Stepper */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 0,
-              marginBottom: 32,
-              position: "relative",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                top: 17,
-                left: "10%",
-                right: "10%",
-                height: 2,
-                background: "var(--color-border)",
-                zIndex: 0,
-              }}
-            />
-            {STEPS.map((s, i) => {
-              const isActive = s.id === step;
-              const isDone = stepIdx > i;
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => isDone && setStep(s.id)}
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 8,
-                    position: "relative",
-                    zIndex: 1,
-                    cursor: isDone ? "pointer" : "default",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: "50%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      flexShrink: 0,
-                      background: isActive
-                        ? "var(--color-primary)"
-                        : isDone
-                          ? "var(--color-success)"
-                          : "var(--color-surface)",
-                      border: `2px solid ${isActive ? "var(--color-primary)" : isDone ? "var(--color-success)" : "var(--color-border)"}`,
-                      color:
-                        isActive || isDone ? "#fff" : "var(--color-text-muted)",
-                      transition: "all 0.2s",
-                      boxShadow: isActive
-                        ? "0 0 0 4px rgba(37,99,235,0.15)"
-                        : "none",
-                    }}
-                  >
-                    {isDone ? <Check size={16} strokeWidth={2.5} /> : i + 1}
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <p
-                      style={{
-                        fontSize: 12,
-                        fontWeight: isActive ? 700 : 500,
-                        margin: 0,
-                        lineHeight: 1.3,
-                        color: isActive
-                          ? "var(--color-primary)"
-                          : isDone
-                            ? "var(--color-text)"
-                            : "var(--color-text-muted)",
-                      }}
-                    >
-                      {s.label}
-                    </p>
-                    <p
-                      style={{
-                        fontSize: 11,
-                        color: "var(--color-text-muted)",
-                        margin: 0,
-                        marginTop: 2,
-                      }}
-                    >
-                      {s.description}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Step card */}
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            {/* Card header strip */}
-            <div
-              style={{
-                padding: "14px 24px",
-                borderBottom: "1px solid var(--color-border)",
-                background: "var(--color-bg)",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                justifyContent: "space-between",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div>
+              {/* Stepper */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 0,
+                  marginBottom: 32,
+                  position: 'relative',
+                }}
+              >
                 <div
                   style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: "50%",
-                    background: "var(--color-primary)",
-                    color: "#fff",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    flexShrink: 0,
+                    position: 'absolute',
+                    top: 17,
+                    left: '10%',
+                    right: '10%',
+                    height: 2,
+                    background: 'var(--color-border)',
+                    zIndex: 0,
                   }}
-                >
-                  {stepIdx + 1}
-                </div>
-                <div>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: "var(--color-text)",
-                      margin: 0,
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {STEPS[stepIdx].label}
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: "var(--color-text-muted)",
-                      margin: 0,
-                    }}
-                  >
-                    {STEPS[stepIdx].description}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Card body */}
-            <div style={{ padding: 24 }}>
-              {/* ═══ STEP 1: SELECT PROPOSAL ═══ */}
-              {step === "upload" && (
-                <div>
-                  {/* Namespace */}
-                  <div className="form-group">
-                    <label>Namespace</label>
-                    {lockedFromProposal ? (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "10px 14px",
-                          background: "var(--color-surface)",
-                          border: "1px solid var(--color-border)",
-                          borderRadius: "var(--radius)",
-                          cursor: "not-allowed",
-                          opacity: 0.85,
-                        }}
-                      >
-                        <span style={{ fontWeight: 500, color: "var(--color-text)", flex: 1 }}>
-                          {selectedNamespace}
-                        </span>
-                        <span className="muted" style={{ fontSize: 11 }}>locked</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ position: "relative" }}>
-                          <select
-                            className="select"
-                            value={selectedNamespace}
-                            disabled={namespacesLoading}
-                            onChange={(e) => {
-                              setSelectedNamespace(e.target.value);
-                              localStorage.setItem("ms_namespace", e.target.value);
-                            }}
-                          >
-                            <option value="">
-                              {namespacesLoading
-                                ? "Loading namespaces…"
-                                : "Select a namespace…"}
-                            </option>
-                            {namespaces.map((ns) => (
-                              <option key={ns} value={ns}>
-                                {ns}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Proposal list */}
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label
+                />
+                {activeSteps.map((s, i) => {
+                  const isActive = s.id === step;
+                  const isDone = stepIdx > i;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => isDone && setStep(s.id)}
                       style={{
-                        color: !lockedFromProposal && !selectedNamespace
-                          ? "var(--color-border)"
-                          : undefined,
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 8,
+                        position: 'relative',
+                        zIndex: 1,
+                        cursor: isDone ? 'pointer' : 'default',
                       }}
                     >
-                      Approved proposals
-                    </label>
-
-                    {lockedFromProposal && selectedProposal && (
-                      <div className="proposal-card">
-                        <div className="proposal-card-header">
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <span className="proposal-card-name">{selectedProposal.client || selectedProposal.fileName}</span>
-                            {selectedProposal.createdAt && (
-                              <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.4 }}>
-                                {new Date(selectedProposal.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
-                              </span>
-                            )}
-                            <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2, lineHeight: 1.4, wordBreak: "break-all" }}>
-                              {selectedProposal.fileName.includes("::") ? selectedProposal.fileName.split("::")[1] : selectedProposal.fileName}
-                            </span>
-                          </div>
-                          {selectedProposal.status && (
-                            <span
-                              className={
-                                selectedProposal.status === "approved" ? "badge--approved" :
-                                selectedProposal.status === "finalized" ? "badge--finalized" :
-                                selectedProposal.status === "under_review" ? "badge--under-review" :
-                                "badge--draft"
-                              }
-                              style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: "transparent", border: "none" }}
-                            >
-                              {selectedProposal.status.replace("_", " ").toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        {loadingContent && (
-                          <p className="loading">Loading content…</p>
-                        )}
-                        {!loadingContent && mdContent && (
-                          <p style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)" }}>
-                            <Check size={12} strokeWidth={2.5} /> Ready
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {!lockedFromProposal && !selectedNamespace && (
                       <div
                         style={{
-                          padding: "2rem",
-                          textAlign: "center",
-                          border: "1px dashed var(--color-border)",
-                          borderRadius: "var(--radius)",
+                          width: 36,
+                          height: 36,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                          background: isActive
+                            ? 'var(--color-primary)'
+                            : isDone
+                              ? 'var(--color-success)'
+                              : 'var(--color-surface)',
+                          border: `2px solid ${isActive ? 'var(--color-primary)' : isDone ? 'var(--color-success)' : 'var(--color-border)'}`,
+                          color: isActive || isDone ? '#fff' : 'var(--color-text-muted)',
+                          transition: 'all 0.2s',
+                          boxShadow: isActive ? '0 0 0 4px rgba(37,99,235,0.15)' : 'none',
                         }}
                       >
-                        <p className="muted">Select a namespace first</p>
+                        {isDone ? <Check size={16} strokeWidth={2.5} /> : i + 1}
                       </div>
-                    )}
-
-                    {!lockedFromProposal && selectedNamespace && proposalsLoading && (
-                      <p className="loading">Loading proposals…</p>
-                    )}
-
-                    {!lockedFromProposal && selectedNamespace &&
-                      proposalsError &&
-                      !proposalsLoading && (
-                        <p className="error">{proposalsError}</p>
-                      )}
-
-                    {!lockedFromProposal && selectedNamespace &&
-                      !proposalsLoading &&
-                      !proposalsError &&
-                      proposals.length === 0 && (
-                        <div
+                      <div style={{ textAlign: 'center' }}>
+                        <p
                           style={{
-                            padding: "2rem",
-                            textAlign: "center",
-                            border: "1px dashed var(--color-border)",
-                            borderRadius: "var(--radius)",
+                            fontSize: 12,
+                            fontWeight: isActive ? 700 : 500,
+                            margin: 0,
+                            lineHeight: 1.3,
+                            color: isActive
+                              ? 'var(--color-primary)'
+                              : isDone
+                                ? 'var(--color-text)'
+                                : 'var(--color-text-muted)',
                           }}
                         >
-                          <p className="muted">
-                            No approved proposals found in{" "}
-                            <strong>{selectedNamespace}</strong>. Approve a
-                            proposal first.
-                          </p>
-                        </div>
-                      )}
-
-                    {!lockedFromProposal && selectedNamespace &&
-                      !proposalsLoading &&
-                      proposals.length > 0 && (
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fill, minmax(240px, 1fr))",
-                            gap: "0.75rem",
-                          }}
-                        >
-                          {proposals.map((p) => {
-                            const isSelected =
-                              selectedProposal?.fileName === p.fileName;
-                            return (
-                              <button
-                                key={p.fileName}
-                                className="proposal-card"
-                                onClick={() => selectProposal(p)}
-                                style={{
-                                  textAlign: "left",
-                                  cursor: "pointer",
-                                  width: "100%",
-                                  ...(isSelected ? { borderColor: "var(--primary)" } : {}),
-                                }}
-                              >
-                                <div className="proposal-card-header">
-                                  <div style={{ minWidth: 0, flex: 1 }}>
-                                    <span className="proposal-card-name">{p.client || p.fileName}</span>
-                                    {p.createdAt && (
-                                      <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.4 }}>
-                                        {new Date(p.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
-                                      </span>
-                                    )}
-                                    <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2, lineHeight: 1.4, wordBreak: "break-all" }}>
-                                      {p.fileName.includes("::") ? p.fileName.split("::")[1] : p.fileName}
-                                    </span>
-                                  </div>
-                                  {p.status && (
-                                    <span
-                                      className={
-                                        p.status === "approved" ? "badge--approved" :
-                                        p.status === "finalized" ? "badge--finalized" :
-                                        p.status === "under_review" ? "badge--under-review" :
-                                        "badge--draft"
-                                      }
-                                      style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: "transparent", border: "none" }}
-                                    >
-                                      {p.status.replace("_", " ").toUpperCase()}
-                                    </span>
-                                  )}
-                                </div>
-                                {isSelected && loadingContent && (
-                                  <p className="loading">Loading content…</p>
-                                )}
-                                {isSelected && !loadingContent && mdContent && (
-                                  <p style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-success)" }}>
-                                    <Check size={12} strokeWidth={2.5} /> Ready
-                                  </p>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                  </div>
-                </div>
-              )}
-
-              {/* ═══ STEP 2: BRAND SETUP ═══ */}
-              {step === "brand" && (
-                <div>
-                  <div className="form-row">
-                    {/* Company name */}
-                    <div className="form-group">
-                      <label>Client * <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: 12 }}>(this name will appear on the microsite)</span></label>
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="e.g. Acme Corp"
-                        maxLength={100}
-                        value={brand.companyName}
-                        onChange={(e) =>
-                          setBrand((b) => ({
-                            ...b,
-                            companyName: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    {/* Logo upload — PNG & SVG only */}
-                    <div className="form-group">
-                      <label>Logo <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: 12 }}>(this logo will appear on the microsite)</span></label>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        {brand.logoUrl && (
-                          <div
-                            style={{
-                              width: 48,
-                              height: 48,
-                              borderRadius: "var(--radius)",
-                              border: "1px solid var(--color-border)",
-                              overflow: "hidden",
-                              flexShrink: 0,
-                              background: "var(--color-surface)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={brand.logoUrl}
-                              alt="logo preview"
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "contain",
-                              }}
-                            />
-                          </div>
-                        )}
-                        <label
-                          style={{
-                            flex: 1,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: 6,
-                            padding: "8px 10px",
-                            borderRadius: "var(--radius)",
-                            cursor: logoExtracting ? "not-allowed" : "pointer",
-                            border: "1px dashed var(--color-border)",
-                            background: "var(--color-surface)",
-                            color: "var(--color-text-muted)",
-                            fontSize: 13,
-                            opacity: logoExtracting ? 0.6 : 1,
-                          }}
-                        >
-                          {logoExtracting
-                            ? "⏳ Extracting colors…"
-                            : `↑ ${brand.logoUrl ? "Change logo" : "Upload logo"}`}
-                          <input
-                            type="file"
-                            accept="image/png,image/svg+xml"
-                            style={{ display: "none" }}
-                            disabled={logoExtracting}
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              e.target.value = "";
-                              setLogoExtracting(true);
-                              setColorsAutoExtracted(false);
-                              try {
-                                // Upload to server so all users see the same logo URL
-                                const formData = new FormData();
-                                formData.append("file", file);
-                                const uploadRes = await fetch(
-                                  `/api/presentations/${encodeURIComponent(selectedNamespace)}/logo`,
-                                  { method: "POST", headers: apiKey ? { "x-api-key": apiKey } : {}, body: formData }
-                                );
-                                const serverUrl: string | null = uploadRes.ok
-                                  ? (await uploadRes.json() as { url: string }).url
-                                  : null;
-
-                                // Use server URL if upload succeeded, otherwise fall back to data URL
-                                const dataUrl = await new Promise<string>((resolve) => {
-                                  const reader = new FileReader();
-                                  reader.onload = (ev) => resolve(ev.target?.result as string);
-                                  reader.readAsDataURL(file);
-                                });
-                                const logoUrl = serverUrl ?? dataUrl;
-                                setBrand((b) => ({ ...b, logoUrl }));
-
-                                const { primary, secondary } = await extractLogoColors(file, dataUrl);
-                                setBrand((b) => ({ ...b, primaryColor: primary, secondaryColor: secondary }));
-                                setColorsAutoExtracted(true);
-                              } finally {
-                                setLogoExtracting(false);
-                              }
-                            }}
-                          />
-                        </label>
-                        {brand.logoUrl && !logoExtracting && (
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => {
-                              setBrand((b) => ({ ...b, logoUrl: null }));
-                              setColorsAutoExtracted(false);
-                            }}
-                            title="Remove logo"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                      {colorsAutoExtracted && !logoExtracting && (
+                          {s.label}
+                        </p>
                         <p
                           style={{
                             fontSize: 11,
-                            color: "var(--color-success)",
-                            marginTop: 4,
+                            color: 'var(--color-text-muted)',
+                            margin: 0,
+                            marginTop: 2,
                           }}
                         >
-                          ✓ Colors auto-extracted from logo — you can override
-                          below
+                          {s.description}
                         </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Tagline</label>
-                    <input
-                      type="text"
-                      className="input"
-                      placeholder="e.g. Strategy & Design Consultancy"
-                      value={brand.tagline}
-                      onChange={(e) =>
-                        setBrand((b) => ({ ...b, tagline: e.target.value }))
-                      }
-                    />
-                  </div>
-
-                  <div className="form-row">
-                    {/* Primary color */}
-                    <div className="form-group">
-                      <label
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        Primary Color (accent)
-                        {colorsAutoExtracted && (
-                          <span
-                            className="badge"
-                            style={{
-                              fontSize: 10,
-                              background: "var(--color-success)",
-                              color: "#fff",
-                              border: "none",
-                            }}
-                          >
-                            auto
-                          </span>
-                        )}
-                      </label>
-                      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                        <label
-                          style={{
-                            position: "relative",
-                            width: 35,
-                            flexShrink: 0,
-                            borderRadius: 6,
-                            border: "1px solid var(--color-border)",
-                            background: brand.primaryColor || "#888888",
-                            overflow: "hidden",
-                            cursor: "pointer",
-                            display: "block",
-                          }}
-                        >
-                          <input
-                            type="color"
-                            value={brand.primaryColor || "#888888"}
-                            onChange={(e) => {
-                              setBrand((b) => ({
-                                ...b,
-                                primaryColor: e.target.value,
-                              }));
-                              setColorsAutoExtracted(false);
-                            }}
-                            style={{
-                              position: "absolute",
-                              inset: 0,
-                              width: "100%",
-                              height: "100%",
-                              opacity: 0,
-                              cursor: "pointer",
-                              border: "none",
-                              padding: 0,
-                            }}
-                          />
-                        </label>
-                        <input
-                          type="text"
-                          className="input"
-                          value={brand.primaryColor}
-                          onChange={(e) => {
-                            setBrand((b) => ({
-                              ...b,
-                              primaryColor: e.target.value,
-                            }));
-                            setColorsAutoExtracted(false);
-                          }}
-                          style={{ fontFamily: "monospace" }}
-                        />
                       </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* Secondary color */}
-                    <div className="form-group">
-                      <label
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        Secondary Color
-                        {colorsAutoExtracted && (
-                          <span
-                            className="badge"
-                            style={{
-                              fontSize: 10,
-                              background: "var(--color-success)",
-                              color: "#fff",
-                              border: "none",
-                            }}
-                          >
-                            auto
-                          </span>
-                        )}
-                      </label>
-                      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                        <label
-                          style={{
-                            position: "relative",
-                            width: 35,
-                            flexShrink: 0,
-                            borderRadius: 6,
-                            border: "1px solid var(--color-border)",
-                            background: brand.secondaryColor || "#888888",
-                            overflow: "hidden",
-                            cursor: "pointer",
-                            display: "block",
-                          }}
-                        >
-                          <input
-                            type="color"
-                            value={brand.secondaryColor || "#888888"}
-                            onChange={(e) => {
-                              setBrand((b) => ({
-                                ...b,
-                                secondaryColor: e.target.value,
-                              }));
-                              setColorsAutoExtracted(false);
-                            }}
-                            style={{
-                              position: "absolute",
-                              inset: 0,
-                              width: "100%",
-                              height: "100%",
-                              opacity: 0,
-                              cursor: "pointer",
-                              border: "none",
-                              padding: 0,
-                            }}
-                          />
-                        </label>
-                        <input
-                          type="text"
-                          className="input"
-                          value={brand.secondaryColor}
-                          onChange={(e) => {
-                            setBrand((b) => ({
-                              ...b,
-                              secondaryColor: e.target.value,
-                            }));
-                            setColorsAutoExtracted(false);
-                          }}
-                          style={{ fontFamily: "monospace" }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* ═══ STEP 3: CHOOSE STYLE ═══ */}
-              {step === "plugin" && (
-                <div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(4, 1fr)",
-                      gap: 10,
-                    }}
-                  >
-                    {/* ── Default 4 theme cards — same ThemePreviewCard as expanded panel ── */}
-                    {THEME_REGISTRY.filter((t) =>
-                      DEFAULT_PLUGIN_IDS.includes(t.id),
-                    ).map((theme) => (
-                      <ThemePreviewCard
-                        key={theme.id}
-                        theme={theme}
-                        selected={selectedPlugin === theme.id}
-                        onSelect={handleSelectPlugin}
-                        onPreview={handlePreview}
-                        size="default"
-                      />
-                    ))}
-
-                    {/* ── More Themes card ── */}
-                    <button
-                      key="more-themes"
-                      onClick={() => setIsThemeModalOpen(true)}
-                      title="Browse all available themes"
+              {/* Step card */}
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                {/* Card header strip */}
+                <div
+                  style={{
+                    padding: '14px 24px',
+                    borderBottom: '1px solid var(--color-border)',
+                    background: 'var(--color-bg)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
                       style={{
-                        background: "none",
-                        padding: 0,
-                        cursor: "pointer",
-                        textAlign: "left",
-                        border: "2px solid var(--color-border)",
-                        borderRadius: 12,
-                        overflow: "hidden",
-                        boxShadow: "var(--shadow)",
-                        transition: "border-color 0.2s",
+                        width: 26,
+                        height: 26,
+                        borderRadius: '50%',
+                        background: 'var(--color-primary)',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        flexShrink: 0,
                       }}
                     >
-                      <div
+                      {stepIdx + 1}
+                    </div>
+                    <div>
+                      <p
                         style={{
-                          height: 130,
-                          position: "relative",
-                          overflow: "hidden",
-                          background: "var(--color-surface)",
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 6,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: 'var(--color-text)',
+                          margin: 0,
+                          lineHeight: 1.2,
                         }}
                       >
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {["#6366f1", "#f59e0b", "#22c55e", "#ef4444"].map((c, i) => (
-                            <span key={i} style={{ width: 16, height: 16, borderRadius: 4, background: c, opacity: 0.7 }} />
-                          ))}
-                        </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-muted)", letterSpacing: "0.04em" }}>+{THEME_REGISTRY.filter((t) => !DEFAULT_PLUGIN_IDS.includes(t.id)).length} MORE</span>
-                      </div>
-                      <div
+                        {activeSteps[stepIdx]?.label}
+                      </p>
+                      <p
                         style={{
-                          padding: "10px 12px",
-                          background: "var(--color-surface)",
-                          borderTop: "1px solid var(--color-border)",
+                          fontSize: 11,
+                          color: 'var(--color-text-muted)',
+                          margin: 0,
                         }}
                       >
-                        <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 2px", color: "var(--color-text)" }}>
-                          More Themes
-                        </p>
-                        <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
-                          Browse all styles
-                        </p>
-                      </div>
-                    </button>
+                        {activeSteps[stepIdx]?.description}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-                    {/* ── No Theme card ── */}
-                    {(() => {
-                      const noThemeActive = selectedPlugin === null;
-                      return (
-                        <button
-                          key="no-theme"
-                          onClick={() =>
-                            handleSelectPlugin(
-                              noThemeActive ? "obsidian" : null,
-                            )
-                          }
-                          title="Generate without a design theme"
-                          style={{
-                            background: "none",
-                            padding: 0,
-                            cursor: "pointer",
-                            textAlign: "left",
-                            border: `2px solid ${noThemeActive ? "var(--color-primary)" : "var(--color-border)"}`,
-                            borderRadius: 12,
-                            overflow: "hidden",
-                            boxShadow: noThemeActive
-                              ? "0 0 0 3px #bfdbfe"
-                              : "var(--shadow)",
-                            transition: "border-color 0.2s",
-                          }}
-                        >
+                {/* Card body */}
+                <div style={{ padding: 24 }}>
+                  {/* ═══ STEP 1: SELECT PROPOSAL ═══ */}
+                  {step === 'upload' && (
+                    <div>
+                      {/* Namespace */}
+                      <div className="form-group">
+                        <label>Namespace</label>
+                        {lockedFromProposal ? (
                           <div
                             style={{
-                              height: 130,
-                              position: "relative",
-                              overflow: "hidden",
-                              background:
-                                "repeating-linear-gradient(45deg, var(--color-bg) 0px, var(--color-bg) 8px, var(--color-border) 8px, var(--color-border) 9px)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '10px 14px',
+                              background: 'var(--color-surface)',
+                              border: '1px solid var(--color-border)',
+                              borderRadius: 'var(--radius)',
+                              cursor: 'not-allowed',
+                              opacity: 0.85,
                             }}
                           >
-                            <span
-                              style={{
-                                fontSize: 32,
-                                opacity: 0.2,
-                                color: "var(--color-text)",
-                              }}
-                            >
-                              ∅
+                            <span style={{ fontWeight: 500, color: 'var(--color-text)', flex: 1 }}>
+                              {selectedNamespace}
                             </span>
-                            {noThemeActive && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: 7,
-                                  right: 7,
-                                  width: 20,
-                                  height: 20,
-                                  borderRadius: "50%",
-                                  background: "var(--color-primary)",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  color: "#fff",
+                            <span className="muted" style={{ fontSize: 11 }}>
+                              locked
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ position: 'relative' }}>
+                              <select
+                                className="select"
+                                value={selectedNamespace}
+                                disabled={namespacesLoading}
+                                onChange={(e) => {
+                                  setSelectedNamespace(e.target.value);
+                                  localStorage.setItem('ms_namespace', e.target.value);
                                 }}
                               >
-                                <Check size={10} strokeWidth={3} />
+                                <option value="">
+                                  {namespacesLoading ? 'Loading namespaces…' : 'Select a namespace…'}
+                                </option>
+                                {namespaces.map((ns) => (
+                                  <option key={ns} value={ns}>
+                                    {ns}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Proposal list */}
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label
+                          style={{
+                            color: !lockedFromProposal && !selectedNamespace ? 'var(--color-border)' : undefined,
+                          }}
+                        >
+                          Approved proposals
+                        </label>
+
+                        {lockedFromProposal && selectedProposal && (
+                          <div className="proposal-card">
+                            <div className="proposal-card-header">
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <span className="proposal-card-name">
+                                  {selectedProposal.client || selectedProposal.fileName}
+                                </span>
+                                {selectedProposal.createdAt && (
+                                  <span
+                                    style={{
+                                      display: 'block',
+                                      fontSize: 12,
+                                      color: 'var(--muted)',
+                                      marginTop: 3,
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    {new Date(selectedProposal.createdAt).toLocaleString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true,
+                                    })}
+                                  </span>
+                                )}
+                                <span
+                                  style={{
+                                    display: 'block',
+                                    fontSize: 12,
+                                    color: 'var(--muted)',
+                                    marginTop: 2,
+                                    lineHeight: 1.4,
+                                    wordBreak: 'break-all',
+                                  }}
+                                >
+                                  {selectedProposal.fileName.includes('::')
+                                    ? selectedProposal.fileName.split('::')[1]
+                                    : selectedProposal.fileName}
+                                </span>
                               </div>
+                              {selectedProposal.status && (
+                                <span
+                                  className={
+                                    selectedProposal.status === 'approved'
+                                      ? 'badge--approved'
+                                      : selectedProposal.status === 'finalized'
+                                        ? 'badge--finalized'
+                                        : selectedProposal.status === 'under_review'
+                                          ? 'badge--under-review'
+                                          : 'badge--draft'
+                                  }
+                                  style={{
+                                    flexShrink: 0,
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                    background: 'transparent',
+                                    border: 'none',
+                                  }}
+                                >
+                                  {selectedProposal.status.replace('_', ' ').toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            {loadingContent && <p className="loading">Loading content…</p>}
+                            {!loadingContent && mdContent && (
+                              <p
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 11,
+                                  color: 'var(--color-success)',
+                                }}
+                              >
+                                <Check size={12} strokeWidth={2.5} /> Ready
+                              </p>
                             )}
                           </div>
+                        )}
+
+                        {!lockedFromProposal && !selectedNamespace && (
                           <div
                             style={{
-                              padding: "10px 12px",
-                              background: "var(--color-surface)",
-                              borderTop: "1px solid var(--color-border)",
+                              padding: '2rem',
+                              textAlign: 'center',
+                              border: '1px dashed var(--color-border)',
+                              borderRadius: 'var(--radius)',
                             }}
                           >
-                            <p
+                            <p className="muted">Select a namespace first</p>
+                          </div>
+                        )}
+
+                        {!lockedFromProposal && selectedNamespace && proposalsLoading && (
+                          <p className="loading">Loading proposals…</p>
+                        )}
+
+                        {!lockedFromProposal && selectedNamespace && proposalsError && !proposalsLoading && (
+                          <p className="error">{proposalsError}</p>
+                        )}
+
+                        {!lockedFromProposal &&
+                          selectedNamespace &&
+                          !proposalsLoading &&
+                          !proposalsError &&
+                          proposals.length === 0 && (
+                            <div
                               style={{
-                                fontSize: 13,
-                                fontWeight: 600,
-                                margin: "0 0 2px",
-                                color: noThemeActive
-                                  ? "var(--color-primary)"
-                                  : "var(--color-text)",
+                                padding: '2rem',
+                                textAlign: 'center',
+                                border: '1px dashed var(--color-border)',
+                                borderRadius: 'var(--radius)',
                               }}
                             >
-                              No Theme
-                            </p>
+                              <p className="muted">
+                                No approved proposals found in <strong>{selectedNamespace}</strong>. Approve a proposal
+                                first.
+                              </p>
+                            </div>
+                          )}
+
+                        {!lockedFromProposal && selectedNamespace && !proposalsLoading && proposals.length > 0 && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                              gap: '0.75rem',
+                            }}
+                          >
+                            {proposals.map((p) => {
+                              const isSelected = selectedProposal?.fileName === p.fileName;
+                              return (
+                                <button
+                                  key={p.fileName}
+                                  className="proposal-card"
+                                  onClick={() => selectProposal(p)}
+                                  style={{
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    width: '100%',
+                                    ...(isSelected ? { borderColor: 'var(--primary)' } : {}),
+                                  }}
+                                >
+                                  <div className="proposal-card-header">
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                      <span className="proposal-card-name">{p.client || p.fileName}</span>
+                                      {p.createdAt && (
+                                        <span
+                                          style={{
+                                            display: 'block',
+                                            fontSize: 12,
+                                            color: 'var(--muted)',
+                                            marginTop: 3,
+                                            lineHeight: 1.4,
+                                          }}
+                                        >
+                                          {new Date(p.createdAt).toLocaleString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            hour12: true,
+                                          })}
+                                        </span>
+                                      )}
+                                      <span
+                                        style={{
+                                          display: 'block',
+                                          fontSize: 12,
+                                          color: 'var(--muted)',
+                                          marginTop: 2,
+                                          lineHeight: 1.4,
+                                          wordBreak: 'break-all',
+                                        }}
+                                      >
+                                        {p.fileName.includes('::') ? p.fileName.split('::')[1] : p.fileName}
+                                      </span>
+                                    </div>
+                                    {p.status && (
+                                      <span
+                                        className={
+                                          p.status === 'approved'
+                                            ? 'badge--approved'
+                                            : p.status === 'finalized'
+                                              ? 'badge--finalized'
+                                              : p.status === 'under_review'
+                                                ? 'badge--under-review'
+                                                : 'badge--draft'
+                                        }
+                                        style={{
+                                          flexShrink: 0,
+                                          fontSize: 10,
+                                          fontWeight: 500,
+                                          background: 'transparent',
+                                          border: 'none',
+                                        }}
+                                      >
+                                        {p.status.replace('_', ' ').toUpperCase()}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isSelected && loadingContent && <p className="loading">Loading content…</p>}
+                                  {isSelected && !loadingContent && mdContent && (
+                                    <p
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        fontSize: 11,
+                                        color: 'var(--color-success)',
+                                      }}
+                                    >
+                                      <Check size={12} strokeWidth={2.5} /> Ready
+                                    </p>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ═══ STEP 2: GENERATION MODE ═══ */}
+                  {step === 'method' && (
+                    <div>
+                      <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+                        Choose your generation mode. You can always switch before generating.
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                        {/* ── Pro card ── */}
+                        {(['pro', 'classic'] as const).map((mode) => {
+                          const isPro = mode === 'pro';
+                          const isSelected = generationMethod === mode;
+                          const accentColor = isPro ? '#2563eb' : '#7c3aed';
+                          const gradientA = isPro ? '#1e3a8a' : '#4c1d95';
+                          const gradientB = isPro ? '#1d4ed8' : '#6d28d9';
+                          const features = isPro
+                            ? [
+                                'Custom HTML per section',
+                                'URL · image · prompt input',
+                                'Per-section AI regeneration',
+                                'Dedicated editor page',
+                              ]
+                            : [
+                                'Plugin-themed components',
+                                'Full brand + color setup',
+                                'Theme gallery selection',
+                                'Inline design agent panel',
+                              ];
+                          const icon = isPro ? '⚡' : '🎨';
+                          const title = isPro ? 'Pro Generator' : 'Classic Mode';
+                          const tagline = isPro
+                            ? 'AI-crafted HTML · maximum control'
+                            : 'Themed components · guided flow';
+                          return (
+                            <button
+                              key={mode}
+                              onClick={() => setGenerationMethod(mode)}
+                              style={{
+                                border: `2px solid ${isSelected ? accentColor : 'var(--border-strong, var(--color-border))'}`,
+                                borderRadius: 14,
+                                padding: 0,
+                                background: 'var(--color-surface)',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                overflow: 'hidden',
+                                transition: 'border-color 0.18s, box-shadow 0.18s, transform 0.15s',
+                                boxShadow: isSelected
+                                  ? `0 0 0 3px ${accentColor}22, 0 8px 24px rgba(0,0,0,0.18)`
+                                  : '0 2px 8px rgba(0,0,0,0.1)',
+                                transform: isSelected ? 'translateY(-1px)' : 'translateY(0)',
+                                position: 'relative' as const,
+                              }}
+                            >
+                              {/* Header gradient area */}
+                              <div
+                                style={{
+                                  background: `linear-gradient(135deg, ${gradientA} 0%, ${gradientB} 100%)`,
+                                  padding: '18px 18px 14px',
+                                  position: 'relative' as const,
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {/* Background glow orb */}
+                                <div
+                                  style={{
+                                    position: 'absolute' as const,
+                                    top: -20,
+                                    right: -20,
+                                    width: 90,
+                                    height: 90,
+                                    borderRadius: '50%',
+                                    background: `radial-gradient(circle, ${accentColor}66 0%, transparent 70%)`,
+                                    pointerEvents: 'none' as const,
+                                  }}
+                                />
+                                {/* Recommended badge */}
+                                {isPro && (
+                                  <div
+                                    style={{
+                                      position: 'absolute' as const,
+                                      top: 12,
+                                      right: 12,
+                                      background: 'linear-gradient(90deg, #f59e0b, #f97316)',
+                                      color: '#000',
+                                      borderRadius: 100,
+                                      fontSize: 9,
+                                      fontWeight: 800,
+                                      padding: '2px 8px',
+                                      letterSpacing: '0.06em',
+                                      textTransform: 'uppercase' as const,
+                                    }}
+                                  >
+                                    Recommended
+                                  </div>
+                                )}
+                                {/* Icon + title */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                                  <div
+                                    style={{
+                                      width: 36,
+                                      height: 36,
+                                      borderRadius: 10,
+                                      background: 'rgba(255,255,255,0.15)',
+                                      backdropFilter: 'blur(4px)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 18,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {icon}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>
+                                      {title}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>
+                                      {tagline}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Feature list */}
+                              <div style={{ padding: '12px 18px 16px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 7 }}>
+                                  {features.map((f, i) => (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <div
+                                        style={{
+                                          width: 16,
+                                          height: 16,
+                                          borderRadius: '50%',
+                                          flexShrink: 0,
+                                          background: isSelected ? `${accentColor}18` : 'var(--color-border)',
+                                          border: `1.5px solid ${isSelected ? accentColor : 'var(--color-border)'}`,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          transition: 'background 0.15s, border-color 0.15s',
+                                        }}
+                                      >
+                                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                                          <path
+                                            d="M1.5 4L3 5.5L6.5 2"
+                                            stroke={isSelected ? accentColor : 'var(--color-text-muted)'}
+                                            strokeWidth="1.5"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                          />
+                                        </svg>
+                                      </div>
+                                      <span style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                                        {f}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Select indicator */}
+                                <div
+                                  style={{
+                                    marginTop: 14,
+                                    padding: '7px 0',
+                                    borderRadius: 8,
+                                    background: isSelected ? accentColor : 'transparent',
+                                    border: `1.5px solid ${isSelected ? accentColor : 'var(--border-strong, var(--color-border))'}`,
+                                    textAlign: 'center' as const,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: isSelected ? '#fff' : 'var(--color-text)',
+                                    transition: 'all 0.18s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                  }}
+                                >
+                                  {isSelected ? (
+                                    <>
+                                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                        <path
+                                          d="M2 6L5 9L10 3"
+                                          stroke="#fff"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        />
+                                      </svg>
+                                      Selected
+                                    </>
+                                  ) : (
+                                    `Use ${title}`
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ═══ STEP 3: BRAND SETUP ═══ */}
+                  {step === 'brand' && (
+                    <div>
+                      <div className="form-row">
+                        {/* Company name */}
+                        <div className="form-group">
+                          <label>
+                            Client *{' '}
+                            <span style={{ color: 'var(--color-text-muted)', fontWeight: 400, fontSize: 12 }}>
+                              (this name will appear on the microsite)
+                            </span>
+                          </label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g. Acme Corp"
+                            maxLength={100}
+                            value={brand.companyName}
+                            onChange={(e) =>
+                              setBrand((b) => ({
+                                ...b,
+                                companyName: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+
+                        {/* Logo upload — PNG & SVG only */}
+                        <div className="form-group">
+                          <label>
+                            Logo{' '}
+                            <span style={{ color: 'var(--color-text-muted)', fontWeight: 400, fontSize: 12 }}>
+                              (this logo will appear on the microsite)
+                            </span>
+                          </label>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                            }}
+                          >
+                            {brand.logoUrl && (
+                              <div
+                                style={{
+                                  width: 48,
+                                  height: 48,
+                                  borderRadius: 'var(--radius)',
+                                  border: '1px solid var(--color-border)',
+                                  overflow: 'hidden',
+                                  flexShrink: 0,
+                                  background: 'var(--color-surface)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={brand.logoUrl}
+                                  alt="logo preview"
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'contain',
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <label
+                              style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                padding: '8px 10px',
+                                borderRadius: 'var(--radius)',
+                                cursor: logoExtracting ? 'not-allowed' : 'pointer',
+                                border: '1px dashed var(--color-border)',
+                                background: 'var(--color-surface)',
+                                color: 'var(--color-text-muted)',
+                                fontSize: 13,
+                                opacity: logoExtracting ? 0.6 : 1,
+                              }}
+                            >
+                              {logoExtracting
+                                ? '⏳ Extracting colors…'
+                                : `↑ ${brand.logoUrl ? 'Change logo' : 'Upload logo'}`}
+                              <input
+                                type="file"
+                                accept="image/png,image/svg+xml"
+                                style={{ display: 'none' }}
+                                disabled={logoExtracting}
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  e.target.value = '';
+                                  setLogoExtracting(true);
+                                  setColorsAutoExtracted(false);
+                                  try {
+                                    // Upload to server so all users see the same logo URL
+                                    const formData = new FormData();
+                                    formData.append('file', file);
+                                    const uploadRes = await fetch(
+                                      `/api/presentations/${encodeURIComponent(selectedNamespace)}/logo`,
+                                      {
+                                        method: 'POST',
+                                        headers: apiKey ? { 'x-api-key': apiKey } : {},
+                                        body: formData,
+                                      },
+                                    );
+                                    const serverUrl: string | null = uploadRes.ok
+                                      ? ((await uploadRes.json()) as { url: string }).url
+                                      : null;
+
+                                    // Use server URL if upload succeeded, otherwise fall back to data URL
+                                    const dataUrl = await new Promise<string>((resolve) => {
+                                      const reader = new FileReader();
+                                      reader.onload = (ev) => resolve(ev.target?.result as string);
+                                      reader.readAsDataURL(file);
+                                    });
+                                    const logoUrl = serverUrl ?? dataUrl;
+                                    setBrand((b) => ({ ...b, logoUrl }));
+
+                                    const { primary, secondary } = await extractLogoColors(file, dataUrl);
+                                    setBrand((b) => ({ ...b, primaryColor: primary, secondaryColor: secondary }));
+                                    setColorsAutoExtracted(true);
+                                  } finally {
+                                    setLogoExtracting(false);
+                                  }
+                                }}
+                              />
+                            </label>
+                            {brand.logoUrl && !logoExtracting && (
+                              <button
+                                className="btn btn-sm"
+                                onClick={() => {
+                                  setBrand((b) => ({ ...b, logoUrl: null }));
+                                  setColorsAutoExtracted(false);
+                                }}
+                                title="Remove logo"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {colorsAutoExtracted && !logoExtracting && (
                             <p
-                              className="muted"
                               style={{
                                 fontSize: 11,
-                                lineHeight: 1.4,
-                                margin: 0,
+                                color: 'var(--color-success)',
+                                marginTop: 4,
                               }}
                             >
-                              Clean default layout
+                              ✓ Colors auto-extracted from logo — you can override below
                             </p>
-                          </div>
-                        </button>
-                      );
-                    })()}
-                  </div>
+                          )}
+                        </div>
+                      </div>
 
-                  {/* ── Selected theme confirmation ── */}
-                  {(() => {
-                    if (!selectedPlugin) return null;
-                    const activeTheme = THEME_REGISTRY.find(t => t.id === selectedPlugin);
-                    if (!activeTheme) return null;
-                    const isFromModal = !DEFAULT_PLUGIN_IDS.includes(selectedPlugin);
-                    const c = activeTheme.previewColors;
-                    return (
-                      <>
-                        <style>{`
+                      <div className="form-group">
+                        <label>Tagline</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="e.g. Strategy & Design Consultancy"
+                          value={brand.tagline}
+                          onChange={(e) => setBrand((b) => ({ ...b, tagline: e.target.value }))}
+                        />
+                      </div>
+
+                      <div className="form-row">
+                        {/* Primary color */}
+                        <div className="form-group">
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            Primary Color (accent)
+                            {colorsAutoExtracted && (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: 10,
+                                  background: 'var(--color-success)',
+                                  color: '#fff',
+                                  border: 'none',
+                                }}
+                              >
+                                auto
+                              </span>
+                            )}
+                          </label>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                            <label
+                              style={{
+                                position: 'relative',
+                                width: 35,
+                                flexShrink: 0,
+                                borderRadius: 6,
+                                border: '1px solid var(--color-border)',
+                                background: brand.primaryColor || '#888888',
+                                overflow: 'hidden',
+                                cursor: 'pointer',
+                                display: 'block',
+                              }}
+                            >
+                              <input
+                                type="color"
+                                value={brand.primaryColor || '#888888'}
+                                onChange={(e) => {
+                                  setBrand((b) => ({
+                                    ...b,
+                                    primaryColor: e.target.value,
+                                  }));
+                                  setColorsAutoExtracted(false);
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  inset: 0,
+                                  width: '100%',
+                                  height: '100%',
+                                  opacity: 0,
+                                  cursor: 'pointer',
+                                  border: 'none',
+                                  padding: 0,
+                                }}
+                              />
+                            </label>
+                            <input
+                              type="text"
+                              className="input"
+                              value={brand.primaryColor}
+                              onChange={(e) => {
+                                setBrand((b) => ({
+                                  ...b,
+                                  primaryColor: e.target.value,
+                                }));
+                                setColorsAutoExtracted(false);
+                              }}
+                              style={{ fontFamily: 'monospace' }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Secondary color */}
+                        <div className="form-group">
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            Secondary Color
+                            {colorsAutoExtracted && (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: 10,
+                                  background: 'var(--color-success)',
+                                  color: '#fff',
+                                  border: 'none',
+                                }}
+                              >
+                                auto
+                              </span>
+                            )}
+                          </label>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                            <label
+                              style={{
+                                position: 'relative',
+                                width: 35,
+                                flexShrink: 0,
+                                borderRadius: 6,
+                                border: '1px solid var(--color-border)',
+                                background: brand.secondaryColor || '#888888',
+                                overflow: 'hidden',
+                                cursor: 'pointer',
+                                display: 'block',
+                              }}
+                            >
+                              <input
+                                type="color"
+                                value={brand.secondaryColor || '#888888'}
+                                onChange={(e) => {
+                                  setBrand((b) => ({
+                                    ...b,
+                                    secondaryColor: e.target.value,
+                                  }));
+                                  setColorsAutoExtracted(false);
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  inset: 0,
+                                  width: '100%',
+                                  height: '100%',
+                                  opacity: 0,
+                                  cursor: 'pointer',
+                                  border: 'none',
+                                  padding: 0,
+                                }}
+                              />
+                            </label>
+                            <input
+                              type="text"
+                              className="input"
+                              value={brand.secondaryColor}
+                              onChange={(e) => {
+                                setBrand((b) => ({
+                                  ...b,
+                                  secondaryColor: e.target.value,
+                                }));
+                                setColorsAutoExtracted(false);
+                              }}
+                              style={{ fontFamily: 'monospace' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ═══ STEP 3: CHOOSE STYLE (Classic) / CONFIGURE & GENERATE (Pro) ═══ */}
+                  {step === 'plugin' && (
+                    <div>
+                      {generationMethod === 'classic' && (
+                        <>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(4, 1fr)',
+                              gap: 10,
+                            }}
+                          >
+                            {/* ── Default 4 theme cards — same ThemePreviewCard as expanded panel ── */}
+                            {THEME_REGISTRY.filter((t) => DEFAULT_PLUGIN_IDS.includes(t.id)).map((theme) => (
+                              <ThemePreviewCard
+                                key={theme.id}
+                                theme={theme}
+                                selected={selectedPlugin === theme.id}
+                                onSelect={handleSelectPlugin}
+                                onPreview={handlePreview}
+                                size="default"
+                              />
+                            ))}
+
+                            {/* ── More Themes card ── */}
+                            <button
+                              key="more-themes"
+                              onClick={() => setIsThemeModalOpen(true)}
+                              title="Browse all available themes"
+                              style={{
+                                background: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                border: '2px solid var(--color-border)',
+                                borderRadius: 12,
+                                overflow: 'hidden',
+                                boxShadow: 'var(--shadow)',
+                                transition: 'border-color 0.2s',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  height: 130,
+                                  position: 'relative',
+                                  overflow: 'hidden',
+                                  background: 'var(--color-surface)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  {['#6366f1', '#f59e0b', '#22c55e', '#ef4444'].map((c, i) => (
+                                    <span
+                                      key={i}
+                                      style={{ width: 16, height: 16, borderRadius: 4, background: c, opacity: 0.7 }}
+                                    />
+                                  ))}
+                                </div>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: 'var(--color-text-muted)',
+                                    letterSpacing: '0.04em',
+                                  }}
+                                >
+                                  +{THEME_REGISTRY.filter((t) => !DEFAULT_PLUGIN_IDS.includes(t.id)).length} MORE
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  padding: '10px 12px',
+                                  background: 'var(--color-surface)',
+                                  borderTop: '1px solid var(--color-border)',
+                                }}
+                              >
+                                <p
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    margin: '0 0 2px',
+                                    color: 'var(--color-text)',
+                                  }}
+                                >
+                                  More Themes
+                                </p>
+                                <p className="muted" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
+                                  Browse all styles
+                                </p>
+                              </div>
+                            </button>
+
+                            {/* ── No Theme card ── */}
+                            {(() => {
+                              const noThemeActive = selectedPlugin === null;
+                              return (
+                                <button
+                                  key="no-theme"
+                                  onClick={() => handleSelectPlugin(noThemeActive ? 'obsidian' : null)}
+                                  title="Generate without a design theme"
+                                  style={{
+                                    background: 'none',
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                    border: `2px solid ${noThemeActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                                    borderRadius: 12,
+                                    overflow: 'hidden',
+                                    boxShadow: noThemeActive ? '0 0 0 3px #bfdbfe' : 'var(--shadow)',
+                                    transition: 'border-color 0.2s',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      height: 130,
+                                      position: 'relative',
+                                      overflow: 'hidden',
+                                      background:
+                                        'repeating-linear-gradient(45deg, var(--color-bg) 0px, var(--color-bg) 8px, var(--color-border) 8px, var(--color-border) 9px)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontSize: 32,
+                                        opacity: 0.2,
+                                        color: 'var(--color-text)',
+                                      }}
+                                    >
+                                      ∅
+                                    </span>
+                                    {noThemeActive && (
+                                      <div
+                                        style={{
+                                          position: 'absolute',
+                                          top: 7,
+                                          right: 7,
+                                          width: 20,
+                                          height: 20,
+                                          borderRadius: '50%',
+                                          background: 'var(--color-primary)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          color: '#fff',
+                                        }}
+                                      >
+                                        <Check size={10} strokeWidth={3} />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div
+                                    style={{
+                                      padding: '10px 12px',
+                                      background: 'var(--color-surface)',
+                                      borderTop: '1px solid var(--color-border)',
+                                    }}
+                                  >
+                                    <p
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        margin: '0 0 2px',
+                                        color: noThemeActive ? 'var(--color-primary)' : 'var(--color-text)',
+                                      }}
+                                    >
+                                      No Theme
+                                    </p>
+                                    <p
+                                      className="muted"
+                                      style={{
+                                        fontSize: 11,
+                                        lineHeight: 1.4,
+                                        margin: 0,
+                                      }}
+                                    >
+                                      Clean default layout
+                                    </p>
+                                  </div>
+                                </button>
+                              );
+                            })()}
+                          </div>
+
+                          {/* ── Selected theme confirmation ── */}
+                          {(() => {
+                            if (!selectedPlugin) return null;
+                            const activeTheme = THEME_REGISTRY.find((t) => t.id === selectedPlugin);
+                            if (!activeTheme) return null;
+                            const isFromModal = !DEFAULT_PLUGIN_IDS.includes(selectedPlugin);
+                            const c = activeTheme.previewColors;
+                            return (
+                              <>
+                                <style>{`
                           ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} {
                             background: color-mix(in srgb, var(--color-primary) 8%, transparent);
                             border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
@@ -2229,262 +2720,259 @@ export function PresentationPage() {
                           .light ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} ._tc_label { color: ${c.accent}; }
                           .light ._theme_confirm_${activeTheme.id.replace(/-/g, '_')} ._tc_desc { color: ${c.text}; opacity: 0.6; }
                         `}</style>
-                        <div
-                          className={`_theme_confirm_${activeTheme.id.replace(/-/g, '_')}`}
+                                <div
+                                  className={`_theme_confirm_${activeTheme.id.replace(/-/g, '_')}`}
+                                  style={{
+                                    marginTop: 12,
+                                    padding: '10px 14px',
+                                    borderRadius: 8,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 6,
+                                      flexShrink: 0,
+                                      overflow: 'hidden',
+                                      border: `1px solid ${c.border ?? c.accent + '55'}`,
+                                      background: c.background,
+                                      display: 'flex',
+                                      alignItems: 'flex-end',
+                                    }}
+                                  >
+                                    <div style={{ height: 3, width: '100%', display: 'flex' }}>
+                                      <div style={{ flex: 1, background: c.background }} />
+                                      <div style={{ flex: 1, background: c.accent }} />
+                                      <div style={{ flex: 1, background: c.text }} />
+                                    </div>
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <p
+                                      className="_tc_label"
+                                      style={{ margin: 0, fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}
+                                    >
+                                      <Check
+                                        size={12}
+                                        strokeWidth={3}
+                                        style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }}
+                                      />
+                                      {activeTheme.label}
+                                    </p>
+                                    <p className="_tc_desc" style={{ margin: 0, fontSize: 11, marginTop: 1 }}>
+                                      {isFromModal ? 'Selected from all themes · ' : ''}
+                                      {activeTheme.description}
+                                    </p>
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </>
+                      )}
+
+                      {/* Custom prompt */}
+                      <div className="form-group" style={{ marginTop: 24, marginBottom: 0 }}>
+                        <label
                           style={{
-                            marginTop: 12,
-                            padding: '10px 14px',
-                            borderRadius: 8,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 10,
+                            gap: 8,
                           }}
                         >
-                          <div style={{
-                            width: 28, height: 28, borderRadius: 6, flexShrink: 0, overflow: 'hidden',
-                            border: `1px solid ${c.border ?? c.accent + '55'}`,
-                            background: c.background,
-                            display: 'flex', alignItems: 'flex-end',
-                          }}>
-                            <div style={{ height: 3, width: '100%', display: 'flex' }}>
-                              <div style={{ flex: 1, background: c.background }} />
-                              <div style={{ flex: 1, background: c.accent }} />
-                              <div style={{ flex: 1, background: c.text }} />
-                            </div>
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p className="_tc_label" style={{ margin: 0, fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}>
-                              <Check size={12} strokeWidth={3} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
-                              {activeTheme.label}
-                            </p>
-                            <p className="_tc_desc" style={{ margin: 0, fontSize: 11, marginTop: 1 }}>
-                              {isFromModal ? 'Selected from all themes · ' : ''}{activeTheme.description}
-                            </p>
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })()}
-
-                  {/* Custom prompt */}
-                  <div
-                    className="form-group"
-                    style={{ marginTop: 24, marginBottom: 0 }}
-                  >
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      Prompt & Design Instructions
-                      {designBrief.trim() && (
-                        <span
+                          How would you like to style your microsite?
+                          {designBrief.trim() && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '2px 7px',
+                                borderRadius: 4,
+                                background: 'var(--color-primary)',
+                                color: '#fff',
+                                letterSpacing: '0.03em',
+                              }}
+                            >
+                              AI-customized
+                            </span>
+                          )}
+                        </label>
+                        <p style={{ margin: '4px 0 12px', fontSize: 13, color: '#6B7280', lineHeight: 1.4 }}>
+                          Use any one — or combine all three inputs below.
+                        </p>
+                        <label
                           style={{
-                            fontSize: 10,
+                            display: 'block',
+                            fontSize: 12,
                             fontWeight: 600,
-                            padding: "2px 7px",
-                            borderRadius: 4,
-                            background: "var(--color-primary)",
-                            color: "#fff",
-                            letterSpacing: "0.03em",
+                            color: 'var(--color-text-muted)',
+                            marginBottom: 6,
+                            letterSpacing: '0.02em',
                           }}
                         >
-                          AI-customized
-                        </span>
-                      )}
-                    </label>
-                    <textarea
-                      className="input"
-                      rows={8}
-                      placeholder="e.g. dark premium theme, 3 sections, remove pricing, add fade-in animations…"
-                      value={designBrief}
-                      onChange={(e) => setDesignBrief(e.target.value)}
-                      style={{
-                        resize: "vertical",
-                        fontFamily: "inherit",
-                        lineHeight: 1.6,
-                      }}
-                    />
+                          ① Write a prompt <span style={{ fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <textarea
+                          className="input"
+                          rows={8}
+                          placeholder="Describe your style... e.g. 'dark premium theme, bold typography, 3 sections, remove pricing, add fade-in animations'"
+                          value={designBrief}
+                          onChange={(e) => setDesignBrief(e.target.value)}
+                          style={{
+                            resize: 'vertical',
+                            fontFamily: 'inherit',
+                            lineHeight: 1.6,
+                          }}
+                        />
 
-                    {/* Reference file attachment */}
-                    <input
-                      id="ref-file-input"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,application/pdf"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        if (file.size > 4 * 1024 * 1024) {
-                          alert("File must be under 4 MB");
-                          e.target.value = "";
-                          return;
-                        }
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const base64 = reader.result as string;
-                          // Extract dominant colors via canvas for accurate hex sampling
-                          if (file.type.startsWith("image/")) {
-                            const img = new Image();
-                            img.onload = () => {
-                              try {
-                                const canvas = document.createElement("canvas");
-                                const MAX = 120; // downsample for speed
-                                const scale = Math.min(
-                                  1,
-                                  MAX / Math.max(img.width, img.height),
-                                );
-                                canvas.width = Math.round(img.width * scale);
-                                canvas.height = Math.round(img.height * scale);
-                                const ctx = canvas.getContext("2d");
-                                if (!ctx) {
-                                  setReferenceFile({
-                                    base64,
-                                    mediaType: file.type,
-                                    fileName: file.name,
-                                  });
-                                  return;
-                                }
-                                ctx.drawImage(
-                                  img,
-                                  0,
-                                  0,
-                                  canvas.width,
-                                  canvas.height,
-                                );
-                                const { data } = ctx.getImageData(
-                                  0,
-                                  0,
-                                  canvas.width,
-                                  canvas.height,
-                                );
-                                const toHex = (v: number) =>
-                                  Math.min(255, Math.max(0, v))
-                                    .toString(16)
-                                    .padStart(2, "0");
-                                // Saturation helper — how vivid is a color (0=grey, 1=fully saturated)
-                                const saturation = (
-                                  r: number,
-                                  g: number,
-                                  b: number,
-                                ) => {
-                                  const max = Math.max(r, g, b),
-                                    min = Math.min(r, g, b);
-                                  return max === 0 ? 0 : (max - min) / max;
-                                };
-                                // Bucket pixels into 24-step bins — track count AND max saturation seen
-                                const buckets = new Map<
-                                  string,
-                                  {
-                                    r: number;
-                                    g: number;
-                                    b: number;
-                                    count: number;
-                                    sat: number;
-                                  }
-                                >();
-                                for (let i = 0; i < data.length; i += 4) {
-                                  if (data[i + 3] < 128) continue;
-                                  const r = Math.min(
-                                    255,
-                                    Math.round(data[i] / 24) * 24,
-                                  );
-                                  const g = Math.min(
-                                    255,
-                                    Math.round(data[i + 1] / 24) * 24,
-                                  );
-                                  const b = Math.min(
-                                    255,
-                                    Math.round(data[i + 2] / 24) * 24,
-                                  );
-                                  const sat = saturation(r, g, b);
-                                  const key = `${r},${g},${b}`;
-                                  const entry = buckets.get(key);
-                                  if (entry) {
-                                    entry.count++;
-                                    entry.sat = Math.max(entry.sat, sat);
-                                  } else {
-                                    buckets.set(key, {
-                                      r,
-                                      g,
-                                      b,
-                                      count: 1,
-                                      sat,
+                        {/* Reference file attachment */}
+                        <input
+                          id="ref-file-input"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,application/pdf"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 4 * 1024 * 1024) {
+                              alert('File must be under 4 MB');
+                              e.target.value = '';
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const base64 = reader.result as string;
+                              // Extract dominant colors via canvas for accurate hex sampling
+                              if (file.type.startsWith('image/')) {
+                                const img = new Image();
+                                img.onload = () => {
+                                  try {
+                                    const canvas = document.createElement('canvas');
+                                    const MAX = 120; // downsample for speed
+                                    const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+                                    canvas.width = Math.round(img.width * scale);
+                                    canvas.height = Math.round(img.height * scale);
+                                    const ctx = canvas.getContext('2d');
+                                    if (!ctx) {
+                                      setReferenceFile({
+                                        base64,
+                                        mediaType: file.type,
+                                        fileName: file.name,
+                                      });
+                                      return;
+                                    }
+                                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                    const toHex = (v: number) =>
+                                      Math.min(255, Math.max(0, v)).toString(16).padStart(2, '0');
+                                    // Saturation helper — how vivid is a color (0=grey, 1=fully saturated)
+                                    const saturation = (r: number, g: number, b: number) => {
+                                      const max = Math.max(r, g, b),
+                                        min = Math.min(r, g, b);
+                                      return max === 0 ? 0 : (max - min) / max;
+                                    };
+                                    // Bucket pixels into 24-step bins — track count AND max saturation seen
+                                    const buckets = new Map<
+                                      string,
+                                      {
+                                        r: number;
+                                        g: number;
+                                        b: number;
+                                        count: number;
+                                        sat: number;
+                                      }
+                                    >();
+                                    for (let i = 0; i < data.length; i += 4) {
+                                      if (data[i + 3] < 128) continue;
+                                      const r = Math.min(255, Math.round(data[i] / 24) * 24);
+                                      const g = Math.min(255, Math.round(data[i + 1] / 24) * 24);
+                                      const b = Math.min(255, Math.round(data[i + 2] / 24) * 24);
+                                      const sat = saturation(r, g, b);
+                                      const key = `${r},${g},${b}`;
+                                      const entry = buckets.get(key);
+                                      if (entry) {
+                                        entry.count++;
+                                        entry.sat = Math.max(entry.sat, sat);
+                                      } else {
+                                        buckets.set(key, {
+                                          r,
+                                          g,
+                                          b,
+                                          count: 1,
+                                          sat,
+                                        });
+                                      }
+                                    }
+                                    const all = [...buckets.values()];
+                                    // Sort by frequency for background/dominant detection
+                                    const byFreq = [...all].sort((a, b) => b.count - a.count);
+                                    // Sort by perceptual vividness = saturation × brightness.
+                                    // HSV saturation alone is 1.0 for near-black colors (e.g. #000018 = R0 G0 B24),
+                                    // which would rank dark navies above magenta. Multiplying by min(lum/128, 1)
+                                    // penalises dark colors so only truly bright+saturated accents rank first.
+                                    const bySat = [...all]
+                                      .map((c) => {
+                                        const lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+                                        return {
+                                          ...c,
+                                          lum,
+                                          vivid: c.sat * Math.min(lum / 128, 1),
+                                        };
+                                      })
+                                      .filter((c) => c.sat > 0.35 && c.vivid > 0.2)
+                                      .sort((a, b) => b.vivid - a.vivid);
+
+                                    const lightColors: string[] = []; // backgrounds (high luminance)
+                                    const darkColors: string[] = []; // dark backgrounds
+                                    const brandColors: string[] = []; // mid-tone frequent colors
+                                    const vividColors: string[] = []; // high saturation accents
+
+                                    // Collect vivid colors first (these are neon accents regardless of frequency)
+                                    for (const { r, g, b } of bySat.slice(0, 4)) {
+                                      vividColors.push(`#${toHex(r)}${toHex(g)}${toHex(b)}`);
+                                    }
+                                    // Classify frequent colors by luminance
+                                    for (const { r, g, b } of byFreq.slice(0, 14)) {
+                                      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                                      const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+                                      if (lum > 180) {
+                                        if (lightColors.length < 3) lightColors.push(hex);
+                                      } else if (lum < 30) {
+                                        if (darkColors.length < 2) darkColors.push(hex);
+                                      } else {
+                                        if (brandColors.length < 4) brandColors.push(hex);
+                                      }
+                                    }
+
+                                    // Determine if this is a dark-background image
+                                    const isDarkImage = lightColors.length === 0;
+                                    // Layout: [bg candidates] [vivid accents] [mid-tone brand]
+                                    const dominantColors = isDarkImage
+                                      ? [
+                                          ...darkColors.slice(0, 1),
+                                          ...vividColors.slice(0, 4),
+                                          ...brandColors.slice(0, 3),
+                                        ]
+                                      : [...lightColors, ...vividColors.slice(0, 3), ...brandColors.slice(0, 3)];
+                                    setReferenceFile({
+                                      base64,
+                                      mediaType: file.type,
+                                      fileName: file.name,
+                                      dominantColors,
+                                    });
+                                  } catch {
+                                    setReferenceFile({
+                                      base64,
+                                      mediaType: file.type,
+                                      fileName: file.name,
                                     });
                                   }
-                                }
-                                const all = [...buckets.values()];
-                                // Sort by frequency for background/dominant detection
-                                const byFreq = [...all].sort(
-                                  (a, b) => b.count - a.count,
-                                );
-                                // Sort by perceptual vividness = saturation × brightness.
-                                // HSV saturation alone is 1.0 for near-black colors (e.g. #000018 = R0 G0 B24),
-                                // which would rank dark navies above magenta. Multiplying by min(lum/128, 1)
-                                // penalises dark colors so only truly bright+saturated accents rank first.
-                                const bySat = [...all]
-                                  .map((c) => {
-                                    const lum =
-                                      0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-                                    return {
-                                      ...c,
-                                      lum,
-                                      vivid: c.sat * Math.min(lum / 128, 1),
-                                    };
-                                  })
-                                  .filter((c) => c.sat > 0.35 && c.vivid > 0.2)
-                                  .sort((a, b) => b.vivid - a.vivid);
-
-                                const lightColors: string[] = []; // backgrounds (high luminance)
-                                const darkColors: string[] = []; // dark backgrounds
-                                const brandColors: string[] = []; // mid-tone frequent colors
-                                const vividColors: string[] = []; // high saturation accents
-
-                                // Collect vivid colors first (these are neon accents regardless of frequency)
-                                for (const { r, g, b } of bySat.slice(0, 4)) {
-                                  vividColors.push(
-                                    `#${toHex(r)}${toHex(g)}${toHex(b)}`,
-                                  );
-                                }
-                                // Classify frequent colors by luminance
-                                for (const { r, g, b } of byFreq.slice(0, 14)) {
-                                  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-                                  const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-                                  if (lum > 180) {
-                                    if (lightColors.length < 3)
-                                      lightColors.push(hex);
-                                  } else if (lum < 30) {
-                                    if (darkColors.length < 2)
-                                      darkColors.push(hex);
-                                  } else {
-                                    if (brandColors.length < 4)
-                                      brandColors.push(hex);
-                                  }
-                                }
-
-                                // Determine if this is a dark-background image
-                                const isDarkImage = lightColors.length === 0;
-                                // Layout: [bg candidates] [vivid accents] [mid-tone brand]
-                                const dominantColors = isDarkImage
-                                  ? [
-                                      ...darkColors.slice(0, 1),
-                                      ...vividColors.slice(0, 4),
-                                      ...brandColors.slice(0, 3),
-                                    ]
-                                  : [
-                                      ...lightColors,
-                                      ...vividColors.slice(0, 3),
-                                      ...brandColors.slice(0, 3),
-                                    ];
-                                setReferenceFile({
-                                  base64,
-                                  mediaType: file.type,
-                                  fileName: file.name,
-                                  dominantColors,
-                                });
-                              } catch {
+                                };
+                                img.src = base64;
+                              } else {
                                 setReferenceFile({
                                   base64,
                                   mediaType: file.type,
@@ -2492,634 +2980,1245 @@ export function PresentationPage() {
                                 });
                               }
                             };
-                            img.src = base64;
-                          } else {
-                            setReferenceFile({
-                              base64,
-                              mediaType: file.type,
-                              fileName: file.name,
-                            });
-                          }
-                        };
-                        reader.readAsDataURL(file);
-                        e.target.value = "";
-                      }}
-                    />
-                    {/* ── Attach + URL in one row ── */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                      {/* Attach button */}
-                      <button
-                        type="button"
-                        onClick={() => document.getElementById("ref-file-input")?.click()}
-                        style={{
-                          flexShrink: 0,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          fontSize: 14,
-                          padding: "8px 10px",
-                          background: "var(--color-surface)",
-                          border: "1px solid var(--color-border)",
-                          borderRadius: 6,
-                          color: "var(--color-text-muted)",
-                          cursor: "pointer",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <Paperclip size={12} />
-                        {referenceFile ? referenceFile.fileName.slice(0, 18) + (referenceFile.fileName.length > 18 ? "…" : "") : "Attach design screenshot"}
-                        {referenceFile && (
-                          <span
-                            onMouseDown={(e) => { e.stopPropagation(); setReferenceFile(null); }}
-                            style={{ marginLeft: 2, lineHeight: 1, cursor: "pointer", color: "var(--color-text-muted, #888)" }}
-                          >
-                            <X size={10} />
-                          </span>
-                        )}
-                      </button>
-
-                      {/* URL input */}
-                      <div style={{ position: "relative", flex: 1 }}>
-                        <span
-                          style={{
-                            position: "absolute",
-                            left: 8,
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            color: "var(--color-text-muted, #888)",
-                            pointerEvents: "none",
-                            display: "flex",
+                            reader.readAsDataURL(file);
+                            e.target.value = '';
                           }}
-                        >
-                          <Globe size={12} />
-                        </span>
-                        <input
-                          type="url"
-                          className="input"
-                          placeholder="Paste a website URL to extract design tokens"
-                          value={urlInput}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUrlInput(val);
-                            if (!val.trim()) {
-                              setUrlReferenceDesign(null);
-                              setUrlExtractionState("idle");
-                              setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
-                              if (urlDebounceRef.current)
-                                clearTimeout(urlDebounceRef.current);
-                              return;
-                            }
-                            setUrlExtractionState("loading");
-                            if (urlDebounceRef.current)
-                              clearTimeout(urlDebounceRef.current);
-                            urlDebounceRef.current = setTimeout(async () => {
-                              try {
-                                const result = await extractUrlDesign(apiKey, val.trim());
-                                if (result.logoUrl) {
-                                  setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: result.logoUrl! });
+                        />
+                        {/* ── Attach + URL in one row ── */}
+                        <p style={{ margin: '8px 0 4px', fontSize: 12, color: '#6B7280', lineHeight: 1.4 }}>
+                          Tip: You can use just one input or combine all three for best results.
+                        </p>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                          {/* Attach button */}
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById('ref-file-input')?.click()}
+                            style={{
+                              flexShrink: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              fontSize: 14,
+                              padding: '8px 10px',
+                              background: 'var(--color-surface)',
+                              border: '1px solid var(--color-border)',
+                              borderRadius: 6,
+                              color: 'var(--color-text-muted)',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Paperclip size={12} />
+                            {referenceFile
+                              ? referenceFile.fileName.slice(0, 18) + (referenceFile.fileName.length > 18 ? '…' : '')
+                              : "② Attach a design screenshot  — we'll match its visual style"}
+                            {referenceFile && (
+                              <span
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  setReferenceFile(null);
+                                }}
+                                style={{
+                                  marginLeft: 2,
+                                  lineHeight: 1,
+                                  cursor: 'pointer',
+                                  color: 'var(--color-text-muted, #888)',
+                                }}
+                              >
+                                <X size={10} />
+                              </span>
+                            )}
+                          </button>
+
+                          {/* URL input */}
+                          <div style={{ position: 'relative', flex: 1 }}>
+                            <span
+                              style={{
+                                position: 'absolute',
+                                left: 8,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                color: 'var(--color-text-muted, #888)',
+                                pointerEvents: 'none',
+                                display: 'flex',
+                              }}
+                            >
+                              <Globe size={12} />
+                            </span>
+                            <input
+                              type="url"
+                              className="input"
+                              placeholder="③ Paste a website URL  — we'll extract its design tokens & colors"
+                              value={urlInput}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setUrlInput(val);
+                                if (!val.trim()) {
+                                  setUrlReferenceDesign(null);
+                                  setUrlExtractionState('idle');
+                                  setBrand((b) => (b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null }));
+                                  if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                                  return;
                                 }
-                                if (result.tokens) {
-                                  setUrlReferenceDesign({ ...result.tokens, heroImageUrl: result.heroImageUrl ?? null });
-                                  setUrlLayout(result.layout ?? null);
-                                  setUrlImages(result.images ?? []);
-                                  setUrlExtractionState("success");
-                                } else {
+                                setUrlExtractionState('loading');
+                                if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                                urlDebounceRef.current = setTimeout(async () => {
+                                  try {
+                                    const result = await extractUrlDesign(apiKey, val.trim());
+                                    if (result.logoUrl) {
+                                      setBrand((b) =>
+                                        b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: result.logoUrl! },
+                                      );
+                                    }
+                                    if (result.tokens) {
+                                      setUrlReferenceDesign({
+                                        ...result.tokens,
+                                        heroImageUrl: result.heroImageUrl ?? null,
+                                      });
+                                      setUrlLayout(result.layout ?? null);
+                                      setUrlImages(result.images ?? []);
+                                      setUrlBusinessIntel(result.businessIntel ?? null);
+                                      setUrlExtractionState('success');
+                                    } else {
+                                      setUrlReferenceDesign(null);
+                                      setUrlLayout(null);
+                                      setUrlImages([]);
+                                      setUrlBusinessIntel(null);
+                                      setUrlExtractionState(
+                                        result.error === 'blocked_by_bot_protection' ? 'blocked' : 'error',
+                                      );
+                                    }
+                                  } catch {
+                                    setUrlReferenceDesign(null);
+                                    setUrlLayout(null);
+                                    setUrlImages([]);
+                                    setUrlBusinessIntel(null);
+                                    setUrlExtractionState('error');
+                                  }
+                                }, 800);
+                              }}
+                              style={{ paddingLeft: 28, paddingRight: 28 }}
+                            />
+                            {urlInput && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUrlInput('');
                                   setUrlReferenceDesign(null);
                                   setUrlLayout(null);
                                   setUrlImages([]);
-                                  setUrlExtractionState(
-                                    result.error === "blocked_by_bot_protection" ? "blocked" : "error",
-                                  );
-                                }
-                              } catch {
-                                setUrlReferenceDesign(null);
-                                setUrlLayout(null);
-                                setUrlImages([]);
-                                setUrlExtractionState("error");
-                              }
-                            }, 800);
-                          }}
-                          style={{ paddingLeft: 28, paddingRight: 28 }}
-                        />
-                        {urlInput && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setUrlInput("");
-                              setUrlReferenceDesign(null);
-                              setUrlLayout(null);
-                              setUrlImages([]);
-                              setUrlExtractionState("idle");
-                              if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
-                              setBrand((b) => b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null });
-                            }}
-                            style={{
-                              position: "absolute",
-                              right: 6,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              color: "var(--color-text-muted, #888)",
-                              display: "flex",
-                              alignItems: "center",
-                              padding: 2,
-                            }}
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </div>
-                      {urlExtractionState === "loading" && (
-                        <span
-                          style={{
-                            fontSize: 13,
-                            color: "var(--color-text-muted, #888)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          extracting…
-                        </span>
-                      )}
-                      {urlExtractionState === "success" &&
-                        urlReferenceDesign && (
-                          <span
-                            style={{
-                              fontSize: 13,
-                              color: "#4ade80",
-                              whiteSpace: "nowrap",
-                            }}
-                            title={urlReferenceDesign.style.vibe}
-                          >
-                            ✓ tokens ready
-                          </span>
-                        )}
-                      {urlExtractionState === "error" && (
-                        <span
-                          style={{
-                            fontSize: 13,
-                            color: "#f87171",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          ⚠ could not extract
-                        </span>
-                      )}
-                      {urlExtractionState === "blocked" && (
-                        <span
-                          style={{
-                            fontSize: 13,
-                            color: "#fb923c",
-                            whiteSpace: "nowrap",
-                          }}
-                          title="This site uses bot protection (e.g. Cloudflare) that blocks server-side CSS fetching. Try another URL or use the brand color fields instead."
-                        >
-                          ⊘ blocked by site
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Image thumbnails — compact row when any preview is available */}
-                    {(referenceFile?.mediaType.startsWith("image/") || urlReferenceDesign?.heroImageUrl || (urlExtractionState === "success" && brand.logoUrl)) && (
-                      <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "flex-end" }}>
-                        {/* Attached reference file */}
-                        {referenceFile?.mediaType.startsWith("image/") && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
-                            <img
-                              src={referenceFile.base64}
-                              alt="Reference design"
-                              style={{
-                                height: 48,
-                                width: 76,
-                                objectFit: "cover",
-                                objectPosition: "top",
-                                borderRadius: 5,
-                                border: "1px solid var(--color-border, #333)",
-                                display: "block",
-                              }}
-                            />
-                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>screenshot</span>
+                                  setUrlBusinessIntel(null);
+                                  setUrlExtractionState('idle');
+                                  if (urlDebounceRef.current) clearTimeout(urlDebounceRef.current);
+                                  setBrand((b) => (b.logoUrl?.startsWith('data:') ? b : { ...b, logoUrl: null }));
+                                }}
+                                style={{
+                                  position: 'absolute',
+                                  right: 6,
+                                  top: '50%',
+                                  transform: 'translateY(-50%)',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: 'var(--color-text-muted, #888)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  padding: 2,
+                                }}
+                              >
+                                <X size={10} />
+                              </button>
+                            )}
                           </div>
-                        )}
-                        {/* URL OG / hero image */}
-                        {urlReferenceDesign?.heroImageUrl && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, position: "relative" }}>
-                            <img
-                              src={urlReferenceDesign.heroImageUrl}
-                              alt="Site hero"
-                              title="Click to preview"
-                              onClick={() => setImagePreviewModal({ type: 'hero', src: urlReferenceDesign.heroImageUrl! })}
+                          {urlExtractionState === 'loading' && (
+                            <span
                               style={{
-                                height: 48,
-                                width: 76,
-                                objectFit: "cover",
-                                objectPosition: "top",
-                                borderRadius: 5,
-                                border: "1px solid var(--color-border, #333)",
-                                display: "block",
-                                cursor: "zoom-in",
-                              }}
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).parentElement!.style.display = "none";
-                              }}
-                            />
-                            <button
-                              type="button"
-                              title="Remove hero image (will use AI-generated image instead)"
-                              onClick={() => setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: null } : null)}
-                              style={{
-                                position: "absolute",
-                                top: 2,
-                                right: 2,
-                                width: 14,
-                                height: 14,
-                                borderRadius: "50%",
-                                background: "rgba(0,0,0,0.65)",
-                                border: "none",
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                padding: 0,
-                                lineHeight: 1,
-                                fontSize: 9,
-                                color: "#fff",
-                              }}
-                            >✕</button>
-                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>hero image</span>
-                          </div>
-                        )}
-                        {/* Extracted brand logo */}
-                        {brand.logoUrl && !brand.logoUrl.startsWith('data:') && urlInput && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0, position: "relative" }}>
-                            <div
-                              title="Click to preview"
-                              onClick={() => setImagePreviewModal({ type: 'logo', src: brand.logoUrl! })}
-                              style={{
-                                height: 48,
-                                width: 48,
-                                borderRadius: 5,
-                                border: "1px solid var(--color-border, #333)",
-                                background: "var(--color-surface, #1a1a1a)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                overflow: "hidden",
-                                cursor: "zoom-in",
+                                fontSize: 13,
+                                color: 'var(--color-text-muted, #888)',
+                                whiteSpace: 'nowrap',
                               }}
                             >
-                              <img
-                                src={brand.logoUrl}
-                                alt="Brand logo"
-                                style={{
-                                  maxHeight: 36,
-                                  maxWidth: 36,
-                                  objectFit: "contain",
-                                  display: "block",
-                                }}
-                                onError={(e) => {
-                                  (e.currentTarget as HTMLImageElement).parentElement!.parentElement!.style.display = "none";
-                                }}
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              title="Remove logo"
-                              onClick={() => setBrand((b) => ({ ...b, logoUrl: null }))}
+                              extracting…
+                            </span>
+                          )}
+                          {urlExtractionState === 'success' && urlReferenceDesign && (
+                            <span
                               style={{
-                                position: "absolute",
-                                top: 2,
-                                right: 2,
-                                width: 14,
-                                height: 14,
-                                borderRadius: "50%",
-                                background: "rgba(0,0,0,0.65)",
-                                border: "none",
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                padding: 0,
-                                lineHeight: 1,
-                                fontSize: 9,
-                                color: "#fff",
+                                fontSize: 13,
+                                color: '#4ade80',
+                                whiteSpace: 'nowrap',
                               }}
-                            >✕</button>
-                            <span style={{ fontSize: 9, color: "var(--color-text-muted, #888)", textAlign: "center" }}>logo</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                              title={urlReferenceDesign.style.vibe}
+                            >
+                              ✓ tokens ready
+                            </span>
+                          )}
+                          {urlExtractionState === 'error' && (
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: '#f87171',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              ⚠ could not extract
+                            </span>
+                          )}
+                          {urlExtractionState === 'blocked' && (
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: '#fb923c',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title="This site uses bot protection (e.g. Cloudflare) that blocks server-side CSS fetching. Try another URL or use the brand color fields instead."
+                            >
+                              ⊘ blocked by site
+                            </span>
+                          )}
+                        </div>
 
-                    {/* Color extraction — separate block below images */}
-                    {(urlReferenceDesign || (referenceFile?.dominantColors && referenceFile.dominantColors.length > 0)) && (
-                      <div
-                        style={{
-                          marginTop: 8,
-                          padding: "6px 8px",
-                          borderRadius: 6,
-                          background: "var(--color-surface, #1a1a1a)",
-                          border: "1px solid var(--color-border, #333)",
-                          display: "flex",
-                          gap: 5,
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {urlReferenceDesign
-                          ? [
-                              urlReferenceDesign.colors.primary,
-                              urlReferenceDesign.colors.secondary,
-                              urlReferenceDesign.colors.accent,
-                              urlReferenceDesign.colors.background,
-                            ]
-                              .filter(Boolean)
-                              .map((color, i) => (
-                                <span
-                                  key={i}
-                                  title={color}
+                        {/* Image thumbnails — compact row when any preview is available */}
+                        {(referenceFile?.mediaType.startsWith('image/') ||
+                          urlReferenceDesign?.heroImageUrl ||
+                          (urlExtractionState === 'success' && brand.logoUrl)) && (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'flex-end' }}>
+                            {/* Attached reference file */}
+                            {referenceFile?.mediaType.startsWith('image/') && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+                                <img
+                                  src={referenceFile.base64}
+                                  alt="Reference design"
                                   style={{
-                                    width: 14,
-                                    height: 14,
-                                    borderRadius: 3,
-                                    background: color,
-                                    border: "1px solid rgba(128,128,128,0.3)",
-                                    display: "inline-block",
-                                    flexShrink: 0,
+                                    height: 48,
+                                    width: 76,
+                                    objectFit: 'cover',
+                                    objectPosition: 'top',
+                                    borderRadius: 5,
+                                    border: '1px solid var(--color-border, #333)',
+                                    display: 'block',
                                   }}
                                 />
-                              ))
-                          : referenceFile!.dominantColors!.slice(0, 6).map((color: string, i: number) => (
-                              <span
-                                key={i}
-                                title={color}
+                                <span
+                                  style={{ fontSize: 9, color: 'var(--color-text-muted, #888)', textAlign: 'center' }}
+                                >
+                                  screenshot
+                                </span>
+                              </div>
+                            )}
+                            {/* URL OG / hero image */}
+                            {urlReferenceDesign?.heroImageUrl && (
+                              <div
                                 style={{
-                                  width: 14,
-                                  height: 14,
-                                  borderRadius: 3,
-                                  background: color,
-                                  border: "1px solid rgba(128,128,128,0.3)",
-                                  display: "inline-block",
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 3,
                                   flexShrink: 0,
+                                  position: 'relative',
                                 }}
-                              />
-                            ))}
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: "var(--color-text-muted, #888)",
-                            marginLeft: 2,
-                          }}
-                        >
-                          {urlReferenceDesign
-                            ? `${urlReferenceDesign.typography.headingFont} · ${urlReferenceDesign.style.borderRadius}`
-                            : "extracted colors"}
-                        </span>
-                      </div>
-                    )}
+                              >
+                                <img
+                                  src={urlReferenceDesign.heroImageUrl}
+                                  alt="Site hero"
+                                  title="Click to preview"
+                                  onClick={() =>
+                                    setImagePreviewModal({ type: 'hero', src: urlReferenceDesign.heroImageUrl! })
+                                  }
+                                  style={{
+                                    height: 48,
+                                    width: 76,
+                                    objectFit: 'cover',
+                                    objectPosition: 'top',
+                                    borderRadius: 5,
+                                    border: '1px solid var(--color-border, #333)',
+                                    display: 'block',
+                                    cursor: 'zoom-in',
+                                  }}
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).parentElement!.style.display = 'none';
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  title="Remove hero image (will use AI-generated image instead)"
+                                  onClick={() =>
+                                    setUrlReferenceDesign((prev) => (prev ? { ...prev, heroImageUrl: null } : null))
+                                  }
+                                  style={{
+                                    position: 'absolute',
+                                    top: 2,
+                                    right: 2,
+                                    width: 14,
+                                    height: 14,
+                                    borderRadius: '50%',
+                                    background: 'rgba(0,0,0,0.65)',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 0,
+                                    lineHeight: 1,
+                                    fontSize: 9,
+                                    color: '#fff',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                                <span
+                                  style={{ fontSize: 9, color: 'var(--color-text-muted, #888)', textAlign: 'center' }}
+                                >
+                                  hero image
+                                </span>
+                              </div>
+                            )}
+                            {/* Extracted brand logo */}
+                            {brand.logoUrl && !brand.logoUrl.startsWith('data:') && urlInput && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 3,
+                                  flexShrink: 0,
+                                  position: 'relative',
+                                }}
+                              >
+                                <div
+                                  title="Click to preview"
+                                  onClick={() => setImagePreviewModal({ type: 'logo', src: brand.logoUrl! })}
+                                  style={{
+                                    height: 48,
+                                    width: 48,
+                                    borderRadius: 5,
+                                    border: '1px solid var(--color-border, #333)',
+                                    background: 'var(--color-surface, #1a1a1a)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    overflow: 'hidden',
+                                    cursor: 'zoom-in',
+                                  }}
+                                >
+                                  <img
+                                    src={brand.logoUrl}
+                                    alt="Brand logo"
+                                    style={{
+                                      maxHeight: 36,
+                                      maxWidth: 36,
+                                      objectFit: 'contain',
+                                      display: 'block',
+                                    }}
+                                    onError={(e) => {
+                                      (
+                                        e.currentTarget as HTMLImageElement
+                                      ).parentElement!.parentElement!.style.display = 'none';
+                                    }}
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  title="Remove logo"
+                                  onClick={() => setBrand((b) => ({ ...b, logoUrl: null }))}
+                                  style={{
+                                    position: 'absolute',
+                                    top: 2,
+                                    right: 2,
+                                    width: 14,
+                                    height: 14,
+                                    borderRadius: '50%',
+                                    background: 'rgba(0,0,0,0.65)',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 0,
+                                    lineHeight: 1,
+                                    fontSize: 9,
+                                    color: '#fff',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                                <span
+                                  style={{ fontSize: 9, color: 'var(--color-text-muted, #888)', textAlign: 'center' }}
+                                >
+                                  logo
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-                  </div>
-                </div>
-              )}
-
-              {/* ═══ STEP 4: GENERATING ═══ */}
-              {step === "generate" && (
-                <div style={{ padding: "4px 0" }}>
-                  {/* Restored-from-navigation banner */}
-                  {!generating && progress.length > 0 && !layoutAST && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "10px 14px",
-                        marginBottom: 16,
-                        background: "var(--color-surface)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: "var(--radius)",
-                        gap: 12,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: "var(--color-text-muted)",
-                        }}
-                      >
-                        {wasGenerating
-                          ? "Checking for results…"
-                          : "Generation interrupted while you were away."}
-                      </span>
-                      {!wasGenerating && (
-                        <button
-                          className="btn btn-sm btn-primary"
-                          style={{ flexShrink: 0 }}
-                          onClick={() => {
-                            setStep("plugin");
-                            setError(null);
-                            setProgress([]);
-                            setStreamingSections([]);
-                          }}
-                        >
-                          ↺ Restart
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Pipeline progress */}
-                  <div style={{ marginBottom: 20 }}>
-                    {progress.map((p, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          marginBottom: 8,
-                          opacity: p.done ? 1 : 0.6,
-                          transition: "opacity 0.3s",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: "50%",
-                            flexShrink: 0,
-                            background: p.done
-                              ? "var(--color-primary)"
-                              : "var(--color-surface)",
-                            border: p.done
-                              ? "none"
-                              : "1px solid var(--color-border)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: 9,
-                            color: "#fff",
-                            transition: "background 0.3s",
-                          }}
-                        >
-                          {p.done ? "✓" : ""}
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: p.done
-                              ? "var(--color-text)"
-                              : "var(--color-text-muted)",
-                          }}
-                        >
-                          {p.text}
-                        </span>
-                        {!p.done && (generating || wasGenerating) && (
+                        {/* Color extraction — separate block below images */}
+                        {(urlReferenceDesign ||
+                          (referenceFile?.dominantColors && referenceFile.dominantColors.length > 0)) && (
                           <div
                             style={{
-                              width: 11,
-                              height: 11,
-                              borderRadius: "50%",
-                              flexShrink: 0,
-                              border: "1.5px solid var(--color-border)",
-                              borderTopColor: "var(--color-primary)",
-                              animation: "spin 0.8s linear infinite",
+                              marginTop: 8,
+                              padding: '6px 8px',
+                              borderRadius: 6,
+                              background: 'var(--color-surface, #1a1a1a)',
+                              border: '1px solid var(--color-border, #333)',
+                              display: 'flex',
+                              gap: 5,
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
                             }}
-                          />
+                          >
+                            {urlReferenceDesign
+                              ? [
+                                  urlReferenceDesign.colors.primary,
+                                  urlReferenceDesign.colors.secondary,
+                                  urlReferenceDesign.colors.accent,
+                                  urlReferenceDesign.colors.background,
+                                ]
+                                  .filter(Boolean)
+                                  .map((color, i) => (
+                                    <span
+                                      key={i}
+                                      title={color}
+                                      style={{
+                                        width: 14,
+                                        height: 14,
+                                        borderRadius: 3,
+                                        background: color,
+                                        border: '1px solid rgba(128,128,128,0.3)',
+                                        display: 'inline-block',
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                  ))
+                              : referenceFile!.dominantColors!.slice(0, 6).map((color: string, i: number) => (
+                                  <span
+                                    key={i}
+                                    title={color}
+                                    style={{
+                                      width: 14,
+                                      height: 14,
+                                      borderRadius: 3,
+                                      background: color,
+                                      border: '1px solid rgba(128,128,128,0.3)',
+                                      display: 'inline-block',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                ))}
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--color-text-muted, #888)',
+                                marginLeft: 2,
+                              }}
+                            >
+                              {urlReferenceDesign
+                                ? `${urlReferenceDesign.typography.headingFont} · ${urlReferenceDesign.style.borderRadius}`
+                                : 'extracted colors'}
+                            </span>
+                          </div>
                         )}
-                      </div>
-                    ))}
-                  </div>
 
-                  {error && (
-                    <div
-                      style={{
-                        marginTop: 16,
-                        padding: "12px 14px",
-                        background: "#fef2f2",
-                        border: "1px solid #fecaca",
-                        borderRadius: "var(--radius)",
-                      }}
-                    >
-                      <p className="error" style={{ marginTop: 0 }}>
-                        {error}
-                      </p>
-                      <button
-                        className="btn btn-sm"
-                        style={{
-                          marginTop: 8,
-                          borderColor: "#fecaca",
-                          color: "var(--color-error)",
-                        }}
-                        onClick={() => {
-                          setStep("plugin");
-                          setError(null);
-                        }}
-                      >
-                        Try Again
-                      </button>
+                        {/* Site Intel — collapsible panel for design + business intelligence */}
+                        {urlExtractionState === 'success' &&
+                          (urlReferenceDesign || urlLayout || urlImages.length > 0 || urlBusinessIntel) && (
+                            <div style={{ marginTop: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => setUrlIntelExpanded((v) => !v)}
+                                style={{
+                                  width: '100%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '6px 10px',
+                                  borderRadius: 6,
+                                  background: 'var(--color-surface, #1a1a1a)',
+                                  border: '1px solid var(--color-border, #333)',
+                                  cursor: 'pointer',
+                                  fontSize: 12,
+                                  color: 'var(--color-text, #e5e5e5)',
+                                }}
+                              >
+                                <span style={{ fontWeight: 600 }}>
+                                  {urlBusinessIntel?.brandIdentity?.brandName
+                                    ? `Site intel — ${urlBusinessIntel.brandIdentity.brandName}`
+                                    : 'Site intel'}
+                                  {urlBusinessIntel?.businessIdentity?.industry && (
+                                    <span
+                                      style={{ fontWeight: 400, color: 'var(--color-text-muted,#888)', marginLeft: 8 }}
+                                    >
+                                      {urlBusinessIntel.businessIdentity.industry} ·{' '}
+                                      {urlBusinessIntel.businessIdentity.businessType}
+                                    </span>
+                                  )}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--color-text-muted,#888)' }}>
+                                  {urlIntelExpanded ? '▲ collapse' : '▼ expand'}
+                                </span>
+                              </button>
+
+                              {urlIntelExpanded && (
+                                <div style={{ marginTop: 6, maxHeight: 520, overflowY: 'auto', paddingRight: 2 }}>
+                                  {/* ── inner panels start ── */}
+                                  {true &&
+                                    (() => {
+                                      const sectionStyle: React.CSSProperties = {
+                                        marginTop: 10,
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        background: 'var(--color-surface, #1a1a1a)',
+                                        border: '1px solid var(--color-border, #333)',
+                                        fontSize: 12,
+                                        lineHeight: 1.6,
+                                      };
+                                      const labelStyle: React.CSSProperties = {
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        letterSpacing: '0.06em',
+                                        textTransform: 'uppercase',
+                                        color: 'var(--color-text-muted, #888)',
+                                        marginBottom: 6,
+                                        display: 'block',
+                                      };
+                                      const chipStyle: React.CSSProperties = {
+                                        padding: '2px 7px',
+                                        borderRadius: 4,
+                                        background: 'rgba(255,255,255,0.07)',
+                                        fontSize: 11,
+                                        color: 'var(--color-text, #e5e5e5)',
+                                        whiteSpace: 'nowrap',
+                                      };
+                                      const rowStyle: React.CSSProperties = {
+                                        display: 'flex',
+                                        gap: 6,
+                                        flexWrap: 'wrap',
+                                        marginBottom: 4,
+                                      };
+                                      const mutedStyle: React.CSSProperties = {
+                                        color: 'var(--color-text-muted, #888)',
+                                        fontSize: 11,
+                                      };
+                                      const valueStyle: React.CSSProperties = {
+                                        color: 'var(--color-text, #e5e5e5)',
+                                        fontSize: 12,
+                                      };
+
+                                      return (
+                                        <div
+                                          style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}
+                                        >
+                                          {/* Typography + Style */}
+                                          {urlReferenceDesign && (
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                              <div style={sectionStyle}>
+                                                <span style={labelStyle}>Typography</span>
+                                                <div style={{ marginBottom: 4 }}>
+                                                  <span style={mutedStyle}>Heading </span>
+                                                  <span style={{ ...valueStyle, fontWeight: 600 }}>
+                                                    {urlReferenceDesign.typography.headingFont}
+                                                  </span>
+                                                  <span style={{ ...mutedStyle, marginLeft: 6 }}>
+                                                    w{urlReferenceDesign.typography.headingWeight} ·{' '}
+                                                    {urlReferenceDesign.typography.headingStyle}
+                                                  </span>
+                                                </div>
+                                                <div style={{ marginBottom: 6 }}>
+                                                  <span style={mutedStyle}>Body </span>
+                                                  <span style={valueStyle}>
+                                                    {urlReferenceDesign.typography.bodyFont}
+                                                  </span>
+                                                  <span style={{ ...mutedStyle, marginLeft: 6 }}>
+                                                    w{urlReferenceDesign.typography.bodyWeight}
+                                                  </span>
+                                                </div>
+                                                <div style={rowStyle}>
+                                                  <span style={chipStyle}>{urlReferenceDesign.typography.mood}</span>
+                                                </div>
+                                              </div>
+
+                                              <div style={sectionStyle}>
+                                                <span style={labelStyle}>Style</span>
+                                                <div style={rowStyle}>
+                                                  <span style={chipStyle}>
+                                                    Radius: {urlReferenceDesign.style.borderRadius}
+                                                  </span>
+                                                  <span style={chipStyle}>
+                                                    Space: {urlReferenceDesign.style.spacing}
+                                                  </span>
+                                                </div>
+                                                <div style={{ ...mutedStyle, fontStyle: 'italic', marginTop: 4 }}>
+                                                  {urlReferenceDesign.style.vibe}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Full color palette */}
+                                          {urlReferenceDesign && (
+                                            <div style={sectionStyle}>
+                                              <span style={labelStyle}>Color Palette</span>
+                                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                {(
+                                                  [
+                                                    'primary',
+                                                    'secondary',
+                                                    'accent',
+                                                    'background',
+                                                    'surface',
+                                                    'text',
+                                                    'textMuted',
+                                                  ] as const
+                                                ).map((key) => (
+                                                  <div
+                                                    key={key}
+                                                    style={{
+                                                      display: 'flex',
+                                                      flexDirection: 'column',
+                                                      alignItems: 'center',
+                                                      gap: 3,
+                                                    }}
+                                                  >
+                                                    <span
+                                                      title={urlReferenceDesign.colors[key]}
+                                                      style={{
+                                                        width: 28,
+                                                        height: 28,
+                                                        borderRadius: 6,
+                                                        background: urlReferenceDesign.colors[key],
+                                                        border: '1px solid rgba(128,128,128,0.3)',
+                                                        display: 'block',
+                                                      }}
+                                                    />
+                                                    <span
+                                                      style={{
+                                                        fontSize: 9,
+                                                        color: 'var(--color-text-muted,#888)',
+                                                        textAlign: 'center',
+                                                      }}
+                                                    >
+                                                      {key}
+                                                    </span>
+                                                    <span
+                                                      style={{ fontSize: 9, color: 'var(--color-text-muted,#888)' }}
+                                                    >
+                                                      {urlReferenceDesign.colors[key]}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Layout Structure */}
+                                          {urlLayout && (
+                                            <div style={sectionStyle}>
+                                              <span style={labelStyle}>Layout Structure</span>
+                                              {((urlLayout.sections as string[] | undefined) ?? []).length > 0 && (
+                                                <div style={{ ...rowStyle, marginBottom: 6 }}>
+                                                  {(urlLayout.sections as string[]).map((s, i) => (
+                                                    <span
+                                                      key={i}
+                                                      style={{ ...chipStyle, background: 'rgba(99,102,241,0.15)' }}
+                                                    >
+                                                      {s}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <div style={rowStyle}>
+                                                {urlLayout.heroStyle != null && (
+                                                  <span style={chipStyle}>Hero: {String(urlLayout.heroStyle)}</span>
+                                                )}
+                                                {urlLayout.gridColumns != null && (
+                                                  <span style={chipStyle}>
+                                                    {String(urlLayout.gridColumns)}-col grid
+                                                  </span>
+                                                )}
+                                                {urlLayout.layoutDensity != null && (
+                                                  <span style={chipStyle}>{String(urlLayout.layoutDensity)}</span>
+                                                )}
+                                                {urlLayout.visualHierarchy != null && (
+                                                  <span style={chipStyle}>{String(urlLayout.visualHierarchy)}</span>
+                                                )}
+                                                {!!urlLayout.isImageHeavy && <span style={chipStyle}>Image heavy</span>}
+                                                {!!urlLayout.hasVideo && <span style={chipStyle}>Has video</span>}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Images Gallery */}
+                                          {urlImages.length > 0 && (
+                                            <div style={sectionStyle}>
+                                              <span style={labelStyle}>Images ({urlImages.length} found)</span>
+                                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                {urlImages.slice(0, 12).map((src, i) => (
+                                                  <img
+                                                    key={i}
+                                                    src={src}
+                                                    alt=""
+                                                    title={src}
+                                                    style={{
+                                                      width: 64,
+                                                      height: 48,
+                                                      objectFit: 'cover',
+                                                      borderRadius: 5,
+                                                      border: '1px solid var(--color-border,#333)',
+                                                      cursor: 'zoom-in',
+                                                    }}
+                                                    onClick={() => setImagePreviewModal({ type: 'hero', src })}
+                                                    onError={(e) => {
+                                                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                    }}
+                                                  />
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+
+                                  {/* Business Intelligence Panel */}
+                                  {urlBusinessIntel &&
+                                    urlExtractionState === 'success' &&
+                                    (() => {
+                                      const bi = urlBusinessIntel;
+                                      const sectionStyle: React.CSSProperties = {
+                                        marginTop: 10,
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        background: 'var(--color-surface, #1a1a1a)',
+                                        border: '1px solid var(--color-border, #333)',
+                                        fontSize: 12,
+                                        lineHeight: 1.6,
+                                      };
+                                      const labelStyle: React.CSSProperties = {
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        letterSpacing: '0.06em',
+                                        textTransform: 'uppercase',
+                                        color: 'var(--color-text-muted, #888)',
+                                        marginBottom: 6,
+                                        display: 'block',
+                                      };
+                                      const rowStyle: React.CSSProperties = {
+                                        display: 'flex',
+                                        gap: 6,
+                                        flexWrap: 'wrap',
+                                        marginBottom: 4,
+                                      };
+                                      const chipStyle: React.CSSProperties = {
+                                        padding: '2px 7px',
+                                        borderRadius: 4,
+                                        background: 'rgba(255,255,255,0.07)',
+                                        fontSize: 11,
+                                        color: 'var(--color-text, #e5e5e5)',
+                                        whiteSpace: 'nowrap',
+                                      };
+                                      const valueStyle: React.CSSProperties = {
+                                        color: 'var(--color-text, #e5e5e5)',
+                                        fontSize: 12,
+                                      };
+                                      const mutedStyle: React.CSSProperties = {
+                                        color: 'var(--color-text-muted, #888)',
+                                        fontSize: 11,
+                                      };
+
+                                      return (
+                                        <div
+                                          style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}
+                                        >
+                                          {/* Brand Identity */}
+                                          <div style={sectionStyle}>
+                                            <span style={labelStyle}>Brand Identity</span>
+                                            {bi.brandIdentity.brandName && (
+                                              <div style={{ marginBottom: 4 }}>
+                                                <span
+                                                  style={{
+                                                    fontWeight: 600,
+                                                    fontSize: 13,
+                                                    color: 'var(--color-text, #e5e5e5)',
+                                                  }}
+                                                >
+                                                  {bi.brandIdentity.brandName}
+                                                </span>
+                                                {bi.brandIdentity.tagline && (
+                                                  <span style={{ ...mutedStyle, marginLeft: 8 }}>
+                                                    · {bi.brandIdentity.tagline}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            )}
+                                            {bi.brandIdentity.missionStatement && (
+                                              <div style={{ ...valueStyle, marginBottom: 4, fontStyle: 'italic' }}>
+                                                &ldquo;{bi.brandIdentity.missionStatement}&rdquo;
+                                              </div>
+                                            )}
+                                            <div style={rowStyle}>
+                                              {bi.brandIdentity.brandVoice && (
+                                                <span style={chipStyle}>Voice: {bi.brandIdentity.brandVoice}</span>
+                                              )}
+                                              {bi.brandIdentity.brandPersonality && (
+                                                <span style={chipStyle}>{bi.brandIdentity.brandPersonality}</span>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {/* Business Identity */}
+                                          <div style={sectionStyle}>
+                                            <span style={labelStyle}>Business Identity</span>
+                                            <div style={{ ...valueStyle, marginBottom: 4 }}>
+                                              {bi.businessIdentity.companyDescription}
+                                            </div>
+                                            <div style={rowStyle}>
+                                              {bi.businessIdentity.industry && (
+                                                <span style={chipStyle}>{bi.businessIdentity.industry}</span>
+                                              )}
+                                              {bi.businessIdentity.businessType && (
+                                                <span style={chipStyle}>{bi.businessIdentity.businessType}</span>
+                                              )}
+                                              {bi.businessIdentity.pricingModel &&
+                                                bi.businessIdentity.pricingModel !== 'not-mentioned' && (
+                                                  <span style={chipStyle}>{bi.businessIdentity.pricingModel}</span>
+                                                )}
+                                            </div>
+                                            {bi.businessIdentity.productsOrServices?.length > 0 && (
+                                              <div style={rowStyle}>
+                                                {bi.businessIdentity.productsOrServices.slice(0, 6).map((s, i) => (
+                                                  <span
+                                                    key={i}
+                                                    style={{ ...chipStyle, background: 'rgba(99,102,241,0.15)' }}
+                                                  >
+                                                    {s}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          {/* Content Analysis */}
+                                          <div style={sectionStyle}>
+                                            <span style={labelStyle}>Content Analysis</span>
+                                            {bi.contentAnalysis.primaryCTA && (
+                                              <div style={{ marginBottom: 6 }}>
+                                                <span style={mutedStyle}>Primary CTA: </span>
+                                                <span style={{ ...valueStyle, fontWeight: 600 }}>
+                                                  {bi.contentAnalysis.primaryCTA}
+                                                </span>
+                                              </div>
+                                            )}
+                                            {bi.contentAnalysis.keyMessages?.length > 0 && (
+                                              <ul style={{ margin: '0 0 6px 0', paddingLeft: 16 }}>
+                                                {bi.contentAnalysis.keyMessages.slice(0, 4).map((msg, i) => (
+                                                  <li key={i} style={valueStyle}>
+                                                    {msg}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            )}
+                                            <div style={rowStyle}>
+                                              {bi.contentAnalysis.contentTone && (
+                                                <span style={chipStyle}>Tone: {bi.contentAnalysis.contentTone}</span>
+                                              )}
+                                              {bi.contentAnalysis.hasTestimonials && (
+                                                <span style={chipStyle}>Testimonials</span>
+                                              )}
+                                              {bi.contentAnalysis.hasCaseStudies && (
+                                                <span style={chipStyle}>Case Studies</span>
+                                              )}
+                                              {bi.contentAnalysis.hasPricing && (
+                                                <span style={chipStyle}>Pricing page</span>
+                                              )}
+                                              {bi.contentAnalysis.hasVideo && <span style={chipStyle}>Video</span>}
+                                            </div>
+                                          </div>
+
+                                          {/* Competitive Context */}
+                                          <div style={sectionStyle}>
+                                            <span style={labelStyle}>Competitive Context</span>
+                                            {bi.competitiveContext.positioning && (
+                                              <div style={{ ...valueStyle, marginBottom: 4 }}>
+                                                {bi.competitiveContext.positioning}
+                                              </div>
+                                            )}
+                                            {bi.competitiveContext.targetAudience && (
+                                              <div style={{ marginBottom: 6 }}>
+                                                <span style={mutedStyle}>Target: </span>
+                                                <span style={valueStyle}>{bi.competitiveContext.targetAudience}</span>
+                                              </div>
+                                            )}
+                                            {bi.competitiveContext.uniqueSellingPoints?.length > 0 && (
+                                              <div style={rowStyle}>
+                                                {bi.competitiveContext.uniqueSellingPoints.slice(0, 4).map((usp, i) => (
+                                                  <span
+                                                    key={i}
+                                                    style={{ ...chipStyle, background: 'rgba(16,185,129,0.12)' }}
+                                                  >
+                                                    {usp}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {bi.competitiveContext.marketCategory && (
+                                              <div style={mutedStyle}>{bi.competitiveContext.marketCategory}</div>
+                                            )}
+                                          </div>
+
+                                          {/* Digital Audit + Contact Intel */}
+                                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                            <div style={sectionStyle}>
+                                              <span style={labelStyle}>Digital Audit</span>
+                                              {bi.digitalAudit.techStack?.length > 0 && (
+                                                <div style={{ ...rowStyle, marginBottom: 6 }}>
+                                                  {bi.digitalAudit.techStack.slice(0, 5).map((t, i) => (
+                                                    <span key={i} style={chipStyle}>
+                                                      {t}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <div style={rowStyle}>
+                                                {bi.digitalAudit.hasAnalytics && (
+                                                  <span style={chipStyle}>Analytics</span>
+                                                )}
+                                                {bi.digitalAudit.hasChatWidget && (
+                                                  <span style={chipStyle}>Chat widget</span>
+                                                )}
+                                                {bi.digitalAudit.internationalPresence && (
+                                                  <span style={chipStyle}>Multi-language</span>
+                                                )}
+                                              </div>
+                                              {bi.digitalAudit.metaDescription && (
+                                                <div style={{ ...mutedStyle, marginTop: 4 }}>
+                                                  {bi.digitalAudit.metaDescription.slice(0, 120)}
+                                                  {bi.digitalAudit.metaDescription.length > 120 ? '…' : ''}
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            <div style={sectionStyle}>
+                                              <span style={labelStyle}>Contact Intel</span>
+                                              {bi.contactIntel.emails?.length > 0 && (
+                                                <div style={{ ...valueStyle, marginBottom: 3 }}>
+                                                  {bi.contactIntel.emails.slice(0, 2).join(', ')}
+                                                </div>
+                                              )}
+                                              {bi.contactIntel.phones?.length > 0 && (
+                                                <div style={{ ...valueStyle, marginBottom: 3 }}>
+                                                  {bi.contactIntel.phones.slice(0, 2).join(', ')}
+                                                </div>
+                                              )}
+                                              {bi.contactIntel.address && (
+                                                <div style={{ ...mutedStyle, marginBottom: 4 }}>
+                                                  {bi.contactIntel.address.slice(0, 80)}
+                                                </div>
+                                              )}
+                                              {Object.keys(bi.contactIntel.socialProfiles ?? {}).length > 0 && (
+                                                <div style={rowStyle}>
+                                                  {Object.keys(bi.contactIntel.socialProfiles).map((platform) => (
+                                                    <a
+                                                      key={platform}
+                                                      href={bi.contactIntel.socialProfiles[platform]}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                      style={{
+                                                        ...chipStyle,
+                                                        textDecoration: 'none',
+                                                        color: 'var(--color-text, #e5e5e5)',
+                                                      }}
+                                                    >
+                                                      {platform}
+                                                    </a>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <div style={rowStyle}>
+                                                {bi.contactIntel.hasContactForm && (
+                                                  <span style={chipStyle}>Contact form</span>
+                                                )}
+                                                {bi.contactIntel.hasLiveChat && (
+                                                  <span style={chipStyle}>Live chat</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                      </div>
                     </div>
                   )}
 
-                  <style>{`
+                  {/* ═══ STEP 4: GENERATING ═══ */}
+                  {step === 'generate' && (
+                    <div style={{ padding: '4px 0' }}>
+                      {/* Restored-from-navigation banner */}
+                      {!generating && progress.length > 0 && !layoutAST && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            marginBottom: 16,
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius)',
+                            gap: 12,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: 'var(--color-text-muted)',
+                            }}
+                          >
+                            {wasGenerating ? 'Checking for results…' : 'Generation interrupted while you were away.'}
+                          </span>
+                          {!wasGenerating && (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              style={{ flexShrink: 0 }}
+                              onClick={() => {
+                                setStep(generationMethod === 'pro' ? 'plugin' : 'plugin');
+                                setError(null);
+                                setProgress([]);
+                                setStreamingSections([]);
+                              }}
+                            >
+                              ↺ Restart
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Pipeline progress */}
+                      <div style={{ marginBottom: 20 }}>
+                        {progress.map((p, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              marginBottom: 8,
+                              opacity: p.done ? 1 : 0.6,
+                              transition: 'opacity 0.3s',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: 18,
+                                height: 18,
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                background: p.done ? 'var(--color-primary)' : 'var(--color-surface)',
+                                border: p.done ? 'none' : '1px solid var(--color-border)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 9,
+                                color: '#fff',
+                                transition: 'background 0.3s',
+                              }}
+                            >
+                              {p.done ? '✓' : ''}
+                            </div>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: p.done ? 'var(--color-text)' : 'var(--color-text-muted)',
+                              }}
+                            >
+                              {p.text}
+                            </span>
+                            {!p.done && (generating || wasGenerating) && (
+                              <div
+                                style={{
+                                  width: 11,
+                                  height: 11,
+                                  borderRadius: '50%',
+                                  flexShrink: 0,
+                                  border: '1.5px solid var(--color-border)',
+                                  borderTopColor: 'var(--color-primary)',
+                                  animation: 'spin 0.8s linear infinite',
+                                }}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <MotivationalQuotes active={(generating || wasGenerating) && !error} />
+
+                      {error && (
+                        <div
+                          style={{
+                            marginTop: 16,
+                            padding: '12px 14px',
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            borderRadius: 'var(--radius)',
+                          }}
+                        >
+                          <p className="error" style={{ marginTop: 0 }}>
+                            {error}
+                          </p>
+                          <button
+                            className="btn btn-sm"
+                            style={{
+                              marginTop: 8,
+                              borderColor: '#fecaca',
+                              color: 'var(--color-error)',
+                            }}
+                            onClick={() => {
+                              setStep('plugin');
+                              setError(null);
+                            }}
+                          >
+                            Try Again
+                          </button>
+                        </div>
+                      )}
+
+                      <style>{`
                 @keyframes spin { to { transform: rotate(360deg); } }
                 @keyframes slideInSection {
                   from { opacity: 0; transform: translateY(-6px); }
                   to { opacity: 1; transform: translateY(0); }
                 }
               `}</style>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* Navigation footer */}
-          {step !== "generate" && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginTop: 20,
-              }}
-            >
-              {step !== "upload" && (
-                <button
-                  className="btn"
-                  onClick={() => {
-                    const prev: Record<StepId, StepId | null> = {
-                      upload: null,
-                      brand: "upload",
-                      plugin: "brand",
-                      generate: "plugin",
-                      preview: "plugin",
-                    };
-                    const p = prev[step];
-                    if (p) setStep(p);
-                  }}
-                  style={{ minWidth: 96 }}
-                >
-                  ← Back
-                </button>
-              )}
-              {step === "upload" && <span />}
-
-
-              {step === "upload" && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => setStep("brand")}
-                  disabled={!mdContent.trim() || loadingContent}
-                  style={{ minWidth: 120, width: "auto" }}
-                >
-                  Next →
-                </button>
-              )}
-              {step === "brand" && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => setStep("plugin")}
-                  disabled={!brand.companyName.trim()}
-                  style={{ minWidth: 120, width: "auto" }}
-                >
-                  Next →
-                </button>
-              )}
-              {step === "plugin" && (
+              {/* Navigation footer */}
+              {step !== 'generate' && (
                 <div
                   style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-end",
-                    gap: 8,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: 20,
                   }}
                 >
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setStep("generate");
-                      setTimeout(runPipeline, 100);
-                    }}
-                    disabled={urlExtractionState === "loading"}
-                    style={{
-                      minWidth: 140,
-                      width: "auto",
-                      opacity: urlExtractionState === "loading" ? 0.5 : 1,
-                      cursor:
-                        urlExtractionState === "loading"
-                          ? "not-allowed"
-                          : "pointer",
-                    }}
-                  >
-                    {urlExtractionState === "loading"
-                      ? "Extracting design…"
-                      : "⚡ Generate Microsite"}
-                  </button>
+                  {step !== 'upload' && (
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        const prev: Record<StepId, StepId | null> =
+                          generationMethod === 'pro'
+                            ? {
+                                upload: null,
+                                method: 'upload',
+                                brand: 'method',
+                                plugin: 'method',
+                                generate: 'plugin',
+                                preview: 'plugin',
+                              }
+                            : {
+                                upload: null,
+                                method: 'upload',
+                                brand: 'method',
+                                plugin: 'brand',
+                                generate: 'plugin',
+                                preview: 'plugin',
+                              };
+                        const p = prev[step];
+                        if (p) setStep(p);
+                      }}
+                      style={{ minWidth: 96 }}
+                    >
+                      ← Back
+                    </button>
+                  )}
+                  {step === 'upload' && <span />}
+
+                  {step === 'upload' && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setStep('method')}
+                      disabled={!mdContent.trim() || loadingContent}
+                      style={{ minWidth: 120, width: 'auto' }}
+                    >
+                      Next →
+                    </button>
+                  )}
+                  {step === 'method' && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setStep(generationMethod === 'pro' ? 'plugin' : 'brand')}
+                      style={{ minWidth: 120, width: 'auto' }}
+                    >
+                      Next →
+                    </button>
+                  )}
+                  {step === 'brand' && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        // Brand step only exists on the Classic path — lock Classic mode here
+                        // so Generate on the plugin step can never accidentally use Pro mode.
+                        setGenerationMethod('classic');
+                        generationMethodRef.current = 'classic';
+                        setStep('plugin');
+                      }}
+                      disabled={!brand.companyName.trim() && !selectedProposal?.client && !selectedNamespace}
+                      style={{ minWidth: 120, width: 'auto' }}
+                    >
+                      Next →
+                    </button>
+                  )}
+                  {step === 'plugin' && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-end',
+                        gap: 8,
+                      }}
+                    >
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                          // Capture mode in local variable at click time — immune to stale closures
+                          const modeAtClick = generationMethod;
+                          console.log(
+                            '[Generate clicked] generationMethod=',
+                            generationMethod,
+                            'modeAtClick=',
+                            modeAtClick,
+                          );
+                          setStep('generate');
+                          setTimeout(() => {
+                            runPipeline(modeAtClick).catch((err) => console.error('[runPipeline error]', err));
+                          }, 100);
+                        }}
+                        disabled={urlExtractionState === 'loading'}
+                        style={{
+                          minWidth: 140,
+                          width: 'auto',
+                          opacity: urlExtractionState === 'loading' ? 0.5 : 1,
+                          cursor: urlExtractionState === 'loading' ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {urlExtractionState === 'loading'
+                          ? 'Extracting design…'
+                          : generationMethod === 'classic'
+                            ? '⚡ Generate Classic Microsite'
+                            : '⚡ Generate Pro Microsite'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
-        </div>
           </div>
         </div>
       </div>
@@ -3137,43 +4236,108 @@ export function PresentationPage() {
       {/* Cancel generation confirmation dialog */}
       {showCancelConfirm && (
         <div
-          style={{ position: "fixed", inset: 0, zIndex: 20000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowCancelConfirm(false); }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 20000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowCancelConfirm(false);
+          }}
         >
-          <div style={{ background: "var(--panel, var(--color-surface))", border: "1px solid var(--border, var(--color-border))", borderRadius: 12, width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", overflow: "hidden" }}>
-            <div style={{ padding: "20px 24px 0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-                <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text, var(--color-text))", margin: 0, lineHeight: 1.5 }}>Cancel microsite creation?</p>
+          <div
+            style={{
+              background: 'var(--panel, var(--color-surface))',
+              border: '1px solid var(--border, var(--color-border))',
+              borderRadius: 12,
+              width: '100%',
+              maxWidth: 420,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ padding: '20px 24px 0' }}>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}
+              >
+                <p
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 600,
+                    color: 'var(--text, var(--color-text))',
+                    margin: 0,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Cancel microsite creation?
+                </p>
                 <button
                   onClick={() => setShowCancelConfirm(false)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted, var(--color-text-muted))", padding: 2, display: "flex", alignItems: "center" }}
-                ><Icon icon={X} size="md" /></button>
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--muted, var(--color-text-muted))',
+                    padding: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Icon icon={X} size="md" />
+                </button>
               </div>
             </div>
-            <div style={{ height: 1, background: "var(--border, var(--color-border))" }} />
+            <div style={{ height: 1, background: 'var(--border, var(--color-border))' }} />
             <div style={{ padding: 24 }}>
-              <p style={{ fontSize: 14, color: "var(--text, var(--color-text))", marginBottom: 20, lineHeight: 1.5 }}>
-                Your microsite is still being generated. If you cancel now, the current progress will be lost and you&apos;ll need to start over.
+              <p style={{ fontSize: 14, color: 'var(--text, var(--color-text))', marginBottom: 20, lineHeight: 1.5 }}>
+                Your microsite is still being generated. If you cancel now, the current progress will be lost and
+                you&apos;ll need to start over.
               </p>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setShowCancelConfirm(false)}
-                  style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border, var(--color-border))", background: "var(--panel-soft, var(--color-surface))", color: "var(--text, var(--color-text))", fontSize: 14, cursor: "pointer" }}
-                >Keep waiting</button>
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: '1px solid var(--border, var(--color-border))',
+                    background: 'var(--panel-soft, var(--color-surface))',
+                    color: 'var(--text, var(--color-text))',
+                    fontSize: 14,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Keep waiting
+                </button>
                 <button
                   onClick={() => {
                     userCancelledRef.current = true;
                     abortCtrlRef.current?.abort();
                     setShowCancelConfirm(false);
                     setShowGenerateModal(false);
-                    setStep("plugin");
+                    setStep('plugin');
                     setGenerating(false);
                     setProgress([]);
                     setStreamingSections([]);
                     setError(null);
                   }}
-                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "var(--danger, #ef4444)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
-                >Cancel creation</button>
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: 'var(--danger, #ef4444)',
+                    color: '#fff',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel creation
+                </button>
               </div>
             </div>
           </div>
@@ -3185,26 +4349,26 @@ export function PresentationPage() {
         <div
           onClick={() => setImagePreviewModal(null)}
           style={{
-            position: "fixed",
+            position: 'fixed',
             inset: 0,
             zIndex: 9500,
-            background: "rgba(0,0,0,0.78)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            background: 'rgba(0,0,0,0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "var(--color-surface, #1a1a1a)",
-              border: "1px solid var(--color-border, #333)",
+              background: 'var(--color-surface, #1a1a1a)',
+              border: '1px solid var(--color-border, #333)',
               borderRadius: 12,
               padding: 24,
-              maxWidth: "min(640px, 90vw)",
-              width: "100%",
-              display: "flex",
-              flexDirection: "column",
+              maxWidth: 'min(640px, 90vw)',
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
               gap: 16,
             }}
           >
@@ -3213,7 +4377,7 @@ export function PresentationPage() {
               id="modal-gallery-input"
               type="file"
               accept="image/png,image/jpeg,image/webp,image/gif"
-              style={{ display: "none" }}
+              style={{ display: 'none' }}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
@@ -3226,11 +4390,11 @@ export function PresentationPage() {
                 reader.onload = () => {
                   const dataUrl = reader.result as string;
                   if (imagePreviewModal.type === 'hero') {
-                    setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: dataUrl } : prev);
+                    setUrlReferenceDesign((prev) => (prev ? { ...prev, heroImageUrl: dataUrl } : prev));
                   } else {
                     setBrand((b) => ({ ...b, logoUrl: dataUrl }));
                   }
-                  setImagePreviewModal((prev) => prev ? { ...prev, src: dataUrl } : null);
+                  setImagePreviewModal((prev) => (prev ? { ...prev, src: dataUrl } : null));
                 };
                 reader.readAsDataURL(file);
                 e.target.value = '';
@@ -3238,66 +4402,76 @@ export function PresentationPage() {
             />
 
             {/* Header */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text, #fff)" }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text, #fff)' }}>
                 {imagePreviewModal.type === 'hero' ? 'Hero Image' : 'Brand Logo'}
               </span>
               <button
                 type="button"
                 onClick={() => setImagePreviewModal(null)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted, #888)", display: "flex", alignItems: "center", padding: 4 }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-muted, #888)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: 4,
+                }}
               >
                 <X size={16} />
               </button>
             </div>
 
             {/* Image */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "var(--color-bg, #111)",
-              borderRadius: 8,
-              overflow: "hidden",
-              minHeight: 180,
-            }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--color-bg, #111)',
+                borderRadius: 8,
+                overflow: 'hidden',
+                minHeight: 180,
+              }}
+            >
               <img
                 src={imagePreviewModal.src}
                 alt={imagePreviewModal.type === 'hero' ? 'Hero image preview' : 'Brand logo preview'}
                 style={{
-                  maxWidth: "100%",
+                  maxWidth: '100%',
                   maxHeight: imagePreviewModal.type === 'hero' ? 360 : 240,
-                  objectFit: imagePreviewModal.type === 'hero' ? "cover" : "contain",
+                  objectFit: imagePreviewModal.type === 'hero' ? 'cover' : 'contain',
                   borderRadius: 6,
-                  display: "block",
+                  display: 'block',
                 }}
               />
             </div>
 
             {/* Note */}
-            <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-muted, #888)", lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-muted, #888)', lineHeight: 1.5 }}>
               {imagePreviewModal.type === 'hero'
                 ? 'This image will be used as the hero section background. Remove it to let the AI generate one instead.'
                 : 'This logo will appear in the microsite header and footer. Remove it to use the default brand icon.'}
             </p>
 
             {/* Actions */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => document.getElementById('modal-gallery-input')?.click()}
                 style={{
-                  padding: "7px 14px",
+                  padding: '7px 14px',
                   borderRadius: 7,
-                  border: "1px solid var(--color-border, #333)",
-                  background: "transparent",
-                  color: "var(--color-text-muted, #888)",
+                  border: '1px solid var(--color-border, #333)',
+                  background: 'transparent',
+                  color: 'var(--color-text-muted, #888)',
                   fontSize: 13,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
                   gap: 6,
-                  marginRight: "auto",
+                  marginRight: 'auto',
                 }}
               >
                 <ImageIcon size={14} />
@@ -3307,36 +4481,40 @@ export function PresentationPage() {
                 type="button"
                 onClick={() => setImagePreviewModal(null)}
                 style={{
-                  padding: "7px 16px",
+                  padding: '7px 16px',
                   borderRadius: 7,
-                  border: "1px solid var(--color-border, #333)",
-                  background: "transparent",
-                  color: "var(--color-text-muted, #888)",
+                  border: '1px solid var(--color-border, #333)',
+                  background: 'transparent',
+                  color: 'var(--color-text-muted, #888)',
                   fontSize: 13,
-                  cursor: "pointer",
+                  cursor: 'pointer',
                 }}
-              >Keep</button>
+              >
+                Keep
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   if (imagePreviewModal.type === 'hero') {
-                    setUrlReferenceDesign((prev) => prev ? { ...prev, heroImageUrl: null } : null);
+                    setUrlReferenceDesign((prev) => (prev ? { ...prev, heroImageUrl: null } : null));
                   } else {
                     setBrand((b) => ({ ...b, logoUrl: null }));
                   }
                   setImagePreviewModal(null);
                 }}
                 style={{
-                  padding: "7px 16px",
+                  padding: '7px 16px',
                   borderRadius: 7,
-                  border: "none",
-                  background: "var(--danger, #ef4444)",
-                  color: "#fff",
+                  border: 'none',
+                  background: 'var(--danger, #ef4444)',
+                  color: '#fff',
                   fontSize: 13,
                   fontWeight: 500,
-                  cursor: "pointer",
+                  cursor: 'pointer',
                 }}
-              >Remove</button>
+              >
+                Remove
+              </button>
             </div>
           </div>
         </div>

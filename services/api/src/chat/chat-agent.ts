@@ -58,6 +58,7 @@ import { appendChatTurn, loadHistory } from './chat-history.service.js';
 import { readMeta } from '../proposal-meta.js';
 import { CostTracker, DEFAULT_COST_CONFIG } from './cost-control.js';
 import { resolveVectorStoreConfig } from '../ingestion/branch-runner.js';
+import { scrapeUrl } from './url-scraper.service.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -245,6 +246,54 @@ JSON output only (no explanation):`;
     } as RequirementField<unknown>;
   }
 
+  // Extract industry-specific custom fields if industry is detected
+  if (nsContext?.industryContext?.industryId) {
+    try {
+      const { getActiveSchema } = await import('./industry-schema.js');
+      const schema = getActiveSchema(
+        nsContext.industryContext.industryId,
+        nsContext.engagementType ?? null,
+      );
+      const missingCustom = schema.allFields.filter(f => {
+        const existing = nsContext.requirements?.customFields?.[f.key];
+        return !existing?.value;
+      });
+
+      if (missingCustom.length > 0 && message.length > 20) {
+        const customPrompt = `From this user message, extract values for these fields if explicitly mentioned. Return {} if nothing matches.
+
+Fields:
+${missingCustom.slice(0, 8).map(f => `- ${f.key}: ${f.label}`).join('\n')}
+
+Message: "${message.replace(/"/g, '\\"')}"
+
+JSON only:`;
+
+        try {
+          const customRaw = await generateFn(customPrompt);
+          const customParsed = safeParseJSON<Record<string, unknown>>(customRaw);
+          if (customParsed && typeof customParsed === 'object') {
+            for (const [key, value] of Object.entries(customParsed)) {
+              if (value === null || value === undefined) continue;
+              if (!missingCustom.find(f => f.key === key)) continue;
+              // Store with custom_ prefix so Stage 3 can route to mergeCustomFields
+              (fields as Record<string, unknown>)[`custom_${key}`] = {
+                value: Array.isArray(value) ? value.join(', ') : String(value),
+                confidence: 0.85,
+                source: 'user',
+                updatedAt: now,
+              };
+            }
+          }
+        } catch {
+          // Non-fatal — custom extraction from chat is best-effort
+        }
+      }
+    } catch {
+      // Non-fatal — industry schema may not be loaded
+    }
+  }
+
   return { fields, knowledge: [], raw };
 }
 
@@ -267,13 +316,14 @@ async function buildChatContext(
   chatSessionId: string,
   workdir: string,
 ): Promise<ChatContext> {
-  const [proposals, templates, ingestedDocuments, lastAssistantMeta, pendingTemplateApproval, skillsList] = await Promise.all([
+  const [proposals, templates, ingestedDocuments, lastAssistantMeta, pendingTemplateApproval, skillsList, designSkillsList] = await Promise.all([
     loadProposals(workdir, namespace),
     loadTemplates(workdir),
     loadIngestedDocuments(workdir, namespace),
     loadLastAssistantMeta(workdir, namespace, chatSessionId),
     loadPendingTemplateApproval(workdir, namespace),
     import('../skills/skill.service.js').then(({ listSkills }) => listSkills(workdir)).catch(() => [] as { slug: string; displayName: string }[]),
+    import('../skills/design-skill.service.js').then(({ listDesignSkills }) => listDesignSkills(workdir)).catch(() => [] as { slug: string; displayName: string; aestheticTone: string; themeClass: string }[]),
   ]);
 
   // Chat history is the primary source for awaitingConfirmation.
@@ -289,6 +339,7 @@ async function buildChatContext(
     templates,
     ingestedDocuments,
     skills: skillsList.map((s) => ({ slug: s.slug, displayName: s.displayName })),
+    designSkills: designSkillsList.map((s) => ({ slug: s.slug, displayName: s.displayName, aestheticTone: (s as { aestheticTone?: string }).aestheticTone ?? '', themeClass: (s as { themeClass?: string }).themeClass ?? '' })),
     recentTopic: (lastAssistantMeta.meta?.recentTopic as string | undefined) ?? undefined,
     awaitingInput: lastAssistantMeta.meta?.awaitingInput as { intent: string } | undefined,
     awaitingConfirmation,
@@ -563,6 +614,24 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   if (Object.keys(extraction.fields).length > 0) {
     onPhase('Updating context...');
     currentContext = await contextService.mergeRequirements(namespace, extraction.fields);
+    // Trigger industry detection after merge — activates adaptive schema
+    await contextService.detectAndSetIndustry(namespace).catch((err: unknown) => {
+      console.warn('[ChatAgent] Industry detection failed (non-fatal):', err);
+    });
+
+    // Route any custom_ prefixed fields extracted from the message to customFields
+    const customEntries: Record<string, RequirementField<string>> = {};
+    for (const [key, field] of Object.entries(extraction.fields)) {
+      if (key.startsWith('custom_') && field) {
+        const realKey = key.slice(7); // Remove 'custom_' prefix
+        customEntries[realKey] = field as RequirementField<string>;
+      }
+    }
+    if (Object.keys(customEntries).length > 0) {
+      await contextService.mergeCustomFields(namespace, customEntries).catch((err: unknown) => {
+        console.warn('[ChatAgent] Custom field merge failed (non-fatal):', err);
+      });
+    }
   }
 
   // =========================================================================
@@ -833,6 +902,43 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     await contextService.mergeRequirements(namespace, dataToFields(update.data));
   }
 
+  // Handle URL scraping for CLIENT_DATA_COLLECTION intent
+  if (classification.intent === 'CLIENT_DATA_COLLECTION') {
+    const urlMatch = message.match(/https?:\/\/[^\s,)>"']+/i);
+    if (urlMatch) {
+      try {
+        onPhase('Scraping website...');
+        const scrapeResult = await scrapeUrl(urlMatch[0], rawGenerateFn);
+
+        // Merge scraped fields into context
+        if (Object.keys(scrapeResult.fields).length > 0) {
+          currentContext = await contextService.mergeRequirements(namespace, scrapeResult.fields);
+        }
+
+        // Merge scraped custom fields
+        if (Object.keys(scrapeResult.customFields).length > 0) {
+          currentContext = await contextService.mergeCustomFields(namespace, scrapeResult.customFields);
+        }
+
+        // Store branding kit
+        if (scrapeResult.brandingKit && (scrapeResult.brandingKit.colors.length > 0 || scrapeResult.brandingKit.typography.length > 0)) {
+          currentContext = await contextService.setBrandingKit(namespace, scrapeResult.brandingKit);
+        }
+
+        // Re-run industry detection with new data
+        await contextService.detectAndSetIndustry(namespace).catch(() => { /* non-fatal */ });
+        currentContext = await contextService.get(namespace) ?? currentContext;
+
+        // Mark the scrape as an extraction in the response
+        if (Object.keys(scrapeResult.fields).length > 0) {
+          Object.assign(extraction.fields, scrapeResult.fields);
+        }
+      } catch (err) {
+        console.warn('[ChatAgent] URL scraping failed (non-fatal):', err);
+      }
+    }
+  }
+
   // Execute CALL_TOOL actions
   let toolResults: Awaited<ReturnType<typeof executeToolActions>> = [];
 
@@ -865,6 +971,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     extraction,
     chatContext,
     generateFn,
+    currentContext,
   );
 
   // Apply RESPOND actions — the LLM's planned reply is used when present.

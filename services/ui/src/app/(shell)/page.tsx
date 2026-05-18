@@ -1,12 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { LayoutGrid } from 'lucide-react';
+import { LayoutGrid, Menu } from 'lucide-react';
 import { CreateNamespaceModal } from '@/components/shell/CreateNamespaceModal';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
+import { Icon } from '@/components/ui/Icon';
+import { useMobileNav } from '@/lib/mobile-nav-store';
 
 export default function WelcomePage() {
   const [showCreate, setShowCreate] = useState(false);
+  const { openMobileNav } = useMobileNav();
 
   return (
     <div
@@ -19,6 +22,16 @@ export default function WelcomePage() {
         position: 'relative',
       }}
     >
+      <div className="welcome-mobile-header">
+        <button
+          className="topbar-hamburger"
+          onClick={openMobileNav}
+          aria-label="Open navigation"
+        >
+          <Icon icon={Menu} size="md" />
+        </button>
+        <span className="welcome-mobile-brand">ProDeck</span>
+      </div>
       <div style={{ position: 'absolute', top: 16, right: 16 }}>
         <ThemeToggle />
       </div>

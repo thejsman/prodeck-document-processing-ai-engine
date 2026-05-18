@@ -209,6 +209,73 @@ export async function processDocument(
     }
   }
 
+  // --- Industry-aware custom field extraction (additive) ---
+  // If the namespace has an industry detected, try to extract industry-specific
+  // custom fields from the document content.
+  try {
+    const context = await contextService.get(namespace);
+    const industryId = context?.industryContext?.industryId;
+    if (industryId) {
+      const { getActiveSchema } = await import('../chat/industry-schema.js');
+      const schema = getActiveSchema(industryId, context?.engagementType ?? null);
+      const missingFields = schema.allFields.filter(f => {
+        const existing = context?.requirements?.customFields?.[f.key];
+        return !existing?.value;
+      });
+
+      if (missingFields.length > 0) {
+        const fieldDescriptions = missingFields
+          .slice(0, 10)
+          .map(f => `- ${f.key}: ${f.label} (${f.valueType})`)
+          .join('\n');
+
+        const customExtractionPrompt = `Extract these industry-specific fields from the document if present. Return null for any field not found.
+
+Fields to extract:
+${fieldDescriptions}
+
+Document excerpt:
+${content.slice(0, 4000)}
+
+Return ONLY a JSON object with the field keys and their values (or null). No explanation.`;
+
+        try {
+          const raw = await llmFn(customExtractionPrompt);
+          const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+          const parsed = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] ?? '{}');
+
+          const now = new Date().toISOString();
+          const customFields: Record<string, RequirementField<string>> = {};
+
+          for (const [key, value] of Object.entries(parsed)) {
+            if (value === null || value === undefined) continue;
+            const fieldDef = missingFields.find(f => f.key === key);
+            if (!fieldDef) continue;
+            const strValue = Array.isArray(value) ? value.join(', ') : String(value);
+            if (!strValue || strValue === 'null') continue;
+
+            const confidenceCap = detection.type === 'rfp' ? 0.8 : detection.type === 'meeting_transcript' ? 0.55 : 0.6;
+            customFields[key] = {
+              value: strValue,
+              confidence: confidenceCap,
+              source: 'document',
+              updatedAt: now,
+              sourceFile: fileName,
+            };
+          }
+
+          if (Object.keys(customFields).length > 0) {
+            await contextService.mergeCustomFields(namespace, customFields);
+          }
+        } catch (extractErr) {
+          console.warn('[IngestOrchestrator] Custom field extraction failed (non-fatal):', extractErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[IngestOrchestrator] Industry-aware extraction skipped:', err);
+  }
+
   // Step 8: FAISS indexing (existing — injected, not reimplemented)
   if (faissIndexFn) {
     try {

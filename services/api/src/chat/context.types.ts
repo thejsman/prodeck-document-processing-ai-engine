@@ -1,3 +1,5 @@
+import type { BrandingKit } from './branding.types.js';
+
 export interface RequirementField<T> {
   value: T;
   confidence: number; // 0.0 – 1.0
@@ -228,6 +230,12 @@ export interface NamespaceContext {
   };
   version: number;
   updatedAt: string;
+  /** Industry-aware schema context — activated when clientIndustry is detected */
+  industryContext?: IndustryContext;
+  /** Branding kit extracted from client website or brand guidelines */
+  brandingKit?: BrandingKit;
+  /** Engagement type for proposal structure adaptation */
+  engagementType?: string;
 }
 
 export interface ExtractionResult {
@@ -235,4 +243,17 @@ export interface ExtractionResult {
   knowledge: KnowledgeEntry[];
   meetingSummary?: MeetingSummary;
   raw: string;
+}
+
+export interface IndustryContext {
+  /** Detected industry module ID (e.g. "healthcare", "saas-tech") */
+  industryId: string | null;
+  /** Detected engagement type (e.g. "consulting", "implementation") */
+  engagementType: string | null;
+  /** When industry was detected */
+  detectedAt: string;
+  /** How industry was detected */
+  detectedFrom: 'user' | 'document' | 'website' | 'inferred';
+  /** Confidence of industry detection */
+  confidence: number;
 }

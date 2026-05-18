@@ -27,6 +27,7 @@ import {
   type PricingInput,
   type MemoryPayload,
 } from '@ai-engine/plugin-proposal-generator';
+import { retrieveProposalContext } from './proposals/proposal-rag.js';
 import {
   resolvePolicy,
   executeWithPolicy,
@@ -187,6 +188,10 @@ export function registerProposalRoutes(
         }
       }
 
+      const retrievedContext = namespace
+        ? await retrieveProposalContext(workdir, namespace, client, industry)
+        : null;
+
       const payload: ProcessorPayload = {
         workdir,
         outputDir,
@@ -199,6 +204,7 @@ export function registerProposalRoutes(
         pricing,
         tone,
         memory,
+        retrievedContext,
       };
 
       let rawDoc: Awaited<ReturnType<typeof spawnProposalGenerator>>;

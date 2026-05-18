@@ -96,7 +96,7 @@ export function InlineIconEdit({ fieldPath, hint, color = 'currentColor', size =
     reader.readAsDataURL(file);
   }
 
-  const isImage = hint.startsWith('data:') || hint.startsWith('http://') || hint.startsWith('https://');
+  const isImage = !!hint && (hint.startsWith('data:') || hint.startsWith('http://') || hint.startsWith('https://'));
 
   return (
     <div ref={triggerRef} style={{ position: 'relative', display: 'inline-block' }}>

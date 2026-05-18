@@ -1,0 +1,92 @@
+{
+  "sections": [
+    {
+      "id": "exec-summary",
+      "title": "Executive Summary",
+      "order": 1,
+      "required": true,
+      "promptHint": "Lead with the client's business problem in their own language. Quantify the opportunity or risk in dollar terms. State what we're proposing in 1–2 sentences. Show the investment range and timeline. End with a confident call to action. Keep under 500 words. No jargon — write for a CFO or CEO, not an engineer.",
+      "maxWords": 500,
+      "useRagContext": true,
+      "ragQuery": "business problem objectives goals opportunity"
+    },
+    {
+      "id": "requirements-understanding",
+      "title": "Understanding of Requirements",
+      "order": 2,
+      "required": true,
+      "promptHint": "Mirror the client's own language from their RFP or meeting notes. Show that we have absorbed their specific challenges, not just the generic problem category. List the key requirements grouped by theme (functional, non-functional, compliance). Call out any ambiguities or implicit requirements we've surfaced. This section proves we listened.",
+      "useRagContext": true,
+      "ragQuery": "requirements objectives constraints pain points challenges"
+    },
+    {
+      "id": "technical-approach",
+      "title": "Technical Approach & Architecture",
+      "order": 3,
+      "required": true,
+      "promptHint": "Lead with a high-level system architecture overview (describe it as if narrating a diagram). Then break the delivery into 3–4 phases with clear objectives per phase. Emphasize: cloud-native design, microservices where appropriate, security-by-design (not bolted on), horizontal scalability, and observability. Reference the client's specific tech stack requirements. Address the transaction path and data storage explicitly.",
+      "useRagContext": true,
+      "ragQuery": "technology stack architecture cloud infrastructure requirements"
+    },
+    {
+      "id": "compliance-security",
+      "title": "Compliance & Security Architecture",
+      "order": 4,
+      "required": true,
+      "promptHint": "Use the compliance framework asset as the foundation. Map each in-scope standard (SOC 2, PCI-DSS, GDPR as applicable) to specific architectural controls. Cover: encryption strategy, access control model, audit logging design, secrets management, and incident response ownership. Do not use generic framework language — tie every control to something specific in our proposed architecture.",
+      "assetRef": "compliance-framework.md",
+      "useRagContext": true,
+      "ragQuery": "compliance security requirements regulations audit"
+    },
+    {
+      "id": "team-credentials",
+      "title": "Team & Credentials",
+      "order": 5,
+      "required": true,
+      "promptHint": "Introduce the proposed team with roles and relevant fintech experience. For each key member: role, years of relevant experience, and 1–2 fintech/financial services projects (redacted if needed). Include relevant certifications (AWS Solutions Architect, CISSP, SOC 2 auditor experience, etc.). End with a brief parallel-engagement story: a similar client in a similar situation and what we delivered.",
+      "useRagContext": false
+    },
+    {
+      "id": "pricing-investment",
+      "title": "Pricing & Investment",
+      "order": 6,
+      "required": true,
+      "promptHint": "Present the tiered pricing model from the asset. Use an investment framing — never 'cost'. Present all 3 tiers in a comparison table (features + price range + duration). Then expand the recommended tier in detail. Include the ROI case: what does the client gain from the investment in measurable terms (time saved, risk reduced, revenue unlocked). End with any applicable discounts and how to activate them.",
+      "assetRef": "pricing-model.json",
+      "useRagContext": false
+    },
+    {
+      "id": "timeline-milestones",
+      "title": "Timeline & Milestones",
+      "order": 7,
+      "required": true,
+      "promptHint": "Phased delivery plan. Each phase: name, duration in weeks, key deliverables (bullet list), and acceptance criteria. Include a client review gate between each phase — this is non-negotiable. Never propose a single end-to-end delivery without checkpoints. Typical structure: Phase 1 = Foundation & Core, Phase 2 = Feature Build & Compliance Controls, Phase 3 = Testing, Hardening & Launch Prep, Phase 4 = Launch & Stabilization.",
+      "maxWords": 500,
+      "useRagContext": false
+    },
+    {
+      "id": "case-studies",
+      "title": "Relevant Case Studies",
+      "order": 8,
+      "required": false,
+      "promptHint": "Include 2 relevant fintech or financial services case studies from the asset. For each: problem statement (1–2 sentences), our approach (2–3 sentences), and outcome with metrics (e.g. '40% reduction in reconciliation time', '$2.3M in annual ops savings'). If confidentiality requires it, anonymise the client as 'a Series B payments startup' etc.",
+      "assetRef": "case-studies.md",
+      "useRagContext": false
+    },
+    {
+      "id": "hipaa-addendum",
+      "title": "HIPAA Compliance Addendum",
+      "order": 9,
+      "required": false,
+      "promptHint": "Detailed HIPAA compliance approach for healthcare-adjacent fintech clients. Cover: PHI handling and data minimisation, BAA requirements, technical safeguards (access controls, audit logs, transmission security), administrative safeguards (workforce training, incident procedures), and physical safeguards. Reference the HIPAA addendum asset for specific control language. Only include if the client is in healthcare fintech (health savings accounts, medical payments, insurance tech).",
+      "assetRef": "hipaa-addendum.md",
+      "useRagContext": true,
+      "ragQuery": "HIPAA healthcare compliance PHI protected health information",
+      "condition": {
+        "field": "constraints",
+        "operator": "contains",
+        "value": "HIPAA"
+      }
+    }
+  ]
+}

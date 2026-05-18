@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X, ChevronDown, Check, MoreHorizontal, Trash2, FileText } from 'lucide-react';
+import { X, ChevronDown, Check, MoreHorizontal, Trash2, FileText, Menu } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
@@ -34,6 +34,7 @@ import {
 } from '@/lib/proposal-utils';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
+import { useMobileNav } from '@/lib/mobile-nav-store';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { useProposalGenerationStore } from '@/core/proposal-generation-store';
 import { ProposalForm } from './ProposalForm';
@@ -219,6 +220,7 @@ function formatCreatedAt(isoString: string): string {
 export function ProposalPage() {
   const { apiKey } = useAuth();
   const { namespaces } = useNamespace();
+  const { openMobileNav } = useMobileNav();
   const searchParams = useSearchParams();
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
@@ -878,6 +880,13 @@ export function ProposalPage() {
           <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
             {/* ── Workspace header ── */}
             <div className="chat-v2-header-left">
+              <button
+                className="topbar-hamburger"
+                onClick={openMobileNav}
+                aria-label="Open navigation"
+              >
+                <Icon icon={Menu} size="md" />
+              </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span className="chat-v2-ns" style={{ lineHeight: 1 }}>{proposalName}</span>
                 {currentDocument && (() => {
@@ -985,12 +994,19 @@ export function ProposalPage() {
         ) : (
           /* ── Browser body: proposal card grid ── */
           <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+            <div className="page-theme-toggle-corner" style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
               <ThemeToggle />
             </div>
             {/* Inline browser header + content — constrained to 860 like Microsites */}
             <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
+                <button
+                  className="topbar-hamburger"
+                  onClick={openMobileNav}
+                  aria-label="Open navigation"
+                >
+                  <Icon icon={Menu} size="md" />
+                </button>
                 <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>Proposals</span>
                 {/* Namespace filter */}
                 <button

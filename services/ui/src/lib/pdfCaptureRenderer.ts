@@ -261,7 +261,10 @@ export async function generateCapturePDF(
   try {
     progress(2, 'Finding sections…');
 
-    const sections = Array.from(contentEl.querySelectorAll<HTMLElement>('section'));
+    // [data-section-id] is set by AnimatedSection for every section regardless of type.
+    // Typed React sections render inner <section> elements; design-skill microsites use
+    // customHtml which renders <div class="ms-cv"> — no <section> tag at all.
+    const sections = Array.from(contentEl.querySelectorAll<HTMLElement>('[data-section-id]'));
     if (sections.length === 0) {
       return { success: false, error: 'No sections found in the microsite.' };
     }
@@ -307,7 +310,13 @@ export async function generateCapturePDF(
         // Check if the section has a real image background (url(...)) BEFORE cloning
         // so we can preserve it. Pure CSS gradients (no url) are stripped — they
         // caused a coloured rectangle above the heading in earlier captures.
-        const origBg = sections[i].style.background + ' ' + sections[i].style.backgroundImage;
+        //
+        // [data-section-id] wrappers hold the background on their inner <section>
+        // child (typed React components). customHtml sections manage backgrounds
+        // via scoped CSS — no inline style to detect, so sectionHasImageBg stays false
+        // and the rendered content handles its own background.
+        const bgEl = sections[i].querySelector<HTMLElement>('section') ?? sections[i];
+        const origBg = bgEl.style.background + ' ' + bgEl.style.backgroundImage;
         const sectionHasImageBg = origBg.includes('url(');
         const sectionHasCssGradient = !sectionHasImageBg && origBg.includes('gradient');
 
@@ -332,13 +341,15 @@ export async function generateCapturePDF(
         ].join(';');
 
         // Restore the image background on the clone when the section has one.
-        // (cssText replacement cleared it; re-apply from the original inline style.)
-        if (sectionHasImageBg) {
-          if (sections[i].style.background) clone.style.background = sections[i].style.background;
-          if (sections[i].style.backgroundImage) clone.style.backgroundImage = sections[i].style.backgroundImage;
-          clone.style.backgroundSize = sections[i].style.backgroundSize || 'cover';
-          clone.style.backgroundPosition = sections[i].style.backgroundPosition || 'center center';
-          clone.style.backgroundRepeat = sections[i].style.backgroundRepeat || 'no-repeat';
+        // For [data-section-id] wrappers the background lives on the inner <section>;
+        // cloneNode(true) already preserved those inline styles, so we only need to
+        // re-apply when bgEl is the wrapper itself (cssText reset cleared it).
+        if (sectionHasImageBg && bgEl === sections[i]) {
+          if (bgEl.style.background) clone.style.background = bgEl.style.background;
+          if (bgEl.style.backgroundImage) clone.style.backgroundImage = bgEl.style.backgroundImage;
+          clone.style.backgroundSize = bgEl.style.backgroundSize || 'cover';
+          clone.style.backgroundPosition = bgEl.style.backgroundPosition || 'center center';
+          clone.style.backgroundRepeat = bgEl.style.backgroundRepeat || 'no-repeat';
         }
 
         // ── Strip decorative elements using INLINE style checks ──────────────
@@ -473,8 +484,6 @@ export async function generateCapturePDF(
           measureWrapper.scrollHeight,
           100,
         );
-
-        let finalCanvas: HTMLCanvasElement;
 
         // When the section has a real image background and is shorter than the slide,
         // stretch it to fill the full slide height so the photo covers the entire

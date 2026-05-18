@@ -13,11 +13,12 @@
 
 import type { GenerateFn } from '@ai-engine/planner';
 import type { Intent, ChatContext } from './intents.js';
-import type { ExtractionResult } from './context.types.js';
+import type { ExtractionResult, NamespaceContext } from './context.types.js';
 import type { ReadinessResult, MissingField } from './readiness-engine.js';
 import type { ToolExecutionResult, ActionCard } from './tool-handlers.js';
 import type { ToolName } from './planner.js';
 import type { ConfirmationRequest } from './confirmation-gate.js';
+import { buildClientDataResponse } from './client-data-handler.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -55,6 +56,7 @@ export async function buildResponse(
   extraction: ExtractionResult,
   chatContext: ChatContext,
   generateFn?: GenerateFn,
+  nsContext?: NamespaceContext | null,
 ): Promise<ChatResponse> {
   const requirementsUpdated = Object.keys(extraction.fields).length > 0;
   const toolsCalled = toolResults.map((r) => r.tool);
@@ -62,6 +64,11 @@ export async function buildResponse(
   // --- GREETING ---
   if (intent === 'GREETING') {
     return buildGreetingResponse(extraction, chatContext, requirementsUpdated);
+  }
+
+  // --- CLIENT_DATA_COLLECTION ---
+  if (intent === 'CLIENT_DATA_COLLECTION') {
+    return buildClientDataResponse(nsContext ?? null, extraction, chatContext.lastAssistantMessage ?? '');
   }
 
   // --- UPDATE_REQUIREMENTS (confirm what was captured) ---

@@ -43,6 +43,7 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir \
         pyyaml \
         anthropic \
         openai \
+        voyageai \
         "qdrant-client>=1.9.0"
 
 # Config and data directories

@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'upload';
   content: string;
   timestamp: string;
   metadata?: Record<string, unknown>;
@@ -99,6 +99,28 @@ export async function appendChatTurn(
     { id: randomUUID(), role: 'user', content: userContent, timestamp: now },
     assistantMsg,
   );
+  await persist(workdir, history);
+}
+
+/** Append a single upload card message to the session history. */
+export async function appendUploadMessage(
+  workdir: string,
+  namespace: string,
+  chatSessionId: string,
+  upload: { id: string; displayName: string; fileSize: number; fileNames: string[] },
+): Promise<void> {
+  const history = await loadOrCreate(workdir, namespace, chatSessionId);
+  history.messages.push({
+    id: upload.id,
+    role: 'upload',
+    content: '',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      displayName: upload.displayName,
+      fileSize: upload.fileSize,
+      fileNames: upload.fileNames,
+    },
+  });
   await persist(workdir, history);
 }
 

@@ -13,7 +13,10 @@ import type {
   AgencyDeliverable,
   BusinessMetric,
   PendingExtraction,
+  IndustryContext,
 } from './context.types.js';
+import type { BrandingKit } from './branding.types.js';
+import { detectIndustryFromSignals } from './industry-schema.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -612,5 +615,121 @@ export class ContextService {
       version: 0,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Industry detection — called after any field merge that might reveal industry
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Checks if industry can be detected from current context fields.
+   * If detected and not already set, writes industryContext to context.json.
+   * Called automatically after mergeRequirements when clientIndustry changes.
+   *
+   * Returns true if industry was newly detected this call.
+   */
+  async detectAndSetIndustry(namespace: string): Promise<boolean> {
+    const current = await this.get(namespace);
+    if (!current) return false;
+
+    // Skip if already detected with high confidence
+    if (current.industryContext?.confidence && current.industryContext.confidence >= 0.8) {
+      return false;
+    }
+
+    const clientIndustry = current.requirements.fields.clientIndustry?.value as string | undefined;
+    const clientName = current.requirements.fields.clientName?.value as string | undefined;
+
+    const module = detectIndustryFromSignals({
+      clientIndustry: clientIndustry ?? undefined,
+      clientName: clientName ?? undefined,
+    });
+
+    if (!module) return false;
+
+    // Determine detection source
+    const source = current.requirements.fields.clientIndustry?.source ?? 'inferred';
+    const detectedFrom: IndustryContext['detectedFrom'] =
+      source === 'user' ? 'user' :
+      source === 'document' ? 'document' :
+      'inferred';
+
+    const industryContext: IndustryContext = {
+      industryId: module.id,
+      engagementType: current.engagementType ?? null,
+      detectedAt: new Date().toISOString(),
+      detectedFrom,
+      confidence: source === 'user' ? 0.95 : source === 'document' ? 0.75 : 0.6,
+    };
+
+    current.industryContext = industryContext;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+
+    return true;
+  }
+
+  /**
+   * Sets the engagement type for proposal structure adaptation.
+   */
+  async setEngagementType(namespace: string, engagementType: string): Promise<NamespaceContext | null> {
+    const current = await this.get(namespace);
+    if (!current) return null;
+
+    current.engagementType = engagementType;
+    if (current.industryContext) {
+      current.industryContext.engagementType = engagementType;
+    }
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Branding kit management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Stores or updates the branding kit for a namespace.
+   */
+  async setBrandingKit(namespace: string, brandingKit: BrandingKit): Promise<NamespaceContext | null> {
+    const current = await this.get(namespace);
+    if (!current) return null;
+
+    current.brandingKit = brandingKit;
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Custom fields management (for industry-specific data)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Merges custom fields into context.json requirements.customFields.
+   * Used by industry-aware extraction and chat Q&A to store vertical-specific data.
+   */
+  async mergeCustomFields(
+    namespace: string,
+    incoming: Record<string, RequirementField<string>>,
+  ): Promise<NamespaceContext> {
+    const current = (await this.get(namespace)) ?? this.createEmpty(namespace);
+
+    for (const [key, field] of Object.entries(incoming)) {
+      if (!field) continue;
+      const existing = current.requirements.customFields[key];
+      if (!existing || field.confidence >= existing.confidence) {
+        current.requirements.customFields[key] = field;
+      }
+    }
+
+    current.version += 1;
+    current.updatedAt = new Date().toISOString();
+    await this.save(namespace, current);
+    return current;
   }
 }

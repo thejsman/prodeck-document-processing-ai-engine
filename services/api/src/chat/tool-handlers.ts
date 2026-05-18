@@ -17,6 +17,7 @@ import {
   spawnProposalGenerator,
   type ProcessorPayload,
 } from '@ai-engine/plugin-proposal-generator';
+import { retrieveProposalContext } from '../proposals/proposal-rag.js';
 import { queryKnowledgeBase, type VectorStoreConfig } from '@ai-engine/runtime';
 import type { GenerateFn } from '@ai-engine/planner';
 import {
@@ -28,10 +29,79 @@ import {
 } from '../proposal-meta.js';
 import { createVersionFromEdit } from '../proposals/proposal-version.service.js';
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from '../provider-policy.js';
-import { buildRunner } from '../agent-routes.js';
 import type { ToolName } from './planner.js';
 import { listSkills as listSkillsFromDisk, createSkill, loadSkill } from '../skills/skill.service.js';
 import { generateSkillFromDescription } from '../skills/skill-generator.js';
+import { listDesignSkills as listDesignSkillsFromDisk, getDesignSkill } from '../skills/design-skill.service.js';
+import type { DesignSkill } from '../skills/design-skill.types.js';
+import { buildDesignPromptFromSkill, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
+import { generateStructuredMicrosite, assignSectionIds } from '../presentation/structured-microsite-generator.js';
+import { ContextService } from './context.service.js';
+import crypto from 'node:crypto';
+
+// ---------------------------------------------------------------------------
+// CSS token cache (shared with presentation-routes logic)
+// ---------------------------------------------------------------------------
+
+const CSS_TOKEN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function getCachedCSSTokens(
+  cacheDir: string,
+  tone: string,
+  brandPrimaryColor: string | undefined,
+  generateFn: (prompt: string) => Promise<string>,
+  clientIndustry: string | undefined,
+  designPromptOverride: string | undefined,
+): Promise<CSSTheme | null> {
+  const keySource = [tone, brandPrimaryColor ?? '', clientIndustry ?? '', designPromptOverride ?? ''].join('::');
+  const key       = crypto.createHash('md5').update(keySource).digest('hex');
+  const cachePath = path.join(cacheDir, `${key}.json`);
+
+  try {
+    const s = await stat(cachePath);
+    if (Date.now() - s.mtimeMs < CSS_TOKEN_CACHE_TTL_MS) {
+      const theme = JSON.parse(await readFile(cachePath, 'utf-8')) as CSSTheme;
+      console.log(`[css-cache] HIT  tone="${tone}" key=${key.slice(0, 8)}`);
+      return theme;
+    }
+  } catch { /* cache miss */ }
+
+  const theme = await generateThemeCSSTokens(tone, brandPrimaryColor, generateFn, clientIndustry, designPromptOverride);
+  if (theme) {
+    try {
+      await mkdir(cacheDir, { recursive: true });
+      await writeFile(cachePath, JSON.stringify(theme), 'utf-8');
+      console.log(`[css-cache] MISS tone="${tone}" key=${key.slice(0, 8)} — stored`);
+    } catch { /* non-fatal */ }
+  }
+  return theme;
+}
+
+// ---------------------------------------------------------------------------
+// Base design skill — used when no explicit skill is requested from chat
+// ---------------------------------------------------------------------------
+
+const BASE_DESIGN_SKILL: DesignSkill = {
+  slug: 'base-default',
+  displayName: 'Base Default',
+  description: 'Clean, professional default for any proposal type.',
+  aestheticTone: 'luxury/refined',
+  colorPalette: {
+    primary: '#2563EB',
+    secondary: '#1E40AF',
+    background: '#FFFFFF',
+  },
+  typography: {
+    headingFont: 'Raleway',
+    bodyFont: 'DM Sans',
+    headingStyle: 'bold',
+  },
+  animations: 'minimal',
+  customInstructions: '',
+  themeClass: 'light',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -272,6 +342,8 @@ export async function handleGenerateProposal(
   const outputDir = proposalDir(workdir, namespace);
   await mkdir(outputDir, { recursive: true });
 
+  const retrievedContext = await retrieveProposalContext(workdir, namespace, client, industry);
+
   const payload: ProcessorPayload = {
     workdir,
     outputDir,
@@ -286,6 +358,7 @@ export async function handleGenerateProposal(
     memory: skillMemoryLessons.length > 0
       ? { pastLessons: skillMemoryLessons, avoidPhrases: [] }
       : null,
+    retrievedContext,
   };
 
   let doc: Awaited<ReturnType<typeof spawnProposalGenerator>>;
@@ -329,7 +402,7 @@ export async function handleGenerateProposal(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?artifact=${encodeURIComponent(fileName)}&namespace=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(fileName)}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };
@@ -408,7 +481,7 @@ export async function handleEditProposalSection(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };
@@ -416,7 +489,6 @@ export async function handleEditProposalSection(
 
 // ---------------------------------------------------------------------------
 // 3. generate_microsite
-//    Mirrors POST /agent/run with agent=microsite-generator-agent
 // ---------------------------------------------------------------------------
 
 export async function handleGenerateMicrosite(
@@ -424,7 +496,8 @@ export async function handleGenerateMicrosite(
   ctx: ToolContext,
 ): Promise<PartialResult> {
   const proposalFileName = ((params.proposalFileName as string | undefined) ?? '').trim();
-  const { workdir, namespace } = ctx;
+  const designSkillSlug  = (params.designSkillSlug as string | undefined) ?? null;
+  const { workdir, namespace, generateFn } = ctx;
 
   const filePath = resolveProposalPath(proposalFileName, workdir, namespace);
   let proposalContent: string;
@@ -434,34 +507,117 @@ export async function handleGenerateMicrosite(
     return { success: false, message: `Proposal not found: "${proposalFileName}"` };
   }
 
-  const runner = await buildRunner(workdir);
-  const result = await runner.run('microsite-generator-agent', {
-    namespace,
-    documents: [proposalContent],
-    metadata: {
-      proposalMarkdown: proposalContent,
-      proposalFileName,
-      ...(params.primaryColor != null && { primaryColor: params.primaryColor }),
-      ...(params.secondaryColor != null && { secondaryColor: params.secondaryColor }),
-      ...(params.theme != null && { theme: params.theme }),
-      ...(params.companyName != null && { companyName: params.companyName }),
-      ...(params.tagline != null && { tagline: params.tagline }),
-      ...(params.customInstructions != null && { customInstructions: params.customInstructions }),
-    },
-  });
+  const apiKey = (process.env.ANTHROPIC_API_KEY ?? '').trim();
+  const model  = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+  if (!apiKey) return { success: false, message: 'ANTHROPIC_API_KEY is not configured.' };
 
-  // Write the AST to the path the presentation UI reads from.
-  // This mirrors what presentation-routes.ts /generate does at line 494-496.
-  if (result.json != null) {
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    await mkdir(path.dirname(astPath), { recursive: true });
-    await writeFile(astPath, JSON.stringify(result.json, null, 2), 'utf-8');
+  // Load brand context from context.json
+  let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+  let clientIndustry = '';
+  try {
+    const ctxSvc = new ContextService(workdir);
+    const ctx2 = await ctxSvc.get(namespace);
+    const fields = (ctx2?.requirements as { fields?: Record<string, { value?: unknown }> } | undefined)?.fields ?? {};
+    brandHint = {
+      companyName: (fields.clientName?.value as string | undefined) ?? '',
+      clientName:  (fields.clientName?.value as string | undefined) ?? '',
+      industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+    };
+    clientIndustry = brandHint.industry ?? '';
+  } catch { /* non-fatal */ }
+
+  // Resolve skill: explicit slug → disk (fallback to BASE_DESIGN_SKILL on miss), no slug → BASE_DESIGN_SKILL
+  let skill: DesignSkill = BASE_DESIGN_SKILL;
+  if (designSkillSlug) {
+    try {
+      skill = await getDesignSkill(workdir, designSkillSlug);
+    } catch { /* skill not found — use base */ }
   }
 
+  const built = buildDesignPromptFromSkill(skill);
+  const skillTone = built.tone;
+  const designPromptOverride: string | undefined = built.prompt || undefined;
+
+  if (skill.colorPalette.primary && !brandHint.primaryColor) {
+    brandHint = { ...brandHint, primaryColor: skill.colorPalette.primary };
+  }
+
+  // Phase 1 + CSS in parallel. CSS tokens are cached by skill slug/tone so repeat
+  // generations skip the Sonnet call entirely.
+  const proposalId = proposalFileName.replace(/\.md$/i, '');
+  const cacheDir   = path.join(workdir, 'cache', 'css-tokens');
+  const [ast, cssTheme] = await Promise.all([
+    generateStructuredMicrosite(proposalContent, brandHint, proposalId, apiKey, model),
+    getCachedCSSTokens(cacheDir, skillTone, brandHint.primaryColor, generateFn, clientIndustry, designPromptOverride).catch(() => null),
+  ]);
+
+  ast.sections = assignSectionIds(ast.sections);
+
+  const astRaw = ast as unknown as Record<string, unknown>;
+
+  // Inject CSS theme into brand so colours/fonts render via CSS variables.
+  if (cssTheme) {
+    astRaw.brand = {
+      ...(ast.brand ?? {}),
+      extractedCssVariables: cssTheme.cssVars,
+      overrideTheme: true,
+      ...(cssTheme.googleFontsUrl ? { googleFontsUrl: cssTheme.googleFontsUrl } : {}),
+      ...(cssTheme.fontFaceDeclarations ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations } : {}),
+    };
+  }
+
+  astRaw.plugin = designSkillSlug ?? skill.slug;
+
+  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast-chat.json');
+  await mkdir(path.dirname(astPath), { recursive: true });
+  await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+
+  // Phase 3 — generate per-section custom HTML using the main model (Sonnet).
+  // Runs in the background so the chat response is returned immediately.
+  // Re-writes site-ast.json when all sections are done.
+  if (cssTheme) {
+    const capturedAst = ast;
+    const capturedAstPath = astPath;
+    const capturedTone = skillTone as Tone;
+    const capturedOverride = designPromptOverride ?? null;
+    const capturedCssVars = cssTheme.cssVars;
+
+    void (async () => {
+      try {
+        const sectionsAsRecords = capturedAst.sections as unknown as Record<string, unknown>[];
+        const targets = sectionsAsRecords.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType as string));
+        const CONCURRENCY = 4;
+        let cursor = 0;
+
+        async function htmlWorker() {
+          while (cursor < targets.length) {
+            const section = targets[cursor++];
+            const idx = sectionsAsRecords.indexOf(section);
+            try {
+              section.customHtml = await generateSectionHtml(
+                section,
+                capturedTone,
+                capturedCssVars,
+                null,
+                generateFn,
+                idx,
+                capturedOverride ?? undefined,
+              );
+            } catch { /* non-fatal — section falls back to generic layout */ }
+          }
+        }
+
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
+        await writeFile(capturedAstPath, JSON.stringify(capturedAst, null, 2), 'utf-8');
+      } catch { /* non-fatal background task */ }
+    })();
+  }
+
+  const usedSkillLabel = designSkillSlug ? `design skill "${designSkillSlug}"` : 'base design theme';
   return {
     success: true,
-    message: `Presentation microsite generated from "${proposalFileName}".`,
-    data: { namespace, proposalFileName, hasAst: result.json != null },
+    message: `Presentation microsite generated from "${proposalFileName}" using ${usedSkillLabel}.`,
+    data: { namespace, proposalFileName, designSkillSlug: designSkillSlug ?? skill.slug, hasAst: true },
     actionCards: [
       {
         type: 'view_microsite',
@@ -829,7 +985,7 @@ export async function handleSetProposalStatus(
       {
         type: 'view_proposal',
         label: 'View Proposal',
-        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}`,
+        href: `/proposal?artifact=${encodeURIComponent(bareFileName(proposalFileName))}&namespace=${encodeURIComponent(namespace)}&from=chat`,
       },
     ],
   };
@@ -1012,5 +1168,34 @@ export async function handleListSkills(
     message: `**${skills.length} skill${skills.length !== 1 ? 's' : ''} available:**\n\n${lines.join('\n')}`,
     data: { skills },
     actionCards: [{ type: 'view_skills', label: 'Manage Skills', href: '/skills' }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 14. list_design_skills
+//     Lists all available design skills in the workdir.
+// ---------------------------------------------------------------------------
+
+export async function handleListDesignSkills(
+  _params: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<PartialResult> {
+  const skills = await listDesignSkillsFromDisk(ctx.workdir);
+  if (skills.length === 0) {
+    return {
+      success: true,
+      message: 'No design skills yet. Visit **Skills → 🎨 Design Skills** to create one.',
+      data: { designSkills: [] },
+      actionCards: [{ type: 'view_skills', label: 'Create Design Skill', href: '/skills' }],
+    };
+  }
+  const lines = skills.map(
+    (s) => `- **${s.displayName}** (\`${s.slug}\`) — ${s.aestheticTone}, ${s.themeClass} theme${s.description ? ` — ${s.description.slice(0, 80)}${s.description.length > 80 ? '…' : ''}` : ''}`,
+  );
+  return {
+    success: true,
+    message: `**${skills.length} design skill${skills.length !== 1 ? 's' : ''} available:**\n\n${lines.join('\n')}\n\nUse a design skill when generating a microsite by saying e.g. _"generate microsite with obsidian-editorial"_.`,
+    data: { designSkills: skills },
+    actionCards: [{ type: 'view_skills', label: 'Manage Design Skills', href: '/skills' }],
   };
 }

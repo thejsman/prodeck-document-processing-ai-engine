@@ -33,7 +33,7 @@ import {
   chatSessionBus,
   type ChatSessionEvent,
 } from './chat/chat-session-bus.js';
-import { loadHistory, clearHistory } from './chat/chat-history.service.js';
+import { loadHistory, clearHistory, appendUploadMessage } from './chat/chat-history.service.js';
 import { scanNamespace } from './namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions, type TemplateInsight } from './namespace/insight-rules.js';
 import { recommendTemplate } from './templates/template-recommendation.service.js';
@@ -232,6 +232,38 @@ export function registerChatRoutes(
 
       const history = await loadHistory(workdir, namespace.trim(), chatSessionId.trim());
       return reply.send({ messages: history?.messages ?? [] });
+    },
+  );
+
+  // ── POST /chat/session/:chatSessionId/upload-message ─────────────
+  //
+  // Persists an upload card to the session history so it survives page refreshes.
+  // Body: { namespace, id, displayName, fileSize, fileNames }
+  //
+  app.post(
+    '/chat/session/:chatSessionId/upload-message',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { chatSessionId } = req.params as { chatSessionId: string };
+      const { namespace, id, displayName, fileSize, fileNames } = req.body as {
+        namespace: string;
+        id: string;
+        displayName: string;
+        fileSize: number;
+        fileNames: string[];
+      };
+
+      if (!chatSessionId?.trim()) return reply.code(400).send({ error: 'Missing chatSessionId' });
+      if (!namespace?.trim()) return reply.code(400).send({ error: 'Missing namespace' });
+      if (!id?.trim()) return reply.code(400).send({ error: 'Missing id' });
+      if (!Array.isArray(fileNames)) return reply.code(400).send({ error: 'fileNames must be an array' });
+
+      await appendUploadMessage(workdir, namespace.trim(), chatSessionId.trim(), {
+        id,
+        displayName: displayName ?? '',
+        fileSize: fileSize ?? 0,
+        fileNames,
+      });
+      return reply.code(201).send({ ok: true });
     },
   );
 
