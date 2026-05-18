@@ -540,10 +540,21 @@ export async function handleGenerateMicrosite(
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
   }
 
-  // Persist completed AST (with customHtml on every section)
-  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-  await mkdir(path.dirname(astPath), { recursive: true });
-  await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+  // Persist completed AST as a new versioned entry — append-only, never overwrites
+  const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
+  await mkdir(nsDir, { recursive: true });
+  let existingFiles: string[] = [];
+  try { existingFiles = await readdir(nsDir); } catch { /* new namespace */ }
+  const existingCount = existingFiles.filter(f => f.startsWith('microsite_pro_') && f.endsWith('.json')).length;
+  const timestamp = Date.now();
+  const chatEntry = {
+    id: `microsite:pro:${timestamp}`,
+    type: 'pro',
+    version: existingCount + 1,
+    createdAt: new Date().toISOString(),
+    data: { ...ast, generationMode: 'pro' },
+  };
+  await writeFile(path.join(nsDir, `microsite_pro_${timestamp}.json`), JSON.stringify(chatEntry, null, 2), 'utf-8');
 
   return {
     success: true,

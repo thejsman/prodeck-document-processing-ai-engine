@@ -1363,85 +1363,44 @@ ${layoutSummary}`;
   // GET /presentations/history — all saved microsite ASTs across every namespace
   app.get('/presentations/history', async (req: FastifyRequest, reply: FastifyReply) => {
     const assetsDir = path.join(workdir, 'assets', 'presentations');
-    const namespacesDir = path.join(workdir, 'data', 'namespaces');
+    const allEntries: { id: string; namespace: string; savedAt: string; ast: unknown; source: string; type: string; version: number }[] = [];
 
-    const allEntries: { id: string; namespace: string; savedAt: string; ast: unknown; source: string }[] = [];
-    const primaryNamespaces = new Set<string>();
+    let namespaceDirs: string[] = [];
+    try { namespaceDirs = await readdir(assetsDir); } catch { /* directory may not exist yet */ }
 
-    // Primary path: workdir/assets/presentations/<ns>/  (UI builder writes here)
-    // Mode-specific files take precedence; site-ast.json is the legacy/generation-cache fallback.
-    let primaryDirs: string[] = [];
-    try { primaryDirs = await readdir(assetsDir); } catch { /* directory may not exist yet */ }
     await Promise.all(
-      primaryDirs.map(async (ns) => {
-        const modeFiles = [
-          { filename: 'site-ast-pro.json',     idSuffix: '::pro' },
-          { filename: 'site-ast-classic.json', idSuffix: '::classic' },
-        ] as const;
-        let hasModeSpecific = false;
-        for (const { filename, idSuffix } of modeFiles) {
-          try {
-            const astPath = path.join(assetsDir, ns, filename);
-            const raw = await readFile(astPath, 'utf-8');
-            const ast = JSON.parse(raw);
-            const fileStat = await stat(astPath);
-            primaryNamespaces.add(ns);
-            allEntries.push({ id: `${ns}${idSuffix}`, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
-            hasModeSpecific = true;
-          } catch { /* file doesn't exist for this mode — skip */ }
-        }
-        // Legacy fallback: include site-ast.json only when no mode-specific files exist
-        if (!hasModeSpecific) {
-          try {
-            const astPath = path.join(assetsDir, ns, 'site-ast.json');
-            const raw = await readFile(astPath, 'utf-8');
-            const ast = JSON.parse(raw);
-            const fileStat = await stat(astPath);
-            primaryNamespaces.add(ns);
-            allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
-          } catch { /* skip */ }
-        }
-        // Always surface chat-mode file when present (written by handleGenerateMicrosite)
-        try {
-          const chatAstPath = path.join(assetsDir, ns, 'site-ast-chat.json');
-          const raw = await readFile(chatAstPath, 'utf-8');
-          const ast = JSON.parse(raw);
-          const fileStat = await stat(chatAstPath);
-          primaryNamespaces.add(ns);
-          allEntries.push({ id: `${ns}::chat`, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
-        } catch { /* no chat AST — skip */ }
-      }),
-    );
-
-    // Fallback path: workdir/data/namespaces/<ns>/assets/presentations/<ns>/site-ast.json
-    // (save-asset tool writes here; chat-generated microsites land here)
-    // Skip if the namespace already has mode-specific primary files (site-ast-pro.json or
-    // site-ast-classic.json) — the agent's save-asset writes here as a side-effect of UI
-    // generation, producing a phantom entry with no generationMode that shows as a spurious card.
-    let fallbackDirs: string[] = [];
-    try { fallbackDirs = await readdir(namespacesDir); } catch { /* directory may not exist */ }
-    await Promise.all(
-      fallbackDirs.map(async (ns) => {
-        // Suppress chat entry when mode-specific primary files already cover this namespace.
-        if (primaryNamespaces.has(ns)) return;
-        try {
-          const astPath = path.join(namespacesDir, ns, 'assets', 'presentations', ns, 'site-ast.json');
-          const raw = await readFile(astPath, 'utf-8');
-          const ast = JSON.parse(raw);
-          const fileStat = await stat(astPath);
-          allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
-        } catch { /* namespace has no saved AST — skip */ }
+      namespaceDirs.map(async (ns) => {
+        const nsDir = path.join(assetsDir, ns);
+        let files: string[] = [];
+        try { files = await readdir(nsDir); } catch { return; }
+        const micrositeFiles = files.filter(f => f.startsWith('microsite_') && f.endsWith('.json'));
+        await Promise.all(
+          micrositeFiles.map(async (filename) => {
+            try {
+              const raw = await readFile(path.join(nsDir, filename), 'utf-8');
+              const entry = JSON.parse(raw) as { id: string; type: string; version: number; createdAt: string; data: unknown };
+              allEntries.push({
+                id: entry.id,
+                namespace: ns,
+                savedAt: entry.createdAt,
+                ast: entry.data,
+                source: 'primary',
+                type: entry.type,
+                version: entry.version,
+              });
+            } catch { /* skip malformed files */ }
+          }),
+        );
       }),
     );
 
     if (allEntries.length === 0) return reply.send({ entries: [] });
 
-    // Sort newest first
     allEntries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
     return reply.send({ entries: allEntries });
   });
 
-  // POST /presentations/history/save — save an AST entry for a namespace
+  // POST /presentations/history/save — append a new versioned entry (never overwrites)
   app.post('/presentations/history/save', async (req: FastifyRequest, reply: FastifyReply) => {
     const body = req.body as { namespace?: string; ast?: unknown } | undefined;
     if (!body?.namespace || !body?.ast) {
@@ -1449,39 +1408,40 @@ ${layoutSummary}`;
     }
     const { namespace, ast } = body;
     const astObj = ast as Record<string, unknown>;
-    const mode = typeof astObj?.generationMode === 'string' ? astObj.generationMode : null;
-    const filename = mode === 'pro' ? 'site-ast-pro.json'
-                   : mode === 'classic' ? 'site-ast-classic.json'
-                   : 'site-ast.json';
+    const rawMode = typeof astObj?.generationMode === 'string' ? astObj.generationMode : null;
+    const type = rawMode === 'classic' ? 'classic' : 'pro';
+
     const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
     await mkdir(nsDir, { recursive: true });
-    await writeFile(path.join(nsDir, filename), JSON.stringify(ast, null, 2), 'utf-8');
-    return reply.send({ ok: true });
+
+    let existingFiles: string[] = [];
+    try { existingFiles = await readdir(nsDir); } catch { /* new namespace */ }
+    const existingCount = existingFiles.filter(f => f.startsWith(`microsite_${type}_`) && f.endsWith('.json')).length;
+    const version = existingCount + 1;
+
+    const timestamp = Date.now();
+    const id = `microsite:${type}:${timestamp}`;
+    const filename = `microsite_${type}_${timestamp}.json`;
+
+    const entry = { id, type, version, createdAt: new Date().toISOString(), data: ast };
+    await writeFile(path.join(nsDir, filename), JSON.stringify(entry, null, 2), 'utf-8');
+    return reply.send({ ok: true, id, version });
   });
 
-  // DELETE /presentations/history/:namespace — remove a saved AST.
-  // ?mode=pro|classic|chat deletes only that mode's file; omit to delete all.
+  // DELETE /presentations/history/:namespace?entryId=microsite:pro:1716023445123
+  // Deletes exactly one entry by its unique id. Never bulk-deletes.
   app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string };
-    const { mode } = req.query as { mode?: string };
-    const base = path.join(workdir, 'assets', 'presentations', namespace);
-    const chatPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
-    if (mode === 'pro') {
-      await rm(path.join(base, 'site-ast-pro.json')).catch(() => {});
-    } else if (mode === 'classic') {
-      await rm(path.join(base, 'site-ast-classic.json')).catch(() => {});
-    } else if (mode === 'chat') {
-      await rm(path.join(base, 'site-ast-chat.json')).catch(() => {});
-      await rm(chatPath).catch(() => {});
-    } else {
-      await Promise.all([
-        rm(path.join(base, 'site-ast-chat.json')).catch(() => {}),
-        rm(path.join(base, 'site-ast.json')).catch(() => {}),
-        rm(path.join(base, 'site-ast-pro.json')).catch(() => {}),
-        rm(path.join(base, 'site-ast-classic.json')).catch(() => {}),
-        rm(chatPath).catch(() => {}),
-      ]);
+    const { entryId } = req.query as { entryId?: string };
+
+    if (!entryId) {
+      return reply.code(400).send({ error: 'Missing required query param: entryId' });
     }
+
+    // microsite:pro:1716023445123 → microsite_pro_1716023445123.json
+    const filename = entryId.replace(/:/g, '_') + '.json';
+    const filePath = path.join(workdir, 'assets', 'presentations', namespace, filename);
+    await rm(filePath).catch(() => {});
     return reply.send({ ok: true });
   });
 
@@ -1718,9 +1678,6 @@ ${layoutSummary}`;
           }),
         );
 
-        const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-        await mkdir(path.dirname(astPath), { recursive: true });
-        await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
         const _sectionTypes = ast.sections.map((s: AstSection) => s.sectionType);
         console.log(
           `[microsite-gen] Complete — namespace=${namespace}` +
@@ -2056,8 +2013,6 @@ ${layoutSummary}`;
 
       type AstSection = { sectionType: string; image: { source: string; query: string; url: string | null }; content: Record<string, unknown> };
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
-      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-
       // Resolve and persist images for ALL sections using content-based Pexels queries.
       // Deduplication prevents the same photo appearing on multiple sections.
       if (ast?.sections) {
@@ -2173,7 +2128,6 @@ ${layoutSummary}`;
       // complete event carries local image URLs — no further reconciliation needed
       send({ type: 'complete', ast });
       if (ast?.sections) {
-        await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
         const _sectionTypes = (ast.sections as Array<{ sectionType: string }>).map(s => s.sectionType);
         console.log(
           `[microsite-gen] Complete — namespace=${namespace}` +
@@ -2672,11 +2626,6 @@ ${layoutSummary}`;
         );
       }
 
-      // Persist AST to disk
-      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-      await mkdir(path.dirname(astPath), { recursive: true });
-      await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
-
       const elapsed = Date.now() - _t0;
       console.log(`[structured-gen] Complete — namespace=${namespace} sections=${sections.length} tone="${structuredTone}" elapsed=${elapsed}ms`);
 
@@ -2690,55 +2639,100 @@ ${layoutSummary}`;
 
   // GET /presentations/:namespace/:proposalId/microsite
   // Returns the previously generated site AST (null if not yet generated).
-  // Optional ?mode=pro|classic — tries mode-specific file first, then site-ast.json, then chat path.
+  // ?entryId=microsite:pro:1716023445123 — loads that exact entry.
+  // ?mode=pro|classic — fallback: loads the most recent entry of that type.
   app.get('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string; proposalId: string };
-    const { mode } = req.query as { mode?: string };
+    const { mode, entryId } = req.query as { mode?: string; entryId?: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const base = path.join(workdir, 'assets', 'presentations', namespace);
-    const modeFile = mode === 'pro' ? 'site-ast-pro.json'
-                   : mode === 'classic' ? 'site-ast-classic.json'
-                   : null;
-    const candidates = [
-      ...(modeFile ? [path.join(base, modeFile)] : []),
-      path.join(base, 'site-ast-chat.json'),
-      path.join(base, 'site-ast.json'),
-      path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
-    ];
 
-    for (const astPath of candidates) {
+    // Exact entry requested — load only that file
+    if (entryId) {
+      const filename = entryId.replace(/:/g, '_') + '.json';
       try {
-        const raw = await readFile(astPath, 'utf-8');
-        const fileStat = await stat(astPath);
-        return reply.send({ ast: JSON.parse(raw), savedAt: fileStat.mtime.toISOString() });
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        const raw = await readFile(path.join(base, filename), 'utf-8');
+        const entry = JSON.parse(raw) as { createdAt: string; data: unknown };
+        return reply.send({ ast: entry.data, savedAt: entry.createdAt });
+      } catch {
+        return reply.send({ ast: null, savedAt: null });
       }
     }
-    return reply.send({ ast: null, savedAt: null });
+
+    // Fallback: most recent versioned file for the given mode
+    const type = mode === 'classic' ? 'classic' : 'pro';
+    let files: string[] = [];
+    try { files = await readdir(base); } catch { return reply.send({ ast: null, savedAt: null }); }
+
+    const match = files
+      .filter(f => f.startsWith(`microsite_${type}_`) && f.endsWith('.json'))
+      .sort()
+      .at(-1); // highest timestamp = most recent
+
+    if (!match) return reply.send({ ast: null, savedAt: null });
+
+    try {
+      const raw = await readFile(path.join(base, match), 'utf-8');
+      const entry = JSON.parse(raw) as { createdAt: string; data: unknown };
+      return reply.send({ ast: entry.data, savedAt: entry.createdAt });
+    } catch {
+      return reply.send({ ast: null, savedAt: null });
+    }
   });
 
   // PUT /presentations/:namespace/:proposalId/microsite
-  // Save (overwrite) the microsite AST to disk — used when user edits sections in the viewer.
+  // In-place edit of an existing versioned entry — updates only the data field, never creates a new entry.
+  // ?entryId=microsite:pro:1716023445123 — targets that exact file (required for correct per-entry edits).
+  // Without entryId, falls back to updating the most recent file of the matching type.
   app.put('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const { entryId } = req.query as { entryId?: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const body = req.body as { ast?: Record<string, unknown> } | undefined;
     if (!body?.ast) return reply.code(400).send({ error: 'ast is required' });
 
-    const mode = typeof body.ast.generationMode === 'string' ? body.ast.generationMode : null;
-    const filename = mode === 'pro' ? 'site-ast-pro.json'
-                   : mode === 'classic' ? 'site-ast-classic.json'
-                   : 'site-ast.json';
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, filename);
-    await mkdir(path.dirname(astPath), { recursive: true });
-    await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
+    const base = path.join(workdir, 'assets', 'presentations', namespace);
+    await mkdir(base, { recursive: true });
 
-    return reply.send({ ok: true, proposalId });
+    if (entryId) {
+      // Update the specific entry in place
+      const filename = entryId.replace(/:/g, '_') + '.json';
+      const filePath = path.join(base, filename);
+      try {
+        const raw = await readFile(filePath, 'utf-8');
+        const existing = JSON.parse(raw) as { id: string; type: string; version: number; createdAt: string; data: unknown };
+        existing.data = body.ast;
+        await writeFile(filePath, JSON.stringify(existing, null, 2), 'utf-8');
+      } catch {
+        // File missing — write it fresh so the editor never loses work
+        await writeFile(filePath, JSON.stringify({ id: entryId, type: 'pro', version: 1, createdAt: new Date().toISOString(), data: body.ast }, null, 2), 'utf-8');
+      }
+      return reply.send({ ok: true });
+    }
+
+    // No entryId — update the most recent file of the matching type
+    const rawMode = typeof body.ast.generationMode === 'string' ? body.ast.generationMode : null;
+    const type = rawMode === 'classic' ? 'classic' : 'pro';
+    let files: string[] = [];
+    try { files = await readdir(base); } catch { files = []; }
+    const match = files.filter(f => f.startsWith(`microsite_${type}_`) && f.endsWith('.json')).sort().at(-1);
+
+    if (match) {
+      const filePath = path.join(base, match);
+      const raw = await readFile(filePath, 'utf-8');
+      const existing = JSON.parse(raw) as { id: string; type: string; version: number; createdAt: string; data: unknown };
+      existing.data = body.ast;
+      await writeFile(filePath, JSON.stringify(existing, null, 2), 'utf-8');
+    } else {
+      const timestamp = Date.now();
+      const id = `microsite:${type}:${timestamp}`;
+      await writeFile(path.join(base, `microsite_${type}_${timestamp}.json`), JSON.stringify({ id, type, version: 1, createdAt: new Date().toISOString(), data: body.ast }, null, 2), 'utf-8');
+    }
+    return reply.send({ ok: true });
   });
 
   // POST /presentations/:namespace/logo
@@ -2843,13 +2837,16 @@ ${layoutSummary}`;
       return reply.code(400).send({ error: 'instruction is required' });
     }
 
-    // Load AST from body or fall back to saved file
+    // Load AST from body or fall back to most recent versioned file
     let currentAst = body.currentAst;
     if (!currentAst) {
-      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
       try {
-        const raw = await readFile(astPath, 'utf-8');
-        currentAst = JSON.parse(raw) as Record<string, unknown>;
+        const _base = path.join(workdir, 'assets', 'presentations', namespace);
+        const _files = await readdir(_base).catch(() => [] as string[]);
+        const _match = _files.filter(f => f.startsWith('microsite_') && f.endsWith('.json')).sort().at(-1);
+        if (!_match) throw new Error('not found');
+        const _raw = await readFile(path.join(_base, _match), 'utf-8');
+        currentAst = (JSON.parse(_raw) as { data: Record<string, unknown> }).data;
       } catch {
         return reply.code(404).send({ error: `No microsite AST found for ${namespace}/${proposalId}` });
       }
@@ -2873,10 +2870,17 @@ ${layoutSummary}`;
       return reply.code(500).send({ error: 'Design editor returned no result' });
     }
 
-    // Optionally save patched AST back to disk
+    // Optionally save patched AST back — update the most recent versioned file in place
     if (body.commit !== false) {
-      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-      await writeFile(astPath, JSON.stringify(editResult.ast, null, 2), 'utf-8');
+      const _base = path.join(workdir, 'assets', 'presentations', namespace);
+      const _files = await readdir(_base).catch(() => [] as string[]);
+      const _match = _files.filter(f => f.startsWith('microsite_') && f.endsWith('.json')).sort().at(-1);
+      if (_match) {
+        const _fp = path.join(_base, _match);
+        const _existing = JSON.parse(await readFile(_fp, 'utf-8')) as { id: string; type: string; version: number; createdAt: string; data: unknown };
+        _existing.data = editResult.ast;
+        await writeFile(_fp, JSON.stringify(_existing, null, 2), 'utf-8');
+      }
     }
 
     return reply.send({
@@ -2898,13 +2902,15 @@ ${layoutSummary}`;
 
     const body = req.body as { ast?: Record<string, unknown>; format?: string } | undefined;
 
-    // Load AST from body or fall back to saved file
+    // Load AST from body or fall back to most recent versioned file
     let ast = body?.ast;
     if (!ast) {
-      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
       try {
-        const raw = await readFile(astPath, 'utf-8');
-        ast = JSON.parse(raw) as Record<string, unknown>;
+        const _base = path.join(workdir, 'assets', 'presentations', namespace);
+        const _files = await readdir(_base).catch(() => [] as string[]);
+        const _match = _files.filter(f => f.startsWith('microsite_') && f.endsWith('.json')).sort().at(-1);
+        if (!_match) throw new Error('not found');
+        ast = (JSON.parse(await readFile(path.join(_base, _match), 'utf-8')) as { data: Record<string, unknown> }).data;
       } catch {
         return reply.code(404).send({ error: `No microsite AST found for ${namespace}/${proposalId}` });
       }
@@ -2943,10 +2949,12 @@ ${layoutSummary}`;
 
     let ast = body?.ast;
     if (!ast) {
-      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
       try {
-        const raw = await readFile(astPath, 'utf-8');
-        ast = JSON.parse(raw) as Record<string, unknown>;
+        const _base = path.join(workdir, 'assets', 'presentations', namespace);
+        const _files = await readdir(_base).catch(() => [] as string[]);
+        const _match = _files.filter(f => f.startsWith('microsite_') && f.endsWith('.json')).sort().at(-1);
+        if (!_match) throw new Error('not found');
+        ast = (JSON.parse(await readFile(path.join(_base, _match), 'utf-8')) as { data: Record<string, unknown> }).data;
       } catch {
         return reply.code(404).send({ error: `No microsite AST found for ${namespace}/${proposalId}` });
       }

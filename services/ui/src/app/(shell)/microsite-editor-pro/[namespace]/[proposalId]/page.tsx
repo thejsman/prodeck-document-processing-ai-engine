@@ -1,27 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { fetchMicrositeContent, saveMicrositeHistoryToServer } from '@/lib/api';
+import { fetchMicrositeContent, saveMicrositeAst } from '@/lib/api';
 import { persistMicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
 import { MicrositeEditorPro } from '@/components/microsite/editor/MicrositeEditorPro';
 import type { LayoutAST } from '@/types/presentation';
 
 export default function MicrositeEditorProPage() {
   const { namespace, proposalId } = useParams<{ namespace: string; proposalId: string }>();
-  const { apiKey }  = useAuth();
-  const router      = useRouter();
+  const searchParams = useSearchParams();
+  const entryId      = searchParams.get('entryId') ?? undefined;
+  const { apiKey }   = useAuth();
+  const router       = useRouter();
 
-  const [ast, setAst]       = useState<LayoutAST | null>(null);
+  const [ast, setAst]        = useState<LayoutAST | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState('');
+  const [error, setError]    = useState('');
 
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
-    fetchMicrositeContent(apiKey, namespace, proposalId, 'pro')
+    fetchMicrositeContent(apiKey, namespace, proposalId, 'pro', entryId)
       .then(({ ast: data }) => {
         if (!data) { setError('No microsite found — generate one first.'); setLoading(false); return; }
         setAst(data as LayoutAST);
@@ -31,7 +33,7 @@ export default function MicrositeEditorProPage() {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [apiKey, namespace, proposalId]);
+  }, [apiKey, namespace, proposalId, entryId]);
 
   if (loading) {
     return (
@@ -69,9 +71,9 @@ export default function MicrositeEditorProPage() {
       proposalId={proposalId}
       onClose={() => router.back()}
       onSaved={async (updatedAst) => {
-        await Promise.all([
-          apiKey ? saveMicrositeHistoryToServer(apiKey, namespace, updatedAst).catch(() => {}) : Promise.resolve(),
-        ]);
+        if (apiKey) {
+          await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst, entryId).catch(() => {});
+        }
         persistMicrositeHistoryEntry(namespace, updatedAst, apiKey ?? undefined);
       }}
     />
