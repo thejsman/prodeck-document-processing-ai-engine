@@ -52,19 +52,8 @@ import yaml
 # ---------------------------------------------------------------------------
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
-sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "processor-local-faiss-rag")
-)
 
 from providers import create_provider
-
-# Optional FAISS import — RAG is best-effort.
-try:
-    from vector_store import FaissVectorStore
-
-    HAS_FAISS = True
-except ImportError:
-    HAS_FAISS = False
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -290,13 +279,6 @@ def build_raw_context(documents, max_chars=8000):
     return "\n\n".join(parts)
 
 
-def retrieve_context(query, store, provider, top_k=TOP_K):
-    """Retrieve relevant chunks from a FAISS index for a query."""
-    query_embedding = provider.embed(query)
-    retrieved = store.search(query_embedding, top_k)
-    return "\n\n".join(retrieved) if retrieved else ""
-
-
 # ---------------------------------------------------------------------------
 # Section generation (with retry)
 # ---------------------------------------------------------------------------
@@ -469,6 +451,7 @@ def generate_proposal(
     pricing=None,
     tone=None,
     memory=None,
+    retrieved_context=None,
 ):
     """Generate a full proposal document.
 
@@ -494,23 +477,25 @@ def generate_proposal(
     sections = template["sections"]
 
     # ── Collect source documents ──────────────────────────────
-    documents = collect_documents(workdir)
+    # Scope to the namespace directory so documents from other namespaces
+    # cannot bleed into this proposal via the raw_context fallback.
+    ns_dir = os.path.join(workdir, "namespaces", namespace) if namespace else workdir
+    documents = collect_documents(ns_dir)
     if not documents:
-        raise ValueError(f"No ingestable documents found in: {workdir}")
+        raise ValueError(f"No ingestable documents found in: {ns_dir}")
 
-    # ── Prepare retrieval backend ─────────────────────────────
-    store = None
+    # ── Prepare retrieval context ─────────────────────────────
     use_rag = False
+    rag_context = None
 
-    if namespace and HAS_FAISS:
-        ns_dir = os.path.join(workdir, "namespaces", namespace)
-        index_path = os.path.join(ns_dir, "index.faiss")
-        chunks_path = os.path.join(ns_dir, "chunks.json")
-
-        if os.path.isfile(index_path) and os.path.isfile(chunks_path):
-            store = FaissVectorStore(ns_dir)
-            store.load()
-            use_rag = store.size > 0
+    if retrieved_context and isinstance(retrieved_context, list):
+        valid_chunks = [
+            c["text"] for c in retrieved_context
+            if isinstance(c, dict) and c.get("text", "").strip()
+        ]
+        if valid_chunks:
+            rag_context = "\n\n".join(valid_chunks)
+            use_rag = True
 
     # Fallback: raw document context (truncated).
     raw_context = build_raw_context(documents)
@@ -544,14 +529,7 @@ def generate_proposal(
             continue
 
         # Build context for this section.
-        if use_rag:
-            context_text = retrieve_context(
-                section_def["query"], store, provider
-            )
-            if not context_text:
-                context_text = raw_context
-        else:
-            context_text = raw_context
+        context_text = rag_context if use_rag else raw_context
 
         # Generate with retry.
         try:
@@ -640,6 +618,7 @@ def main():
         pricing = input_data.get("pricing")
         tone = input_data.get("tone")
         memory = input_data.get("memory")
+        retrieved_context = input_data.get("retrievedContext")
 
         if not os.path.isdir(workdir):
             raise FileNotFoundError(f"Working directory does not exist: {workdir}")
@@ -659,6 +638,7 @@ def main():
             pricing=pricing,
             tone=tone,
             memory=memory,
+            retrieved_context=retrieved_context,
         )
 
         document = {

@@ -17,6 +17,7 @@ import {
   spawnProposalGenerator,
   type ProcessorPayload,
 } from '@ai-engine/plugin-proposal-generator';
+import { retrieveProposalContext } from '../proposals/proposal-rag.js';
 import { queryKnowledgeBase, type VectorStoreConfig } from '@ai-engine/runtime';
 import type { GenerateFn } from '@ai-engine/planner';
 import {
@@ -341,6 +342,8 @@ export async function handleGenerateProposal(
   const outputDir = proposalDir(workdir, namespace);
   await mkdir(outputDir, { recursive: true });
 
+  const retrievedContext = await retrieveProposalContext(workdir, namespace, client, industry);
+
   const payload: ProcessorPayload = {
     workdir,
     outputDir,
@@ -355,6 +358,7 @@ export async function handleGenerateProposal(
     memory: skillMemoryLessons.length > 0
       ? { pastLessons: skillMemoryLessons, avoidPhrases: [] }
       : null,
+    retrievedContext,
   };
 
   let doc: Awaited<ReturnType<typeof spawnProposalGenerator>>;
@@ -564,7 +568,7 @@ export async function handleGenerateMicrosite(
 
   astRaw.plugin = designSkillSlug ?? skill.slug;
 
-  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast-chat.json');
   await mkdir(path.dirname(astPath), { recursive: true });
   await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
 

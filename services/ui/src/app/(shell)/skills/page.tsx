@@ -96,6 +96,7 @@ export default function SkillsPage() {
 
   // ── Right panel resize ───────────────────────────────────────────
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
+  const [listPanelOpen, setListPanelOpen] = useState(true);
   const isResizing = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(260);
@@ -118,6 +119,13 @@ export default function SkillsPage() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   }, [rightPanelWidth]);
+
+  // Close the list panel on mobile at initial mount only
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      setListPanelOpen(false);
+    }
+  }, []);
 
   // ── Load skills ──────────────────────────────────────────────────
   const loadSkillList = useCallback(async () => {
@@ -396,6 +404,9 @@ export default function SkillsPage() {
           ))}
         </div>
         <div style={{ flex: 1 }} />
+        <button className="skills-list-toggle" onClick={() => setListPanelOpen((v) => !v)}>
+          Skills
+        </button>
         {skillMode === 'proposal' ? (
           <button
             onClick={() => { setShowNewModal(true); setTimeout(() => newInputRef.current?.focus(), 50); }}
@@ -557,6 +568,7 @@ export default function SkillsPage() {
 
         {/* RESIZE HANDLE */}
         <div
+          className="skills-resize-handle"
           onMouseDown={handleResizeMouseDown}
           style={{
             width: 5,
@@ -568,7 +580,7 @@ export default function SkillsPage() {
         />
 
         {/* RIGHT: skill list */}
-        <div style={{ width: rightPanelWidth, flexShrink: 0, overflowY: 'auto', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+        <div className={`skills-list-panel${listPanelOpen ? ' is-open' : ''}`} style={{ width: rightPanelWidth, flexShrink: 0, overflowY: 'auto', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
           {skillMode === 'proposal' ? (
             <>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -660,6 +672,11 @@ export default function SkillsPage() {
           )}
         </div>
       </div>
+
+      {/* Mobile backdrop for skill list panel */}
+      {listPanelOpen && (
+        <div className="skills-panel-backdrop" onClick={() => setListPanelOpen(false)} />
+      )}
 
       {/* ── New skill modal ── */}
       {showNewModal && (

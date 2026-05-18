@@ -397,6 +397,20 @@ export async function fetchKnowledgeFiles(apiKey: string, namespace: string): Pr
   return data.files;
 }
 
+export async function postUploadMessage(
+  apiKey: string,
+  chatSessionId: string,
+  namespace: string,
+  upload: { id: string; displayName: string; fileSize: number; fileNames: string[] },
+): Promise<void> {
+  const res = await fetch(`/api/chat/session/${encodeURIComponent(chatSessionId)}/upload-message`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ namespace, ...upload }),
+  });
+  await handleResponse<{ ok: boolean }>(res);
+}
+
 export async function deleteKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch(
     `/api/knowledge/files/${encodeURIComponent(fileName)}?namespace=${encodeURIComponent(namespace)}`,
@@ -591,9 +605,11 @@ export async function fetchMicrositeContent(
   apiKey: string,
   namespace: string,
   proposalId: string,
+  mode?: 'pro' | 'classic',
 ): Promise<{ ast: unknown | null; savedAt: string | null }> {
+  const qs = mode ? `?mode=${mode}` : '';
   const res = await fetch(
-    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`,
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite${qs}`,
     { headers: authHeaders(apiKey) },
   );
   const data = await handleResponse<{ ast: unknown | null; savedAt: string | null }>(res);
@@ -626,8 +642,8 @@ export async function saveMicrositeHistoryToServer(apiKey: string, namespace: st
   await handleResponse<{ ok: boolean }>(res);
 }
 
-export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, source?: string): Promise<void> {
-  const qs = source ? `?source=${encodeURIComponent(source)}` : '';
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, mode?: string): Promise<void> {
+  const qs = mode ? `?mode=${encodeURIComponent(mode)}` : '';
   const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}${qs}`, {
     method: 'DELETE',
     headers: authHeadersNoBody(apiKey),
