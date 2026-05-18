@@ -31,12 +31,24 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
+import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, buildDesignPromptFromSkill, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
+import { getDesignSkill } from '../skills/design-skill.service.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
 import {
+  generateMicrositeDirectly,
+  generateMicrositeStream as generateMicrositeStreamDirect,
+} from './direct-microsite-generator.js';
+import {
+  generateStructuredMicrosite,
+  assignSectionIds,
+} from './structured-microsite-generator.js';
+import {
   fetchUnsplashImageUrl,
+  fetchPexelsImageUrl,
+  fetchLoremflickrUrl,
   generateGptImage1,
   generateDalle3Image,
   buildDallePrompt,
@@ -53,7 +65,34 @@ import {
  *   "file.md"            → workdir/namespaces/<namespace>/proposals/file.md (inferred from context)
  *   fallback             → workdir/output/file.md  (legacy)
  */
-function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
+/** Extract the proposing agency/company from context.json data.
+ *  Tries stakeholders (company != clientName), then knowledge source filenames (Otter.ai pattern).
+ *  Falls back to markdown header patterns as last resort.
+ */
+function extractPreparedBy(
+  ctx: Record<string, unknown> | null,
+  markdown: string,
+): string {
+  // 1. Proposal markdown — explicit "Prepared by" / "From:" header
+  const mdMatch = markdown.slice(0, 3000).match(
+    /(?:Prepared\s+by|From|Submitted\s+by|Presented\s+by)\s*[:\-]\s*\**([^\n*|]{2,60})\**/i,
+  );
+  if (mdMatch?.[1]?.trim()) return mdMatch[1].trim();
+
+  // 2. Knowledge source filenames — Otter.ai pattern: Speaker__Client__-_Agency_otter_ai
+  if (ctx) {
+    const knowledge = (ctx as Record<string, unknown[]>).knowledge ?? [];
+    for (const k of knowledge) {
+      const fileName = ((k as Record<string, Record<string, string>>).source?.fileName) ?? '';
+      const m = fileName.match(/__-_(.+?)_otter_ai/i);
+      if (m) return m[1].replace(/_/g, ' ');
+    }
+  }
+
+  return '';
+}
+
+export function resolveProposalMdPath(workdir: string, fileName: string, contextNamespace?: string): string {
   const sep = fileName.indexOf('::');
   if (sep !== -1) {
     return path.join(workdir, 'namespaces', fileName.slice(0, sep), 'proposals', fileName.slice(sep + 2));
@@ -64,7 +103,7 @@ function resolveProposalMdPath(workdir: string, fileName: string, contextNamespa
   return path.join(workdir, 'output', fileName);
 }
 
-function checkNamespaceAccess(
+export function checkNamespaceAccess(
   auth: AuthContext,
   namespace: string,
   reply: FastifyReply,
@@ -75,7 +114,7 @@ function checkNamespaceAccess(
   return false;
 }
 
-function getAuth(req: FastifyRequest): AuthContext {
+export function getAuth(req: FastifyRequest): AuthContext {
   return (req as FastifyRequest & { auth: AuthContext }).auth;
 }
 
@@ -84,7 +123,7 @@ function getAuth(req: FastifyRequest): AuthContext {
  * never expires. Returns the persistent local URL to store in the AST.
  * Falls back to the original remote URL if download fails.
  */
-async function saveImagePersistently(
+export async function saveImagePersistently(
   remoteUrl: string,
   namespace: string,
   sectionId: string,
@@ -177,6 +216,15 @@ async function embedImagesAsBase64(
 
   return ast;
 }
+
+// ---------------------------------------------------------------------------
+// CSS token cache
+// Keyed by a hash of (tone + primaryColor + industry + designPromptOverride).
+// Only used on design-skill-aware paths where the tone is deterministic.
+// Auto-selection paths (random industry-based tone) skip the cache intentionally.
+// TTL: 24 h — design skills don't change frequently.
+// ---------------------------------------------------------------------------
+
 
 export function registerPresentationRoutes(
   app: FastifyInstance,
@@ -869,6 +917,179 @@ export function registerPresentationRoutes(
     }
     const layoutSummary = layoutLines.join('\n').slice(0, 6_000);
 
+    // ── Step 2c: Deterministic business intelligence extraction ───────────
+    // Extract what we can from HTML without an LLM call first.
+
+    // Page title and meta description
+    const pageTitle = html.match(/<title[^>]*>([^<]{1,200})<\/title>/i)?.[1]?.trim() ?? '';
+    const metaDescription =
+      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{1,500})["'][^>]*>/i)?.[1]?.trim() ??
+      html.match(/<meta[^>]+content=["']([^"']{1,500})["'][^>]+name=["']description["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const metaKeywords =
+      html.match(/<meta[^>]+name=["']keywords["'][^>]+content=["']([^"']{1,300})["'][^>]*>/i)?.[1]?.trim() ??
+      html.match(/<meta[^>]+content=["']([^"']{1,300})["'][^>]+name=["']keywords["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{1,200})["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const ogDescription = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']{1,500})["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const ogSiteName = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']{1,100})["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const twitterSite = html.match(/<meta[^>]+name=["']twitter:site["'][^>]+content=["']([^"']{1,100})["'][^>]*>/i)?.[1]?.trim() ?? '';
+
+    // Contact intel — deterministic regex extraction
+    const emailMatches = [...new Set([...html.matchAll(/\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g)].map(m => m[0]).filter(e => !e.match(/\.(png|jpg|gif|svg|css|js)$/i)))].slice(0, 5);
+    const phoneMatches = [...new Set([...html.matchAll(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/g)].map(m => m[0].trim()))].slice(0, 5);
+    const addressMatch = html.match(/<address[^>]*>([\s\S]{1,400}?)<\/address>/i)?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+
+    // Social links
+    const socialPatterns: Record<string, RegExp> = {
+      twitter: /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,50})/,
+      linkedin: /https?:\/\/(?:www\.)?linkedin\.com\/(?:company|in)\/([a-zA-Z0-9_\-]{1,80})/,
+      facebook: /https?:\/\/(?:www\.)?facebook\.com\/([a-zA-Z0-9_.]{1,80})/,
+      instagram: /https?:\/\/(?:www\.)?instagram\.com\/([a-zA-Z0-9_.]{1,80})/,
+      youtube: /https?:\/\/(?:www\.)?youtube\.com\/(?:channel\/|@)([a-zA-Z0-9_\-]{1,80})/,
+    };
+    const socialLinks: Record<string, string> = {};
+    for (const [platform, pattern] of Object.entries(socialPatterns)) {
+      const m = html.match(pattern);
+      if (m) socialLinks[platform] = m[0];
+    }
+
+    // Tech stack signals from script srcs, meta generators
+    const techHints: string[] = [];
+    const generatorMeta = html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']([^"']{1,100})["'][^>]*>/i)?.[1]?.trim();
+    if (generatorMeta) techHints.push(generatorMeta);
+    for (const m of html.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+      const src = m[1].toLowerCase();
+      if (src.includes('wp-content') || src.includes('wordpress')) techHints.push('WordPress');
+      else if (src.includes('shopify')) techHints.push('Shopify');
+      else if (src.includes('squarespace')) techHints.push('Squarespace');
+      else if (src.includes('wix')) techHints.push('Wix');
+      else if (src.includes('webflow')) techHints.push('Webflow');
+      else if (src.includes('gtag') || src.includes('google-analytics') || src.includes('analytics.js')) techHints.push('Google Analytics');
+      else if (src.includes('hotjar')) techHints.push('Hotjar');
+      else if (src.includes('intercom')) techHints.push('Intercom');
+      else if (src.includes('hubspot')) techHints.push('HubSpot');
+      else if (src.includes('segment')) techHints.push('Segment');
+    }
+    const uniqueTechHints = [...new Set(techHints)].slice(0, 10);
+
+    // Canonical URL and hreflang (international signals)
+    const canonicalUrl = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["'][^>]*>/i)?.[1]?.trim() ?? '';
+    const hreflangTags = [...html.matchAll(/<link[^>]+rel=["']alternate["'][^>]+hreflang=["']([^"']+)["'][^>]*>/gi)].map(m => m[1]).filter(l => l !== 'x-default').slice(0, 8);
+
+    // Schema.org structured data — extract business type, name, description
+    let schemaOrgName = '';
+    let schemaOrgDescription = '';
+    let schemaOrgType = '';
+    let schemaOrgPriceRange = '';
+    for (const block of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const data = JSON.parse(block[1]) as Record<string, unknown>;
+        const items = Array.isArray(data['@graph']) ? data['@graph'] as Record<string, unknown>[] : [data];
+        for (const item of items) {
+          if (!schemaOrgType && item['@type']) schemaOrgType = String(item['@type']);
+          if (!schemaOrgName && item.name) schemaOrgName = String(item.name).slice(0, 100);
+          if (!schemaOrgDescription && item.description) schemaOrgDescription = String(item.description).slice(0, 400);
+          if (!schemaOrgPriceRange && item.priceRange) schemaOrgPriceRange = String(item.priceRange);
+        }
+      } catch { /* malformed JSON-LD */ }
+    }
+
+    // Extract visible text for LLM — strip tags, scripts, styles, limit size
+    const visibleText = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#\d+;/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .slice(0, 8_000);
+
+    // Build business intel prompt context
+    const biContext = [
+      pageTitle && `PAGE TITLE: ${pageTitle}`,
+      ogTitle && ogTitle !== pageTitle && `OG TITLE: ${ogTitle}`,
+      ogSiteName && `SITE NAME: ${ogSiteName}`,
+      metaDescription && `META DESCRIPTION: ${metaDescription}`,
+      ogDescription && ogDescription !== metaDescription && `OG DESCRIPTION: ${ogDescription}`,
+      metaKeywords && `META KEYWORDS: ${metaKeywords}`,
+      schemaOrgType && `SCHEMA TYPE: ${schemaOrgType}`,
+      schemaOrgName && `SCHEMA NAME: ${schemaOrgName}`,
+      schemaOrgDescription && `SCHEMA DESCRIPTION: ${schemaOrgDescription}`,
+      schemaOrgPriceRange && `PRICE RANGE: ${schemaOrgPriceRange}`,
+      emailMatches.length && `EMAILS FOUND: ${emailMatches.join(', ')}`,
+      phoneMatches.length && `PHONES FOUND: ${phoneMatches.join(', ')}`,
+      addressMatch && `ADDRESS: ${addressMatch}`,
+      Object.keys(socialLinks).length && `SOCIAL: ${Object.entries(socialLinks).map(([k, v]) => `${k}: ${v}`).join(', ')}`,
+      uniqueTechHints.length && `TECH STACK: ${uniqueTechHints.join(', ')}`,
+      canonicalUrl && `CANONICAL: ${canonicalUrl}`,
+      hreflangTags.length && `LANGUAGES: ${hreflangTags.join(', ')}`,
+      `\nPAGE TEXT (first 8000 chars):\n${visibleText}`,
+    ].filter(Boolean).join('\n');
+
+    const businessIntelPrompt = `You are a business analyst extracting structured intelligence from a website.
+Analyze the provided page data and return a JSON object with exactly these 6 categories.
+Respond ONLY with a valid JSON object — no preamble, no markdown backticks.
+
+{
+  "brandIdentity": {
+    "brandName": "company or brand name",
+    "tagline": "official tagline or slogan if present, else null",
+    "missionStatement": "mission or vision statement if present, else null",
+    "brandVoice": "professional | friendly | authoritative | playful | technical | inspirational",
+    "brandPersonality": "2-5 word description of the brand personality"
+  },
+  "businessIdentity": {
+    "industry": "primary industry (e.g. SaaS, E-commerce, Healthcare, Legal, Real Estate)",
+    "businessType": "B2B | B2C | B2B2C | Marketplace | Non-profit | Government",
+    "companyDescription": "1-2 sentence description of what the company does",
+    "productsOrServices": ["list", "of", "key", "offerings"],
+    "pricingModel": "subscription | one-time | freemium | enterprise | custom | not-mentioned"
+  },
+  "digitalAudit": {
+    "seoTitle": "page title used",
+    "metaDescription": "meta description if present, else null",
+    "hasAnalytics": true,
+    "hasChatWidget": true,
+    "techStack": ["detected", "technologies"],
+    "internationalPresence": true,
+    "languages": ["en", "fr"]
+  },
+  "contactIntel": {
+    "emails": ["list of emails found"],
+    "phones": ["list of phones found"],
+    "address": "physical address if found, else null",
+    "socialProfiles": {"twitter": "url", "linkedin": "url"},
+    "hasContactForm": true,
+    "hasLiveChat": true
+  },
+  "contentAnalysis": {
+    "primaryCTA": "main call-to-action text (e.g. Get Started, Book a Demo)",
+    "secondaryCTAs": ["other", "cta", "texts"],
+    "keyMessages": ["3-5 core value propositions or key messages"],
+    "contentTone": "formal | conversational | technical | inspirational | persuasive",
+    "hasTestimonials": true,
+    "hasCaseStudies": true,
+    "hasPricing": true,
+    "hasVideo": true
+  },
+  "competitiveContext": {
+    "uniqueSellingPoints": ["2-4 clear USPs"],
+    "targetAudience": "description of who this is for",
+    "positioning": "how the company positions itself in the market",
+    "competitiveAdvantages": ["stated", "advantages"],
+    "marketCategory": "the specific market category or niche"
+  }
+}
+
+Rules:
+- Use null for fields where information is genuinely not available — do NOT guess
+- "productsOrServices" should list actual named products/services, not generic descriptions
+- "keyMessages" should be extracted from headlines and hero copy, not invented
+- "uniqueSellingPoints" should be based on what the site explicitly claims
+- Keep all string values concise (under 200 chars each)
+
+PAGE DATA:
+${biContext}`;
+
     // ── Step 3: LLM extraction (colors + layout in parallel) ─────────────
     const extractionPrompt = `You are a senior UI designer analyzing a website's design system.
 Below are pre-categorized design tokens extracted from the site's CSS.
@@ -945,9 +1166,10 @@ HTML STRUCTURE SUMMARY:
 ${layoutSummary}`;
 
     try {
-      const [colorRaw, layoutRaw] = await Promise.all([
+      const [colorRaw, layoutRaw, biRaw] = await Promise.all([
         llmGenerateFn(extractionPrompt),
         llmGenerateFn(layoutExtractionPrompt),
+        llmGenerateFn(businessIntelPrompt),
       ]);
 
       // Parse color tokens
@@ -1002,13 +1224,44 @@ ${layoutSummary}`;
         console.warn('[extract-url-design] layout JSON parse failed — continuing without layout');
       }
 
-      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}, sections=${JSON.stringify((layout as Record<string, unknown> | null)?.sections ?? [])}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}`);
+      // Parse business intelligence
+      let businessIntel: Record<string, unknown> | null = null;
+      try {
+        const biJsonStart = biRaw.indexOf('{');
+        const biJsonEnd = biRaw.lastIndexOf('}');
+        if (biJsonStart !== -1 && biJsonEnd > biJsonStart) {
+          businessIntel = JSON.parse(biRaw.slice(biJsonStart, biJsonEnd + 1)) as Record<string, unknown>;
+        }
+        // Overlay deterministic values that are more reliable than LLM extraction
+        if (businessIntel) {
+          const ci = businessIntel.contactIntel as Record<string, unknown> ?? {};
+          if (emailMatches.length) ci.emails = emailMatches;
+          if (phoneMatches.length) ci.phones = phoneMatches;
+          if (addressMatch) ci.address = addressMatch;
+          if (Object.keys(socialLinks).length) ci.socialProfiles = socialLinks;
+          businessIntel.contactIntel = ci;
+
+          const da = businessIntel.digitalAudit as Record<string, unknown> ?? {};
+          da.techStack = uniqueTechHints.length ? uniqueTechHints : (da.techStack ?? []);
+          da.seoTitle = pageTitle || da.seoTitle;
+          da.metaDescription = metaDescription || da.metaDescription || null;
+          da.hasAnalytics = uniqueTechHints.some(t => t.toLowerCase().includes('analytics') || t.toLowerCase().includes('segment') || t.toLowerCase().includes('hotjar'));
+          da.hasChatWidget = uniqueTechHints.some(t => t.toLowerCase().includes('intercom') || t.toLowerCase().includes('hubspot'));
+          if (hreflangTags.length) { da.internationalPresence = true; da.languages = hreflangTags; }
+          businessIntel.digitalAudit = da;
+        }
+      } catch {
+        console.warn('[extract-url-design] business intel JSON parse failed — continuing without it');
+      }
+
+      console.log(`[extract-url-design] success — vibe="${style.vibe}", primary=${colors.primary}, sections=${JSON.stringify((layout as Record<string, unknown> | null)?.sections ?? [])}${heroImageUrl ? `, og:image found` : ''}${logoUrl ? `, logo found` : ''}${businessIntel ? `, businessIntel extracted` : ''}`);
       return reply.code(200).send({
         tokens: parsed,
         heroImageUrl,
         logoUrl,
         images: bodyImages.slice(0, 20),
         layout,
+        businessIntel,
       });
     } catch (err) {
       console.warn('[extract-url-design] parse error:', err instanceof Error ? err.message : String(err));
@@ -1079,6 +1332,7 @@ ${layoutSummary}`;
     // be invisible to the namespace panel. We synthesize a minimal entry from the AST.
     const existingIds = new Set(presentations.map((p) => p.proposalId));
     const astCandidates = [
+      path.join(workdir, 'assets', 'presentations', namespace, 'site-ast-chat.json'),
       path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json'),
       path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
     ];
@@ -1111,46 +1365,80 @@ ${layoutSummary}`;
     const assetsDir = path.join(workdir, 'assets', 'presentations');
     const namespacesDir = path.join(workdir, 'data', 'namespaces');
 
-    const entriesMap = new Map<string, { namespace: string; savedAt: string; ast: unknown }>();
+    const allEntries: { id: string; namespace: string; savedAt: string; ast: unknown; source: string }[] = [];
+    const primaryNamespaces = new Set<string>();
 
-    // Primary path: workdir/assets/presentations/<ns>/site-ast.json  (UI builder writes here)
+    // Primary path: workdir/assets/presentations/<ns>/  (UI builder writes here)
+    // Mode-specific files take precedence; site-ast.json is the legacy/generation-cache fallback.
     let primaryDirs: string[] = [];
     try { primaryDirs = await readdir(assetsDir); } catch { /* directory may not exist yet */ }
     await Promise.all(
       primaryDirs.map(async (ns) => {
+        const modeFiles = [
+          { filename: 'site-ast-pro.json',     idSuffix: '::pro' },
+          { filename: 'site-ast-classic.json', idSuffix: '::classic' },
+        ] as const;
+        let hasModeSpecific = false;
+        for (const { filename, idSuffix } of modeFiles) {
+          try {
+            const astPath = path.join(assetsDir, ns, filename);
+            const raw = await readFile(astPath, 'utf-8');
+            const ast = JSON.parse(raw);
+            const fileStat = await stat(astPath);
+            primaryNamespaces.add(ns);
+            allEntries.push({ id: `${ns}${idSuffix}`, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
+            hasModeSpecific = true;
+          } catch { /* file doesn't exist for this mode — skip */ }
+        }
+        // Legacy fallback: include site-ast.json only when no mode-specific files exist
+        if (!hasModeSpecific) {
+          try {
+            const astPath = path.join(assetsDir, ns, 'site-ast.json');
+            const raw = await readFile(astPath, 'utf-8');
+            const ast = JSON.parse(raw);
+            const fileStat = await stat(astPath);
+            primaryNamespaces.add(ns);
+            allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'primary' });
+          } catch { /* skip */ }
+        }
+        // Always surface chat-mode file when present (written by handleGenerateMicrosite)
         try {
-          const astPath = path.join(assetsDir, ns, 'site-ast.json');
-          const raw = await readFile(astPath, 'utf-8');
+          const chatAstPath = path.join(assetsDir, ns, 'site-ast-chat.json');
+          const raw = await readFile(chatAstPath, 'utf-8');
           const ast = JSON.parse(raw);
-          const fileStat = await stat(astPath);
-          entriesMap.set(ns, { namespace: ns, savedAt: fileStat.mtime.toISOString(), ast });
-        } catch { /* skip */ }
+          const fileStat = await stat(chatAstPath);
+          primaryNamespaces.add(ns);
+          allEntries.push({ id: `${ns}::chat`, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
+        } catch { /* no chat AST — skip */ }
       }),
     );
 
     // Fallback path: workdir/data/namespaces/<ns>/assets/presentations/<ns>/site-ast.json
     // (save-asset tool writes here; chat-generated microsites land here)
+    // Skip if the namespace already has mode-specific primary files (site-ast-pro.json or
+    // site-ast-classic.json) — the agent's save-asset writes here as a side-effect of UI
+    // generation, producing a phantom entry with no generationMode that shows as a spurious card.
     let fallbackDirs: string[] = [];
     try { fallbackDirs = await readdir(namespacesDir); } catch { /* directory may not exist */ }
     await Promise.all(
       fallbackDirs.map(async (ns) => {
-        if (entriesMap.has(ns)) return; // primary path already has this namespace
+        // Suppress chat entry when mode-specific primary files already cover this namespace.
+        if (primaryNamespaces.has(ns)) return;
         try {
           const astPath = path.join(namespacesDir, ns, 'assets', 'presentations', ns, 'site-ast.json');
           const raw = await readFile(astPath, 'utf-8');
           const ast = JSON.parse(raw);
           const fileStat = await stat(astPath);
-          entriesMap.set(ns, { namespace: ns, savedAt: fileStat.mtime.toISOString(), ast });
+          allEntries.push({ id: ns, namespace: ns, savedAt: fileStat.mtime.toISOString(), ast, source: 'chat' });
         } catch { /* namespace has no saved AST — skip */ }
       }),
     );
 
-    if (entriesMap.size === 0) return reply.send({ entries: [] });
+    if (allEntries.length === 0) return reply.send({ entries: [] });
 
-    const entries = [...entriesMap.values()];
     // Sort newest first
-    entries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
-    return reply.send({ entries });
+    allEntries.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+    return reply.send({ entries: allEntries });
   });
 
   // POST /presentations/history/save — save an AST entry for a namespace
@@ -1160,20 +1448,39 @@ ${layoutSummary}`;
       return reply.code(400).send({ error: 'Missing required fields: namespace, ast' });
     }
     const { namespace, ast } = body;
+    const astObj = ast as Record<string, unknown>;
+    const mode = typeof astObj?.generationMode === 'string' ? astObj.generationMode : null;
+    const filename = mode === 'pro' ? 'site-ast-pro.json'
+                   : mode === 'classic' ? 'site-ast-classic.json'
+                   : 'site-ast.json';
     const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
     await mkdir(nsDir, { recursive: true });
-    await writeFile(path.join(nsDir, 'site-ast.json'), JSON.stringify(ast, null, 2), 'utf-8');
+    await writeFile(path.join(nsDir, filename), JSON.stringify(ast, null, 2), 'utf-8');
     return reply.send({ ok: true });
   });
 
-  // DELETE /presentations/history/:namespace — remove a namespace's saved AST
+  // DELETE /presentations/history/:namespace — remove a saved AST.
+  // ?mode=pro|classic|chat deletes only that mode's file; omit to delete all.
   app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string };
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    try {
-      await rm(astPath);
-    } catch {
-      // File didn't exist — still return ok
+    const { mode } = req.query as { mode?: string };
+    const base = path.join(workdir, 'assets', 'presentations', namespace);
+    const chatPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
+    if (mode === 'pro') {
+      await rm(path.join(base, 'site-ast-pro.json')).catch(() => {});
+    } else if (mode === 'classic') {
+      await rm(path.join(base, 'site-ast-classic.json')).catch(() => {});
+    } else if (mode === 'chat') {
+      await rm(path.join(base, 'site-ast-chat.json')).catch(() => {});
+      await rm(chatPath).catch(() => {});
+    } else {
+      await Promise.all([
+        rm(path.join(base, 'site-ast-chat.json')).catch(() => {}),
+        rm(path.join(base, 'site-ast.json')).catch(() => {}),
+        rm(path.join(base, 'site-ast-pro.json')).catch(() => {}),
+        rm(path.join(base, 'site-ast-classic.json')).catch(() => {}),
+        rm(chatPath).catch(() => {}),
+      ]);
     }
     return reply.send({ ok: true });
   });
@@ -1324,13 +1631,14 @@ ${layoutSummary}`;
 
     // Build Brief-aware instructions for this namespace
     let briefPrefix = '';
+    let clientIndustry = 'general';
     try {
       const ctxSvc = new ContextService(workdir);
       const ctx = await ctxSvc.get(namespace);
       const fields = ctx?.requirements?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
       const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       briefPrefix = [
         buildBriefFramingRule(projectType, clientName, clientIndustry),
         '',
@@ -1345,6 +1653,7 @@ ${layoutSummary}`;
       ? `${briefPrefix}${body.customInstructions}`
       : briefPrefix || undefined;
 
+    const _generationStart = Date.now();
     try {
       const result = await runner.run('microsite-generator-agent', {
         namespace,
@@ -1364,6 +1673,7 @@ ${layoutSummary}`;
       if (ast?.sections) {
         const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
         const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+        const hasPexels = !!(env.PEXELS_API_KEY?.trim());
         const accentColor = ast.brand?.primaryColor;
 
         await Promise.all(
@@ -1371,7 +1681,7 @@ ${layoutSummary}`;
             const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
             if (!query?.trim()) return;
 
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
+            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle, hasPexels);
             if (chosenSource === 'gradient') {
               sec.image.url = null;
               sec.image.source = 'gradient';
@@ -1381,7 +1691,10 @@ ${layoutSummary}`;
             sec.image.source = chosenSource;
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
 
-            if (chosenSource === 'dalle') {
+            if (chosenSource === 'pexels') {
+              const remoteUrl = await fetchPexelsImageUrl(query);
+              if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+            } else if (chosenSource === 'dalle') {
               const prompt = buildDallePrompt(sec.sectionType, query, accentColor);
               const result = await generateGptImage1(prompt);
               if (result) {
@@ -1392,7 +1705,8 @@ ${layoutSummary}`;
                 if (saved) sec.image.url = `/presentation-images/${namespace}/${filename}`;
               } else {
                 // fallback to DALL-E 3 if gpt-image-1 fails
-                const remoteUrl = await generateDalle3Image(prompt);
+                const dallePrompt = buildDallePrompt(sec.sectionType, query, accentColor);
+                const remoteUrl = await generateDalle3Image(dallePrompt);
                 if (remoteUrl) sec.image.url = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
               }
             } else if (chosenSource === 'picsum') {
@@ -1407,6 +1721,14 @@ ${layoutSummary}`;
         const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
         await mkdir(path.dirname(astPath), { recursive: true });
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const _sectionTypes = ast.sections.map((s: AstSection) => s.sectionType);
+        console.log(
+          `[microsite-gen] Complete — namespace=${namespace}` +
+          ` sections=${_sectionTypes.length} (${_sectionTypes.join(', ')})` +
+          ` industry="${clientIndustry}"` +
+          ` hasWhyUs=${_sectionTypes.includes('whyus')} hasTimeline=${_sectionTypes.includes('timeline')}` +
+          ` hasPricing=${_sectionTypes.includes('pricing')} elapsed=${Date.now() - _generationStart}ms`,
+        );
       }
 
       return reply.send({ ast: result.json ?? null, assets: result.assets ?? [] });
@@ -1416,10 +1738,43 @@ ${layoutSummary}`;
     }
   });
 
-  // POST /presentations/:namespace/:proposalId/generate-stream
-  // Like /generate but streams progress via SSE. Each section completes → SSE event.
-  // Events: plan | section | images | complete | error
-  app.post('/presentations/:namespace/:proposalId/generate-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+  /** Build a clean Pexels photo search query from section content — avoids DALL-E cinematic prompts. */
+  function buildPexelsQueryFromSection(sectionType: string, content: Record<string, unknown>): string {
+    const STOP = new Set(['a','an','the','and','or','of','in','at','to','for','with','by','from','into','on','our','your','this','that','is','are','be','its','how','why','what','all','any']);
+    const clean = (s: string) => s.replace(/[^a-zA-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !STOP.has(w.toLowerCase()));
+    const eyebrow = clean((content.eyebrow as string | undefined) ?? '').slice(0, 3);
+    const headline = clean((content.headline as string | undefined) ?? '').slice(0, 4);
+    const words = eyebrow.length >= 2 ? eyebrow : headline.slice(0, 3);
+    const TYPE_DEFAULTS: Record<string, string> = {
+      hero: 'vibrant outdoor adventure park',
+      overview: 'business team meeting professional',
+      challenge: 'problem solving strategy whiteboard',
+      approach: 'strategy planning professional team',
+      deliverables: 'project delivery checklist professional',
+      timeline: 'project planning calendar schedule',
+      pricing: 'business investment finance planning',
+      whyus: 'professional team expertise collaboration',
+      nextsteps: 'business handshake partnership agreement',
+      generic: 'professional office workspace modern',
+      testimonials: 'happy client satisfaction review',
+      showcase: 'portfolio creative work professional',
+      benefits: 'business growth success achievement',
+      casestudy: 'case study success analysis',
+      team: 'professional team collaboration office',
+      comparison: 'comparison analysis chart data',
+      security: 'cybersecurity protection digital',
+      techstack: 'technology software development code',
+      testing: 'quality testing professional lab',
+      faq: 'customer support questions answers',
+      stats: 'data analytics statistics dashboard',
+      metrics: 'performance analytics kpi dashboard',
+    };
+    return words.length >= 2 ? words.join(' ') : (TYPE_DEFAULTS[sectionType] ?? 'professional business office');
+  }
+
+  // POST /presentations/:namespace/:proposalId/generate-stream (alias: generate-classic-stream)
+  // Multi-pass AST pipeline — streams SSE events: plan | section | images | complete | error
+  const _classicStreamHandler = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
@@ -1465,7 +1820,7 @@ ${layoutSummary}`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         send({ type: 'error', message });
-        return reply.raw.end();
+        reply.raw.end(); return;
       }
     }
 
@@ -1473,12 +1828,13 @@ ${layoutSummary}`;
     let runner;
     try { runner = await buildRunner(workdir); } catch (err) {
       send({ type: 'error', message: `Runner init failed: ${err instanceof Error ? err.message : String(err)}` });
-      return reply.raw.end();
+      reply.raw.end(); return;
     }
 
     // Pre-compute image config so parallel fetches can start during section generation
     const hasUnsplash = !!(env.UNSPLASH_ACCESS_KEY?.trim());
     const hasDalle = !!(env.OPENAI_API_KEY?.trim());
+    const hasPexels = !!(env.PEXELS_API_KEY?.trim());
     const accentColor = (body?.brand?.primaryColor as string | undefined) ?? undefined;
     const urlHeroImageUrl = (body?.urlReferenceDesign as { heroImageUrl?: string | null } | undefined)?.heroImageUrl ?? null;
 
@@ -1492,17 +1848,23 @@ ${layoutSummary}`;
     const PDF_ITEM_FIELDS = ['pillars','items','stats','features','benefits','steps','phases','technologies','layers','metrics','comparisons','deliverables','questions','rows','testimonials'];
     const PDF_MAX_PER_SLIDE = 4;
 
-    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry
+    // Build Brief-aware instructions — reads context.json for projectType/clientName/industry.
+    // clientIndustry and clientName are hoisted so they can flow into design-skill and hero metadata.
     let streamBriefPrefix = '';
+    let streamClientIndustry = 'general';
+    let streamClientName = '—';
+    let streamCtx: Record<string, unknown> | null = null;
     try {
       const ctxSvc = new ContextService(workdir);
-      const ctx = await ctxSvc.get(namespace);
-      const fields = ctx?.requirements?.fields ?? {};
+      streamCtx = await ctxSvc.get(namespace) as unknown as Record<string, unknown> | null;
+      const ctx = streamCtx;
+      type SF = Record<string, { value?: unknown }>;
+      const fields: SF = ((ctx as Record<string, unknown>)?.requirements as Record<string, SF> | undefined)?.fields ?? {};
       const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
-      const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-      const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
+      streamClientName = (fields.clientName?.value as string | undefined) ?? '—';
+      streamClientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
       streamBriefPrefix = [
-        buildBriefFramingRule(projectType, clientName, clientIndustry),
+        buildBriefFramingRule(projectType, streamClientName, streamClientIndustry),
         '',
         buildSectionTypeGuidance(projectType),
         '',
@@ -1511,21 +1873,81 @@ ${layoutSummary}`;
       ].join('\n');
     } catch { /* non-fatal */ }
 
+    // Metadata for the hero section's bottom metadata strip.
+    // preparedBy extracted from the proposal markdown (most reliable source for agency name).
+    const heroProposalMeta = {
+      clientName:  streamClientName,
+      preparedBy:  extractPreparedBy(streamCtx ?? null, markdown) || (body?.brand?.companyName as string | undefined) || '—',
+      date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      version:     (() => {
+        const m = (proposalId as string).match(/[_\-v]v?(\d+)$/i);
+        return m ? `v${m[1]}` : 'v1';
+      })(),
+    };
+
     const streamEffectiveInstructions = body?.customInstructions
       ? `${streamBriefPrefix}${body.customInstructions}`
       : streamBriefPrefix || undefined;
+
+    const _generationStart = Date.now();
+
+    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs.
+    const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
+      'microsite-generator-agent',
+      {
+        proposalMarkdown: markdown,
+        plugin: body?.plugin ?? 'cobalt',
+        brand: body?.brand ?? {},
+        clientIndustry: streamClientIndustry,
+        ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
+        ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
+      },
+    );
+
+    // Dedicated generate function for HTML section rendering — bypasses the global
+    // LLM bridge pool so chat/proposals are unaffected. Uses Sonnet for richer layouts.
+    const _htmlApiKey  = env.ANTHROPIC_API_KEY ?? '';
+    const _htmlModel   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    const htmlGenerateFn = async (prompt: string): Promise<string> => {
+      const MAX_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': _htmlApiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: _htmlModel, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
+          await new Promise(res => setTimeout(res, retryAfter * 1000 * (attempt + 1)));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic HTML API error: ${r.status}`);
+        const j = await r.json() as { content?: { text?: string }[] };
+        return j.content?.[0]?.text ?? '';
+      }
+      throw new Error('Anthropic HTML API: max retries exceeded');
+    };
+
+    // Start CSS token generation in parallel with the agent for zero wait.
+    const cssThemePromise: Promise<CSSTheme | null> = generateThemeCSSTokens(
+          designTone as string,
+          body?.brand?.primaryColor as string | undefined,
+          llmGenerateFn,
+          streamClientIndustry,
+        ).catch(() => null);
+
+    // Track per-section HTML generated during streaming so we can inject it into the final AST
+    const streamedHtmlMap = new Map<string, string>(); // sectionId → customHtml
+    let htmlLayoutIdx = 0; // cycles A-F layouts across sections
 
     try {
       send({ type: 'start', message: 'Pipeline started' });
 
       const result = await runner.run('microsite-generator-agent', {
         namespace,
-        ...(streamEffectiveInstructions ? { prompt: streamEffectiveInstructions } : {}),
+        ...(skillMetadata.customInstructions ? { prompt: skillMetadata.customInstructions as string } : {}),
         metadata: {
-          proposalMarkdown: markdown,
-          plugin: body?.plugin ?? 'cobalt',
-          brand: body?.brand ?? {},
-          ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
+          ...skillMetadata,
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
           ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
@@ -1552,7 +1974,7 @@ ${layoutSummary}`;
                   // Trim the primary section to first N items
                   content[field] = items.slice(0, PDF_MAX_PER_SLIDE);
                   const pdfSectionType = section.sectionType as string | undefined;
-                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle) : 'gradient';
+                  const pdfChosenSource = pdfSectionType ? resolveImageSource(pdfSectionType, hasUnsplash, hasDalle, hasPexels) : 'gradient';
                   const pdfImageForClient = pdfChosenSource === 'gradient'
                     ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
                     : section.image;
@@ -1590,13 +2012,44 @@ ${layoutSummary}`;
 
             // ── Normal (no split needed) ──────────────────────────────────────────────
             const sectionType = section.sectionType as string | undefined;
-            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle) : 'gradient';
+            const chosenSource = sectionType ? resolveImageSource(sectionType, hasUnsplash, hasDalle, hasPexels) : 'gradient';
             // Strip agent's loremflickr URL for gradient sections — prevents flicker in client.
             // Agent doesn't include image.url in callback data anyway, but guard for safety.
             const imageForClient = chosenSource === 'gradient'
               ? { ...(section.image as object ?? {}), url: null, source: 'gradient' }
               : section.image;
             send({ type: 'section', ...section, image: imageForClient, content, index: adjustedIdx });
+
+            // Fire HTML generation immediately after streaming section data — no blocking
+            const capturedSection = {
+              ...section,
+              content: { ...content },
+              image: imageForClient,
+              // Attach proposal metadata for the hero bottom strip — ignored by all other section types
+              ...(sectionType === 'hero' ? { _meta: heroProposalMeta } : {}),
+            };
+            const capturedLayoutIdx = htmlLayoutIdx++;
+            const capturedSectionType = sectionType ?? '';
+            void (async () => {
+              try {
+                if (!CUSTOM_HTML_SECTION_TYPES.has(capturedSectionType)) return;
+                const cssTheme = await cssThemePromise;
+                if (!cssTheme) { console.log('[routes] hero HTML skipped — cssTheme is null'); return; }
+                const html = await generateSectionHtml(
+                  capturedSection as Record<string, unknown>,
+                  designTone as unknown as Tone,
+                  cssTheme.cssVars,
+                  null,
+                  htmlGenerateFn,
+                  capturedLayoutIdx,
+                );
+                const secId = (capturedSection as Record<string, unknown>).id as string | undefined;
+                if (secId) {
+                  streamedHtmlMap.set(secId, html);
+                  send({ type: 'section_html', id: secId, customHtml: html });
+                }
+              } catch { /* non-fatal — injectThemeCSS fallback will cover this section */ }
+            })();
           },
         },
       });
@@ -1605,19 +2058,15 @@ ${layoutSummary}`;
       const ast = result.json as { sections?: AstSection[]; brand?: { primaryColor?: string } } | null | undefined;
       const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
 
-      // Download images for hero/showcase from the agent's already-generated URLs, then persist locally.
-      // All other sections use gradient (no image fetch). Running in parallel for hero + showcase.
+      // Resolve and persist images for ALL sections using content-based Pexels queries.
+      // Deduplication prevents the same photo appearing on multiple sections.
       if (ast?.sections) {
+        const usedImageHashes = new Set<string>(); // SHA-1 of file bytes — prevents identical images
+        const usedPexelsUrls = new Set<string>();  // prevents same URL assigned to two sections
+
         await Promise.all(
           ast.sections.map(async (sec) => {
             const secId = (sec as unknown as { id?: string }).id ?? sec.sectionType;
-            const chosenSource = resolveImageSource(sec.sectionType, hasUnsplash, hasDalle);
-
-            if (chosenSource === 'gradient') {
-              sec.image.url = null;
-              sec.image.source = 'gradient';
-              return;
-            }
 
             if (sec.sectionType === 'hero' && urlHeroImageUrl) {
               try {
@@ -1625,35 +2074,45 @@ ${layoutSummary}`;
                 sec.image.url = localUrl;
                 sec.image.source = 'custom';
                 return;
-              } catch {
-                // fall through to DALL-E / Unsplash fallback
-              }
+              } catch { /* fall through */ }
             }
 
-            // hero/showcase: download the agent's URL locally (agent already called DALL-E)
-            const agentUrl = sec.image?.url;
-            let remoteUrl: string | null = (agentUrl && agentUrl.startsWith('http')) ? agentUrl : null;
+            // Build a clean content-based query — never use DALL-E cinematic prompts for photo search
+            const pexelsQuery = buildPexelsQueryFromSection(sec.sectionType, sec.content);
+            let remoteUrl: string | null = null;
 
-            // Fallback: if agent didn't provide a URL, fetch from the configured source
-            if (!remoteUrl) {
-              const query = (sec.content.imageQuery as string | undefined) || sec.image.query;
-              if (!query?.trim()) return;
-              if (chosenSource === 'dalle') {
-                const prompt = buildDallePrompt(sec.sectionType, query, ast.brand?.primaryColor ?? accentColor);
-                remoteUrl = await generateDalle3Image(prompt);
-              } else if (chosenSource === 'picsum') {
-                remoteUrl = buildPicsumUrl(query);
-              } else {
-                remoteUrl = await fetchUnsplashImageUrl(query);
+            if (hasPexels) {
+              // Try full query, then progressively shorter to get a unique result
+              const words = pexelsQuery.split(/\s+/);
+              const candidates = [pexelsQuery, words.slice(0, 2).join(' ')].filter((q, i, a) => q && a.indexOf(q) === i);
+              for (const q of candidates) {
+                const url = await fetchPexelsImageUrl(q);
+                if (url && !usedPexelsUrls.has(url)) { remoteUrl = url; usedPexelsUrls.add(url); break; }
               }
             }
-
+            if (!remoteUrl) remoteUrl = await fetchLoremflickrUrl(pexelsQuery);
+            if (!remoteUrl) remoteUrl = await fetchUnsplashImageUrl(pexelsQuery);
+            if (!remoteUrl) remoteUrl = buildPicsumUrl(pexelsQuery);
             if (!remoteUrl) return;
+
             try {
               const localUrl = await saveImagePersistently(remoteUrl, namespace, secId, workdir);
+              // Dedup by file content hash — reject identical bytes (cat image has fixed 248658 bytes)
+              const imgRes = await fetch(localUrl.startsWith('/') ? `http://localhost:${process.env.PORT ?? 3001}${localUrl}` : remoteUrl, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+              if (imgRes?.ok) {
+                const buf = Buffer.from(await imgRes.arrayBuffer());
+                const contentHash = require('node:crypto').createHash('sha1').update(buf).digest('hex').slice(0, 12);
+                if (usedImageHashes.has(contentHash)) {
+                  // Identical bytes already used — fall back to loremflickr with unique seed
+                  const fallbackUrl = await fetchLoremflickrUrl(`${sec.sectionType} ${pexelsQuery} ${secId}`);
+                  if (fallbackUrl) { sec.image.url = fallbackUrl; sec.image.source = 'loremflickr'; }
+                  return;
+                }
+                usedImageHashes.add(contentHash);
+              }
               sec.image.url = localUrl;
-              sec.image.source = chosenSource;
-            } catch { /* keep original remote URL on download failure */ }
+              sec.image.source = hasPexels ? 'pexels' : 'unsplash';
+            } catch { sec.image.url = remoteUrl; }
           }),
         );
       }
@@ -1677,11 +2136,551 @@ ${layoutSummary}`;
         } catch { /* keep remote URL */ }
       }
 
+      // Inject HTML that was streamed per-section during generation into the final AST
+      if (ast?.sections && streamedHtmlMap.size > 0) {
+        for (const sec of ast.sections) {
+          const secId = (sec as unknown as { id?: string }).id;
+          if (secId) {
+            const html = streamedHtmlMap.get(secId);
+            if (html) (sec as unknown as { customHtml?: string }).customHtml = html;
+          }
+        }
+      }
+
+      // Attach _meta to the hero AST section so Phase 3 fallback (injectThemeCSS) can render
+      // the metadata strip even if streaming HTML generation failed for the hero.
+      if (ast?.sections) {
+        const heroAstSec = ast.sections.find(s => (s as unknown as { sectionType?: string }).sectionType === 'hero');
+        if (heroAstSec && !(heroAstSec as unknown as { customHtml?: string }).customHtml) {
+          (heroAstSec as unknown as Record<string, unknown>)._meta = heroProposalMeta;
+        }
+      }
+
+      // Design skill Phase 2+3 — inject LLM-generated CSS theme.
+      const cachedTheme = await cssThemePromise;
+      if (ast) {
+        await injectThemeCSS(
+          ast as unknown as Record<string, unknown>,
+          designTone,
+          (body?.brand?.primaryColor as string | undefined),
+          llmGenerateFn,
+          [],
+          cachedTheme ?? undefined,
+          streamClientIndustry,
+        );
+      }
+
       // complete event carries local image URLs — no further reconciliation needed
       send({ type: 'complete', ast });
       if (ast?.sections) {
         await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+        const _sectionTypes = (ast.sections as Array<{ sectionType: string }>).map(s => s.sectionType);
+        console.log(
+          `[microsite-gen] Complete — namespace=${namespace}` +
+          ` sections=${_sectionTypes.length} (${_sectionTypes.join(', ')})` +
+          ` tone="${designTone}" industry="${streamClientIndustry}"` +
+          ` hasWhyUs=${_sectionTypes.includes('whyus')} hasTimeline=${_sectionTypes.includes('timeline')}` +
+          ` hasPricing=${_sectionTypes.includes('pricing')} elapsed=${Date.now() - _generationStart}ms`,
+        );
       }
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      reply.raw.end();
+    }
+  };
+  app.post('/presentations/:namespace/:proposalId/generate-stream', _classicStreamHandler);
+
+  // ── Direct single-pass generation routes ──────────────────────────────────
+  // These bypass the multi-step agent pipeline entirely. One LLM call reads
+  // the full proposal and writes complete HTML directly — no AST, no themes.
+
+  // POST /presentations/:namespace/:proposalId/generate-direct
+  // Non-streaming direct generation. Returns { html, elapsed }.
+  app.post('/presentations/:namespace/:proposalId/generate-direct', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown>; designSkillSlug?: string } | undefined;
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Load proposal markdown — from body first, then disk
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        const mdPath = resolveProposalMdPath(workdir, pres.fileName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through to direct fallback */ }
+    }
+    // Fallback: treat proposalId as the fileName directly (handles namespace::file format)
+    if (!markdown) {
+      try {
+        const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+        const mdPath = resolveProposalMdPath(workdir, fallbackName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through */ }
+    }
+    if (!markdown) return reply.code(400).send({ error: 'proposalMarkdown is required' });
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY is not configured' });
+
+    // Read context.json for brand info
+    let brandConfig: { companyName: string; primaryColor?: string; industry?: string; clientName?: string } = { companyName: '' };
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      brandConfig = {
+        companyName: (fields.clientName?.value as string | undefined) ?? '',
+        clientName:  (fields.clientName?.value as string | undefined) ?? '',
+        industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+        primaryColor: undefined,
+      };
+    } catch { /* non-fatal */ }
+
+    // Apply any brandConfig overrides from request body
+    if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
+
+    // Resolve design skill → aesthetic override string for the HTML generator
+    let designStyleOverride: string | undefined;
+    if (body?.designSkillSlug) {
+      try {
+        const skill = await getDesignSkill(workdir, body.designSkillSlug);
+        const built = buildDesignPromptFromSkill(skill);
+        designStyleOverride = built.prompt;
+        if (skill.colorPalette.primary && !brandConfig.primaryColor) {
+          brandConfig = { ...brandConfig, primaryColor: skill.colorPalette.primary };
+        }
+      } catch { /* skill not found — fall through to auto-selection */ }
+    }
+
+    try {
+      const { html, elapsed } = await generateMicrositeDirectly({ proposalMarkdown: markdown, brandConfig, designStyleOverride }, apiKey, model);
+      const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+      await mkdir(path.dirname(htmlPath), { recursive: true });
+      await writeFile(htmlPath, html, 'utf-8');
+      console.log(`[direct-gen] Complete — namespace=${namespace} elapsed=${elapsed}ms size=${html.length}`);
+      return reply.send({ html, elapsed });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: `Direct generation failed: ${message}` });
+    }
+  });
+
+  // POST /presentations/:namespace/:proposalId/generate-direct-stream
+  // Streaming direct generation via SSE.
+  // Events: { type: 'start' } | { type: 'html_chunk', chunk } | { type: 'complete', elapsed, size } | { type: 'error', message }
+  app.post('/presentations/:namespace/:proposalId/generate-direct-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string; brandConfig?: Record<string, unknown> } | undefined;
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    // Setup SSE
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (data: Record<string, unknown>) => {
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Load markdown — from body first, then disk
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        const mdPath = resolveProposalMdPath(workdir, pres.fileName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through to direct fallback */ }
+    }
+    // Fallback: treat proposalId as the fileName directly (handles namespace::file format)
+    if (!markdown) {
+      try {
+        const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+        const mdPath = resolveProposalMdPath(workdir, fallbackName, namespace);
+        markdown = await readFile(mdPath, 'utf-8');
+      } catch { /* fall through */ }
+    }
+    if (!markdown || !apiKey) {
+      send({ type: 'error', message: !markdown ? 'proposalMarkdown is required' : 'ANTHROPIC_API_KEY is not configured' });
+      reply.raw.end();
+      return;
+    }
+
+    // Read context.json for brand info
+    let brandConfig: { companyName: string; primaryColor?: string; industry?: string; clientName?: string } = { companyName: '' };
+    try {
+      const ctxSvc = new ContextService(workdir);
+      const ctx = await ctxSvc.get(namespace);
+      const fields = ctx?.requirements?.fields ?? {};
+      brandConfig = {
+        companyName: (fields.clientName?.value as string | undefined) ?? '',
+        clientName:  (fields.clientName?.value as string | undefined) ?? '',
+        industry:    (fields.clientIndustry?.value as string | undefined) ?? '',
+        primaryColor: undefined,
+      };
+    } catch { /* non-fatal */ }
+    if (body?.brandConfig) Object.assign(brandConfig, body.brandConfig);
+
+    try {
+      send({ type: 'start' });
+      let accumulated = '';
+
+      await generateMicrositeStreamDirect(
+        { proposalMarkdown: markdown, brandConfig },
+        (chunk) => {
+          accumulated += chunk;
+          send({ type: 'html_chunk', chunk });
+        },
+        async ({ elapsed }) => {
+          const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+          await mkdir(path.dirname(htmlPath), { recursive: true });
+          await writeFile(htmlPath, accumulated, 'utf-8');
+          console.log(`[direct-gen] Stream complete — namespace=${namespace} elapsed=${elapsed}ms size=${accumulated.length}`);
+          send({ type: 'complete', elapsed, size: accumulated.length });
+          reply.raw.end();
+        },
+        apiKey,
+        model,
+      );
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+      reply.raw.end();
+    }
+  });
+
+  // GET /presentations/:namespace/:proposalId/site-html
+  // Serve the directly-generated HTML file (text/html).
+  app.get('/presentations/:namespace/:proposalId/site-html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
+    try {
+      const html = await readFile(htmlPath, 'utf-8');
+      return reply.type('text/html').send(html);
+    } catch {
+      return reply.code(404).send({ error: 'No direct HTML generated yet for this namespace' });
+    }
+  });
+
+  // ── Structured single-pass generation ────────────────────────────────────────
+  // POST /presentations/:namespace/:proposalId/generate-structured-stream
+  // One LLM call → complete AST (all sections with content fields, no customHtml).
+  // Streams the same SSE event types as /generate-stream so PresentationPage works
+  // without modification. Sections render via existing typed React components and
+  // are fully editable in the editor.
+  app.post('/presentations/:namespace/:proposalId/generate-structured-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body    = req.body as { proposalMarkdown?: string; brand?: Record<string, unknown>; plugin?: string; customInstructions?: string; fullDesignPrompt?: string; urlReferenceDesign?: { colors: { primary: string; secondary: string; accent?: string; background: string; surface: string; text: string; textMuted: string }; typography: { headingFont: string; bodyFont: string; headingWeight: string; bodyWeight: string; headingStyle?: string; mood?: string }; style: { borderRadius: string; spacing: string; vibe: string }; heroImageUrl?: string | null } | null; urlLayout?: Record<string, unknown> | null } | undefined;
+    const apiKey  = env.ANTHROPIC_API_KEY ?? '';
+    const model   = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    const htmlModel = model; // Sonnet for HTML — richer, more varied layouts
+    // Custom design prompt from the user — drives tone selection and design override.
+    // fullDesignPrompt takes priority over customInstructions (same hierarchy as /generate-stream).
+    const customDesignPrompt = (body?.fullDesignPrompt ?? body?.customInstructions ?? '').trim();
+
+    // Detect "full site spec" prompts — user provided a complete HTML/site specification
+    // (with section definitions, color tokens, font specs, etc.) instead of a proposal file.
+    // These need different handling:
+    //   1. The spec itself becomes the proposal input (content comes from the spec, not disk)
+    //   2. designOverride is trimmed to style-relevant lines only (stops the LLM from trying
+    //      to generate a complete HTML file for each individual section)
+    const isFullSiteSpec = customDesignPrompt.length > 500 && (
+      /html\s+file|single.page|all\s+css\s+inline|GLOBAL\s+RULES|inline\s+css/i.test(customDesignPrompt) ||
+      /\d+\.\s+[A-Z]{3,}/.test(customDesignPrompt)  // numbered section definitions like "1. HERO"
+    );
+
+    // For a full spec: extract only the style-relevant portion (up to the SECTIONS block)
+    // to use as designOverride — prevents per-section generators seeing "single HTML file" instruction.
+    const styleTokensOnly = isFullSiteSpec
+      ? (() => {
+          const cutoff = customDesignPrompt.search(/SECTIONS?\s*[\(:]/i);
+          const raw = cutoff > 0 ? customDesignPrompt.slice(0, cutoff) : customDesignPrompt.slice(0, 500);
+          return raw.trim();
+        })()
+      : customDesignPrompt;
+
+    // For a full spec: also try to extract the primary color so CSS generation matches the spec.
+    const specPrimaryColor = isFullSiteSpec
+      ? (customDesignPrompt.match(/[Pp]rimary[^#\n]*#([0-9a-fA-F]{3,6})/)?.[1]
+          ? '#' + customDesignPrompt.match(/[Pp]rimary[^#\n]*#([0-9a-fA-F]{3,6})/)![1]
+          : undefined)
+      : undefined;
+
+    // URL brand tokens — extracted from the client's website via the site-intel panel.
+    // When present, these drive tone selection, CSS generation, and per-section HTML so the
+    // microsite matches the client's real visual identity exactly.
+    const urlRefDesign = body?.urlReferenceDesign ?? null;
+
+    // Build a design directive from URL tokens to guide the CSS and HTML LLM calls.
+    const urlDesignHint = urlRefDesign ? [
+      'BRAND TOKEN OVERRIDE — use EXACTLY these values, do not invent alternatives:',
+      `  Palette: bg=${urlRefDesign.colors.background}, surface=${urlRefDesign.colors.surface}, primary=${urlRefDesign.colors.primary}, secondary=${urlRefDesign.colors.secondary}, text=${urlRefDesign.colors.text}, muted=${urlRefDesign.colors.textMuted}`,
+      `  Typography: headings="${urlRefDesign.typography.headingFont}" weight ${urlRefDesign.typography.headingWeight}, body="${urlRefDesign.typography.bodyFont}" weight ${urlRefDesign.typography.bodyWeight}`,
+      `  Style: border-radius=${urlRefDesign.style.borderRadius}, spacing=${urlRefDesign.style.spacing}`,
+      `  Visual identity: ${urlRefDesign.style.vibe}`,
+    ].join('\n') : null;
+
+    // Combine user custom prompt (higher priority) with URL brand tokens (additional context).
+    const effectiveDesignOverride = [styleTokensOnly || null, urlDesignHint].filter(Boolean).join('\n\n') || undefined;
+
+    // Setup SSE
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (data: Record<string, unknown>) => reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+
+    try {
+      // Load markdown — body first, then disk (with fallback)
+      let markdown = body?.proposalMarkdown ?? '';
+      if (!markdown) {
+        try {
+          const pres = await getPresentation(workdir, namespace, proposalId);
+          markdown = await readFile(resolveProposalMdPath(workdir, pres.fileName, namespace), 'utf-8');
+        } catch { /* fall through */ }
+      }
+      if (!markdown) {
+        try {
+          const fallbackName = proposalId.endsWith('.md') ? proposalId : `${proposalId}.md`;
+          markdown = await readFile(resolveProposalMdPath(workdir, fallbackName, namespace), 'utf-8');
+        } catch { /* fall through */ }
+      }
+      // Full site spec: use the spec itself as the proposal input so sections are
+      // derived from the user's spec (not from a mismatched disk proposal).
+      if (isFullSiteSpec && !markdown) markdown = customDesignPrompt;
+      if (isFullSiteSpec && markdown) markdown = customDesignPrompt; // always override with spec
+
+      if (!markdown) { send({ type: 'error', message: 'Could not load proposal markdown' }); reply.raw.end(); return; }
+      if (!apiKey)   { send({ type: 'error', message: 'ANTHROPIC_API_KEY not configured' });  reply.raw.end(); return; }
+
+      // Read brand/context from context.json
+      let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+      let structuredCtx: Record<string, unknown> | null = null;
+      try {
+        const ctxSvc = new ContextService(workdir);
+        structuredCtx = await ctxSvc.get(namespace) as unknown as Record<string, unknown> | null;
+        const fields  = ((structuredCtx as Record<string, unknown>)?.requirements as Record<string, Record<string, { value?: unknown }>> | undefined)?.fields ?? {};
+        brandHint = {
+          companyName:  (fields.clientName?.value as string | undefined) ?? '',
+          clientName:   (fields.clientName?.value as string | undefined) ?? '',
+          industry:     (fields.clientIndustry?.value as string | undefined) ?? '',
+          // Priority: spec-extracted > URL brand token > manual brand input
+          primaryColor: specPrimaryColor ?? urlRefDesign?.colors.primary ?? (body?.brand?.primaryColor as string | undefined),
+        };
+      } catch { /* non-fatal */ }
+
+      send({ type: 'start', message: 'Structured generation started' });
+      const _t0 = Date.now();
+
+      const clientIndustry = brandHint.industry ?? '';
+
+      // Tone selection:
+      // - Custom prompt present → detect from custom prompt keywords
+      // - URL tokens present (no custom prompt) → detect from vibe/mood string
+      // - Neither → industry-aware default (existing behaviour)
+      const toneSignal = customDesignPrompt || [urlRefDesign?.style.vibe, urlRefDesign?.typography.mood].filter(Boolean).join(' ');
+      const detectedTone = toneSignal ? (() => {
+        const lower = toneSignal.toLowerCase();
+        const map: Array<[string[], string]> = [
+          [['retro', 'futuristic', 'synthwave', 'cyberpunk', 'neon', 'sci-fi', 'crt', 'arcade', 'vaporwave', 'holograph'], 'retro-futuristic'],
+          [['brutalist', 'raw', 'concrete', 'brutal'], 'brutalist/raw'],
+          [['minimal', 'stark', 'clean', 'stripped'], 'brutally minimal'],
+          [['maximalist', 'chaos', 'excess', 'energetic', 'bold', 'adventurous', 'exciting', 'vibrant', 'dynamic', 'lively', 'electric', 'high-energy', 'sporty', 'athletic'], 'maximalist chaos'],
+          [['luxury', 'premium', 'elegant', 'refined', 'sophisticated', 'exclusive', 'upscale'], 'luxury/refined'],
+          [['playful', 'toy', 'whimsical', 'cartoon', 'fun', 'friendly', 'approachable'], 'playful/toy-like'],
+          [['editorial', 'magazine', 'journalistic', 'print'], 'editorial/magazine'],
+          [['art deco', 'geometric', 'bauhaus', 'angular', 'structured'], 'art deco/geometric'],
+          [['soft', 'pastel', 'gentle', 'delicate', 'airy', 'calm', 'peaceful'], 'soft/pastel'],
+          [['industrial', 'utilitarian', 'mechanical', 'factory', 'technical'], 'industrial/utilitarian'],
+          [['organic', 'natural', 'earthy', 'botanical', 'sustainable', 'eco'], 'organic/natural'],
+        ];
+        for (const [kws, tone] of map) {
+          if (kws.some(k => lower.includes(k))) return tone;
+        }
+        // Custom prompt present but no keyword matched — use 'brutally minimal' as neutral fallback.
+        // It doesn't enforce dark or light, so the designOverride directive drives the aesthetic.
+        return 'brutally minimal';
+      })() : null;
+
+      const { tone: industryTone } = applyDesignSkill('microsite-generator-agent', {
+        proposalMarkdown: markdown,
+        // Suppress industry override when user supplies a custom prompt or URL tokens
+        // so their aesthetic intent is not overridden by the industry heuristic.
+        clientIndustry: (customDesignPrompt || urlRefDesign) ? '' : clientIndustry,
+      });
+      const structuredTone = detectedTone ?? industryTone;
+
+      // Phase 1 cache disabled — always run full Sonnet call for fresh content
+
+      // Phase 1 + CSS in parallel:
+      //   - Single LLM call → complete AST structure
+      //   - CSS token generation (custom prompt or industry-aware tone selection)
+      const [ast, cssTheme] = await Promise.all([
+        generateStructuredMicrosite(markdown, brandHint, proposalId, apiKey, model),
+        generateThemeCSSTokens(
+          structuredTone as string,
+          brandHint.primaryColor,
+          llmGenerateFn,
+          (customDesignPrompt || urlRefDesign) ? undefined : clientIndustry,  // skip industry when design is driven by prompt or URL tokens
+          effectiveDesignOverride,                          // combined custom prompt + URL brand tokens
+        ).catch(() => null),
+      ]);
+
+      const sections = assignSectionIds(ast.sections);
+      ast.sections   = sections;
+
+      // Inject CSS theme into brand
+      if (cssTheme) {
+        // Patch exact URL brand token values on top of LLM-generated CSS — ensures the
+        // microsite uses the client's real colors and fonts, not LLM approximations.
+        if (urlRefDesign) {
+          const vars = cssTheme.cssVars as Record<string, string>;
+          const u = urlRefDesign;
+          if (u.colors.background) vars['--ms-bg']          = u.colors.background;
+          if (u.colors.surface)    vars['--ms-surface']     = u.colors.surface;
+          if (u.colors.primary)    vars['--ms-accent']      = u.colors.primary;
+          if (u.colors.secondary)  vars['--ms-accent2']     = u.colors.secondary;
+          if (u.colors.text)       vars['--ms-text']        = u.colors.text;
+          if (u.colors.textMuted)  vars['--ms-text3']       = u.colors.textMuted;
+          if (u.typography.headingFont) vars['--ms-font-heading'] = `"${u.typography.headingFont}", sans-serif`;
+          if (u.typography.bodyFont)    vars['--ms-font-body']    = `"${u.typography.bodyFont}", sans-serif`;
+          // Recompute dark/light based on actual background luminance
+          const bgHex = u.colors.background.replace('#', '');
+          if (bgHex.length === 6) {
+            const r = parseInt(bgHex.slice(0, 2), 16);
+            const g = parseInt(bgHex.slice(2, 4), 16);
+            const b = parseInt(bgHex.slice(4, 6), 16);
+            vars['--ms-is-dark'] = (r * 0.299 + g * 0.587 + b * 0.114) < 128 ? '1' : '0';
+          }
+        }
+        ast.brand = {
+          ...ast.brand,
+          extractedCssVariables: cssTheme.cssVars,
+          overrideTheme: true,
+          ...(cssTheme.googleFontsUrl ? { googleFontsUrl: cssTheme.googleFontsUrl } : {}),
+          ...(cssTheme.fontFaceDeclarations ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations } : {}),
+        } as typeof ast.brand;
+      }
+
+      // Stream plan + section events so PresentationPage shows progress
+      send({ type: 'plan', totalSections: sections.length, sectionTypes: sections.map(s => s.sectionType) });
+      for (let i = 0; i < sections.length; i++) {
+        const s = sections[i];
+        send({ type: 'section', id: s.id, sectionType: s.sectionType, heading: s.heading, content: s.content, image: s.image, index: i });
+      }
+
+      // Attach proposal metadata to the hero section so generateSectionHtml can inject the strip.
+      const structuredHeroMeta = {
+        clientName:  brandHint.clientName || '—',
+        preparedBy:  extractPreparedBy(structuredCtx, markdown) || (body?.brand?.companyName as string | undefined) || '—',
+        date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        version:     (() => { const m = (proposalId as string).match(/[_\-v]v?(\d+)$/i); return m ? `v${m[1]}` : 'v1'; })(),
+      };
+      const heroSec = sections.find(s => s.sectionType === 'hero');
+      if (heroSec) (heroSec as unknown as Record<string, unknown>)._meta = structuredHeroMeta;
+
+      // Phase 2: Generate customHtml for all sections using a dedicated 5-concurrent
+      // function isolated from the global LLM bridge pool (which stays at size=2 for
+      // chat, proposals, and agents). Includes 429 retry so it's production-safe.
+      send({ type: 'progress', message: 'Generating section HTML in parallel…' });
+      if (cssTheme) {
+        // Haiku handles per-section HTML — mechanical template-filling task that
+        // doesn't need Sonnet reasoning. ~5× faster, ~10× cheaper per call.
+        // Isolated from the global LLM_BRIDGE_POOL so chat/proposals are unaffected.
+        const micrositeGenerateFn = async (prompt: string): Promise<string> => {
+          console.log(`[microsite-gen] Phase 3 HTML prompt (${prompt.length}c):\n${prompt.slice(0, 800)}...\n`);
+          const MAX_RETRIES = 3;
+          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            const r = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: htmlModel,
+                max_tokens: 16000,
+                messages: [{ role: 'user', content: prompt }],
+              }),
+            });
+
+            if (r.status === 429) {
+              const retryAfter = parseInt(r.headers.get('retry-after') ?? '30', 10);
+              const delay = retryAfter * 1000 * (attempt + 1);
+              console.warn(`[structured-gen] 429 rate limit — retrying in ${delay}ms (attempt ${attempt + 1})`);
+              await new Promise(res => setTimeout(res, delay));
+              continue;
+            }
+
+            if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+            const d = await r.json() as { content: Array<{ type: string; text: string }> };
+            const result = d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+            console.log(`[microsite-gen] Phase 3 HTML response (${result.length}c):\n${result.slice(0, 300)}...\n`);
+            return result;
+          }
+          throw new Error('Microsite HTML generation: max retries exceeded');
+        };
+
+        const CONCURRENCY = 8; // Haiku handles higher concurrency cheaply
+        const targets = sections.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType));
+        let cursor = 0;
+
+        async function htmlWorker() {
+          while (cursor < targets.length) {
+            const section = targets[cursor++];
+            const idx     = sections.indexOf(section);
+            try {
+              const html = await generateSectionHtml(
+                section as unknown as Record<string, unknown>,
+                structuredTone as import('../skills/design-skill-microsite.js').Tone,
+                cssTheme!.cssVars,
+                null,
+                micrositeGenerateFn,
+                idx,
+                effectiveDesignOverride,        // combined custom prompt + URL brand tokens
+              );
+              section.customHtml = html;
+              send({ type: 'section_html', id: section.id, customHtml: html });
+              console.log(`[structured-gen] HTML done: ${section.sectionType} (${idx + 1}/${sections.length})`);
+            } catch (err) {
+              console.warn(`[structured-gen] HTML failed: ${section.sectionType}:`, err instanceof Error ? err.message : err);
+            }
+          }
+        }
+
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()),
+        );
+      }
+
+      // Persist AST to disk
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      await mkdir(path.dirname(astPath), { recursive: true });
+      await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+
+      const elapsed = Date.now() - _t0;
+      console.log(`[structured-gen] Complete — namespace=${namespace} sections=${sections.length} tone="${structuredTone}" elapsed=${elapsed}ms`);
+
+      send({ type: 'complete', ast });
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -1691,16 +2690,25 @@ ${layoutSummary}`;
 
   // GET /presentations/:namespace/:proposalId/microsite
   // Returns the previously generated site AST (null if not yet generated).
-  // Checks primary path first, then fallback path used by the chat pipeline's save-asset tool.
+  // Optional ?mode=pro|classic — tries mode-specific file first, then site-ast.json, then chat path.
   app.get('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string; proposalId: string };
+    const { mode } = req.query as { mode?: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
-    const primaryPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    const fallbackPath = path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json');
+    const base = path.join(workdir, 'assets', 'presentations', namespace);
+    const modeFile = mode === 'pro' ? 'site-ast-pro.json'
+                   : mode === 'classic' ? 'site-ast-classic.json'
+                   : null;
+    const candidates = [
+      ...(modeFile ? [path.join(base, modeFile)] : []),
+      path.join(base, 'site-ast-chat.json'),
+      path.join(base, 'site-ast.json'),
+      path.join(workdir, 'data', 'namespaces', namespace, 'assets', 'presentations', namespace, 'site-ast.json'),
+    ];
 
-    for (const astPath of [primaryPath, fallbackPath]) {
+    for (const astPath of candidates) {
       try {
         const raw = await readFile(astPath, 'utf-8');
         const fileStat = await stat(astPath);
@@ -1722,7 +2730,11 @@ ${layoutSummary}`;
     const body = req.body as { ast?: Record<string, unknown> } | undefined;
     if (!body?.ast) return reply.code(400).send({ error: 'ast is required' });
 
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+    const mode = typeof body.ast.generationMode === 'string' ? body.ast.generationMode : null;
+    const filename = mode === 'pro' ? 'site-ast-pro.json'
+                   : mode === 'classic' ? 'site-ast-classic.json'
+                   : 'site-ast.json';
+    const astPath = path.join(workdir, 'assets', 'presentations', namespace, filename);
     await mkdir(path.dirname(astPath), { recursive: true });
     await writeFile(astPath, JSON.stringify(body.ast, null, 2), 'utf-8');
 
@@ -1762,6 +2774,52 @@ ${layoutSummary}`;
 
     const url = `/presentation-images/${namespace}/${logoFilename}`;
     return reply.send({ url });
+  });
+
+  // POST /presentations/:namespace/:proposalId/edit-section-html
+  // Natural language edit: applies a user instruction to a section's existing HTML.
+  // The AI returns ONLY the modified HTML — no explanation, no markdown.
+  // Body: { sectionHtml: string; instruction: string }
+  // Returns: { html: string }
+  app.post('/presentations/:namespace/:proposalId/edit-section-html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { sectionHtml?: string; instruction?: string } | undefined;
+    const sectionHtml = body?.sectionHtml?.trim();
+    const instruction = body?.instruction?.trim();
+    if (!sectionHtml) return reply.code(400).send({ error: 'sectionHtml is required' });
+    if (!instruction) return reply.code(400).send({ error: 'instruction is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    const systemPrompt = 'You are an HTML editor. You will receive a section\'s HTML and a user instruction. Return ONLY the modified HTML for that section with no explanation, no markdown, no code fences. Start directly with the opening HTML tag.';
+    const userPrompt   = `USER INSTRUCTION: ${instruction}\n\nSECTION HTML:\n${sectionHtml}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model, max_tokens: 8000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (r.status === 429) {
+        const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      if (!r.ok) return reply.code(502).send({ error: `Anthropic ${r.status}: ${await r.text()}` });
+      const d = await r.json() as { content: Array<{ type: string; text: string }> };
+      const html = d.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      return reply.send({ html });
+    }
+    return reply.code(502).send({ error: 'Max retries exceeded' });
   });
 
   // POST /presentations/:namespace/:proposalId/design-edit

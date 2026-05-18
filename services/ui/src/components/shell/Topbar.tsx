@@ -4,7 +4,6 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useNamespace } from "@/lib/namespace-context";
 import { useHealth } from "@/lib/use-health";
-import { ExecutionIndicator } from "@/components/system/ExecutionIndicator";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { Menu } from "lucide-react";
 import { Icon } from "@/components/ui/Icon";
@@ -30,11 +29,7 @@ export function Topbar({ onMenuClick }: Props) {
     pathname?.startsWith("/microsite") ||
     pathname?.startsWith("/presentation")
   ) {
-    return (
-      <div className="exec-indicator-float">
-        <ExecutionIndicator />
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -80,7 +75,6 @@ export function Topbar({ onMenuClick }: Props) {
       )}
 
       <div className="topbar-right">
-        <ExecutionIndicator />
         <ThemeToggle />
         <span
           className={`health-dot health-dot--${health.status}`}

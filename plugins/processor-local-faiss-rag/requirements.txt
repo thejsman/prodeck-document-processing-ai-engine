@@ -2,4 +2,5 @@ requests
 numpy
 faiss-cpu
 openai
+anthropic
 qdrant-client>=1.9.0

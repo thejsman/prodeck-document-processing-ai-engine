@@ -62,10 +62,13 @@ export interface LLMContext {
  * MAX_MESSAGE_LENGTH characters so they don't bloat the prompt.
  */
 export function buildConversationWindow(messages: ChatMessage[]): ConversationMessage[] {
-  return messages.slice(-CONVERSATION_WINDOW_SIZE).map((m) => ({
-    role: m.role,
-    content: m.content.length > MAX_MESSAGE_LENGTH ? m.content.slice(0, MAX_MESSAGE_LENGTH) + '…[trimmed]' : m.content,
-  }));
+  return messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .slice(-CONVERSATION_WINDOW_SIZE)
+    .map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content.length > MAX_MESSAGE_LENGTH ? m.content.slice(0, MAX_MESSAGE_LENGTH) + '…[trimmed]' : m.content,
+    }));
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   handleRecommendTemplate,
   handleCreateSkill,
   handleListSkills,
+  handleListDesignSkills,
 } from './tool-handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ const TOOL_HANDLERS: Record<ToolName, ToolHandler> = {
   recommend_template: handleRecommendTemplate,
   create_skill: handleCreateSkill,
   list_skills: handleListSkills,
+  list_design_skills: handleListDesignSkills,
 };
 
 // ---------------------------------------------------------------------------

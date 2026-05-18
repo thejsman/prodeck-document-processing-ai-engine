@@ -26,6 +26,7 @@ const ToolNameEnum = z.enum([
   'set_proposal_status',
   'create_skill',
   'list_skills',
+  'list_design_skills',
 ]);
 
 const PlanSchema = z.object({
@@ -45,6 +46,7 @@ const PlanSchema = z.object({
     'CREATE_SKILL',
     'MODIFY_SKILL',
     'LIST_SKILLS',
+    'LIST_DESIGN_SKILLS',
   ]),
   actions: z
     .array(
@@ -138,6 +140,7 @@ const TOOL_PARAM_SCHEMAS: Partial<Record<z.infer<typeof ToolNameEnum>, z.ZodType
   }),
 
   list_skills: z.object({}),
+  list_design_skills: z.object({}),
 };
 
 // ---------------------------------------------------------------------------

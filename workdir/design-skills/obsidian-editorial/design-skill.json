@@ -1,0 +1,21 @@
+{
+  "slug": "obsidian-editorial",
+  "displayName": "Obsidian Editorial",
+  "description": "A high-contrast dark editorial identity — deep charcoal foundations, electric amber as the singular accent, and a typographic system that leads with authority. Designed for technology, consulting, and professional services proposals that need to feel premium without leaning into generic 'tech startup' clichés.",
+  "aestheticTone": "luxury/refined",
+  "colorPalette": {
+    "primary": "#f59e0b",
+    "secondary": "#d97706",
+    "background": "#0a0a0e"
+  },
+  "typography": {
+    "headingFont": "Cormorant Garamond",
+    "bodyFont": "Work Sans",
+    "headingStyle": "minimal"
+  },
+  "animations": "smooth",
+  "customInstructions": "Deep black backgrounds (#0a0a0e to #111118 range). A single dominant amber/gold accent (#f59e0b) — never dilute it with a second competing accent colour. Syne for all headings at heavy weight with tight letter-spacing (-0.02em to -0.04em). DM Sans for body at 16–18px with generous line-height (1.7). Cards and panels use a slightly lighter surface (#16161e) with a 1px border at rgba(245,158,11,0.15). No rounded pill buttons — use sharp 4px radius or fully square. Section dividers should use a thin amber rule (2px, 40% opacity) rather than a full-width border. The hero section should have an asymmetric layout with the headline spanning 70% viewport width at very large size (clamp 3rem to 8vw). Gradient text is allowed ONLY on the primary headline — amber to warm gold direction. All other text must be solid colour. Spacing is generous: sections have 120–160px vertical padding. No gradients on backgrounds — flat colour only. Box shadows should use amber tint: 0 4px 24px rgba(245,158,11,0.12).",
+  "themeClass": "light",
+  "createdAt": "2026-05-14T00:00:00.000Z",
+  "updatedAt": "2026-05-14T06:24:11.879Z"
+}

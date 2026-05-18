@@ -1,4 +1,5 @@
 export { FaissVectorStoreProvider } from './faiss-provider.js';
+export { QdrantVectorStoreProvider } from './qdrant-provider.js';
 export {
   getVectorStoreProvider,
   type VectorStoreProviderOptions,

@@ -180,14 +180,29 @@ function renderSection(
   namespace?: string,
   proposalId?: string,
   meta?: LayoutAST['meta'],
+  generationMode?: string,
 ) {
+  // Pro mode: section carries pre-generated HTML — render it directly.
+  const customHtml = (section as unknown as Record<string, unknown>).customHtml as string | undefined;
+  if (customHtml) {
+    return <div dangerouslySetInnerHTML={{ __html: customHtml }} />;
+  }
+  // Pro mode streaming: section HTML not yet ready — render nothing.
+  // The bottom progress chip ("Section X of Y") already provides feedback.
+  if (generationMode === 'pro') {
+    return null;
+  }
+
   // Root-relative paths (/presentation-images/...) are served by the API.
   // Rewrite them through the Next.js /api proxy so they work in the UI.
   const rawUrl = section.image?.url;
-  const imageUrl = rawUrl?.startsWith('/presentation-images/') ? `/api${rawUrl}` : (rawUrl ?? null);
+  const resolvedUrl = rawUrl?.startsWith('/presentation-images/') ? `/api${rawUrl}` : (rawUrl ?? null);
+  // Only the hero section shows an image — all other section types suppress it.
+  const imageUrl = section.sectionType === 'hero' ? resolvedUrl : null;
   const sid = section.id;
 
   let inner: React.ReactNode;
+
   switch (section.sectionType) {
     case 'hero': {
       const heroRaw = section.content as unknown as Record<string, unknown>;
@@ -503,6 +518,7 @@ function SectionWithOverlay({
   namespace,
   proposalId,
   meta,
+  generationMode,
 }: {
   section: LayoutAST['sections'][number];
   index: number;
@@ -517,17 +533,18 @@ function SectionWithOverlay({
   namespace?: string;
   proposalId?: string;
   meta?: LayoutAST['meta'];
+  generationMode?: string;
 }) {
   const editCtx = useEditContext();
-  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId, meta);
+  const inner = renderSection(section, tokens, brand, index, allSections, brief, namespace, proposalId, meta, generationMode);
   // Apply per-section background override using scoped CSS to beat inline styles
   const sel = `[data-section-id="${section.id}"] section,[data-section-id="${section.id}"] > div > section`;
   const hasBgColor = !!section.bgColor;
   // Background image only applies to hero by default.
   // For other sections it only applies when the user explicitly set it via
   // the toolbar (source === 'custom').
-  const isHero = section.sectionType === 'hero' || section.sectionType === 'overview';
-  const hasBgImage = !!section.image?.url && (isHero || section.image.source === 'custom');
+  // Only the hero section gets a background image — all other sections suppress it.
+  const hasBgImage = !!section.image?.url && section.sectionType === 'hero';
   let bgCssRule = '';
   if (hasBgColor) {
     // Allow CSS variable syntax (hyphens) and all valid CSS value chars.
@@ -1358,6 +1375,7 @@ ${el.innerHTML}
                         namespace={namespace}
                         proposalId={proposalId ?? ast.proposalId}
                         meta={ast.meta}
+                        generationMode={ast.generationMode}
                       />
                     )}
                   </TypewriterSection>

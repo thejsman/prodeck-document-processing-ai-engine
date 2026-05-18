@@ -54,6 +54,12 @@ export interface MemoryPayload {
   readonly avoidPhrases?: string[];
 }
 
+export interface RetrievedChunk {
+  readonly text: string;
+  readonly score: number;
+  readonly document?: string;
+}
+
 export interface ProcessorPayload {
   readonly workdir: string;
   readonly outputDir: string;
@@ -66,6 +72,7 @@ export interface ProcessorPayload {
   readonly pricing: PricingInput | null;
   readonly tone: string | null;
   readonly memory: MemoryPayload | null;
+  readonly retrievedContext?: RetrievedChunk[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +85,11 @@ const SCRIPT_PATH = path.resolve(__dirname, '..', 'processor.py');
 
 function resolvePython(scriptDir: string): string {
   const faissPluginDir = path.resolve(__dirname, '../../processor-local-faiss-rag');
-  const venv = path.join(faissPluginDir, '.venv', 'bin', 'python3');
-  return existsSync(venv) ? venv : 'python3';
+  const faissVenv = path.join(faissPluginDir, '.venv', 'bin', 'python3');
+  if (existsSync(faissVenv)) return faissVenv;
+  const rootVenv = path.resolve(__dirname, '../../../.venv/bin/python3');
+  if (existsSync(rootVenv)) return rootVenv;
+  return 'python3';
 }
 
 // ---------------------------------------------------------------------------

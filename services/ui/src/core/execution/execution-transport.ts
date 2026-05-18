@@ -298,17 +298,21 @@ function activateFallback(): void {
 /**
  * Start the SSE transport (or polling fallback).
  * Idempotent — safe to call multiple times.
+ *
+ * The poller always runs alongside SSE as a safety net: SSE misses any events
+ * emitted before the connection was established, so the poller ensures terminal
+ * states (COMPLETED / FAILED) are always picked up within the poll interval.
  */
 export function startExecutionTransport(apiKey?: string): void {
   if (typeof window === "undefined") return
 
   if (apiKey) transportApiKey = apiKey
 
-  // Already in polling fallback — keep polling with (possibly new) key
-  if (mode === "polling") {
-    if (transportApiKey) startExecutionPolling(transportApiKey)
-    return
-  }
+  // Always run the poller as a safety net for events missed before SSE connected
+  if (transportApiKey) startExecutionPolling(transportApiKey)
+
+  // Already in polling fallback — no SSE to start
+  if (mode === "polling") return
 
   // Already have an open SSE connection
   if (es !== null) return

@@ -15,10 +15,13 @@ export async function POST(
   { params }: { params: Promise<{ namespace: string; proposalId: string }> },
 ) {
   const { namespace, proposalId } = await params;
-  const url = `${API_URL}/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-stream`;
-  console.log('[route-handler] generate-stream hit for', namespace, proposalId);
+  const bodyText = await req.text();
+  let generationMode: string | undefined;
+  try { generationMode = (JSON.parse(bodyText) as Record<string, unknown>)?.generationMode as string | undefined; } catch { /* keep undefined */ }
+  const backendEndpoint = generationMode === 'classic' ? 'generate-classic-stream' : 'generate-structured-stream';
+  const url = `${API_URL}/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/${backendEndpoint}`;
+  console.log(`[route-handler] generate-stream → ${backendEndpoint} for`, namespace, proposalId);
 
-  const body = await req.text();
   const authHeader = req.headers.get('authorization') ?? '';
 
   const apiRes = await fetch(url, {
@@ -27,7 +30,7 @@ export async function POST(
       'Content-Type': 'application/json',
       ...(authHeader ? { authorization: authHeader } : {}),
     },
-    body,
+    body: bodyText,
   });
 
   if (!apiRes.ok || !apiRes.body) {

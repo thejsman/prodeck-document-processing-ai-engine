@@ -374,9 +374,11 @@ export class ChatOrchestrator {
       // Second pass: LLM-based classification when rule-based matching fails
       if (!intent && !skipWorkflow) {
         const history = await loadHistory(this.workdir, namespace, chatSessionId);
-        const recentMessages = (history?.messages ?? []).slice(-6);
+        const recentMessages = (history?.messages ?? [])
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .slice(-6);
         const conversationWindow = recentMessages.map((m) => ({
-          role: m.role,
+          role: m.role as 'user' | 'assistant',
           content: m.content,
         }));
         intent = await classifyIntentWithLLM(message, conversationWindow, llmGenerateFn);

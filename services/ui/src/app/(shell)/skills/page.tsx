@@ -14,6 +14,11 @@ import {
   uploadSkillAssetApi,
   deleteSkillAssetApi,
   listSkillAssetsApi,
+  listDesignSkillsApi,
+  getDesignSkillApi,
+  createDesignSkillApi,
+  updateDesignSkillApi,
+  deleteDesignSkillApi,
   type SkillSummaryApi,
   type SkillDetailApi,
   type SkillApi,
@@ -22,12 +27,15 @@ import {
   type PricingDefaultsApi,
   type GeneratedSkillApi,
   type AssetInfoApi,
+  type DesignSkillApi,
+  type DesignSkillSummaryApi,
 } from '@/lib/api';
 import { OverviewTab } from '@/components/SkillEditor/OverviewTab';
 import { SectionsTab } from '@/components/SkillEditor/SectionsTab';
 import { InstructionsTab } from '@/components/SkillEditor/InstructionsTab';
 import { PricingTab } from '@/components/SkillEditor/PricingTab';
 import { BrandingTab } from '@/components/SkillEditor/BrandingTab';
+import { DesignSkillEditor } from '@/components/DesignSkillEditor';
 
 type TabKey = 'overview' | 'sections' | 'instructions' | 'pricing' | 'branding';
 const TABS: { key: TabKey; label: string }[] = [
@@ -73,8 +81,22 @@ export default function SkillsPage() {
   const [creating, setCreating] = useState(false);
   const newInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Mode toggle: proposal skills vs design skills ────────────────
+  const [skillMode, setSkillMode] = useState<'proposal' | 'design'>('proposal');
+
+  // ── Design skills state ──────────────────────────────────────────
+  const [designSkills, setDesignSkills] = useState<DesignSkillSummaryApi[]>([]);
+  const [designSkillsLoading, setDesignSkillsLoading] = useState(false);
+  const [selectedDSSlug, setSelectedDSSlug] = useState<string | null>(null);
+  const [draftDS, setDraftDS] = useState<Partial<DesignSkillApi>>({});
+  const [dsIsNew, setDsIsNew] = useState(false);
+  const [dsSaving, setDsSaving] = useState(false);
+  const [dsSaveError, setDsSaveError] = useState<string | null>(null);
+  const [dsSaveSuccess, setDsSaveSuccess] = useState(false);
+
   // ── Right panel resize ───────────────────────────────────────────
   const [rightPanelWidth, setRightPanelWidth] = useState(260);
+  const [listPanelOpen, setListPanelOpen] = useState(true);
   const isResizing = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(260);
@@ -98,6 +120,13 @@ export default function SkillsPage() {
     window.addEventListener('mouseup', onMouseUp);
   }, [rightPanelWidth]);
 
+  // Close the list panel on mobile at initial mount only
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      setListPanelOpen(false);
+    }
+  }, []);
+
   // ── Load skills ──────────────────────────────────────────────────
   const loadSkillList = useCallback(async () => {
     if (!apiKey) return;
@@ -113,6 +142,72 @@ export default function SkillsPage() {
   }, [apiKey]);
 
   useEffect(() => { void loadSkillList(); }, [loadSkillList]);
+
+  // ── Load design skills ───────────────────────────────────────────
+  const loadDesignSkillList = useCallback(async () => {
+    if (!apiKey) return;
+    setDesignSkillsLoading(true);
+    try {
+      const list = await listDesignSkillsApi(apiKey);
+      setDesignSkills(list);
+    } catch { /* ok */ } finally {
+      setDesignSkillsLoading(false);
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    if (skillMode === 'design') void loadDesignSkillList();
+  }, [skillMode, loadDesignSkillList]);
+
+  const selectDesignSkill = useCallback(async (slug: string) => {
+    if (!apiKey) return;
+    setSelectedDSSlug(slug);
+    setDsIsNew(false);
+    try {
+      const ds = await getDesignSkillApi(apiKey, slug);
+      setDraftDS(ds);
+    } catch { /* ok */ }
+  }, [apiKey]);
+
+  const handleDSSave = async () => {
+    if (!apiKey) return;
+    setDsSaving(true);
+    setDsSaveError(null);
+    setDsSaveSuccess(false);
+    try {
+      if (dsIsNew) {
+        const created = await createDesignSkillApi(apiKey, { displayName: draftDS.displayName ?? 'New Design Skill', ...draftDS });
+        setDsIsNew(false);
+        setSelectedDSSlug(created.slug);
+        setDraftDS(created);
+        await loadDesignSkillList();
+      } else if (selectedDSSlug) {
+        const updated = await updateDesignSkillApi(apiKey, selectedDSSlug, draftDS);
+        setDraftDS(updated);
+        await loadDesignSkillList();
+      }
+      setDsSaveSuccess(true);
+      setTimeout(() => setDsSaveSuccess(false), 2000);
+    } catch (err: unknown) {
+      setDsSaveError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setDsSaving(false);
+    }
+  };
+
+  const handleDSDelete = async () => {
+    if (!apiKey || !selectedDSSlug || !confirm(`Delete design skill "${selectedDSSlug}"?`)) return;
+    await deleteDesignSkillApi(apiKey, selectedDSSlug);
+    setSelectedDSSlug(null);
+    setDraftDS({});
+    await loadDesignSkillList();
+  };
+
+  const handleNewDesignSkill = () => {
+    setSelectedDSSlug(null);
+    setDraftDS({ displayName: '', aestheticTone: 'editorial/magazine', themeClass: 'light', animations: 'minimal', customInstructions: '', colorPalette: { primary: '#3b82f6' }, typography: { headingFont: 'Syne', bodyFont: 'DM Sans', headingStyle: 'bold' } });
+    setDsIsNew(true);
+  };
 
   // Auto-select from ?skill= query param
   useEffect(() => {
@@ -287,22 +382,46 @@ export default function SkillsPage() {
         gap: 12,
         flexShrink: 0,
       }}>
-        <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Skills</span>
-        <button
-          onClick={() => { setShowNewModal(true); setTimeout(() => newInputRef.current?.focus(), 50); }}
-          style={{
-            background: 'var(--primary)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            padding: '6px 14px',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-          }}
-        >
-          + New Skill
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', gap: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          {(['proposal', 'design'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setSkillMode(mode)}
+              style={{
+                padding: '5px 14px',
+                border: 'none',
+                background: skillMode === mode ? 'var(--primary)' : 'transparent',
+                color: skillMode === mode ? '#fff' : 'var(--text2)',
+                fontSize: 12,
+                fontWeight: skillMode === mode ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.12s',
+              }}
+            >
+              {mode === 'proposal' ? 'Proposal Skills' : '🎨 Design Skills'}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        <button className="skills-list-toggle" onClick={() => setListPanelOpen((v) => !v)}>
+          Skills
         </button>
+        {skillMode === 'proposal' ? (
+          <button
+            onClick={() => { setShowNewModal(true); setTimeout(() => newInputRef.current?.focus(), 50); }}
+            style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+          >
+            + New Skill
+          </button>
+        ) : (
+          <button
+            onClick={handleNewDesignSkill}
+            style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+          >
+            + New Design Skill
+          </button>
+        )}
       </div>
 
       {/* ── Two-panel body ── */}
@@ -310,7 +429,29 @@ export default function SkillsPage() {
 
         {/* LEFT: editor */}
         <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {hasDetail ? (
+          {/* Design Skills editor */}
+          {skillMode === 'design' && (dsIsNew || selectedDSSlug) ? (
+            <DesignSkillEditor
+              draft={draftDS}
+              onChange={(updates) => setDraftDS((prev) => ({ ...prev, ...updates, colorPalette: updates.colorPalette ? { ...prev.colorPalette, ...updates.colorPalette } : prev.colorPalette, typography: updates.typography ? { ...(prev.typography ?? {}), ...updates.typography } as DesignSkillApi['typography'] : prev.typography }))}
+              onSave={handleDSSave}
+              onDelete={!dsIsNew ? handleDSDelete : undefined}
+              saving={dsSaving}
+              saveError={dsSaveError}
+              saveSuccess={dsSaveSuccess}
+              isNew={dsIsNew}
+            />
+          ) : skillMode === 'design' ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', gap: 10 }}>
+              <span style={{ fontSize: 32 }}>🎨</span>
+              <p style={{ fontSize: 14, fontWeight: 500 }}>
+                {designSkillsLoading ? 'Loading design skills…' : designSkills.length === 0 ? 'No design skills yet' : 'Select a design skill to edit'}
+              </p>
+              {!designSkillsLoading && designSkills.length === 0 && (
+                <button onClick={handleNewDesignSkill} style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}>Create your first Design Skill</button>
+              )}
+            </div>
+          ) : hasDetail ? (
             <>
               {/* Tab bar + save */}
               <div style={{
@@ -412,7 +553,7 @@ export default function SkillsPage() {
               </div>
             </>
           ) : (
-            /* Empty state */
+            /* Proposal skills empty state */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', gap: 10 }}>
               <span style={{ fontSize: 32 }}>⚡</span>
               <p style={{ fontSize: 14, fontWeight: 500 }}>
@@ -427,6 +568,7 @@ export default function SkillsPage() {
 
         {/* RESIZE HANDLE */}
         <div
+          className="skills-resize-handle"
           onMouseDown={handleResizeMouseDown}
           style={{
             width: 5,
@@ -438,51 +580,103 @@ export default function SkillsPage() {
         />
 
         {/* RIGHT: skill list */}
-        <div style={{ width: rightPanelWidth, flexShrink: 0, overflowY: 'auto', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            My Skills ({skills.length})
-          </div>
-          {skills.length === 0 && !listLoading && (
-            <p style={{ padding: 16, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>No skills yet</p>
-          )}
-          {skills.map((skill) => (
-            <div
-              key={skill.slug}
-              onClick={() => setSelectedSlug(skill.slug)}
-              style={{
-                padding: '10px 14px',
-                borderBottom: '1px solid var(--border)',
-                cursor: 'pointer',
-                background: selectedSlug === skill.slug ? 'var(--primary-soft, rgba(0,0,0,0.06))' : 'transparent',
-                borderLeft: selectedSlug === skill.slug ? '3px solid var(--primary)' : '3px solid transparent',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {skill.displayName}
-                  </p>
-                  <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {skill.slug} · v{skill.version}
-                  </p>
-                  {skill.industries.length > 0 && (
-                    <p style={{ fontSize: 10, color: 'var(--muted)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {skill.industries.slice(0, 3).join(', ')}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); void handleDeleteSkill(skill.slug); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: '2px 4px', flexShrink: 0 }}
-                  title="Delete skill"
-                >
-                  ✕
-                </button>
+        <div className={`skills-list-panel${listPanelOpen ? ' is-open' : ''}`} style={{ width: rightPanelWidth, flexShrink: 0, overflowY: 'auto', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+          {skillMode === 'proposal' ? (
+            <>
+              <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                My Skills ({skills.length})
               </div>
-            </div>
-          ))}
+              {skills.length === 0 && !listLoading && (
+                <p style={{ padding: 16, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>No skills yet</p>
+              )}
+              {skills.map((skill) => (
+                <div
+                  key={skill.slug}
+                  onClick={() => setSelectedSlug(skill.slug)}
+                  style={{
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    background: selectedSlug === skill.slug ? 'var(--primary-soft, rgba(0,0,0,0.06))' : 'transparent',
+                    borderLeft: selectedSlug === skill.slug ? '3px solid var(--primary)' : '3px solid transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {skill.displayName}
+                      </p>
+                      <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {skill.slug} · v{skill.version}
+                      </p>
+                      {skill.industries.length > 0 && (
+                        <p style={{ fontSize: 10, color: 'var(--muted)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {skill.industries.slice(0, 3).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); void handleDeleteSkill(skill.slug); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: '2px 4px', flexShrink: 0 }}
+                      title="Delete skill"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Design Skills ({designSkills.length})
+              </div>
+              {designSkills.length === 0 && !designSkillsLoading && (
+                <p style={{ padding: 16, fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>No design skills yet</p>
+              )}
+              {designSkills.map((ds) => (
+                <div
+                  key={ds.slug}
+                  onClick={() => void selectDesignSkill(ds.slug)}
+                  style={{
+                    padding: '10px 14px',
+                    borderBottom: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    background: selectedDSSlug === ds.slug ? 'var(--primary-soft, rgba(0,0,0,0.06))' : 'transparent',
+                    borderLeft: selectedDSSlug === ds.slug ? '3px solid var(--primary)' : '3px solid transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: 2, background: ds.colorPalette.primary, flexShrink: 0 }} />
+                        <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ds.displayName}
+                        </p>
+                      </div>
+                      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
+                        {ds.aestheticTone} · {ds.themeClass}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async (e) => { e.stopPropagation(); if (!apiKey || !confirm(`Delete design skill "${ds.slug}"?`)) return; await deleteDesignSkillApi(apiKey, ds.slug); if (selectedDSSlug === ds.slug) { setSelectedDSSlug(null); setDraftDS({}); } await loadDesignSkillList(); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: '2px 4px', flexShrink: 0 }}
+                      title="Delete design skill"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </div>
+
+      {/* Mobile backdrop for skill list panel */}
+      {listPanelOpen && (
+        <div className="skills-panel-backdrop" onClick={() => setListPanelOpen(false)} />
+      )}
 
       {/* ── New skill modal ── */}
       {showNewModal && (

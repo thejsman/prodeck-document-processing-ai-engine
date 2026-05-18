@@ -31,6 +31,7 @@ export type ToolName =
   | 'recommend_template'
   | 'create_skill'
   | 'list_skills'
+  | 'list_design_skills'
 
 export type AgentAction =
   | { type: 'ASK'; question: string }
@@ -81,6 +82,8 @@ const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
   CREATE_SKILL: ['context'],
   MODIFY_SKILL: ['context'],
   LIST_SKILLS: [],
+  LIST_DESIGN_SKILLS: [],
+  CLIENT_DATA_COLLECTION: ['context'],
 }
 
 function selectRelevantKnowledge(intent: Intent, knowledge: KnowledgeEntry[]): KnowledgeEntry[] {
@@ -113,7 +116,7 @@ Produce an action plan as strict JSON. Nothing else.
 - generate_proposal: params { client, projectType, clientIndustry, skill?, teamSize?, duration?, ratePerWeek? }
 - generate_template: params { description, name? }
 - modify_template: params { templateName, instruction }
-- generate_microsite: params { proposalFileName, companyName?, tagline?, primaryColor?, secondaryColor?, theme?, customInstructions? }
+- generate_microsite: params { proposalFileName, companyName?, tagline?, primaryColor?, secondaryColor?, theme?, customInstructions?, designSkillSlug? }
 - edit_proposal_section: params { proposalFileName, sectionName, instruction }
 - search_documents: params { query }
 - list_proposals: params {}
@@ -122,7 +125,8 @@ Produce an action plan as strict JSON. Nothing else.
 - set_proposal_status: params { proposalFileName, status }
 - recommend_template: params {} — recommends the best template for this namespace
 - create_skill: params { description, industries?, pricingModel?, tone? } — create a reusable proposal skill
-- list_skills: params {} — list available skills
+- list_skills: params {} — list available proposal skills
+- list_design_skills: params {} — list available design skills (visual identities for microsites)
 
 ## Current Requirements
 ${JSON.stringify(nsContext.requirements.fields)}
@@ -134,7 +138,8 @@ ${relevantKnowledge.map((k) => `[${k.category}] ${k.content}`).join('\n')}
 - Proposals: ${JSON.stringify(chatContext.proposals)}
 - Templates: ${JSON.stringify(chatContext.templates)}
 - Documents: ${chatContext.ingestedDocuments.map((d) => d.fileName).join(', ') || 'none'}
-${chatContext.skills?.length ? `\n## Available Skills\n${chatContext.skills.map((s) => `- ${s.slug}: ${s.displayName}`).join('\n')}` : ''}
+${chatContext.skills?.length ? `\n## Available Proposal Skills\n${chatContext.skills.map((s) => `- ${s.slug}: ${s.displayName}`).join('\n')}` : ''}
+${chatContext.designSkills?.length ? `\n## Available Design Skills (use designSkillSlug with generate_microsite)\n${chatContext.designSkills.map((s) => `- ${s.slug}: ${s.displayName} (${s.aestheticTone}, ${s.themeClass})`).join('\n')}` : ''}
 ${nsContext.selectedTemplate ? `\n## Confirmed Template\nThe user has already confirmed the template to use: "${nsContext.selectedTemplate.templateId}" (${nsContext.selectedTemplate.name}). Use this template ID when calling generate_proposal.` : ''}
 
 ## Rules
@@ -205,6 +210,11 @@ export function buildFallbackPlan(
           { type: 'CALL_TOOL', tool: 'search_documents', params: { query: message } },
         ],
       }
+    case 'LIST_DESIGN_SKILLS':
+      return {
+        intent,
+        actions: [{ type: 'CALL_TOOL', tool: 'list_design_skills', params: {} }],
+      }
     default:
       return null
   }
@@ -228,6 +238,7 @@ const TOOL_TYPE_ALIASES: Record<string, string> = {
   GET_PROPOSAL_STATUS: 'get_proposal_status',
   SET_PROPOSAL_STATUS: 'set_proposal_status',
   RECOMMEND_TEMPLATE: 'recommend_template',
+  LIST_DESIGN_SKILLS: 'list_design_skills',
 }
 
 // ---------------------------------------------------------------------------

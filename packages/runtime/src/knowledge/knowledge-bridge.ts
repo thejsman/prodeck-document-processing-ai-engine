@@ -63,10 +63,19 @@ function pythonScriptDir(): string {
 }
 
 function resolvePython(scriptDir: string): string {
+  // Honour explicit PYTHON env var (set in deployment/.env)
+  const envPython = process.env['PYTHON'];
+  if (envPython && existsSync(envPython)) return envPython;
+  // 1. Plugin-local venv
   const venvUnix = path.join(scriptDir, '.venv', 'bin', 'python3');
   if (existsSync(venvUnix)) return venvUnix;
   const venvWin = path.join(scriptDir, '.venv', 'Scripts', 'python.exe');
   if (existsSync(venvWin)) return venvWin;
+  // 2. Project root venv (plugins/processor-local-faiss-rag is two levels below root)
+  const rootVenvUnix = path.join(scriptDir, '..', '..', '.venv', 'bin', 'python3');
+  if (existsSync(rootVenvUnix)) return rootVenvUnix;
+  const rootVenvWin = path.join(scriptDir, '..', '..', '.venv', 'Scripts', 'python.exe');
+  if (existsSync(rootVenvWin)) return rootVenvWin;
   // On Windows 'python3' may resolve to a stub or a different install without
   // the required packages; 'python' is the standard Windows executable name.
   // path.sep is '\' on Windows, '/' on Unix — use it as a platform check.

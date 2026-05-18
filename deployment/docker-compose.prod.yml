@@ -28,6 +28,10 @@ services:
       - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_GENERATION_MODEL=${ANTHROPIC_GENERATION_MODEL:-claude-sonnet-4-6}
+      # Embedding provider
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY:-}
+      - VOYAGE_EMBEDDING_MODEL=${VOYAGE_EMBEDDING_MODEL:-voyage-4}
       # Vector store — Qdrant is the default for production
       - VECTOR_STORE=${VECTOR_STORE:-qdrant}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
