@@ -276,7 +276,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     if (!confirmMicrosite) return;
     setDeletingMicrosite(true);
     try {
-      await deleteMicrositeHistoryFromServer(apiKey, namespace);
+      await deleteMicrositeHistoryFromServer(apiKey, namespace, confirmMicrosite.id);
       setMicrosites(namespace, (panelData?.microsites ?? []).filter(m => m.proposalId !== confirmMicrosite.proposalId));
     } catch { /* ignore */ } finally {
       setDeletingMicrosite(false);

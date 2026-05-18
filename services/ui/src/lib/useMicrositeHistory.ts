@@ -83,22 +83,24 @@ export function useMicrositeHistory(namespace?: string, apiKey?: string) {
       .finally(() => setLoading(false));
   }, [apiKey]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    // Clear stale localStorage history — server is now the single source of truth.
+    if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    load();
+  }, [load]);
 
   const history = namespace ? entries.filter((e) => e.namespace === namespace) : entries;
 
-  const addEntry = useCallback((ast: LayoutAST, ns?: string): MicrositeHistoryEntry => {
+  const addEntry = useCallback(async (ast: LayoutAST, ns?: string): Promise<MicrositeHistoryEntry> => {
     const targetNs = ns ?? namespace ?? '';
-    const entry: MicrositeHistoryEntry = {
-      id: `server::${targetNs}`,
-      savedAt: new Date().toISOString(),
-      namespace: targetNs,
-      ast,
-    };
     if (apiKey && targetNs) {
-      saveMicrositeHistoryToServer(apiKey, targetNs, ast).then(() => load()).catch(() => {});
+      try {
+        const { id } = await saveMicrositeHistoryToServer(apiKey, targetNs, ast);
+        load();
+        return { id, savedAt: new Date().toISOString(), namespace: targetNs, ast };
+      } catch { /* fall through to local fallback */ }
     }
-    return entry;
+    return { id: `local::${targetNs}`, savedAt: new Date().toISOString(), namespace: targetNs, ast };
   }, [namespace, apiKey, load]);
 
   const updateEntry = useCallback((id: string, ast: LayoutAST): MicrositeHistoryEntry => {
@@ -116,16 +118,12 @@ export function useMicrositeHistory(namespace?: string, apiKey?: string) {
     return entry;
   }, [namespace, apiKey, load]);
 
-  const deleteEntry = useCallback((id: string) => {
-    const inner = id.startsWith('server::') ? id.slice(8) : (namespace ?? '');
-    // inner is "<ns>::<mode>" (e.g. "lnp2::pro") or just "<ns>" for legacy
-    const lastSep = inner.lastIndexOf('::');
-    const targetNs = lastSep >= 0 ? inner.slice(0, lastSep) : inner;
-    const rawMode = lastSep >= 0 ? inner.slice(lastSep + 2) : undefined;
-    // 'unknown' means no generationMode — delete all files for the namespace
-    const modeParam = (rawMode && rawMode !== 'unknown') ? rawMode : undefined;
-    if (apiKey && targetNs) {
-      deleteMicrositeHistoryFromServer(apiKey, targetNs, modeParam)
+  const deleteEntry = useCallback((_id: string, entryId: string, targetNamespace?: string) => {
+    // entryId is the canonical key: microsite:pro:1716023445123
+    // targetNamespace is the namespace the file lives under
+    const targetNs = targetNamespace ?? namespace ?? '';
+    if (apiKey && targetNs && entryId) {
+      deleteMicrositeHistoryFromServer(apiKey, targetNs, entryId)
         .then(() => load()).catch(() => {});
     }
   }, [namespace, apiKey, load]);
