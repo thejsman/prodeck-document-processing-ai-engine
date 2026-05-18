@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import {
   ArrowUp,
@@ -38,6 +39,7 @@ import { ProposalForm } from '@/components/ProposalForm';
 import { fetchMicrositeContent, fetchKnowledgeFiles, postUploadMessage, type ProposalDocument, type Presentation } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
+import { MicrositePro } from '@/components/microsite/MicrositePro';
 import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useExecutionStore } from '@/core/execution/execution-store';
@@ -131,6 +133,7 @@ export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
   const { openMobileNav } = useMobileNav();
+  const router = useRouter();
 
   const brief = useBrief(namespace || 'default', apiKey);
   const { status: collectionStatus, loading: collectionLoading } = useCollectionStatus();
@@ -195,7 +198,7 @@ export default function ChatPage() {
   const [isGeneratingFromModal, setIsGeneratingFromModal] = useState(false);
   const [generatedDoc, setGeneratedDoc] = useState<ProposalDocument | null>(null);
 
-  const [viewMicrosite, setViewMicrosite] = useState<Presentation | null>(null);
+  const [viewMicrosite, setViewMicrosite] = useState<{ entryId: string; namespace: string; proposalId: string; displayName: string } | null>(null);
   const [viewMicrositeAST, setViewMicrositeAST] = useState<LayoutAST | null>(null);
   const [viewMicrositeLoading, setViewMicrositeLoading] = useState(false);
   const [editingMicrosite, setEditingMicrosite] = useState(false);
@@ -324,7 +327,7 @@ export default function ChatPage() {
     if (!viewMicrosite || !apiKey) return;
     setViewMicrositeAST(null);
     setViewMicrositeLoading(true);
-    fetchMicrositeContent(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId)
+    fetchMicrositeContent(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId, undefined, viewMicrosite.entryId)
       .then(({ ast }) => setViewMicrositeAST(ast as LayoutAST))
       .catch(() => {})
       .finally(() => setViewMicrositeLoading(false));
@@ -894,12 +897,17 @@ export default function ChatPage() {
   const isProposalStream = sections.length > 0 || toolEvents.length > 0 || hadPhaseRef.current;
 
   if (viewMicrosite) {
-    const { name } = parseMicrositeInfo(viewMicrosite.proposalId);
     const dismiss = () => {
       setViewMicrosite(null);
       setViewMicrositeAST(null);
       setEditingMicrosite(false);
     };
+    const isPro = viewMicrositeAST?.generationMode !== 'classic';
+    const entryParam = `?entryId=${encodeURIComponent(viewMicrosite.entryId)}`;
+    const editorPath = isPro
+      ? `/microsite-editor-pro/${encodeURIComponent(viewMicrosite.namespace)}/${encodeURIComponent(viewMicrosite.proposalId)}${entryParam}`
+      : `/microsite-editor/${encodeURIComponent(viewMicrosite.namespace)}/${encodeURIComponent(viewMicrosite.proposalId)}${entryParam}`;
+    const MicrositeComponent = isPro ? MicrositePro : Microsite;
 
     if (editingMicrosite && viewMicrositeAST) {
       return (
@@ -921,7 +929,7 @@ export default function ChatPage() {
         <div className="chat-v2-center">
           <header className={`chat-v2-header${msHeaderScrolled ? ' chat-v2-header--scrolled' : ''}`}>
             <div className="chat-v2-header-left">
-              <span className="chat-v2-ns">{name}</span>
+              <span className="chat-v2-ns">{viewMicrosite.displayName}</span>
             </div>
             <div className="chat-v2-header-right">
               {viewMicrositeAST && (
@@ -935,7 +943,7 @@ export default function ChatPage() {
                   </button>
                   <button
                     className="chat-v2-clear-btn"
-                    onClick={() => setEditingMicrosite(true)}
+                    onClick={() => router.push(editorPath)}
                     aria-label="Edit microsite"
                   >
                     <Icon icon={Pencil} size="md" />
@@ -950,21 +958,12 @@ export default function ChatPage() {
           <div style={{ flex: 1, overflow: 'auto' }}>
             <div ref={msSentinelRef} style={{ height: 0, flexShrink: 0 }} />
             {viewMicrositeLoading && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '100%',
-                  color: 'var(--muted)',
-                  fontSize: 14,
-                }}
-              >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
                 Loading…
               </div>
             )}
             {!viewMicrositeLoading && viewMicrositeAST && (
-              <Microsite
+              <MicrositeComponent
                 ref={micrositeRef}
                 ast={viewMicrositeAST}
                 mode="embedded"
@@ -1767,7 +1766,7 @@ export default function ChatPage() {
       >
         <NamespacePanel
           namespace={namespace}
-          onMicrositeClick={setViewMicrosite}
+          onMicrositeClick={(info) => setViewMicrosite(info)}
           fileRefreshTick={fileRefreshTick}
           onHasContent={setPanelHasContent}
         />
