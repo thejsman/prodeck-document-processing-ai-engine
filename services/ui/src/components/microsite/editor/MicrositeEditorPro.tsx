@@ -63,11 +63,139 @@ function getSectionHtml(section: LayoutSection): string {
   return ((section as unknown as Record<string, unknown>).customHtml as string | undefined) ?? '';
 }
 
+const _NAV_LABELS: Record<string, string> = {
+  hero:'Home',overview:'Overview',challenge:'Challenge',problem:'Problem',
+  approach:'Approach',deliverables:'Deliverables',timeline:'Timeline',
+  pricing:'Pricing',whyus:'Why Us',nextsteps:'Next Steps',
+  testimonials:'Testimonials',showcase:'Our Work',benefits:'Key Benefits',
+  stats:'Stats',metrics:'Performance',security:'Risk & Compliance',
+  techstack:'Tech Stack',testing:'Testing',faq:'FAQs',team:'Our Team',
+  comparison:'How We Compare',casestudy:'Case Study',approval:'Sign Off',generic:'Details',
+};
+
+function buildNavHtml(ast: LayoutAST): string {
+  const brand   = ast.brand as unknown as Record<string, unknown>;
+  const cssVars = (brand?.extractedCssVariables ?? {}) as Record<string, string>;
+  const bg      = cssVars['--ms-bg']      ?? '#0d1117';
+  const accent  = cssVars['--ms-accent']  ?? '#4FA3E8';
+  const border  = cssVars['--ms-border']  ?? 'rgba(255,255,255,0.1)';
+  const rawFont = cssVars['--ms-font-body'] ?? "'sans-serif'";
+  const bodyFont = rawFont.replace(/"/g, "'");
+  const isDark  = cssVars['--ms-is-dark'] !== '0';
+  const logoUrl  = brand?.logoUrl  as string | undefined;
+  const logoText = (brand?.logoText as string | undefined) ?? (brand?.companyName as string | undefined) ?? '';
+  const inactive = isDark ? 'rgba(255,255,255,0.62)' : 'rgba(0,0,0,0.52)';
+
+  const allSections = ast.sections ?? [];
+  const typeCounts: Record<string, number> = {};
+  allSections.forEach(s => { typeCounts[s.sectionType] = (typeCounts[s.sectionType] ?? 0) + 1; });
+
+  const navSections = allSections.filter(s =>
+    s.sectionType !== 'approval' && (s.sectionType as string) !== 'chart' && s.sectionType !== 'hero'
+  );
+
+  const getLabel = (s: LayoutSection): string => {
+    const mapped = _NAV_LABELS[s.sectionType];
+    if (mapped && typeCounts[s.sectionType] === 1) return mapped;
+    if (s.heading) return s.heading.split(/\s+/).slice(0, 3).join(' ');
+    return mapped ?? 'Section';
+  };
+
+  const logoHtml = logoUrl
+    ? `<img src="${logoUrl}" alt="${logoText}" style="height:28px;object-fit:contain;max-width:160px">`
+    : `<span style="font-family:${bodyFont},sans-serif;font-weight:700;font-size:15px;color:${accent};letter-spacing:0.12em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${logoText}</span>`;
+
+  const linkButtons = navSections.map(s =>
+    `<button class="ms-xnav-link" data-target="${s.id}" style="background:none;border:none;border-bottom:1.5px solid transparent;cursor:pointer;font-family:${bodyFont},sans-serif;font-size:11px;font-weight:600;color:${inactive};letter-spacing:0.08em;text-transform:uppercase;padding:4px 0 2px;white-space:nowrap;transition:color 0.2s;flex-shrink:0">${getLabel(s)}</button>`
+  ).join('');
+
+  const mobileButtons = navSections.map((s, i) =>
+    `<button class="ms-xnav-mlink" data-target="${s.id}" style="background:rgba(255,255,255,0.04);border:1px solid ${border};border-radius:8px;cursor:pointer;text-align:center;padding:10px 8px;font-family:${bodyFont},sans-serif;font-size:10px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:${inactive};transition:color 0.15s,background 0.15s;display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;line-height:1.3"><span style="width:18px;height:18px;border-radius:5px;background:rgba(255,255,255,0.08);flex-shrink:0;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center">${i + 1}</span>${getLabel(s)}</button>`
+  ).join('');
+
+  // Escape values for inline JS string literals
+  const jsAccent  = accent.replace(/'/g, "\\'");
+  const jsBg      = bg.replace(/'/g, "\\'");
+  const jsInactive = inactive.replace(/'/g, "\\'");
+  const jsBorder  = border.replace(/'/g, "\\'");
+
+  return `<div id="ms-xnav-pb" style="position:sticky;top:0;left:0;right:0;height:2px;background:${accent}20;z-index:600;pointer-events:none"><div id="ms-xnav-p" style="height:100%;width:0%;background:${accent};transition:width 0.1s linear"></div></div>
+<nav id="ms-xnav" style="position:sticky;top:2px;left:0;right:0;z-index:500;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;background:${bg}99;backdrop-filter:blur(16px);border-bottom:1px solid transparent;transition:background 0.3s,border-color 0.3s">
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">${logoHtml}</div>
+  <div id="ms-xnav-links" style="display:flex;align-items:center;gap:20px;flex-shrink:0">${linkButtons}</div>
+  <button id="ms-xnav-burger" style="display:none;background:none;border:1px solid transparent;border-radius:8px;cursor:pointer;padding:6px 8px;color:${inactive};flex-direction:column;align-items:center;justify-content:center;gap:4px;transition:background 0.15s" onclick="msXNavToggle()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h16M4 16h16"/></svg></button>
+</nav>
+<div id="ms-xnav-mob" style="display:none;position:sticky;top:66px;left:0;right:0;z-index:499;background:${bg}f0;backdrop-filter:blur(24px);border-bottom:1px solid ${border}">
+  <div style="padding:12px 16px 16px;display:grid;grid-template-columns:repeat(2,1fr);gap:6px">${mobileButtons}</div>
+</div>
+<script>
+(function(){
+  var accent='${jsAccent}',bg='${jsBg}',inactive='${jsInactive}',bdr='${jsBorder}';
+  var mOpen=false;
+  window.addEventListener('scroll',function(){
+    var sc=document.documentElement.scrollHeight-window.innerHeight;
+    var pct=sc>0?(window.scrollY/sc*100):0;
+    var p=document.getElementById('ms-xnav-p');if(p)p.style.width=pct+'%';
+    var nav=document.getElementById('ms-xnav');
+    if(nav){nav.style.background=window.scrollY>60?bg+'cc':bg+'99';nav.style.borderBottomColor=window.scrollY>60?bdr:'transparent';}
+  },{passive:true});
+  function checkLayout(){
+    var nav=document.getElementById('ms-xnav'),lnk=document.getElementById('ms-xnav-links'),brg=document.getElementById('ms-xnav-burger');
+    if(!nav||!lnk||!brg)return;
+    var narrow=nav.getBoundingClientRect().width<640;
+    lnk.style.display=narrow?'none':'flex';brg.style.display=narrow?'flex':'none';
+    if(!narrow){var m=document.getElementById('ms-xnav-mob');if(m)m.style.display='none';mOpen=false;}
+  }
+  window.addEventListener('resize',checkLayout);checkLayout();
+  var vis={};
+  function setActive(id){
+    document.querySelectorAll('.ms-xnav-link,.ms-xnav-mlink').forEach(function(b){
+      var isA=b.getAttribute('data-target')===id;
+      b.style.color=isA?accent:inactive;
+      if(b.classList.contains('ms-xnav-link'))b.style.borderBottomColor=isA?accent:'transparent';
+      if(b.classList.contains('ms-xnav-mlink')){b.style.background=isA?accent+'18':'rgba(255,255,255,0.04)';b.style.borderColor=isA?accent+'50':bdr;}
+    });
+  }
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){if(e.isIntersecting)vis[e.target.id]=e.intersectionRatio;else delete vis[e.target.id];});
+      var best='',bestR=0;Object.keys(vis).forEach(function(k){if(vis[k]>bestR){bestR=vis[k];best=k;}});setActive(best);
+    },{threshold:[0,0.1,0.3,0.5],rootMargin:'-64px 0px 0px 0px'});
+    document.querySelectorAll('.ms-xnav-link,.ms-xnav-mlink').forEach(function(b){var el=document.getElementById(b.getAttribute('data-target'));if(el)io.observe(el);});
+  }
+  document.querySelectorAll('.ms-xnav-link,.ms-xnav-mlink').forEach(function(b){
+    b.addEventListener('click',function(){
+      var el=document.getElementById(b.getAttribute('data-target'));
+      if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+      var m=document.getElementById('ms-xnav-mob');if(m)m.style.display='none';mOpen=false;
+    });
+  });
+  window.msXNavToggle=function(){
+    mOpen=!mOpen;var m=document.getElementById('ms-xnav-mob'),brg=document.getElementById('ms-xnav-burger');
+    if(m)m.style.display=mOpen?'block':'none';
+    if(brg){brg.style.background=mOpen?accent+'18':'none';brg.style.borderColor=mOpen?accent:'transparent';brg.style.color=mOpen?accent:inactive;}
+  };
+})();
+</script>`;
+}
+
 function buildFullHtml(ast: LayoutAST, sectionHtmls: string[]): string {
-  const brand         = ast.brand as unknown as Record<string, unknown>;
+  const brand          = ast.brand as unknown as Record<string, unknown>;
   const googleFontsUrl = brand?.googleFontsUrl as string | undefined;
-  const fontLink      = googleFontsUrl ? `<link rel="stylesheet" href="${googleFontsUrl}">` : '';
-  const title         = ast.meta?.title ?? ast.brand?.companyName ?? 'Microsite';
+  const fontLink       = googleFontsUrl ? `<link rel="stylesheet" href="${googleFontsUrl}">` : '';
+  const title          = ast.meta?.title ?? ast.brand?.companyName ?? 'Microsite';
+  const navHtml        = buildNavHtml(ast);
+
+  // Wrap each section with its id so the nav can scroll-to it
+  const sectionsHtml = ast.sections
+    .map((s, i) => {
+      const html = sectionHtmls[i];
+      if (!html) return '';
+      return `<div id="${s.id}" style="scroll-margin-top:64px">${html}</div>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -78,7 +206,8 @@ function buildFullHtml(ast: LayoutAST, sectionHtmls: string[]): string {
   <style>*{box-sizing:border-box}body{margin:0;padding:0}</style>
 </head>
 <body>
-${sectionHtmls.filter(Boolean).join('\n')}
+${navHtml}
+${sectionsHtml}
 </body>
 </html>`;
 }
