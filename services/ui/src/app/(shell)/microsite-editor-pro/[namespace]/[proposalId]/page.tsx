@@ -5,7 +5,6 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { fetchMicrositeContent, saveMicrositeAst } from '@/lib/api';
-import { persistMicrositeHistoryEntry } from '@/lib/useMicrositeHistory';
 import { MicrositeEditorPro } from '@/components/microsite/editor/MicrositeEditorPro';
 import type { LayoutAST } from '@/types/presentation';
 
@@ -74,7 +73,6 @@ export default function MicrositeEditorProPage() {
         if (apiKey) {
           await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst, entryId).catch(() => {});
         }
-        persistMicrositeHistoryEntry(namespace, updatedAst, apiKey ?? undefined);
       }}
     />
   );
