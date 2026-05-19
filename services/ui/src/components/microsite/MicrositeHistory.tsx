@@ -330,6 +330,15 @@ export function MicrositeHistory({
           const sectionCount = sections.length;
           const clientName = (entry.ast.meta as { client?: string } | undefined)?.client;
 
+          // Build a multi-color gradient from section type colors
+          const sectionColors = sections.length > 0
+            ? sections.map((s) => getSectionColor(s.sectionType ?? '', primaryColor))
+            : [primaryColor, secondaryColor];
+          const step = 100 / sectionColors.length;
+          const headerGradient = `linear-gradient(90deg, ${sectionColors
+            .map((c, i) => `${c} ${(i * step).toFixed(1)}%, ${c} ${((i + 1) * step).toFixed(1)}%`)
+            .join(', ')})`;
+
           return (
             <div
               key={entry.id}
@@ -350,11 +359,11 @@ export function MicrositeHistory({
               onMouseEnter={() => setHoveredCard(entry.id)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              {/* ── Header: gradient + section lane visualization ── */}
+              {/* ── Header: multi-color section strip ── */}
               <div
                 style={{
                   height: 52,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                  background: headerGradient,
                   position: 'relative',
                   flexShrink: 0,
                   overflow: 'hidden',
@@ -412,36 +421,6 @@ export function MicrositeHistory({
                   v{version}
                 </div>
 
-                {/* Section type bars — bottom strip */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    display: 'flex',
-                    height: 6,
-                    gap: 1,
-                    padding: '0 1px',
-                  }}
-                >
-                  {sections.length > 0 ? (
-                    sections.map((s, i) => (
-                      <div
-                        key={i}
-                        title={s.sectionType ?? 'section'}
-                        style={{
-                          flex: 1,
-                          background: getSectionColor(s.sectionType ?? '', primaryColor),
-                          opacity: 0.9,
-                          borderRadius: i === 0 ? '2px 0 0 0' : i === sections.length - 1 ? '0 2px 0 0' : 0,
-                        }}
-                      />
-                    ))
-                  ) : (
-                    <div style={{ flex: 1, background: 'rgba(255,255,255,0.2)' }} />
-                  )}
-                </div>
               </div>
 
               {/* ── Body ── */}
