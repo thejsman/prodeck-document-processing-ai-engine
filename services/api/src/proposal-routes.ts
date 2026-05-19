@@ -153,7 +153,10 @@ export function registerProposalRoutes(
       const client = body.client;
       const industry = body.industry ?? 'General';
       const namespace = body.namespace ?? 'default';
-      const template = body.template ?? 'default';
+      const rawTemplate = body.template ?? 'default';
+      // Scope "default" to the namespace so different namespaces don't share
+      // a single cached default.yaml that may be specific to another project.
+      const template = rawTemplate === 'default' ? `default-${namespace}` : rawTemplate;
       const overwrite = body.overwrite ?? false;
       const pricing = body.pricing ?? null;
       const tone = body.tone ?? null;

@@ -202,9 +202,12 @@ export async function handleGenerateProposal(
   const clientIndustry = ((params.clientIndustry as string | undefined) ?? 'General').trim();
   const projectType = ((params.projectType as string | undefined) ?? '').trim();
   const industry = clientIndustry; // processor payload field name kept for compatibility
-  const template = ((params.template as string | undefined) ?? 'default').trim();
-  const skillSlug = ((params.skill as string | undefined) ?? '').trim();
   const { workdir, namespace, policyConfig, generateFn } = ctx;
+  // When the caller requests the generic "default" template, scope it to the
+  // current namespace so different namespaces don't share the same cached file.
+  const rawTemplate = ((params.template as string | undefined) ?? 'default').trim();
+  const template = rawTemplate === 'default' ? `default-${namespace}` : rawTemplate;
+  const skillSlug = ((params.skill as string | undefined) ?? '').trim();
 
   // Load skill context if specified
   let skillTone: string | null = null;
