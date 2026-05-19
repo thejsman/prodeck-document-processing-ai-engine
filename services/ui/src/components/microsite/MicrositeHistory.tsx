@@ -362,7 +362,7 @@ export function MicrositeHistory({
               {/* ── Header: multi-color section strip ── */}
               <div
                 style={{
-                  height: 52,
+                  height: 40,
                   background: headerGradient,
                   position: 'relative',
                   flexShrink: 0,
