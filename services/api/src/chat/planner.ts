@@ -138,7 +138,7 @@ ${relevantKnowledge.map((k) => `[${k.category}] ${k.content}`).join('\n')}
 - Proposals: ${JSON.stringify(chatContext.proposals)}
 - Templates: ${JSON.stringify(chatContext.templates)}
 - Documents: ${chatContext.ingestedDocuments.map((d) => d.fileName).join(', ') || 'none'}
-${chatContext.skills?.length ? `\n## Available Proposal Skills\n${chatContext.skills.map((s) => `- ${s.slug}: ${s.displayName}`).join('\n')}` : ''}
+${chatContext.skills?.length ? `\n## Available Proposal Skills (already loaded — do NOT call list_skills)\n${chatContext.skills.map((s) => `- ${s.slug}: ${s.displayName}`).join('\n')}` : ''}
 ${chatContext.designSkills?.length ? `\n## Available Design Skills (use designSkillSlug with generate_microsite)\n${chatContext.designSkills.map((s) => `- ${s.slug}: ${s.displayName} (${s.aestheticTone}, ${s.themeClass})`).join('\n')}` : ''}
 ${nsContext.selectedTemplate ? `\n## Confirmed Template\nThe user has already confirmed the template to use: "${nsContext.selectedTemplate.templateId}" (${nsContext.selectedTemplate.name}). Use this template ID when calling generate_proposal.` : ''}
 
@@ -152,6 +152,7 @@ ${nsContext.selectedTemplate ? `\n## Confirmed Template\nThe user has already co
 7. NEVER invent tool names or action types
 8. Use knowledge entries to enrich tool parameters when relevant
 9. For STATUS_CHECK: if the user wants to CHANGE/SET/APPROVE/REJECT a proposal status, use set_proposal_status — NOT list_proposals. If only one proposal exists, use it. If the target status is clear from the message (e.g. "approved", "finalized"), include it in params. If the status is unknown, use ASK to ask for it first.
+10. For GENERATE_PROPOSAL with a skill: if the user mentions using a skill/proposal skill and Available Proposal Skills are listed above — if exactly one skill exists, set skill to its slug in generate_proposal params. If multiple skills exist and the user hasn't named one, use ASK to ask which skill they want to use (list the options by displayName). If the user has named a skill (by displayName or slug), match it to the slug and set skill param. NEVER call list_skills when skills are already listed above.
 
 Respond with ONLY this JSON:
 { "intent": "${intent}", "actions": [...] }`
@@ -179,6 +180,23 @@ export function buildFallbackPlan(
       const params: Record<string, unknown> = { client: clientName, projectType, clientIndustry };
       if (context.selectedTemplate) {
         params.template = context.selectedTemplate.templateId;
+      }
+      const wantsSkill = /skill/i.test(message);
+      const availableSkills = chatContext?.skills ?? [];
+      if (wantsSkill && availableSkills.length > 0) {
+        // Check if the message already names a specific skill (slug or displayName)
+        const namedSkill = availableSkills.find(
+          (s) => message.toLowerCase().includes(s.slug.toLowerCase()) ||
+                 message.toLowerCase().includes(s.displayName.toLowerCase()),
+        );
+        if (namedSkill) {
+          params.skill = namedSkill.slug;
+        } else if (availableSkills.length === 1) {
+          params.skill = availableSkills[0].slug;
+        } else {
+          const skillOptions = availableSkills.map((s) => `- ${s.displayName} (\`${s.slug}\`)`).join('\n');
+          return { intent, actions: [{ type: 'ASK', question: `Which proposal skill would you like to use?\n\n${skillOptions}` }] };
+        }
       }
       return { intent, actions: [{ type: 'CALL_TOOL', tool: 'generate_proposal', params }] };
     }

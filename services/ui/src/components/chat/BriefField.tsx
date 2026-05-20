@@ -84,30 +84,21 @@ export function BriefField({ fieldKey, field, onEdit, onAsk, onConfirm }: Props)
     }
   }
 
-  // Indicator icon
-  const indicator = isEmpty
-    ? <span style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1 }}>○</span>
+  const dotColor = isEmpty
+    ? 'var(--border)'
     : isHighConfidence
-    ? <span style={{ color: 'var(--success, #22c55e)', fontSize: 14, lineHeight: 1 }}>●</span>
-    : <span style={{ color: 'var(--warning, #f59e0b)', fontSize: 14, lineHeight: 1 }}>◐</span>;
-
-  const row: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: '16px 130px 1fr auto',
-    alignItems: 'start',
-    gap: 8,
-    padding: '5px 0',
-    fontSize: 13,
-    borderBottom: '1px solid var(--border)',
-  };
+    ? 'var(--success, #22c55e)'
+    : 'var(--warning, #f59e0b)';
 
   if (editing) {
     const multiline = MULTILINE_FIELDS.includes(fieldKey);
     return (
-      <div style={row}>
-        <span>{indicator}</span>
-        <span style={{ color: 'var(--muted)', paddingTop: 2 }}>{label}</span>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="brief-field-card">
+        <div className="brief-field-header">
+          <span className="brief-field-dot" style={{ background: dotColor }} />
+          <span className="brief-field-label">{label}</span>
+        </div>
+        <div className="brief-field-edit-body">
           {multiline ? (
             <textarea
               ref={inputRef as React.RefObject<HTMLTextAreaElement>}
@@ -115,11 +106,7 @@ export function BriefField({ fieldKey, field, onEdit, onAsk, onConfirm }: Props)
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Escape') cancelEdit(); }}
               rows={3}
-              style={{
-                width: '100%', fontSize: 13, padding: '4px 8px',
-                border: '1px solid var(--primary)', borderRadius: 6,
-                background: 'var(--panel)', color: 'var(--text)', resize: 'vertical',
-              }}
+              className="brief-field-textarea"
             />
           ) : (
             <input
@@ -131,14 +118,10 @@ export function BriefField({ fieldKey, field, onEdit, onAsk, onConfirm }: Props)
                 if (e.key === 'Enter') saveEdit();
                 if (e.key === 'Escape') cancelEdit();
               }}
-              style={{
-                width: '100%', fontSize: 13, padding: '4px 8px',
-                border: '1px solid var(--primary)', borderRadius: 6,
-                background: 'var(--panel)', color: 'var(--text)',
-              }}
+              className="brief-field-input"
             />
           )}
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div className="brief-field-edit-actions">
             <button
               onClick={saveEdit}
               disabled={saving}
@@ -156,64 +139,59 @@ export function BriefField({ fieldKey, field, onEdit, onAsk, onConfirm }: Props)
             </button>
           </div>
         </div>
-        <span />
       </div>
     );
   }
 
   return (
-    <div style={row}>
-      <span style={{ paddingTop: 2 }}>{indicator}</span>
-      <span style={{ color: 'var(--muted)', paddingTop: 2 }}>{label}</span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-        {isEmpty ? (
-          <span style={{ color: 'var(--muted)' }}>—</span>
-        ) : (
-          <>
-            <span style={{ color: 'var(--text)', wordBreak: 'break-word' }}>
-              {displayValue(field?.value)}
+    <div className="brief-field-card">
+      <div className="brief-field-header">
+        <span className="brief-field-dot" style={{ background: dotColor }} />
+        <span className="brief-field-label">{label}</span>
+        <div className="brief-field-actions">
+          {isEmpty && (
+            <button
+              onClick={() => onAsk(`What is the ${label.toLowerCase()} for this engagement?`)}
+              className="btn btn-sm"
+              style={{ height: 22, padding: '0 7px', fontSize: 11, color: 'var(--primary)' }}
+            >
+              Ask
+            </button>
+          )}
+          {!isEmpty && isLowOrPending && (
+            <button
+              onClick={handleConfirm}
+              disabled={saving}
+              className="btn btn-sm btn-primary"
+              style={{ height: 22, padding: '0 7px', fontSize: 11 }}
+            >
+              {saving ? '…' : 'Confirm'}
+            </button>
+          )}
+          {!isEmpty && (
+            <button
+              onClick={startEdit}
+              className="btn btn-sm"
+              style={{ height: 22, padding: '0 7px', fontSize: 11 }}
+            >
+              Edit
+            </button>
+          )}
+        </div>
+      </div>
+      {!isEmpty && (
+        <div className="brief-field-value-row">
+          <span className="brief-field-value">{displayValue(field?.value)}</span>
+          {field?.sourceFile && (
+            <span className="brief-field-source">
+              {field.source === 'user' ? '✏ user' : `📄 ${field.sourceFile}`}
+              {isLowOrPending && field?.confidence !== undefined && (
+                <span style={{ marginLeft: 4 }}>({(field.confidence * 100).toFixed(0)}%)</span>
+              )}
             </span>
-            {field?.sourceFile && (
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                {field.source === 'user' ? '✏ user' : `📄 ${field.sourceFile}`}
-                {isLowOrPending && field?.confidence !== undefined && (
-                  <span style={{ marginLeft: 4 }}>({(field.confidence * 100).toFixed(0)}%)</span>
-                )}
-              </span>
-            )}
-          </>
-        )}
-      </div>
-      <div style={{ display: 'flex', gap: 4, flexShrink: 0, paddingTop: 1 }}>
-        {isEmpty && (
-          <button
-            onClick={() => onAsk(`What is the ${label.toLowerCase()} for this engagement?`)}
-            className="btn btn-sm"
-            style={{ height: 24, padding: '0 8px', fontSize: 11, color: 'var(--primary)' }}
-          >
-            Ask
-          </button>
-        )}
-        {!isEmpty && isLowOrPending && (
-          <button
-            onClick={handleConfirm}
-            disabled={saving}
-            className="btn btn-sm btn-primary"
-            style={{ height: 24, padding: '0 8px', fontSize: 11 }}
-          >
-            {saving ? '…' : 'Confirm'}
-          </button>
-        )}
-        {!isEmpty && (
-          <button
-            onClick={startEdit}
-            className="btn btn-sm"
-            style={{ height: 24, padding: '0 8px', fontSize: 11 }}
-          >
-            Edit
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

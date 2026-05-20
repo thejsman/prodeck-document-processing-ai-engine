@@ -484,11 +484,9 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
                     {statusLabel(p.status)}
                   </span>
                 )}
-                {p.version != null && (
-                  <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                    v{p.version}
-                  </span>
-                )}
+                <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                  v{p.version ?? 1}
+                </span>
                 <button
                   ref={el => { proposalMenuBtnRefs.current[p.fileName] = el; }}
                   className="btn btn-sm"

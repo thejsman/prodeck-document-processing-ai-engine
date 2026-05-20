@@ -187,7 +187,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
         {/* New Namespace button */}
         <div className="sidebar-link" onClick={() => setShowModal(true)} style={{ cursor: 'pointer' }}>
           <Icon icon={PlusCircle} size="md" className="sidebar-icon" />
-          <span className="sidebar-label">New Client</span>
+          <span className="sidebar-label">Create Namespace</span>
         </div>
 
         {/* Namespaces section label — collapses/expands list */}
@@ -199,7 +199,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
           style={{ cursor: 'pointer' }}
         >
           <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>
-            Clients
+            Namespaces
           </span>
           <Icon
             icon={ChevronDown}
