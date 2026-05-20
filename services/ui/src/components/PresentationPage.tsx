@@ -505,27 +505,7 @@ export function PresentationPage() {
     layoutASTRef.current = layoutAST;
   }, [layoutAST]);
 
-  // Auto-save AST to disk (debounced) whenever it changes after initial generation.
-  // This ensures section deletions/edits survive page refresh without requiring
-  // the user to open the full editor and click Export.
   const abortCtrlRef = useRef<AbortController | null>(null);
-  const astSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedAstRef = useRef<string>('');
-  useEffect(() => {
-    if (!layoutAST || !apiKey || !selectedNamespace) return;
-    const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
-    const serialized = JSON.stringify(layoutAST);
-    if (serialized === lastSavedAstRef.current) return; // no change
-    if (astSaveTimerRef.current) clearTimeout(astSaveTimerRef.current);
-    astSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST);
-        lastSavedAstRef.current = serialized;
-      } catch {
-        /* best-effort — don't show error for background save */
-      }
-    }, 1000);
-  }, [layoutAST, apiKey, selectedNamespace, selectedProposal]);
   const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal
@@ -620,7 +600,7 @@ export function PresentationPage() {
           const recovered = ast as LayoutAST;
           setLayoutAST(recovered);
           if (!currentHistoryIdRef.current) {
-            const saved = addEntry(recovered);
+            const saved = await addEntry(recovered);
             currentHistoryIdRef.current = saved.id;
           }
           setProgress((p) =>
@@ -832,6 +812,30 @@ export function PresentationPage() {
       })
       .finally(() => setLoadingAST(false));
   }, [step, layoutAST, apiKey, selectedNamespace, selectedProposal]);
+
+  // When navigating from chat via ?mode=view&namespace=xxx&proposalId=yyy,
+  // load the AST directly — chat doesn't set wizard state so selectedProposal is null.
+  useEffect(() => {
+    if (layoutAST || !apiKey) return;
+    const params = new URLSearchParams(window.location.search);
+    const nsParam   = params.get("namespace");
+    const pidParam  = params.get("proposalId");
+    const modeParam = params.get("mode");
+    if (!pidParam || modeParam !== "view" || !nsParam) return;
+    // Seed local + global namespace so the rest of the page works correctly
+    setSelectedNamespace(nsParam);
+    setGlobalNamespace(nsParam);
+    setLoadingAST(true);
+    fetchMicrositeContent(apiKey, nsParam, pidParam)
+      .then(({ ast }) => {
+        if (ast && typeof ast === "object" && (ast as { sections?: unknown[] }).sections?.length) {
+          setLayoutAST(ast as LayoutAST);
+          setStep("preview");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingAST(false));
+  }, [apiKey]); // run once when apiKey is ready — URL params are stable
 
   const runPipeline = useCallback(
     async (modeOverride?: 'pro' | 'classic') => {
@@ -1175,11 +1179,10 @@ export function PresentationPage() {
                 };
               }
               setLayoutAST(ast);
-              const saved = addEntry(ast);
-              currentHistoryIdRef.current = saved.id;
-              // Persist to server immediately so history Edit works without requiring
-              // the user to click Edit from the preview first.
-              saveMicrositeAst(apiKey, selectedNamespace, proposalId, ast).catch(() => {});
+              // Set a truthy placeholder immediately so the finally block won't fire
+              // a second addEntry while this async save is still in-flight.
+              currentHistoryIdRef.current = 'saving';
+              addEntry(ast).then((saved) => { currentHistoryIdRef.current = saved.id; }).catch(() => { currentHistoryIdRef.current = null; });
               setGeneratedMarkdown(sourceMarkdown);
             }
             setStep('preview');
@@ -1247,7 +1250,7 @@ export function PresentationPage() {
         if (userCancelledRef.current) {
           // User cancelled — discard any partial entry already saved during streaming
           if (currentHistoryIdRef.current) {
-            deleteEntry(currentHistoryIdRef.current);
+            deleteEntry(currentHistoryIdRef.current, '');
             currentHistoryIdRef.current = null;
           }
         } else {
@@ -1256,7 +1259,7 @@ export function PresentationPage() {
           const latestAST = layoutASTRef.current;
           if (latestAST?.sections?.length) {
             if (!currentHistoryIdRef.current) {
-              const saved = addEntry(latestAST);
+              const saved = await addEntry(latestAST);
               currentHistoryIdRef.current = saved.id;
             }
             setStep('preview');
@@ -1350,10 +1353,10 @@ export function PresentationPage() {
           namespace={selectedNamespace}
           proposalId={selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace}
           onClose={() => setShowEditor(false)}
-          onExport={(editedAst) => {
+          onExport={async (editedAst) => {
             setLayoutAST(editedAst);
             // Create a separate copy in history — original entry is preserved
-            const saved = addEntry(editedAst);
+            const saved = await addEntry(editedAst);
             currentHistoryIdRef.current = saved.id;
             setShowEditor(false);
           }}
@@ -1386,14 +1389,16 @@ export function PresentationPage() {
             generating
               ? undefined
               : () => {
-                  saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST).catch(() => {});
+                  const entryParam = currentHistoryIdRef.current
+                    ? `?entryId=${encodeURIComponent(currentHistoryIdRef.current)}`
+                    : '';
                   if (layoutAST.generationMode === 'pro') {
                     router.push(
-                      `/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`,
+                      `/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}${entryParam}`,
                     );
                   } else {
                     router.push(
-                      `/microsite-editor/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`,
+                      `/microsite-editor/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}${entryParam}`,
                     );
                   }
                 }

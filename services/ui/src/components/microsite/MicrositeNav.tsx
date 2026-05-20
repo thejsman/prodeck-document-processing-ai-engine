@@ -34,7 +34,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
   // Detect actual nav container width instead of relying on @media queries,
   // so the hamburger works inside the editor's 375px preview pane.
   const [isMobileLayout, setIsMobileLayout] = useState(false);
-  const [navWidth, setNavWidth] = useState(1200);
+  const [navWidth, setNavWidth] = useState(0);
   const navRef = useRef<HTMLElement>(null);
   // Suppress IntersectionObserver active-state updates during programmatic scroll
   const scrollingRef = useRef<boolean>(false);
@@ -215,7 +215,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
   // How many links fit in available space (logo ~200px, padding 48px, "More" btn ~64px)
   const LOGO_RESERVED = 220;
   const MORE_BTN_W = 70;
-  const AVG_ITEM_W = 72; // rough px per nav item at 11px uppercase
+  const AVG_ITEM_W = 100; // accounts for longer section labels at 11px uppercase
   const availableW = Math.max(0, navWidth - LOGO_RESERVED - MORE_BTN_W);
   const maxVisible = Math.max(2, Math.floor(availableW / AVG_ITEM_W));
   const visibleLinks = navLinks.slice(0, maxVisible);
@@ -297,7 +297,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
 
         {/* Desktop nav links — hidden when container is narrow or sections > 11 */}
         {!useHamburger && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: navGap, flexShrink: 0, position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: navGap, flexShrink: 1, minWidth: 0, position: 'relative' }}>
             {visibleLinks.map((s) => {
               const isActive = activeId === s.id;
               return (
