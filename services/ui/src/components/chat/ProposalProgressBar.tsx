@@ -80,7 +80,7 @@ export function ProposalProgressBar({ phase, toolEvents, sectionCount, isStreami
                 {isDone
                   ? <Check size={11} strokeWidth={2.5} />
                   : isActive
-                    ? <span className="ppb-dots"><span /><span /><span /></span>
+                    ? <span className="ppb-dots" aria-hidden="true" />
                     : null
                 }
               </div>
