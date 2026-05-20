@@ -48,6 +48,7 @@ import { startExecutionTransport } from '@/core/execution/execution-transport';
 import { BriefPanel } from '@/components/chat/BriefPanel';
 import { ExtractionConfirmationCard } from '@/components/chat/ExtractionConfirmationCard';
 import { useBrief } from '@/hooks/useBrief';
+import { BriefContext } from '@/lib/brief-context';
 import type { RequirementKey, DocumentClassification } from '@/lib/api';
 import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
 import {
@@ -1229,6 +1230,7 @@ export default function ChatPage() {
   }
 
   return (
+    <BriefContext.Provider value={brief}>
     <div className="chat-v2">
       <style>{`
         @keyframes composer-ask-pulse {
@@ -2353,5 +2355,6 @@ export default function ChatPage() {
         </div>
       )}
     </div>
+    </BriefContext.Provider>
   );
 }

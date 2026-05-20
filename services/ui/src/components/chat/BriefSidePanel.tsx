@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Pencil, Trash2, FileText } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { useBrief } from '@/hooks/useBrief';
+import { useBriefContext } from '@/lib/brief-context';
 import { BriefField } from './BriefField';
 import type { RequirementKey, RequirementField, KnowledgeEntry } from '@/lib/api';
 import type { CollectionStatus } from '@/lib/use-collection-status';
@@ -75,7 +75,7 @@ export function BriefSidePanel({ namespace, apiKey, onAskField, collectionStatus
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  const { context, updateField, confirm, updateKnowledge, deleteKnowledge } = useBrief(namespace, apiKey);
+  const { context, updateField, confirm, updateKnowledge, deleteKnowledge } = useBriefContext();
 
   const fields = context?.requirements?.fields ?? {};
 
