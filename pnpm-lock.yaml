@@ -403,6 +403,9 @@ importers:
 
   services/ui:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.658.0
+        version: 3.1010.0
       '@tiptap/core':
         specifier: ^3.20.1
         version: 3.20.1(@tiptap/pm@3.20.1)
@@ -479,6 +482,9 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.2.0)(yaml@2.8.2)
 
 packages:
 
