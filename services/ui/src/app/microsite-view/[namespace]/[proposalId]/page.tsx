@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle, AlertTriangle, Zap } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { fetchMicrositeContent, fetchMicrositeDirectHtml, generateMicrositeDirectStream } from '@/lib/api';
 import { Microsite } from '@/components/microsite/Microsite';
@@ -14,6 +14,8 @@ type ViewMode = 'direct' | 'ast';
 
 export default function MicrositeViewPage() {
   const { namespace, proposalId } = useParams<{ namespace: string; proposalId: string }>();
+  const searchParams = useSearchParams();
+  const entryId = searchParams.get('entryId') ?? undefined;
   const { apiKey } = useAuth();
   const router = useRouter();
 
@@ -32,12 +34,14 @@ export default function MicrositeViewPage() {
   useEffect(() => {
     if (!apiKey || !namespace || !proposalId) return;
     setLoading(true);
-    Promise.all([
-      fetchMicrositeDirectHtml(apiKey, namespace, proposalId).catch(() => null),
-      fetchMicrositeContent(apiKey, namespace, proposalId).catch(() => ({ ast: null })),
-    ])
-      .then(([html, { ast: data }]) => {
-        setDirectHtml(html);
+    // When entryId is provided, skip directHtml and load the specific AST entry.
+    const tasks = entryId
+      ? [Promise.resolve(null), fetchMicrositeContent(apiKey, namespace, proposalId, undefined, entryId).catch(() => ({ ast: null }))]
+      : [fetchMicrositeDirectHtml(apiKey, namespace, proposalId).catch(() => null), fetchMicrositeContent(apiKey, namespace, proposalId).catch(() => ({ ast: null }))];
+    Promise.all(tasks)
+      .then(([html, astResult]) => {
+        const data = (astResult as { ast: unknown } | null)?.ast ?? null;
+        setDirectHtml(html as string | null);
         setAst(data as LayoutAST | null);
         setViewMode(html ? 'direct' : 'ast');
         setLoading(false);
@@ -46,7 +50,7 @@ export default function MicrositeViewPage() {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [apiKey, namespace, proposalId]);
+  }, [apiKey, namespace, proposalId, entryId]);
 
   async function startFastGeneration() {
     if (!apiKey || !namespace || !proposalId || generating) return;
@@ -232,10 +236,11 @@ export default function MicrositeViewPage() {
     );
   }
 
-  const isPro = ast?.generationMode === 'pro';
+  const isPro = ast?.generationMode !== 'classic';
+  const entryParam = entryId ? `?entryId=${encodeURIComponent(entryId)}` : '';
   const editorPath = isPro
-    ? `/microsite-editor-pro/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`
-    : `/microsite-editor/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`;
+    ? `/microsite-editor-pro/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}${entryParam}`
+    : `/microsite-editor/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}${entryParam}`;
   const MicrositeComponent = isPro ? MicrositePro : Microsite;
 
   return (

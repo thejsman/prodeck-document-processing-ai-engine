@@ -606,8 +606,12 @@ export async function fetchMicrositeContent(
   namespace: string,
   proposalId: string,
   mode?: 'pro' | 'classic',
+  entryId?: string,
 ): Promise<{ ast: unknown | null; savedAt: string | null }> {
-  const qs = mode ? `?mode=${mode}` : '';
+  const params = new URLSearchParams();
+  if (mode) params.set('mode', mode);
+  if (entryId) params.set('entryId', entryId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite${qs}`,
     { headers: authHeaders(apiKey) },
@@ -616,8 +620,9 @@ export async function fetchMicrositeContent(
   return { ast: data.ast ?? null, savedAt: data.savedAt ?? null };
 }
 
-export async function saveMicrositeAst(apiKey: string, namespace: string, proposalId: string, ast: unknown): Promise<void> {
-  const res = await fetch(`/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite`, {
+export async function saveMicrositeAst(apiKey: string, namespace: string, proposalId: string, ast: unknown, entryId?: string): Promise<void> {
+  const qs = entryId ? `?entryId=${encodeURIComponent(entryId)}` : '';
+  const res = await fetch(`/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/microsite${qs}`, {
     method: 'PUT',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({ ast }),
@@ -631,23 +636,24 @@ export interface MicrositeHistoryServerEntry {
   savedAt: string;
   ast: unknown;
   source?: string;
+  type?: string;
+  version?: number;
 }
 
-export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<void> {
+export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<{ id: string; version: number }> {
   const res = await fetch('/api/presentations/history/save', {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({ namespace, ast }),
   });
-  await handleResponse<{ ok: boolean }>(res);
+  return handleResponse<{ ok: boolean; id: string; version: number }>(res);
 }
 
-export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, mode?: string): Promise<void> {
-  const qs = mode ? `?mode=${encodeURIComponent(mode)}` : '';
-  const res = await fetch(`/api/presentations/history/${encodeURIComponent(namespace)}${qs}`, {
-    method: 'DELETE',
-    headers: authHeadersNoBody(apiKey),
-  });
+export async function deleteMicrositeHistoryFromServer(apiKey: string, namespace: string, entryId: string): Promise<void> {
+  const res = await fetch(
+    `/api/presentations/history/${encodeURIComponent(namespace)}?entryId=${encodeURIComponent(entryId)}`,
+    { method: 'DELETE', headers: authHeadersNoBody(apiKey) },
+  );
   await handleResponse<{ ok: boolean }>(res);
 }
 

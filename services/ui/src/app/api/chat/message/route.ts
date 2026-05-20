@@ -12,8 +12,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+// @ts-expect-error — undici is Node.js built-in; no separate install needed
+import { Agent } from 'undici';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3000';
+
+// Custom undici agent with no body timeout.
+// undici's default bodyTimeout (300s) kills SSE streams that are silent while a
+// long-running tool (microsite HTML generation) runs — even if the connection is healthy.
+// bodyTimeout: 0 disables the per-chunk idle timer; headersTimeout keeps the initial
+// connection fast-fail. A 20-min AbortSignal acts as the hard upper ceiling.
+const streamingAgent = new Agent({ bodyTimeout: 0, headersTimeout: 30_000 });
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -28,6 +37,9 @@ export async function POST(req: NextRequest) {
         ...(authHeader ? { authorization: authHeader } : {}),
       },
       body,
+      signal: AbortSignal.timeout(1_200_000), // 20 min hard ceiling
+      // @ts-expect-error — undici dispatcher extension
+      dispatcher: streamingAgent,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

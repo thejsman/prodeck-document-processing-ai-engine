@@ -12,23 +12,16 @@
 
 import path from 'node:path';
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
-import { MicrositeGeneratorAgent } from '@ai-engine/agent-microsite-generator';
-import { toolRegistry } from '@ai-engine/core';
+import { env } from 'node:process';
 import { llmGenerateFn } from '../agent-routes.js';
-import { applyDesignSkill, injectThemeCSS } from '../skills/design-skill-microsite.js';
+import { applyDesignSkill, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES } from '../skills/design-skill-microsite.js';
+import { generateStructuredMicrosite, assignSectionIds } from '../presentation/structured-microsite-generator.js';
 import type { HandlerContext, HandlerResult } from './proposal-generation.handlers.js';
 import { ContextService } from '../chat/context.service.js';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const DEFAULT_INSTRUCTIONS = [
-  'Generate a comprehensive microsite using all content from the proposal.',
-  'Maximum 7 sections — consolidate related content rather than splitting into separate sections.',
-  'Each sectionType must be unique. Map all source headings to the most specific type available.',
-  'Use diagrams only in sections where they are contextually appropriate.',
-].join(' ');
 
 // ---------------------------------------------------------------------------
 // Brief-aware instruction builders
@@ -232,27 +225,6 @@ export function buildSectionOrderGuidance(projectType: string): string {
  * (framing rule + section type guidance + section order) to pass to the microsite agent.
  * Falls back to safe defaults if context is unavailable.
  */
-async function buildBriefInstructions(workdir: string, namespace: string): Promise<string> {
-  try {
-    const contextService = new ContextService(workdir);
-    const ctx = await contextService.get(namespace);
-    const fields = ctx?.requirements?.fields ?? {};
-    const projectType = (fields.projectType?.value as string | undefined) ?? 'professional services';
-    const clientName = (fields.clientName?.value as string | undefined) ?? 'the client';
-    const clientIndustry = (fields.clientIndustry?.value as string | undefined) ?? 'general';
-
-    return [
-      buildBriefFramingRule(projectType, clientName, clientIndustry),
-      '',
-      buildSectionTypeGuidance(projectType),
-      '',
-      buildSectionOrderGuidance(projectType),
-    ].join('\n');
-  } catch {
-    return '';
-  }
-}
-
 const SKIP_PATTERN = /^(generate|go|skip|use defaults?|proceed|yes|y|ok|okay|sure)$/i;
 
 // ---------------------------------------------------------------------------
@@ -589,55 +561,38 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
     };
   }
 
-  // ── Run microsite generator ──────────────────────────────────────
-  onPhase('Generating microsite — this may take a minute');
+  const apiKey = env.ANTHROPIC_API_KEY ?? '';
+  const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
 
-  const agent = new MicrositeGeneratorAgent();
-
-  // Build Brief-aware instructions so every section is framed correctly
-  // for this specific proposal type — works for any engagement type.
-  const briefInstructions = await buildBriefInstructions(workdir, namespace);
-  const baseInstructions = design.customInstructions ?? DEFAULT_INSTRUCTIONS;
-  const fullInstructions = briefInstructions
-    ? `${briefInstructions}\n\n${baseInstructions}`
-    : baseInstructions;
-
-  // Design skill Phase 1 — enrich metadata with frontend-design directives
-  const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
-    'microsite-generator-agent',
-    {
-      proposalMarkdown,
-      customInstructions: fullInstructions,
-      designBrief: design.designStyle
-        ? `Design style: ${design.designStyle}. Make it visually compelling and on-brand.`
-        : undefined,
-      brand: { companyName: design.companyName, primaryColor: design.primaryColor },
-    },
-  );
-
-  let sectionIndex = 0;
-
-  let agentOutput: { markdown?: string; json?: unknown; assets?: string[] };
+  // Build brandHint from context.json — same approach as generate-structured-stream
+  let brandHint: { companyName?: string; industry?: string; clientName?: string; primaryColor?: string } = {};
+  let structuredCtx: Record<string, unknown> | null = null;
   try {
-    agentOutput = await agent.run({
-      namespace,
-      metadata: {
-        ...skillMetadata,
-        pdfFriendly: design.pdfFriendly ?? false,
-        onSectionComplete: (section: unknown) => {
-          const s = section as Record<string, unknown>;
-          const sectionType = (s.sectionType as string | undefined) ?? 'section';
-          const artifactSectionId = `microsite-section-${++sectionIndex}-${Date.now()}`;
-          if (onSection) {
-            onSection(sectionType, JSON.stringify(section), artifactSectionId);
-          } else {
-            // Fallback: emit a brief chunk so the user sees progress
-            onChunk(`\n_Section ready: ${sectionType}_`);
-          }
-        },
-      },
-      tools: toolRegistry,
-    });
+    const ctxSvc = new ContextService(workdir);
+    structuredCtx = await ctxSvc.get(namespace) as Record<string, unknown> | null;
+    const fields = ((structuredCtx as Record<string, unknown>)?.requirements as Record<string, Record<string, { value?: unknown }>> | undefined)?.fields ?? {};
+    brandHint = {
+      companyName:  (fields.clientName?.value    as string | undefined) ?? '',
+      clientName:   (fields.clientName?.value    as string | undefined) ?? '',
+      industry:     (fields.clientIndustry?.value as string | undefined) ?? '',
+      primaryColor: design.primaryColor ?? (fields.primaryColor?.value as string | undefined),
+    };
+  } catch { /* non-fatal */ }
+
+  const clientIndustry  = brandHint.industry ?? '';
+  const designOverride  = design.customInstructions || undefined;
+
+  // Tone detection (industry-aware, same as generate-structured-stream)
+  const { tone: industryTone } = applyDesignSkill('microsite-generator-agent', {
+    proposalMarkdown,
+    clientIndustry,
+  });
+
+  // ── Phase 1: single LLM call → complete AST ─────────────────────
+  onPhase('Building microsite structure');
+  let ast: Awaited<ReturnType<typeof generateStructuredMicrosite>>;
+  try {
+    ast = await generateStructuredMicrosite(proposalMarkdown, brandHint, artifactId, apiKey, model);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
@@ -651,44 +606,125 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
     };
   }
 
+  const sections = assignSectionIds(ast.sections);
+  ast.sections   = sections;
+
+  // Emit each section so the chat UI shows streaming section blocks
+  let sectionIndex = 0;
+  for (const s of sections) {
+    const artifactSectionId = `microsite-section-${++sectionIndex}-${Date.now()}`;
+    if (onSection) {
+      onSection(s.sectionType, JSON.stringify(s), artifactSectionId);
+    } else {
+      onChunk(`\n_Section ready: ${s.sectionType}_`);
+    }
+  }
+
+  // ── Phase 2: LLM CSS theme generation ───────────────────────────
+  onPhase('Applying design theme');
+  const cssTheme = await generateThemeCSSTokens(
+    industryTone as string,
+    brandHint.primaryColor,
+    llmGenerateFn,
+    clientIndustry,
+    designOverride,
+  ).catch(() => null);
+
+  if (cssTheme) {
+    ast.brand = {
+      ...ast.brand,
+      extractedCssVariables: cssTheme.cssVars,
+      overrideTheme: true,
+      ...(cssTheme.googleFontsUrl        ? { googleFontsUrl: cssTheme.googleFontsUrl }               : {}),
+      ...(cssTheme.fontFaceDeclarations  ? { fontFaceDeclarations: cssTheme.fontFaceDeclarations }   : {}),
+    } as typeof ast.brand;
+  }
+
+  // ── Phase 3: per-section HTML generation (5 concurrent) ─────────
+  onPhase('Generating section designs');
+  if (cssTheme) {
+    const htmlGenerateFn = async (prompt: string): Promise<string> => {
+      const MAX_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+          await new Promise(res => setTimeout(res, delay));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+        const d = await r.json() as { content: Array<{ type: string; text: string }> };
+        return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      }
+      throw new Error('HTML generation: max retries exceeded');
+    };
+
+    const CONCURRENCY = 5;
+    const targets = sections.filter(s => CUSTOM_HTML_SECTION_TYPES.has(s.sectionType));
+    let cursor = 0;
+
+    const htmlWorker = async () => {
+      while (cursor < targets.length) {
+        const section = targets[cursor++];
+        const idx     = sections.indexOf(section);
+        try {
+          const html = await generateSectionHtml(
+            section as unknown as Record<string, unknown>,
+            industryTone as import('../skills/design-skill-microsite.js').Tone,
+            cssTheme.cssVars,
+            null,
+            htmlGenerateFn,
+            idx,
+            designOverride,
+          );
+          section.customHtml = html;
+          onChunk(`\n_Section designed: ${section.sectionType}_`);
+        } catch (err) {
+          console.warn(`[chat-microsite] HTML failed: ${section.sectionType}:`, err instanceof Error ? err.message : err);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
+  }
+
+  // Attach hero metadata strip (client name, prepared-by, date, version)
+  const heroSec = sections.find(s => s.sectionType === 'hero');
+  if (heroSec) {
+    (heroSec as unknown as Record<string, unknown>)._meta = {
+      clientName:  brandHint.clientName || '—',
+      preparedBy:  design.companyName   || '—',
+      date:        new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      version:     'v1',
+    };
+  }
+
   // ── Store result ─────────────────────────────────────────────────
   onPhase('Microsite ready');
 
   const micrositeArtifactId = `microsite-${Date.now()}.json`;
   instance.context.micrositeArtifactId = micrositeArtifactId;
-  instance.context.micrositeLayoutAST = agentOutput.json ?? null;
-
-  // Design skill Phase 2 — generate and inject CSS theme into LayoutAST before persisting
-  if (agentOutput.json) {
-    await injectThemeCSS(
-      agentOutput.json as Record<string, unknown>,
-      designTone,
-      (skillMetadata.brand as Record<string, unknown> | undefined)?.primaryColor as string | undefined,
-      llmGenerateFn,
-    );
-  }
+  instance.context.micrositeLayoutAST  = ast;
 
   // Deduplicate sections and normalise headings before persisting
-  if (agentOutput.json) {
-    deduplicateSections(agentOutput.json as Record<string, unknown>);
-  }
+  deduplicateSections(ast as unknown as Record<string, unknown>);
 
-  // Persist AST to disk so the microsite history endpoint can find it
-  if (agentOutput.json) {
-    const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-    await mkdir(path.dirname(astPath), { recursive: true });
-    await writeFile(astPath, JSON.stringify(agentOutput.json, null, 2), 'utf-8').catch(() => { /* non-fatal */ });
-  }
+  // Persist AST to disk so the presentation page can load it
+  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+  await mkdir(path.dirname(astPath), { recursive: true });
+  await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8').catch(() => { /* non-fatal */ });
 
-  const assetCount = agentOutput.assets?.length ?? 0;
   const summary = [
     '## Microsite Generated',
     '',
     'Your proposal has been converted into a presentation microsite.',
-    assetCount > 0 ? `\n${assetCount} asset(s) saved to your namespace.` : '',
     '',
     'The microsite is now available in your workspace. You can view and edit it from the UI.',
-  ].filter((l) => l !== '').join('\n');
+  ].join('\n');
 
   onChunk(summary);
 
@@ -696,7 +732,7 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
     message: summary,
     stateSignal: 'DONE',
     actions: {
-      openMicrositeUrl: '/presentation',
+      openMicrositeUrl: `/presentation?namespace=${encodeURIComponent(namespace)}&proposalId=${encodeURIComponent(artifactId)}&mode=view`,
       sourceProposal: artifactId,
     },
   };

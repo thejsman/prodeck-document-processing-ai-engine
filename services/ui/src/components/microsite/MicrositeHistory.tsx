@@ -16,6 +16,8 @@ import type { LayoutAST } from '@/types/presentation';
 
 interface CombinedEntry {
   id: string;
+  entryId?: string;  // canonical storage key: microsite:pro:1716023445123
+  version?: number;  // stored version from server
   savedAt: string;
   namespace: string;
   ast: LayoutAST;
@@ -95,7 +97,7 @@ export function MicrositeHistory({
   const { apiKey } = useAuth();
   const { namespaces } = useNamespace();
   const router = useRouter();
-  const { history: localHistory, deleteEntry, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
+  const { history: localHistory, refresh } = useMicrositeHistory(undefined, apiKey ?? undefined);
   const [serverEntries, setServerEntries] = useState<CombinedEntry[]>([]);
   const [loadingServer, setLoadingServer] = useState(false);
   const [deletedNamespaces, setDeletedNamespaces] = useState<Set<string>>(new Set());
@@ -111,7 +113,9 @@ export function MicrositeHistory({
             .map((item) => {
               const mode = (item.ast as LayoutAST)?.generationMode;
               return {
-                id: `server::${item.namespace}::${mode || 'unknown'}`,
+                id: item.id,
+                entryId: item.id,
+                version: item.version,
                 savedAt: item.savedAt,
                 namespace: item.namespace,
                 ast: item.ast as LayoutAST,
@@ -159,21 +163,18 @@ export function MicrositeHistory({
 
   const handleDeleteConfirmed = async () => {
     if (!confirmEntry || !apiKey) return;
+    const entryId = confirmEntry.entryId;
+    if (!entryId) return;
     setDeleting(true);
-    const ns = confirmEntry.namespace;
-    const mode = confirmEntry.ast.generationMode;
-    const deletedKey = mode ? `${ns}::${mode}` : ns;
     // Optimistically hide the entry immediately so it vanishes before the async fetch.
-    setDeletedNamespaces((prev) => new Set([...prev, deletedKey]));
+    setDeletedNamespaces((prev) => new Set([...prev, entryId]));
     try {
-      await deleteMicrositeHistoryFromServer(apiKey, ns, mode ?? undefined);
-      setServerEntries((prev) =>
-        prev.filter((e) => !(e.namespace === ns && e.ast.generationMode === mode)),
-      );
+      await deleteMicrositeHistoryFromServer(apiKey, confirmEntry.namespace, entryId);
+      setServerEntries((prev) => prev.filter((e) => e.entryId !== entryId));
       refresh();
     } catch {
       // Rollback optimistic removal on failure.
-      setDeletedNamespaces((prev) => { const next = new Set(prev); next.delete(deletedKey); return next; });
+      setDeletedNamespaces((prev) => { const next = new Set(prev); next.delete(entryId); return next; });
     } finally {
       setDeleting(false);
       setConfirmEntry(null);
@@ -183,13 +184,12 @@ export function MicrositeHistory({
   const handleEdit = useCallback(
     (entry: CombinedEntry) => {
       const ns = entry.namespace;
-      // API ignores proposalId for file lookup (keys by namespace only);
-      // use namespace as a safe fallback when proposalId is absent.
       const pid = entry.ast.proposalId || ns;
+      const entryParam = entry.entryId ? `?entryId=${encodeURIComponent(entry.entryId)}` : '';
       const dest =
         entry.ast.generationMode === 'classic'
-          ? `/microsite-editor/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`
-          : `/microsite-editor-pro/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}`;
+          ? `/microsite-editor/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}${entryParam}`
+          : `/microsite-editor-pro/${encodeURIComponent(ns)}/${encodeURIComponent(pid)}${entryParam}`;
       router.push(dest);
     },
     [router],
@@ -213,25 +213,15 @@ export function MicrositeHistory({
     const localMapped: CombinedEntry[] = localHistory
       .filter((e) => e.ast && (e.ast as { sections?: unknown[] }).sections?.length)
       .map((e) => ({ id: e.id, savedAt: e.savedAt, namespace: e.namespace, ast: e.ast, source: 'local' as const }));
-    // Deduplicate by namespace::mode — local entry wins over server for the same mode,
-    // but a different mode from the server is still included.
-    const localKeys = new Set(localMapped.map((e) => `${e.namespace}::${e.ast.generationMode || ''}`));
-    const serverOnly = serverEntries.filter((e) => !localKeys.has(`${e.namespace}::${e.ast.generationMode || ''}`));
-    const sorted = [...localMapped, ...serverOnly]
-      .filter((e) => {
-        const mode = e.ast.generationMode;
-        return !deletedNamespaces.has(mode ? `${e.namespace}::${mode}` : e.namespace);
-      })
+    // Show all server entries — each has a unique entryId (microsite:type:timestamp).
+    // Local entries (from localStorage) only fill in namespace::mode combos that have
+    // no server entries yet, to avoid duplicating stale local data alongside server data.
+    const serverCoveredKeys = new Set(serverEntries.map((e) => `${e.namespace}::${e.ast.generationMode || ''}`));
+    const localOnly = localMapped.filter((e) => !serverCoveredKeys.has(`${e.namespace}::${e.ast.generationMode || ''}`));
+    return [...serverEntries, ...localOnly]
+      .filter((e) => !deletedNamespaces.has(e.entryId ?? e.id))
       .filter((e) => namespaces.length === 0 || namespaces.includes(e.namespace))
       .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
-    // Final dedup by namespace+mode — keep most recent per mode.
-    const seen = new Set<string>();
-    return sorted.filter((e) => {
-      const key = `${e.namespace}::${e.ast.generationMode || ''}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
   })();
 
   useEffect(() => {
@@ -294,22 +284,11 @@ export function MicrositeHistory({
     );
   }
 
-  const combinedWithVersion = (() => {
-    const groupCount = new Map<string, number>();
-    for (const e of combined) {
-      const key = `${e.namespace}::${e.ast.brand?.companyName || 'Untitled'}`;
-      groupCount.set(key, (groupCount.get(key) ?? 0) + 1);
-    }
-    const seen = new Map<string, number>();
-    return combined.map((e) => {
-      const companyName = e.ast.brand?.companyName || 'Untitled';
-      const key = `${e.namespace}::${companyName}`;
-      const total = groupCount.get(key) ?? 1;
-      const idx = seen.get(key) ?? 0;
-      seen.set(key, idx + 1);
-      return { entry: e, companyName, version: total - idx };
-    });
-  })();
+  const combinedWithVersion = combined.map((e) => ({
+    entry: e,
+    companyName: e.ast.brand?.companyName || 'Untitled',
+    version: e.version ?? 1,
+  }));
 
   return (
     <>
@@ -351,6 +330,15 @@ export function MicrositeHistory({
           const sectionCount = sections.length;
           const clientName = (entry.ast.meta as { client?: string } | undefined)?.client;
 
+          // Build a multi-color gradient from section type colors
+          const sectionColors = sections.length > 0
+            ? sections.map((s) => getSectionColor(s.sectionType ?? '', primaryColor))
+            : [primaryColor, secondaryColor];
+          const step = 100 / sectionColors.length;
+          const headerGradient = `linear-gradient(90deg, ${sectionColors
+            .map((c, i) => `${c} ${(i * step).toFixed(1)}%, ${c} ${((i + 1) * step).toFixed(1)}%`)
+            .join(', ')})`;
+
           return (
             <div
               key={entry.id}
@@ -371,11 +359,11 @@ export function MicrositeHistory({
               onMouseEnter={() => setHoveredCard(entry.id)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              {/* ── Header: gradient + section lane visualization ── */}
+              {/* ── Header: multi-color section strip ── */}
               <div
                 style={{
-                  height: 52,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
+                  height: 40,
+                  background: headerGradient,
                   position: 'relative',
                   flexShrink: 0,
                   overflow: 'hidden',
@@ -433,36 +421,6 @@ export function MicrositeHistory({
                   v{version}
                 </div>
 
-                {/* Section type bars — bottom strip */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    display: 'flex',
-                    height: 6,
-                    gap: 1,
-                    padding: '0 1px',
-                  }}
-                >
-                  {sections.length > 0 ? (
-                    sections.map((s, i) => (
-                      <div
-                        key={i}
-                        title={s.sectionType ?? 'section'}
-                        style={{
-                          flex: 1,
-                          background: getSectionColor(s.sectionType ?? '', primaryColor),
-                          opacity: 0.9,
-                          borderRadius: i === 0 ? '2px 0 0 0' : i === sections.length - 1 ? '0 2px 0 0' : 0,
-                        }}
-                      />
-                    ))
-                  ) : (
-                    <div style={{ flex: 1, background: 'rgba(255,255,255,0.2)' }} />
-                  )}
-                </div>
               </div>
 
               {/* ── Body ── */}
