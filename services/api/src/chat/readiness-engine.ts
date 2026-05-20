@@ -60,15 +60,7 @@ const READINESS_RULES: Record<Intent, ReadinessCheck> = {
       { field: 'budget', question: 'Do you have a rough budget range?' },
       { field: 'timeline', question: 'What is the expected timeline?' },
     ],
-    customCheck: (ctx) => {
-      if (ctx.ingestedDocuments.length === 0) {
-        return {
-          ready: false,
-          blockers: ['No documents found in this namespace. Please upload and ingest a document first before generating a proposal.'],
-        }
-      }
-      return { ready: true, blockers: [] }
-    },
+    customCheck: null,
   },
 
   MODIFY_PROPOSAL: {

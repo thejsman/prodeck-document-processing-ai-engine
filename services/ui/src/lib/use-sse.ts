@@ -63,6 +63,7 @@ interface UseSSEReturn {
   toolEvents: ToolEvent[];
   doneActions: Record<string, string> | null;
   confirmationRequest: ConfirmationRequest | null;
+  questionsRequest: Array<{ field: string; question: string }> | null;
   startStream: (body: Record<string, unknown>) => void;
   reset: () => void;
 }
@@ -76,6 +77,7 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [doneActions, setDoneActions] = useState<Record<string, string> | null>(null);
   const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
+  const [questionsRequest, setQuestionsRequest] = useState<Array<{ field: string; question: string }> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const startStream = useCallback(
@@ -91,6 +93,7 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
       setToolEvents([]);
       setDoneActions(null);
       setConfirmationRequest(null);
+      setQuestionsRequest(null);
       setIsStreaming(true);
 
       (async () => {
@@ -192,6 +195,15 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
                   continue;
                 }
 
+                if (currentEvent === 'questions_request') {
+                  try {
+                    const parsed = JSON.parse(payload) as Array<{ field: string; question: string }>;
+                    if (Array.isArray(parsed)) setQuestionsRequest(parsed);
+                  } catch { /* ignore */ }
+                  currentEvent = '';
+                  continue;
+                }
+
                 if (currentEvent === 'done') {
                   setPhase('');
                   // Fallback: if no tokens streamed (e.g. Ollama buffered mode),
@@ -244,8 +256,9 @@ export function useSSE(apiKey: string, url: string): UseSSEReturn {
     setToolEvents([]);
     setDoneActions(null);
     setConfirmationRequest(null);
+    setQuestionsRequest(null);
     setIsStreaming(false);
   }, []);
 
-  return { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, confirmationRequest, startStream, reset };
+  return { chunks, phase, isStreaming, error, sections, toolEvents, doneActions, confirmationRequest, questionsRequest, startStream, reset };
 }

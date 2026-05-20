@@ -728,12 +728,25 @@ export async function handleSearchDocuments(
   const query = ((params.query as string | undefined) ?? '').trim();
   const { workdir, namespace, vectorStoreConfig } = ctx;
 
-  const result = await queryKnowledgeBase({
-    question: query,
-    storageDir: path.join(workdir, 'namespaces', namespace),
-    namespace,
-    ...(vectorStoreConfig ? { vectorStoreConfig } : {}),
-  });
+  let result: Awaited<ReturnType<typeof queryKnowledgeBase>>;
+  try {
+    result = await queryKnowledgeBase({
+      question: query,
+      storageDir: path.join(workdir, 'namespaces', namespace),
+      namespace,
+      ...(vectorStoreConfig ? { vectorStoreConfig } : {}),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('no valid chunks') || msg.includes('no documents') || msg.includes('index') || msg.includes('not found')) {
+      return {
+        success: true,
+        message: "There are no documents in the knowledge base yet. Upload some files first and I'll be able to summarize or search them for you.",
+        data: { query, answer: null },
+      };
+    }
+    throw err;
+  }
 
   return {
     success: true,
