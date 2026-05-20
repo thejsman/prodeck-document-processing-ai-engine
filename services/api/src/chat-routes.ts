@@ -124,6 +124,11 @@ export function registerChatRoutes(
                 `event: confirmation_request\ndata: ${JSON.stringify(response.confirmationRequest)}\n\n`,
               );
             }
+            if (response.questions && response.questions.length > 0) {
+              reply.raw.write(
+                `event: questions_request\ndata: ${JSON.stringify(response.questions)}\n\n`,
+              );
+            }
             reply.raw.write(
               `event: done\ndata: ${JSON.stringify({ message: response.text, actions })}\n\n`,
             );
