@@ -101,7 +101,7 @@ export default function WelcomePage() {
             transition: 'background 0.15s',
           }}
         >
-          Create clinet
+          Create client
         </button>
       </div>
 
