@@ -187,7 +187,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
         {/* New Namespace button */}
         <div className="sidebar-link" onClick={() => setShowModal(true)} style={{ cursor: 'pointer' }}>
           <Icon icon={PlusCircle} size="md" className="sidebar-icon" />
-          <span className="sidebar-label">Create Namespace</span>
+          <span className="sidebar-label">Create Client</span>
         </div>
 
         {/* Namespaces section label — collapses/expands list */}
@@ -199,7 +199,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
           style={{ cursor: 'pointer' }}
         >
           <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>
-            Namespaces
+            Clients
           </span>
           <Icon
             icon={ChevronDown}
@@ -368,7 +368,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
                       letterSpacing: '0em',
                     }}
                   >
-                    Delete namespace
+                    Delete client
                   </p>
                   <button
                     onClick={() => {
@@ -400,7 +400,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
                   }}
                 >
                   Permanently delete <strong>"{confirmNs}"</strong>? All ingested files, proposals, and microsites in
-                  this namespace will be removed and cannot be recovered.
+                  this client will be removed and cannot be recovered.
                 </p>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button

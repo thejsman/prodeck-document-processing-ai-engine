@@ -23,11 +23,7 @@ export default function WelcomePage() {
       }}
     >
       <div className="welcome-mobile-header">
-        <button
-          className="topbar-hamburger"
-          onClick={openMobileNav}
-          aria-label="Open navigation"
-        >
+        <button className="topbar-hamburger" onClick={openMobileNav} aria-label="Open navigation">
           <Icon icon={Menu} size="md" />
         </button>
         <span className="welcome-mobile-brand">ProDeck</span>
@@ -86,7 +82,8 @@ export default function WelcomePage() {
             maxWidth: 440,
           }}
         >
-          Create a namespace to get started. Each one is an isolated workspace where you can ingest documents, generate proposals, and chat with your knowledge base.
+          Create a namespace to get started. Each one is an isolated workspace where you can ingest documents, generate
+          proposals, and chat with your knowledge base.
         </p>
 
         {/* CTA */}
@@ -104,7 +101,7 @@ export default function WelcomePage() {
             transition: 'background 0.15s',
           }}
         >
-          Create namespace
+          Create clinet
         </button>
       </div>
 
