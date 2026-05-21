@@ -2770,6 +2770,71 @@ ${layoutSummary}`;
     return reply.send({ url });
   });
 
+  // POST /presentations/:namespace/:proposalId/regenerate-section
+  // Regenerates the customHtml for a single section using the existing AST content
+  // and CSS vars. Used by MicrositeEditorPro's per-section Regenerate button.
+  // Body: { sectionId: string; currentAst: object }
+  // Returns: { sectionId: string; html: string; elapsed: number }
+  app.post('/presentations/:namespace/:proposalId/regenerate-section', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { sectionId?: string; currentAst?: Record<string, unknown> } | undefined;
+    const sectionId = body?.sectionId?.trim();
+    if (!sectionId) return reply.code(400).send({ error: 'sectionId is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    // Load AST from body or fall back to saved file
+    let ast = body?.currentAst;
+    if (!ast) {
+      const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
+      try { ast = JSON.parse(await readFile(astPath, 'utf-8')) as Record<string, unknown>; }
+      catch { return reply.code(404).send({ error: 'No AST found' }); }
+    }
+
+    const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const sectionIdx = sections?.findIndex(s => s.id === sectionId) ?? -1;
+    if (sectionIdx < 0) return reply.code(404).send({ error: `Section ${sectionId} not found in AST` });
+    const section = sections![sectionIdx];
+
+    // Get CSS vars and tone from the AST brand
+    const brand = ast.brand as Record<string, unknown> | undefined;
+    const cssVars = (brand?.extractedCssVariables as Record<string, string> | undefined) ?? {};
+    const tone: import('../skills/design-skill-microsite.js').Tone = 'editorial/magazine';
+
+    // Haiku for single-section regeneration — same mechanical task as Phase 3
+    const regenFn = async (prompt: string): Promise<string> => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        if (r.status === 429) {
+          const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+          await new Promise(res => setTimeout(res, delay));
+          continue;
+        }
+        if (!r.ok) throw new Error(`Anthropic ${r.status}: ${await r.text()}`);
+        const d = await r.json() as { content: Array<{ type: string; text: string }> };
+        return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      }
+      throw new Error('Max retries exceeded');
+    };
+
+    const t0 = Date.now();
+    try {
+      const html = await generateSectionHtml(section, tone, cssVars, null, regenFn, sectionIdx);
+      return reply.send({ sectionId, html, elapsed: Date.now() - t0 });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: `Section regeneration failed: ${message}` });
+    }
+  });
+
   // POST /presentations/:namespace/:proposalId/edit-section-html
   // Natural language edit: applies a user instruction to a section's existing HTML.
   // The AI returns ONLY the modified HTML — no explanation, no markdown.
