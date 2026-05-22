@@ -16,6 +16,7 @@ export default function MicrositeViewPage() {
   const { namespace, proposalId } = useParams<{ namespace: string; proposalId: string }>();
   const searchParams = useSearchParams();
   const entryId = searchParams.get('entryId') ?? undefined;
+  const modeParam = searchParams.get('mode') as 'pro' | 'classic' | null;
   const { apiKey } = useAuth();
   const router = useRouter();
 
@@ -37,7 +38,7 @@ export default function MicrositeViewPage() {
     // When entryId is provided, skip directHtml and load the specific AST entry.
     const tasks = entryId
       ? [Promise.resolve(null), fetchMicrositeContent(apiKey, namespace, proposalId, undefined, entryId).catch(() => ({ ast: null }))]
-      : [fetchMicrositeDirectHtml(apiKey, namespace, proposalId).catch(() => null), fetchMicrositeContent(apiKey, namespace, proposalId).catch(() => ({ ast: null }))];
+      : [fetchMicrositeDirectHtml(apiKey, namespace, proposalId).catch(() => null), fetchMicrositeContent(apiKey, namespace, proposalId, modeParam ?? undefined).catch(() => ({ ast: null }))];
     Promise.all(tasks)
       .then(([html, astResult]) => {
         const data = (astResult as { ast: unknown } | null)?.ast ?? null;
@@ -50,7 +51,7 @@ export default function MicrositeViewPage() {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [apiKey, namespace, proposalId, entryId]);
+  }, [apiKey, namespace, proposalId, entryId, modeParam]);
 
   async function startFastGeneration() {
     if (!apiKey || !namespace || !proposalId || generating) return;
