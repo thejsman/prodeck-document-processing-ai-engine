@@ -12,7 +12,7 @@ import {
   nativeQdrantDeleteNamespace,
 } from '@ai-engine/runtime';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
-import { appendChatTurn } from './chat/chat-history.service.js';
+import { appendChatTurn, hashApiKey } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
 import { processDocument } from './ingestion/ingest-orchestrator.js';
 import { resolveVectorStoreConfig } from './ingestion/branch-runner.js';
@@ -225,6 +225,7 @@ export function registerRoutes(
 
     const namespace = body.namespace ?? 'default';
     const chatSessionId = typeof body.chatSessionId === 'string' ? body.chatSessionId.trim() : undefined;
+    const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: AuthContext }).auth.apiKey);
     const storageDir = path.join(workdir, 'namespaces', namespace);
     const vectorStoreConfig = await resolveVectorStoreConfig(workdir, namespace);
 
@@ -268,7 +269,7 @@ export function registerRoutes(
             content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
           });
           if (chatSessionId) {
-            void appendChatTurn(workdir, namespace, chatSessionId, body.question!, result.answer);
+            void appendChatTurn(workdir, namespace, apiKeyHash, chatSessionId, body.question!, result.answer);
           }
           reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
           reply.raw.end();
@@ -292,7 +293,7 @@ export function registerRoutes(
           content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
         });
         if (chatSessionId) {
-          void appendChatTurn(workdir, namespace, chatSessionId, body.question, result.answer);
+          void appendChatTurn(workdir, namespace, apiKeyHash, chatSessionId, body.question, result.answer);
         }
         reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
         reply.raw.end();
@@ -318,7 +319,7 @@ export function registerRoutes(
         content: truncate(`Q: ${body.question!} | A: ${result.answer}`, 400),
       });
       if (chatSessionId) {
-        void appendChatTurn(workdir, namespace, chatSessionId, body.question!, result.answer);
+        void appendChatTurn(workdir, namespace, apiKeyHash, chatSessionId, body.question!, result.answer);
       }
       return reply.send(result);
     }
@@ -336,7 +337,7 @@ export function registerRoutes(
       content: truncate(`Q: ${body.question} | A: ${result.answer}`, 400),
     });
     if (chatSessionId) {
-      void appendChatTurn(workdir, namespace, chatSessionId, body.question, result.answer);
+      void appendChatTurn(workdir, namespace, apiKeyHash, chatSessionId, body.question, result.answer);
     }
     return reply.send(result);
   });
