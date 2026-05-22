@@ -1083,6 +1083,28 @@ export async function editSectionHtml(
   return res.json() as Promise<{ html: string }>;
 }
 
+/** Direct LLM: given current CSS tokens + instruction, returns only the changed token values. */
+export async function editDesignTokens(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { instruction: string; currentTokens: Record<string, string> },
+): Promise<{ tokens: Record<string, string>; changed: string[]; summary: string }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/edit-tokens`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Token edit failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ tokens: Record<string, string>; changed: string[]; summary: string }>;
+}
+
 /** Non-streaming single-pass generation. One LLM call, returns when complete. */
 export async function generateMicrositeDirectly(
   apiKey: string,

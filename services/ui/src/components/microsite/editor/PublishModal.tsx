@@ -25,7 +25,8 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
   const [publishing, setPublishing] = useState(false);
 
   const rootDomain = process.env.NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN ?? 'yourdomain.com';
-  const previewUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/microsite-view/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`;
+  const modeParam = ast.generationMode ? `?mode=${ast.generationMode}` : '';
+  const previewUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/microsite-view/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}${modeParam}`;
 
   useEffect(() => {
     if (!publishing) return;

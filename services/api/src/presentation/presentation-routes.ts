@@ -2881,6 +2881,73 @@ ${layoutSummary}`;
     return reply.code(502).send({ error: 'Max retries exceeded' });
   });
 
+  // POST /presentations/:namespace/:proposalId/edit-tokens
+  // Direct LLM call: given current CSS custom-property tokens + instruction,
+  // returns only the token keys that need to change. No agent layer.
+  // Body: { instruction: string; currentTokens: Record<string, string> }
+  // Returns: { tokens: Record<string, string>; changed: string[]; summary: string }
+  app.post('/presentations/:namespace/:proposalId/edit-tokens', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { instruction?: string; currentTokens?: Record<string, string> } | undefined;
+    const instruction   = body?.instruction?.trim();
+    const currentTokens = body?.currentTokens ?? {};
+    if (!instruction) return reply.code(400).send({ error: 'instruction is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    const systemPrompt = `You are a CSS design token editor for a professional microsite.
+You receive a JSON map of CSS custom properties and a user instruction.
+Return ONLY a valid JSON object containing the tokens that need to be updated.
+Only include keys that should change. Do not include unchanged tokens.
+Do not explain. No markdown. No code fences. Raw JSON only.
+
+Common token names and their roles:
+--ms-bg: main background  --ms-surface: card/surface bg  --ms-accent: brand accent color
+--ms-text: primary text   --ms-muted: secondary text     --ms-border: border/divider color
+--ms-font-body: body font family  --ms-font-heading: heading font  --ms-is-dark: "1" dark / "0" light
+--ms-gradient: hero gradient  --ms-overlay: overlay/scrim color  --ms-radius: base border-radius (px)`;
+
+    const userPrompt = `INSTRUCTION: ${instruction}\n\nCURRENT TOKENS:\n${JSON.stringify(currentTokens, null, 2)}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model, max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (r.status === 429) {
+        const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      if (!r.ok) return reply.code(502).send({ error: `Anthropic ${r.status}: ${await r.text()}` });
+      const d = await r.json() as { content: Array<{ type: string; text: string }> };
+      const raw = d.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      let newTokens: Record<string, string> = {};
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        newTokens = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      } catch {
+        return reply.code(502).send({ error: 'Failed to parse token response', raw });
+      }
+      const changed = Object.keys(newTokens);
+      const summary = changed.length > 0
+        ? `Updated ${changed.length} token${changed.length === 1 ? '' : 's'}: ${changed.slice(0, 3).join(', ')}${changed.length > 3 ? '…' : ''}`
+        : 'No tokens changed';
+      return reply.send({ tokens: newTokens, changed, summary });
+    }
+    return reply.code(502).send({ error: 'Max retries exceeded' });
+  });
+
   // POST /presentations/:namespace/:proposalId/design-edit
   // Apply AI-driven design or content edits to an existing microsite AST.
   // Body: { instruction, targetSectionId?, currentAst, commit?: boolean }
