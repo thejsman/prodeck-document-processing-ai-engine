@@ -123,12 +123,43 @@ async function trySystemQuery(q: string, apiKey: string, namespace: string): Pro
 
 // ── Session helpers ─────────────────────────────────────────────
 
-function getOrCreateSessionId(namespace: string): string {
-  const key = `chat-session-id-${namespace}`;
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
+function localSessionKey(namespace: string): string {
+  return `chat-session-id-${namespace}`;
+}
+
+/**
+ * Resolves the session ID for a namespace using a server-first strategy:
+ *   1. Check localStorage cache (fast path, avoids round-trip on repeat visits)
+ *   2. Fetch GET /api/chat/session/latest?namespace=X from the server
+ *      — if a session exists for this API key + namespace, use it and refresh cache
+ *      — if not, generate a new UUID and cache it locally
+ *
+ * This ensures the same user on any device always resumes their latest session
+ * while different users sharing a namespace remain fully isolated (scoped by API key).
+ */
+async function resolveSessionId(namespace: string, apiKey: string): Promise<string> {
+  const cacheKey = localSessionKey(namespace);
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(
+      `/api/chat/session/latest?namespace=${encodeURIComponent(namespace)}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { sessionId: string | null };
+      if (data.sessionId) {
+        localStorage.setItem(cacheKey, data.sessionId);
+        return data.sessionId;
+      }
+    }
+  } catch {
+    // Fall through to generate a new ID
+  }
+
   const id = crypto.randomUUID();
-  localStorage.setItem(key, id);
+  localStorage.setItem(cacheKey, id);
   return id;
 }
 
@@ -492,8 +523,6 @@ export default function ChatPage() {
   // Load persisted chat history and initial insights on mount (or namespace change)
   useEffect(() => {
     const ns = namespace || 'default';
-    const sessionId = getOrCreateSessionId(ns);
-    chatSessionIdRef.current = sessionId;
 
     // Cancel any in-flight generation execution from the previous namespace
     if (chatExecIdRef.current !== null) {
@@ -515,87 +544,92 @@ export default function ChatPage() {
     setDisplayed('');
     revealedLenRef.current = 0;
 
-    fetch(`/api/chat/session/${sessionId}/history?namespace=${encodeURIComponent(ns)}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    })
-      .then((res) => (res.ok ? res.json() : { messages: [] }))
-      .then(
-        (data: {
-          messages: Array<{
-            id: string;
-            role: 'user' | 'assistant' | 'upload';
-            content: string;
-            timestamp?: string;
-            metadata?: { proposalArtifactId?: string; displayName?: string; fileSize?: number; fileNames?: string[] };
-          }>;
-        }) => {
-          // Map server history → Message objects. Upload cards are stored server-side
-          // with role='upload'; reconstruct them in chronological order alongside chat messages.
-          const messages: Message[] = data.messages.map((m) => {
-            if (m.role !== 'upload') return m as Message;
-            return {
-              id: m.id,
-              role: 'upload' as const,
-              content: '',
-              uploadData: {
-                fileName: m.metadata?.displayName ?? '',
-                fileSize: m.metadata?.fileSize ?? 0,
-                progress: 0,
-                status: 'processing' as const,
-                stage: 'Queued',
-              },
-            };
-          });
+    void (async () => {
+      const sessionId = await resolveSessionId(ns, apiKey);
+      chatSessionIdRef.current = sessionId;
 
-          skipNextScrollRef.current = true;
-          setMessages(messages);
-
-          // Resume polling for upload messages newer than 24 h — older ones are terminal.
-          const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-          const recentUploads = data.messages.filter(
-            (m) => m.role === 'upload' && new Date(m.timestamp ?? 0).getTime() > oneDayAgo,
-          );
-          for (const m of recentUploads) {
-            const fileNames = m.metadata?.fileNames ?? [];
-            if (fileNames.length > 0) setActiveUploadPoll({ msgId: m.id, fileNames });
-          }
-        },
-      )
-      .catch(() => {
-        /* history unavailable — start fresh */
-      });
-
-    // Page-load recovery: restore pending extraction cards from previous session
-    fetchPendingExtractions(apiKey, ns)
-      .then(({ pending }) => {
-        useExtractionCardStore.getState().loadRecoveryCards(
-          pending.map((p) => ({
-            cardId: p.cardId,
-            namespace: ns,
-            fileName: p.fileName ?? p.documentId,
-            classification: p.classification ?? 'client_source',
-            extractedFields: Object.entries(p.fields ?? {}).map(([key, field]) => ({
-              key: key as RequirementKey,
-              value: field?.value,
-              confidence: field?.confidence ?? 0,
-              conflict: p.conflicts?.find((c) => c.key === key),
-            })),
-            knowledgeEntryCount: p.knowledgeEntries?.length ?? 0,
-            highConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) >= 0.8).length,
-            lowConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) < 0.8).length,
-            notFoundFields: [],
-            expiresAt: p.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-            cardState: 'pending' as const,
-            addedAt: Date.now(),
-          })),
-        );
+      fetch(`/api/chat/session/${sessionId}/history?namespace=${encodeURIComponent(ns)}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
       })
-      .catch(() => {
-        /* pending extractions unavailable */
-      });
+        .then((res) => (res.ok ? res.json() : { messages: [] }))
+        .then(
+          (data: {
+            messages: Array<{
+              id: string;
+              role: 'user' | 'assistant' | 'upload';
+              content: string;
+              timestamp?: string;
+              metadata?: { proposalArtifactId?: string; displayName?: string; fileSize?: number; fileNames?: string[] };
+            }>;
+          }) => {
+            // Map server history → Message objects. Upload cards are stored server-side
+            // with role='upload'; reconstruct them in chronological order alongside chat messages.
+            const messages: Message[] = data.messages.map((m) => {
+              if (m.role !== 'upload') return m as Message;
+              return {
+                id: m.id,
+                role: 'upload' as const,
+                content: '',
+                uploadData: {
+                  fileName: m.metadata?.displayName ?? '',
+                  fileSize: m.metadata?.fileSize ?? 0,
+                  progress: 0,
+                  status: 'processing' as const,
+                  stage: 'Queued',
+                },
+              };
+            });
 
-    fetchInsights(ns);
-    setTimeout(() => textareaRef.current?.focus(), 0);
+            skipNextScrollRef.current = true;
+            setMessages(messages);
+
+            // Resume polling for upload messages newer than 24 h — older ones are terminal.
+            const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+            const recentUploads = data.messages.filter(
+              (m) => m.role === 'upload' && new Date(m.timestamp ?? 0).getTime() > oneDayAgo,
+            );
+            for (const m of recentUploads) {
+              const fileNames = m.metadata?.fileNames ?? [];
+              if (fileNames.length > 0) setActiveUploadPoll({ msgId: m.id, fileNames });
+            }
+          },
+        )
+        .catch(() => {
+          /* history unavailable — start fresh */
+        });
+
+      // Page-load recovery: restore pending extraction cards from previous session
+      fetchPendingExtractions(apiKey, ns)
+        .then(({ pending }) => {
+          useExtractionCardStore.getState().loadRecoveryCards(
+            pending.map((p) => ({
+              cardId: p.cardId,
+              namespace: ns,
+              fileName: p.fileName ?? p.documentId,
+              classification: p.classification ?? 'client_source',
+              extractedFields: Object.entries(p.fields ?? {}).map(([key, field]) => ({
+                key: key as RequirementKey,
+                value: field?.value,
+                confidence: field?.confidence ?? 0,
+                conflict: p.conflicts?.find((c) => c.key === key),
+              })),
+              knowledgeEntryCount: p.knowledgeEntries?.length ?? 0,
+              highConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) >= 0.8).length,
+              lowConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) < 0.8).length,
+              notFoundFields: [],
+              expiresAt: p.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              cardState: 'pending' as const,
+              addedAt: Date.now(),
+            })),
+          );
+        })
+        .catch(() => {
+          /* pending extractions unavailable */
+        });
+
+      fetchInsights(ns);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    })();
   }, [namespace, apiKey, fetchInsights, reset, removeExecution]);
 
   // Refresh insights and restore focus after each query completes (isStreaming: true → false).
@@ -1047,7 +1081,7 @@ export default function ChatPage() {
     // Rotate to a new session ID so the fresh chat has clean history
     const ns = namespace || 'default';
     const newId = crypto.randomUUID();
-    localStorage.setItem(`chat-session-id-${ns}`, newId);
+    localStorage.setItem(localSessionKey(ns), newId);
     chatSessionIdRef.current = newId;
     // Cancel any in-flight generation execution
     if (chatExecIdRef.current !== null) {
