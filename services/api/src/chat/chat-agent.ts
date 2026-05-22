@@ -71,6 +71,8 @@ export interface ChatAgentInput {
   namespace: string;
   /** Stable session ID for history persistence and SSE routing. */
   chatSessionId: string;
+  /** 16-char hex SHA-256 prefix of the API key — scopes history per user. */
+  apiKeyHash: string;
   /** Absolute path to the workspace root (namespaces/, data/ live here). */
   workdir: string;
   /** LLM call function — injected so the agent never imports a concrete LLM. */
@@ -314,13 +316,14 @@ JSON only:`;
 async function buildChatContext(
   namespace: string,
   chatSessionId: string,
+  apiKeyHash: string,
   workdir: string,
 ): Promise<ChatContext> {
   const [proposals, templates, ingestedDocuments, lastAssistantMeta, pendingTemplateApproval, skillsList, designSkillsList] = await Promise.all([
     loadProposals(workdir, namespace),
     loadTemplates(workdir),
     loadIngestedDocuments(workdir, namespace),
-    loadLastAssistantMeta(workdir, namespace, chatSessionId),
+    loadLastAssistantMeta(workdir, namespace, apiKeyHash, chatSessionId),
     loadPendingTemplateApproval(workdir, namespace),
     import('../skills/skill.service.js').then(({ listSkills }) => listSkills(workdir)).catch(() => [] as { slug: string; displayName: string }[]),
     import('../skills/design-skill.service.js').then(({ listDesignSkills }) => listDesignSkills(workdir)).catch(() => [] as { slug: string; displayName: string; aestheticTone: string; themeClass: string }[]),
@@ -414,10 +417,11 @@ async function loadPendingTemplateApproval(
 async function loadLastAssistantMeta(
   workdir: string,
   namespace: string,
+  apiKeyHash: string,
   chatSessionId: string,
 ): Promise<{ meta: Record<string, unknown> | null; content: string | null }> {
   try {
-    const history = await loadHistory(workdir, namespace, chatSessionId);
+    const history = await loadHistory(workdir, namespace, apiKeyHash, chatSessionId);
     if (!history || history.messages.length === 0) return { meta: null, content: null };
     const messages = [...history.messages].reverse();
     const lastAssistant = messages.find((m) => m.role === 'assistant');
@@ -473,6 +477,7 @@ function dataToFields(
 async function persistState(
   workdir: string,
   namespace: string,
+  apiKeyHash: string,
   chatSessionId: string,
   message: string,
   response: ChatResponse,
@@ -509,6 +514,7 @@ async function persistState(
   await appendChatTurn(
     workdir,
     namespace,
+    apiKeyHash,
     chatSessionId,
     message,
     response.text,
@@ -548,6 +554,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     message,
     namespace,
     chatSessionId,
+    apiKeyHash,
     workdir,
     generateFn: rawGenerateFn,
     policyConfig,
@@ -573,13 +580,13 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   // =========================================================================
   onPhase('Classifying intent...');
 
-  const chatContext = await buildChatContext(namespace, chatSessionId, workdir);
+  const chatContext = await buildChatContext(namespace, chatSessionId, apiKeyHash, workdir);
   let classification = await classifier.classify(message, chatContext);
 
   // --- Early exit: UNKNOWN ---
   if (classification.intent === 'UNKNOWN') {
     const response = buildUnknownResponse();
-    await persistState(workdir, namespace, chatSessionId, message, response, classification);
+    await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
     onDone(response);
     return response;
   }
@@ -587,7 +594,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   // --- Early exit: GENERAL_CHAT ---
   if (classification.intent === 'GENERAL_CHAT') {
     const response = buildBoundaryResponse(message);
-    await persistState(workdir, namespace, chatSessionId, message, response, classification);
+    await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
     onDone(response);
     return response;
   }
@@ -644,6 +651,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     await persistState(
       workdir,
       namespace,
+      apiKeyHash,
       chatSessionId,
       message,
       response,
@@ -684,7 +692,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
         await contextService.setPendingTemplateApproval(namespace, { kind: 'approve_generated_template', templateSlug: pendingSlug }).catch(() => { /* non-fatal */ });
       }
       await persistState(
-        workdir, namespace, chatSessionId, message, response, classification,
+        workdir, namespace, apiKeyHash, chatSessionId, message, response, classification,
         undefined,
         { kind: pendingKind, templateSlug: pendingSlug },
       );
@@ -820,7 +828,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
         await contextService.setPendingTemplateApproval(namespace, { kind: 'approve_generated_template', templateSlug: pendingSlug }).catch(() => { /* non-fatal */ });
       }
       await persistState(
-        workdir, namespace, chatSessionId, message, response, classification,
+        workdir, namespace, apiKeyHash, chatSessionId, message, response, classification,
         undefined,
         { kind: pendingKind, templateSlug: pendingSlug },
       );
@@ -867,7 +875,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
 
     if (!fallback) {
       const response = buildPlanFailureResponse(extraction);
-      await persistState(workdir, namespace, chatSessionId, message, response, classification);
+      await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
       onDone(response);
       return response;
     }
@@ -998,7 +1006,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   // Preserve awaitingInput when the plan included ASK actions — the next turn
   // needs to know we're mid-flow (e.g. "what status?" → user answers "approved")
   const pendingAsk = askActions.length > 0 ? { intent: classification.intent } : undefined;
-  await persistState(workdir, namespace, chatSessionId, message, response, classification, pendingAsk);
+  await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification, pendingAsk);
 
   // Stream the response text in chunks, then signal done
   for (const chunk of chunkText(response.text)) {
