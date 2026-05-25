@@ -390,7 +390,7 @@ export default function SuperClientPage() {
     return changed;
   }
 
-  const MICROSITE_INTENT_RE = /\bmicrosite\b/i;
+  const MICROSITE_INTENT_RE = /\b(generate|create|make|build|design)\b[^.?!]*\bmicrosite\b|\bmicrosite\b[^.?!]*\b(generate|create|make|build|design)\b/i;
   const PROPOSAL_INTENT_RE = /\b(generate|create|write|draft|make|build)\s+(a\s+)?proposal\b/i;
   const PROPOSAL_STEPS = [
     'Analyzing client context…',
@@ -506,7 +506,8 @@ export default function SuperClientPage() {
     const text = input.trim();
     if (!text || streaming) return;
 
-    if (MICROSITE_INTENT_RE.test(text)) {
+    const isQuestion = /^(how|what|why|when|where|who|is|are|can|could|would|does|do|did|will|should)\b/i.test(text);
+    if (!isQuestion && MICROSITE_INTENT_RE.test(text)) {
       const reply =
         proposals.length === 0
           ? "You'll need a proposal first — ask me to generate one for this client."
@@ -515,6 +516,14 @@ export default function SuperClientPage() {
             : "Sure! Pick a proposal below and I'll walk you through it.";
       setMessages((prev) => [...prev, { id: genId(), role: 'user', content: text }]);
       setInput('');
+      // Extract any context the user included alongside the trigger word and pre-fill instructions
+      const extracted = text
+        .replace(/\b(generate|create|make|build|design)\b/gi, '')
+        .replace(/\bmicrosite\b/gi, '')
+        .replace(/\b(a|an|the|me|my|for|please|can you|could you)\b/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (extracted) setComposerInstructions(extracted);
       if (proposals.length > 0) {
         setComposerMessage(reply);
         setComposerStage('select-proposal');

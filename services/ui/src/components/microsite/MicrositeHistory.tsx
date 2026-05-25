@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Globe, Trash2, MoreHorizontal, Layers, Clock, FolderOpen, Eye, Pencil } from 'lucide-react';
+import { Globe, Trash2, MoreHorizontal, Clock, FolderOpen, Eye } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
@@ -12,7 +12,6 @@ import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
 import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
-import { getPlugin } from '@/lib/presentation/pluginRegistry';
 import type { LayoutAST } from '@/types/presentation';
 
 interface CombinedEntry {
@@ -26,47 +25,17 @@ interface CombinedEntry {
   title?: string;    // explicit title from super-client microsites.json
 }
 
-// Section type → accent color
-const SECTION_COLORS: Record<string, string> = {
-  hero: '', // filled with brand primary at render time
-  overview: '#60a5fa',
-  about: '#60a5fa',
-  introduction: '#60a5fa',
-  features: '#34d399',
-  capabilities: '#34d399',
-  services: '#34d399',
-  metrics: '#f59e0b',
-  stats: '#f59e0b',
-  numbers: '#f59e0b',
-  kpi: '#f59e0b',
-  testimonials: '#a78bfa',
-  quotes: '#a78bfa',
-  team: '#fb923c',
-  people: '#fb923c',
-  timeline: '#38bdf8',
-  roadmap: '#38bdf8',
-  process: '#38bdf8',
-  cta: '#f43f5e',
-  contact: '#f43f5e',
-  pricing: '#8b5cf6',
-  comparison: '#8b5cf6',
-};
-
-function getSectionColor(type: string, primaryColor: string): string {
-  const key = type.toLowerCase().replace(/[-_]/g, '');
-  if (key === 'hero') return primaryColor;
-  for (const [k, v] of Object.entries(SECTION_COLORS)) {
-    if (key.includes(k)) return v;
-  }
-  return '#64748b';
-}
-
-function getPluginAccent(plugin: string): string {
-  try {
-    return getPlugin(plugin).tokens.accent;
-  } catch {
-    return '#6366f1';
-  }
+// Derive a unique, vivid color pair from any string (namespace/id)
+function hashPalette(str: string): { primary: string; secondary: string; hue: number } {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0;
+  const hue = ((h >>> 0) % 360);
+  const hue2 = (hue + 150) % 360;
+  return {
+    primary: `hsl(${hue}, 78%, 58%)`,
+    secondary: `hsl(${hue2}, 72%, 52%)`,
+    hue,
+  };
 }
 
 function formatDate(iso: string): string {
@@ -91,7 +60,6 @@ function formatDate(iso: string): string {
 
 export function MicrositeHistory({
   onCountChange,
-  onGenerateNew,
 }: {
   onCountChange?: (count: number) => void;
   onGenerateNew?: () => void;
@@ -113,7 +81,6 @@ export function MicrositeHistory({
           items
             .filter((item) => item.ast && (item.ast as { sections?: unknown[] }).sections?.length)
             .map((item) => {
-              const mode = (item.ast as LayoutAST)?.generationMode;
               return {
                 id: item.id,
                 entryId: item.id,
@@ -239,17 +206,19 @@ export function MicrositeHistory({
           ? MicrositePro
           : Microsite;
     return (
-      <PreviewComponent
-        ast={previewEntry.ast}
-        onBack={() => {
-          refresh();
-          loadServerEntries();
-          setPreviewEntry(null);
-        }}
-        onEdit={() => handleEdit(previewEntry)}
-        namespace={previewEntry.namespace}
-        proposalId={previewEntry.id}
-      />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 40000, background: 'var(--panel, #fff)', overflow: 'auto' }}>
+        <PreviewComponent
+          ast={previewEntry.ast}
+          onBack={() => {
+            refresh();
+            loadServerEntries();
+            setPreviewEntry(null);
+          }}
+          onEdit={() => handleEdit(previewEntry)}
+          namespace={previewEntry.namespace}
+          proposalId={previewEntry.id}
+        />
+      </div>
     );
   }
 
@@ -281,9 +250,6 @@ export function MicrositeHistory({
             <Globe size={24} strokeWidth={1.5} style={{ color: 'var(--muted)' }} />
           </div>
           <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 6px' }}>No microsites yet</p>
-          <p style={{ fontSize: 14, color: 'var(--muted)', margin: '0 0 20px', lineHeight: 1.5 }}>
-            Generate your first microsite to see it here.
-          </p>
         </div>
       </div>
     );
@@ -325,24 +291,14 @@ export function MicrositeHistory({
 
       <div className="proposal-cards-grid" style={{ padding: 0, maxWidth: 'none', margin: 0 }}>
         {combinedWithVersion.map(({ entry, companyName, version }) => {
-          const accent = getPluginAccent(entry.ast.plugin);
-          const pluginName = (entry.ast.plugin || 'default').toUpperCase();
-          const isPro = entry.ast.generationMode !== 'classic';
+          const isPro = entry.ast.generationMode === 'pro';
+          const isV2 = entry.ast.generationMode === 'v2';
           const isHovered = hoveredCard === entry.id;
-          const primaryColor = entry.ast.brand?.primaryColor || '#4f46e5';
-          const secondaryColor = entry.ast.brand?.secondaryColor || '#7c3aed';
-          const sections = (entry.ast.sections ?? []) as Array<{ sectionType?: string }>;
-          const sectionCount = sections.length;
-          const clientName = (entry.ast.meta as { client?: string } | undefined)?.client;
+          // Always derive from namespace so each client gets a unique, consistent palette
+          const { primary: primaryColor, secondary: secondaryColor, hue } = hashPalette(entry.namespace);
 
-          // Build a multi-color gradient from section type colors
-          const sectionColors = sections.length > 0
-            ? sections.map((s) => getSectionColor(s.sectionType ?? '', primaryColor))
-            : [primaryColor, secondaryColor];
-          const step = 100 / sectionColors.length;
-          const headerGradient = `linear-gradient(90deg, ${sectionColors
-            .map((c, i) => `${c} ${(i * step).toFixed(1)}%, ${c} ${((i + 1) * step).toFixed(1)}%`)
-            .join(', ')})`;
+          // Initials from namespace for the avatar
+          const initials = entry.namespace.split('-').map((w: string) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('');
 
           return (
             <div
@@ -354,154 +310,76 @@ export function MicrositeHistory({
                 padding: 0,
                 overflow: 'hidden',
                 cursor: 'default',
-                transform: isHovered ? 'translateY(-3px)' : 'translateY(0)',
+                borderColor: isHovered ? primaryColor : 'var(--border)',
+                transform: isHovered ? 'translateY(-4px)' : 'translateY(0)',
                 boxShadow: isHovered
-                  ? `0 12px 32px rgba(0,0,0,0.28), 0 0 0 1.5px ${primaryColor}55`
-                  : '0 2px 8px rgba(0,0,0,0.14)',
-                borderColor: isHovered ? `${primaryColor}66` : 'var(--border)',
-                transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease',
+                  ? `0 16px 40px rgba(0,0,0,0.35), 0 0 0 1px ${primaryColor}`
+                  : '0 2px 10px rgba(0,0,0,0.2)',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
               }}
               onMouseEnter={() => setHoveredCard(entry.id)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              {/* ── Header: multi-color section strip ── */}
-              <div
-                style={{
+              {/* ── Accent bar top ── */}
+              <div style={{ height: 3, background: `linear-gradient(90deg, ${primaryColor}, ${secondaryColor})`, flexShrink: 0 }} />
+
+              {/* ── Header row: avatar + pills ── */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 14px 0' }}>
+                {/* Namespace avatar */}
+                <div style={{
+                  width: 40,
                   height: 40,
-                  background: headerGradient,
-                  position: 'relative',
+                  borderRadius: 12,
+                  background: `linear-gradient(135deg, ${primaryColor}22, ${secondaryColor}22)`,
+                  border: `1.5px solid ${primaryColor}44`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: primaryColor,
                   flexShrink: 0,
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Noise texture overlay */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background:
-                      "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E\")",
-                    opacity: 0.4,
-                  }}
-                />
-
-                {/* Mode pill — top-left */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 10,
-                    left: 12,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    background: 'rgba(0,0,0,0.32)',
-                    backdropFilter: 'blur(6px)',
-                    borderRadius: 100,
-                    padding: '3px 9px',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: '#fff',
-                    letterSpacing: '0.05em',
-                  }}
-                >
-                  {isPro ? '⚡' : '🎨'} {isPro ? 'Pro' : 'Classic'}
+                  letterSpacing: '-0.02em',
+                }}>
+                  {initials}
                 </div>
 
-                {/* Version pill — top-right */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 10,
-                    right: 12,
-                    background: 'rgba(0,0,0,0.32)',
-                    backdropFilter: 'blur(6px)',
-                    borderRadius: 100,
-                    padding: '3px 9px',
-                    fontSize: 10,
+                {/* Mode + version + options */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    fontSize: 9,
                     fontWeight: 700,
-                    color: '#fff',
-                    letterSpacing: '0.05em',
-                  }}
-                >
-                  v{version}
-                </div>
-
-              </div>
-
-              {/* ── Body ── */}
-              <div style={{ padding: '12px 14px 0' }}>
-                {/* Company name + options menu */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 6 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span
-                      style={{
-                        display: 'block',
-                        fontSize: 15,
-                        fontWeight: 700,
-                        color: 'var(--text)',
-                        lineHeight: 1.3,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {companyName}
-                    </span>
-                    {clientName && clientName !== companyName && (
-                      <span
-                        style={{
-                          display: 'block',
-                          fontSize: 11,
-                          color: 'var(--muted)',
-                          marginTop: 1,
-                          fontStyle: 'italic',
-                        }}
-                      >
-                        for {clientName}
-                      </span>
-                    )}
-                    {/* Namespace badge — prominent, directly under company name */}
-                    <span
-                      title={entry.namespace}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        marginTop: 5,
-                        background: `${primaryColor}14`,
-                        border: `1px solid ${primaryColor}30`,
-                        borderRadius: 6,
-                        padding: '2px 8px 2px 6px',
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: primaryColor,
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        letterSpacing: '0.02em',
-                      }}
-                    >
-                      <FolderOpen size={10} style={{ flexShrink: 0 }} />
-                      {entry.namespace}
-                    </span>
-                  </div>
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase' as const,
+                    color: primaryColor,
+                    background: `${primaryColor}18`,
+                    border: `1px solid ${primaryColor}30`,
+                    borderRadius: 100,
+                    padding: '3px 8px',
+                  }}>
+                    {isV2 ? '✦ Microsite' : isPro ? '⚡ Pro' : '🎨 Classic'}
+                  </span>
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: 'var(--muted)',
+                    background: 'var(--panel-soft)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 100,
+                    padding: '3px 8px',
+                    letterSpacing: '0.06em',
+                  }}>
+                    v{version}
+                  </span>
                   <button
-                    ref={(el) => {
-                      menuBtnRefs.current[entry.id] = el;
-                    }}
+                    ref={(el) => { menuBtnRefs.current[entry.id] = el; }}
                     className="btn btn-sm"
                     title="Options"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openMenu(entry);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); openMenu(entry); }}
                     style={{
                       padding: '2px 4px',
                       border: 'none',
                       lineHeight: 1,
-                      flexShrink: 0,
-                      marginTop: 1,
                       opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0,
                       pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none',
                       transition: 'opacity 0.15s',
@@ -510,149 +388,73 @@ export function MicrositeHistory({
                     <Icon icon={MoreHorizontal} size="sm" />
                   </button>
                 </div>
+              </div>
 
-                {/* Theme badge + timestamp row */}
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, flexWrap: 'wrap' as const }}
-                >
-                  {!isPro && (
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        background: `${accent}1a`,
-                        color: accent,
-                        border: `1px solid ${accent}33`,
-                        borderRadius: 5,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 7px',
-                        letterSpacing: '0.06em',
-                        lineHeight: 1.5,
-                        textTransform: 'uppercase' as const,
-                      }}
-                    >
-                      {pluginName}
-                    </span>
-                  )}
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 3,
-                      fontSize: 11,
-                      color: 'var(--muted)',
-                      marginLeft: 'auto',
-                    }}
-                  >
-                    <Clock size={10} />
+              {/* ── Body ── */}
+              <div style={{ padding: '12px 14px 14px' }}>
+                <span style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: 'var(--text)',
+                  lineHeight: 1.45,
+                }}>
+                  {companyName}
+                </span>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 6 }}>
+                  <span title={entry.namespace} style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: 'var(--muted)',
+                    maxWidth: '65%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    <FolderOpen size={9} style={{ flexShrink: 0, color: primaryColor }} />
+                    {entry.namespace}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
+                    <Clock size={9} />
                     {formatDate(entry.savedAt)}
                   </span>
                 </div>
-
-                {/* Stats row — section count + color dots only */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '8px 0',
-                    borderTop: '1px solid var(--border)',
-                    marginBottom: 0,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                    <Layers size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                      {sectionCount} section{sectionCount !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                    {sections.slice(0, 8).map((s, i) => (
-                      <div
-                        key={i}
-                        title={s.sectionType ?? 'section'}
-                        style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          background: getSectionColor(s.sectionType ?? '', primaryColor),
-                          flexShrink: 0,
-                        }}
-                      />
-                    ))}
-                    {sections.length > 8 && (
-                      <span style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 1 }}>+{sections.length - 8}</span>
-                    )}
-                  </div>
-                </div>
               </div>
 
-              {/* ── Footer: action buttons ── */}
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 6,
-                  padding: '10px 14px 12px',
-                  borderTop: '1px solid var(--border)',
-                }}
-              >
-                <button
-                  onClick={() => handleEdit(entry)}
-                  title="Edit in editor"
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 5,
-                    padding: '7px 0',
-                    borderRadius: 8,
-                    border: '1px solid var(--border)',
-                    background: 'transparent',
-                    color: 'var(--text)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'background 0.15s, border-color 0.15s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--panel-soft)';
-                    e.currentTarget.style.borderColor = 'var(--primary)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.borderColor = 'var(--border)';
-                  }}
-                >
-                  <Pencil size={11} /> Edit
-                </button>
+              {/* ── Footer ── */}
+              <div style={{ padding: '0 12px 12px' }}>
                 <button
                   onClick={() => setPreviewEntry(entry)}
-                  title="Preview microsite"
+                  title="View microsite"
                   style={{
-                    flex: 1,
+                    width: '100%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 5,
-                    padding: '7px 0',
-                    borderRadius: 8,
+                    gap: 6,
+                    padding: '9px 0',
+                    borderRadius: 10,
                     border: 'none',
-                    background: primaryColor,
+                    background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
                     color: '#fff',
                     fontSize: 12,
                     fontWeight: 700,
                     cursor: 'pointer',
-                    transition: 'opacity 0.15s, filter 0.15s',
+                    letterSpacing: '0.04em',
+                    boxShadow: isHovered ? `0 6px 20px ${primaryColor}55` : `0 2px 8px ${primaryColor}30`,
+                    transition: 'filter 0.15s, box-shadow 0.2s',
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.filter = 'brightness(1.12)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.filter = 'brightness(1)';
-                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.filter = 'brightness(1)'; }}
                 >
-                  <Eye size={11} /> View
+                  <Eye size={12} /> View
                 </button>
               </div>
             </div>
