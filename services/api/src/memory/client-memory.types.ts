@@ -1,4 +1,4 @@
-export type StableRequirementKey = 'clientName' | 'clientIndustry' | 'contactName';
+export type StableRequirementKey = 'clientName' | 'clientIndustry' | 'contactName' | 'projectType';
 
 export interface MemoryField {
   value: string | string[];
@@ -11,9 +11,13 @@ export interface MemoryField {
 export interface ClientKnowledgeEntry {
   id: string;
   content: string;
-  category: 'preference' | 'constraint' | 'relationship' | 'context';
+  category:
+    | 'preference' | 'constraint' | 'relationship' | 'context'
+    | 'requirement' | 'priority' | 'problem' | 'opportunity'
+    | 'decision' | 'metric' | 'action_item';
   confidence: number;
   sourceEngagements: string[];
+  sourceDocument?: string;
   firstSeenAt: string;
   lastConfirmedAt: string;
   supersededBy?: string;
