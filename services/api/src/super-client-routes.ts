@@ -420,6 +420,53 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     await writeFile(path.join(dir, 'context.md'), contextMd);
 
+    // Seed ClientMemory by extracting structured knowledge from contextMd (same pipeline as document ingestion)
+    if (contextMd.trim()) {
+      try {
+        const extractPrompt = `You are a client intelligence extractor.
+Extract facts worth remembering long-term from this client intelligence summary about "${displayName}".
+Focus on: company facts, preferences, constraints, stakeholders (name + role), brand traits,
+business context, goals, and anything useful for future proposals or microsites.
+Skip generic filler or information that would not apply to future work.
+
+CONTENT:
+${contextMd.slice(0, 12000)}
+
+Return ONLY valid JSON (empty arrays if nothing notable):
+{
+  "knowledge": [
+    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
+  ],
+  "stakeholders": [
+    { "name": "...", "role": "...", "email": "", "notes": "" }
+  ]
+}`;
+        const raw = await llmGenerateFn(extractPrompt);
+        const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+        const extracted = JSON.parse(json) as {
+          knowledge?: { content: string; category: string; confidence: number }[];
+          stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
+        };
+        for (const k of extracted.knowledge ?? []) {
+          if (k.content?.trim()) {
+            await memService.addKnowledge(name, k.content, k.category as never, k.confidence ?? 0.8);
+          }
+        }
+        for (const s of extracted.stakeholders ?? []) {
+          if (s.name?.trim() && s.role?.trim()) {
+            await memService.addStakeholder(name, {
+              name: s.name,
+              role: s.role,
+              ...(s.email?.trim() ? { email: s.email } : {}),
+              ...(s.notes?.trim() ? { notes: s.notes } : {}),
+            });
+          }
+        }
+      } catch (err) {
+        app.log.warn({ err }, '[SuperClient] Failed to seed memory from contextMd');
+      }
+    }
+
     return reply.code(201).send({ name, displayName, contextMd });
   });
 
