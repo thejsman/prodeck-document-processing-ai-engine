@@ -1448,24 +1448,6 @@ export function PresentationPage() {
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>
             Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ''}
           </span>
-          <button
-            onClick={() => setShowModePicker(true)}
-            style={{
-              height: 30,
-              padding: '0 14px',
-              background: 'var(--primary)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 'var(--radius)',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            + Generate Microsite
-          </button>
         </div>
         <div style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
 
