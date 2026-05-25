@@ -60,10 +60,14 @@ export function NamespacesSection({ onMobileClose }: Props) {
     try {
       const list = await listSuperClients(apiKey);
       setSuperClients(list);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }, [apiKey]);
 
-  useEffect(() => { void loadSuperClients(); }, [loadSuperClients]);
+  useEffect(() => {
+    void loadSuperClients();
+  }, [loadSuperClients]);
 
   const handleDeleteSuperClient = async () => {
     if (!confirmSc) return;
@@ -218,14 +222,12 @@ export function NamespacesSection({ onMobileClose }: Props) {
 
   return (
     <>
-      <div className="sidebar-group">
-        {/* New Namespace button */}
+      {/* <div className="sidebar-group">
         <div className="sidebar-link" onClick={() => setShowModal(true)} style={{ cursor: 'pointer' }}>
           <Icon icon={PlusCircle} size="md" className="sidebar-icon" />
           <span className="sidebar-label">Create Client</span>
         </div>
 
-        {/* Namespaces section label — collapses/expands list */}
         <div
           className="sidebar-link"
           onClick={() => setExpanded((v) => !v)}
@@ -248,7 +250,6 @@ export function NamespacesSection({ onMobileClose }: Props) {
           />
         </div>
 
-        {/* Namespace list */}
         {expanded &&
           namespaces.map((ns) => {
             const isActive = ns === activeNamespace && !!pathname?.startsWith('/chat');
@@ -317,7 +318,6 @@ export function NamespacesSection({ onMobileClose }: Props) {
                   </button>
                 )}
 
-                {/* ⋯ menu toggle — only shown on hover or when menu is open */}
                 {!isRenaming && (
                   <button
                     ref={(el) => {
@@ -349,7 +349,7 @@ export function NamespacesSection({ onMobileClose }: Props) {
               </div>
             );
           })}
-      </div>
+      </div> */}
 
       {/* Super Clients section */}
       <div className="sidebar-group">
@@ -436,18 +436,16 @@ export function NamespacesSection({ onMobileClose }: Props) {
             );
           })}
       </div>
-
       {dropdown}
-
       {showModal && <CreateNamespaceModal onClose={() => setShowModal(false)} />}
-
       {showSuperModal && (
         <CreateSuperClientModal
           onClose={() => setShowSuperModal(false)}
-          onCreated={() => { void loadSuperClients(); }}
+          onCreated={() => {
+            void loadSuperClients();
+          }}
         />
       )}
-
       {/* Confirm delete super client */}
       {confirmSc &&
         createPortal(
@@ -478,13 +476,30 @@ export function NamespacesSection({ onMobileClose }: Props) {
               }}
             >
               <div style={{ padding: '20px 24px 0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: 16,
+                  }}
+                >
                   <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0, lineHeight: 1.5 }}>
                     Delete super client
                   </p>
                   <button
-                    onClick={() => { if (!deletingSc) setConfirmSc(null); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, display: 'flex', alignItems: 'center' }}
+                    onClick={() => {
+                      if (!deletingSc) setConfirmSc(null);
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--muted)',
+                      padding: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
                   >
                     <Icon icon={X} size="md" />
                   </button>
@@ -499,14 +514,31 @@ export function NamespacesSection({ onMobileClose }: Props) {
                   <button
                     onClick={() => setConfirmSc(null)}
                     disabled={deletingSc}
-                    style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingSc ? 'not-allowed' : 'pointer' }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--panel-soft)',
+                      color: 'var(--text)',
+                      fontSize: 14,
+                      cursor: deletingSc ? 'not-allowed' : 'pointer',
+                    }}
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleDeleteSuperClient}
                     disabled={deletingSc}
-                    style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingSc ? 'not-allowed' : 'pointer', opacity: deletingSc ? 0.7 : 1 }}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: 'var(--danger)',
+                      color: '#fff',
+                      fontSize: 14,
+                      cursor: deletingSc ? 'not-allowed' : 'pointer',
+                      opacity: deletingSc ? 0.7 : 1,
+                    }}
                   >
                     {deletingSc ? 'Deleting…' : 'Delete'}
                   </button>
@@ -516,7 +548,6 @@ export function NamespacesSection({ onMobileClose }: Props) {
           </div>,
           document.body,
         )}
-
       {/* Confirm delete dialog */}
       {confirmNs &&
         createPortal(
