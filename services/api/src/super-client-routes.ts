@@ -925,6 +925,135 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     return reply.send({ ok: true });
   });
 
+  // POST /super-clients/:name/microsites/:id/edit  — LLM patch edit on microsite HTML
+  app.post('/super-clients/:name/microsites/:id/edit', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { instruction?: string } | undefined;
+    const instruction = body?.instruction?.trim();
+    if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
+
+    const dir = path.join(superClientsRoot, name);
+    const filePath = path.join(dir, 'microsites', `${id}.json`);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+
+    let ast: Record<string, unknown>;
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+    } catch {
+      return reply.code(404).send({ error: 'Microsite not found' });
+    }
+
+    const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
+    if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
+
+    const combinedPrompt = `You are an HTML microsite editor. Given a complete HTML microsite and an edit instruction, choose one of two response formats:
+
+FORMAT A — targeted changes (colors, fonts, text, spacing). Use this for most edits.
+Respond with ONLY a JSON object (no preamble, start with {, end with }):
+{ "patches": [{ "find": "exact single-line string", "replace": "new single-line string" }], "summary": "one-line description" }
+
+Patch rules:
+- ONLY target CSS custom properties defined in the :root block — these are always single-line (e.g. find "--color-bg: #ffffff", replace "--color-bg: #0a1628")
+- NEVER include newlines inside "find" or "replace" values — single-line strings only
+- If the change cannot be expressed as :root variable swaps, use FORMAT B instead
+- Each "find" must appear exactly once in the document
+- Use the minimum patches needed (usually 1–3)
+
+FORMAT B — use when patches would require multi-line strings, or for structural changes (add/remove sections, complete redesign).
+Respond with this exact format — the sentinel line first, then the complete HTML:
+REWRITE
+<!DOCTYPE html>
+...complete new HTML document...
+
+VIDEO BACKGROUND RULE:
+If the instruction references a Vimeo or YouTube URL for a background:
+- Vimeo: extract the numeric ID from the URL (e.g. vimeo.com/789106059 → ID is 789106059), embed as:
+  <iframe src="https://player.vimeo.com/video/{ID}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
+- YouTube: extract the video ID, embed as:
+  <iframe src="https://www.youtube.com/embed/{ID}?autoplay=1&loop=1&mute=1&controls=0&playlist={ID}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
+- Place the iframe as the first child of the hero section; set the hero section to position:relative and overflow:hidden
+- Ensure all hero text/content elements have position:relative and z-index:1 so they appear above the video
+- Remove any existing background-image or background CSS from the hero section
+- This always requires FORMAT B (REWRITE) since it modifies HTML structure
+
+EDIT INSTRUCTION: ${instruction}
+
+CURRENT HTML:
+${html}`;
+
+    const raw = await llmGenerateFn(combinedPrompt);
+
+    let updatedHtml = html;
+    let summary = 'Applied edit';
+
+    // Detect FORMAT B: response starts with REWRITE sentinel (possibly after whitespace/fences)
+    const rewriteMatch = raw.match(/REWRITE\s*\n([\s\S]+)/);
+    if (rewriteMatch) {
+      updatedHtml = rewriteMatch[1].trim();
+      summary = 'Full rewrite applied';
+    } else {
+      // FORMAT A: JSON patches
+      const jsonStart = raw.indexOf('{');
+      const jsonEnd = raw.lastIndexOf('}');
+      if (jsonStart === -1 || jsonEnd === -1) return reply.code(502).send({ error: 'LLM returned no recognisable format' });
+
+      let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
+      try {
+        // Sanitize literal newlines inside JSON string values (LLM sometimes forgets to escape them)
+        const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        parsed = JSON.parse(jsonSlice) as typeof parsed;
+      } catch {
+        return reply.code(502).send({ error: 'LLM returned malformed JSON' });
+      }
+
+      summary = parsed.summary ?? summary;
+      for (const patch of parsed.patches ?? []) {
+        if (patch.find && patch.replace !== undefined) {
+          updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
+        }
+      }
+    }
+
+    // Write updated ast back to disk, preserving old HTML for one-level undo
+    const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
+    await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+
+    return reply.send({ html: updatedHtml, summary });
+  });
+
+  // POST /super-clients/:name/microsites/:id/revert  — undo last edit
+  app.post('/super-clients/:name/microsites/:id/revert', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.status(400).send({ error: 'Invalid id' });
+
+    const dir = path.join(superClientsRoot, name);
+    const filePath = path.join(dir, 'microsites', `${id}.json`);
+    try { await readMeta(dir); } catch { return reply.status(404).send({ error: 'Client not found' }); }
+
+    let ast: Record<string, unknown>;
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+    } catch { return reply.status(404).send({ error: 'Microsite not found' }); }
+
+    const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const currentHtml = (sections?.[0]?.customHtml as string | undefined) ?? '';
+    const previousHtml = sections?.[0]?.previousHtml as string | undefined;
+
+    if (!previousHtml) return reply.status(409).send({ error: 'No previous version to revert to' });
+
+    const revertedAst = { ...ast, sections: [{ ...sections![0], customHtml: previousHtml, previousHtml: currentHtml }, ...((sections ?? []).slice(1))] };
+    await writeFile(filePath, JSON.stringify(revertedAst, null, 2));
+
+    return reply.send({ html: previousHtml });
+  });
+
   // PATCH /super-clients/:name/context  — update context.md manually
   app.patch('/super-clients/:name/context', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
