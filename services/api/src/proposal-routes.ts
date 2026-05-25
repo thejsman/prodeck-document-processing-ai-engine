@@ -75,6 +75,9 @@ function resolveProposalPath(fileName: string, workdir: string, legacyOutputDir:
   if (sep !== -1) {
     const ns = fileName.slice(0, sep);
     const file = fileName.slice(sep + 2);
+    if (ns.startsWith('sc-')) {
+      return path.join(workdir, 'super-clients', ns.slice(3), 'proposals', file);
+    }
     return path.join(workdir, 'namespaces', ns, 'proposals', file);
   }
   return path.join(legacyOutputDir, fileName);
@@ -549,6 +552,41 @@ export function registerProposalRoutes(
         for (const ns of namespaces) {
           const nsProposalsDir = path.join(nsRoot, ns, 'proposals');
           await scanProposalDir(nsProposalsDir, ns);
+        }
+
+        // Scan super-client proposal dirs: workdir/super-clients/*/proposals/
+        const scRoot = path.join(workdir, 'super-clients');
+        let superClients: string[] = [];
+        try { superClients = await readdir(scRoot); } catch { /* not yet created */ }
+        for (const sc of superClients) {
+          let titleMap: Record<string, string> = {};
+          try {
+            const indexRaw = await readFile(path.join(scRoot, sc, 'proposals.json'), 'utf-8');
+            const index = JSON.parse(indexRaw) as Array<{ fileName: string; title: string }>;
+            for (const entry of index) {
+              titleMap[entry.fileName] = entry.title;
+            }
+          } catch { /* no index */ }
+
+          const scProposalsDir = path.join(scRoot, sc, 'proposals');
+          let scEntries: string[];
+          try { scEntries = await readdir(scProposalsDir); } catch { continue; }
+          const scMdFiles = scEntries.filter((f) => f.endsWith('.md') && !f.startsWith('.'));
+          for (const file of scMdFiles) {
+            const filePath = path.join(scProposalsDir, file);
+            const fileStat = await stat(filePath);
+            const meta = await readMeta(filePath);
+            const title = titleMap[file] ?? file.replace(/\.md$/, '').replace(/-/g, ' ');
+            proposals.push({
+              fileName: `sc-${sc}::${file}`,
+              client: title,
+              version: null,
+              createdAt: fileStat.mtime.toISOString(),
+              sizeBytes: fileStat.size,
+              status: meta?.status ?? null,
+              lockedSections: meta?.lockedSections ?? [],
+            });
+          }
         }
 
         // Also scan legacy output dir so old proposals remain accessible during transition
