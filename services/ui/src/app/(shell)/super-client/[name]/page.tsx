@@ -67,6 +67,7 @@ export default function SuperClientPage() {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [memoryKey, setMemoryKey] = useState(0);
   const [error, setError] = useState('');
 
   const [docs, setDocs] = useState<SuperClientFile[]>([]);
@@ -125,6 +126,7 @@ export default function SuperClientPage() {
             content: h.content,
           })),
         );
+        setMemoryKey((k) => k + 1);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
@@ -1205,7 +1207,7 @@ export default function SuperClientPage() {
             <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
               Memory
             </p>
-            <MemorySection namespace={name} />
+            <MemorySection key={memoryKey} namespace={name} />
           </div>
         </div>
       </div>
