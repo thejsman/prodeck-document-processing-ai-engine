@@ -2145,6 +2145,272 @@ ${layoutSummary}`;
   };
   app.post('/presentations/:namespace/:proposalId/generate-stream', _classicStreamHandler);
 
+  // ── V2: Analyze proposal sections ─────────────────────────────────────────
+  // Quick LLM call that parses the proposal and returns detected sections,
+  // client name, project type, and key themes. Used by the V2 wizard Step 1.
+  app.post('/presentations/:namespace/:proposalId/analyze-v2', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { proposalMarkdown?: string } | undefined;
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        markdown = await readFile(resolveProposalMdPath(workdir, pres.fileName, namespace), 'utf-8');
+      } catch {
+        return reply.status(404).send({ error: 'Proposal not found' });
+      }
+    }
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    const prompt = `Analyze this proposal and return a JSON summary.
+
+PROPOSAL:
+${markdown.slice(0, 8000)}
+
+Return ONLY valid JSON, no explanation:
+{
+  "clientName": "company or client name",
+  "projectType": "type of engagement (e.g. Website Redesign, Mobile App, Consulting)",
+  "sections": [
+    { "id": "hero", "type": "hero", "heading": "short label", "summary": "one sentence what this covers" }
+  ],
+  "keyThemes": ["theme1", "theme2", "theme3"]
+}
+
+Section types: hero, overview, challenge, approach, deliverables, timeline, pricing, whyus, faq, nextsteps, team, testimonials, benefits, stats, comparison
+Always include hero and nextsteps. Suggest 5-9 sections based on what's actually in the proposal.`;
+
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+      });
+      if (!r.ok) return reply.status(500).send({ error: 'LLM analysis failed' });
+      const j = await r.json() as { content?: { text?: string }[] };
+      const text = j.content?.[0]?.text ?? '';
+      const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+      return reply.send(JSON.parse(json));
+    } catch (err) {
+      return reply.status(500).send({ error: err instanceof Error ? err.message : 'Analysis failed' });
+    }
+  });
+
+  // ── V2 experimental generation route ──────────────────────────────────────
+  // Completely independent from the existing agent/plugin pipeline.
+  // Accepts: proposalMarkdown, userPrompt (content instructions), designPrompt
+  // (design text instructions), referenceImage (base64 screenshot for vision
+  // design extraction). Streams plan → section* → complete SSE events.
+  app.post('/presentations/:namespace/:proposalId/generate-v2-stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const send = (data: Record<string, unknown>) => {
+      try { reply.raw.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+    };
+
+    const body = req.body as {
+      proposalMarkdown?: string;
+      userPrompt?: string;       // content/section instructions from user
+      designPrompt?: string;     // design text instructions from user
+      referenceImage?: { base64: string; mediaType: string }; // screenshot for vision
+      coldStart?: boolean;       // bypass proposal — generate content from scratch
+    } | undefined;
+
+    const isColdStart = body?.coldStart === true;
+    let markdown = body?.proposalMarkdown ?? '';
+    if (!isColdStart && !markdown) {
+      try {
+        const pres = await getPresentation(workdir, namespace, proposalId);
+        markdown = await readFile(resolveProposalMdPath(workdir, pres.fileName, namespace), 'utf-8');
+      } catch {
+        send({ type: 'error', message: 'Could not load proposal markdown' });
+        reply.raw.end();
+        return;
+      }
+    }
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    const hasPexels = !!(env.PEXELS_API_KEY?.trim());
+
+    const imageInstructions = hasPexels
+      ? `For images, always follow the user's instructions first.
+If the user says no images, use CSS gradients and SVGs only.
+Otherwise use this exact format for every image:
+  <img src="image://descriptive+search+query+subject+mood+setting" alt="brief description">
+  background-image: url('image://descriptive+search+query+subject+mood+setting')
+Write specific queries — subject, setting, mood, lighting, style. Never generic. These are replaced with real professional photography by the server.`
+      : `For images, always follow the user's instructions first.
+If the user says no images, use CSS gradients and SVGs only.
+Otherwise use real Unsplash photo URLs from your training data:
+  https://images.unsplash.com/photo-{id}?w=1920&q=80&fit=crop&auto=format
+Pick photos genuinely relevant to the section content — subject, industry, mood, setting.
+Always write descriptive alt attributes. Never use placeholder services.`;
+
+    const ARTIFACT_SYSTEM = `You are a world-class frontend developer and creative director with deep expertise in modern CSS, animation, and interaction design. You have an exceptional eye for typography, spacing, color, and visual hierarchy. You build websites that feel premium, polished, and alive — the kind of work that wins design awards.
+
+When asked to create a website or microsite:
+- Use your full frontend skills: CSS custom properties, smooth scroll, parallax, scroll-driven animations, glassmorphism, gradients, blur effects, micro-interactions
+- Choose fonts, colors, and layouts that feel intentional and high-end
+- Write clean, semantic HTML5 with all CSS and JS embedded inline
+- Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
+
+${imageInstructions}`;
+
+    const resolveImagePlaceholders = async (html: string): Promise<string> => {
+      const re = /image:\/\/([^'")\s]+)/g;
+      const placeholders = new Map<string, string>();
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) {
+        const query = decodeURIComponent(m[1].replace(/\+/g, ' '));
+        placeholders.set(m[0], query);
+      }
+      if (placeholders.size === 0) return html;
+
+      const results = await Promise.all(
+        [...placeholders.entries()].map(async ([placeholder, query]) => {
+          const url =
+            await fetchPexelsImageUrl(query) ??
+            buildPicsumUrl(query);
+          return [placeholder, url] as const;
+        }),
+      );
+
+      let out = html;
+      for (const [placeholder, url] of results) {
+        out = out.split(placeholder).join(url);
+      }
+      return out;
+    };
+
+    const callLLM = async (prompt: string, maxTokens = 8000): Promise<string> => {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: maxTokens, system: ARTIFACT_SYSTEM, messages: [{ role: 'user', content: prompt }] }),
+      });
+      if (!r.ok) throw new Error(`LLM error: ${r.status}`);
+      const j = await r.json() as { content?: { text?: string }[] };
+      return j.content?.[0]?.text ?? '';
+    };
+
+    const callLLMWithImage = async (prompt: string, imageBase64: string, mediaType: string, maxTokens = 6000): Promise<string> => {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          system: ARTIFACT_SYSTEM,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+              { type: 'text', text: prompt },
+            ],
+          }],
+        }),
+      });
+      if (!r.ok) {
+        const errBody = await r.text().catch(() => '');
+        throw new Error(`Vision LLM error: ${r.status} — ${errBody.slice(0, 300)}`);
+      }
+      const j = await r.json() as { content?: { text?: string }[] };
+      return j.content?.[0]?.text ?? '';
+    };
+
+    try {
+      send({ type: 'start', message: 'Generating…' });
+
+      // Detect Vimeo URL in user instructions and inject technical embed guidance
+      const vimeoMatch = body?.userPrompt?.match(/https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/i);
+      const vimeoNote = vimeoMatch
+        ? `Technical note for the Vimeo background video (ID: ${vimeoMatch[1]}):
+Use this embed URL: https://player.vimeo.com/video/${vimeoMatch[1]}?background=1&autoplay=1&loop=1&muted=1&controls=0
+Implement as a full-bleed iframe background inside a position:relative container:
+  iframe { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:177.78vh; min-width:100%; height:56.25vw; min-height:100%; border:none; pointer-events:none; }
+The hero section must have position:relative; overflow:hidden. All overlay text sits above with position:relative; z-index:1.`
+        : '';
+
+      // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
+      const parts: string[] = [];
+      if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
+      if (vimeoNote) parts.push(vimeoNote);
+      if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
+      if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
+      const prompt = parts.join('\n\n');
+
+      const raw = body?.referenceImage?.base64
+        ? await callLLMWithImage(prompt, body.referenceImage.base64, body.referenceImage.mediaType || 'image/jpeg', 32000)
+        : await callLLM(prompt, 32000);
+
+      // Strip markdown fences, resolve image:// placeholders with real photos, inject onerror fallback
+      const rawHtml = raw
+        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+
+      const html = (await resolveImagePlaceholders(rawHtml))
+        .replace(
+          /<img\b(?![^>]*\bonerror\b)([^>]*\balt="([^"]*)"[^>]*)>/gi,
+          (_m, attrs: string, alt: string) => {
+            const keyword = (alt || 'abstract').trim().split(/\s+/).slice(0, 3).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '');
+            return `<img${attrs} onerror="this.onerror=null;this.src='https://picsum.photos/seed/${keyword}/1920/1080'">`;
+          },
+        );
+
+      send({ type: 'plan', totalSections: 1, sectionTypes: ['overview'] });
+
+      send({
+        type: 'section',
+        id: 'microsite',
+        heading: 'microsite',
+        sectionType: 'overview',
+        customHtml: html,
+        content: { headline: 'microsite' },
+        index: 0,
+        image: { source: 'gradient', query: '', url: null, fallback: '' },
+        editable: true,
+        version: 1,
+      });
+
+      const ast = {
+        generationMode: 'v2',
+        sections: [{
+          id: 'microsite',
+          heading: 'microsite',
+          sectionType: 'overview',
+          customHtml: html,
+          content: { headline: 'microsite' },
+          image: { source: 'gradient', query: '', url: null, fallback: '' },
+          editable: true,
+          version: 1,
+        }],
+        brand: {},
+      };
+
+      send({ type: 'complete', ast });
+    } catch (err) {
+      send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      reply.raw.end();
+    }
+  });
+
   // ── Direct single-pass generation routes ──────────────────────────────────
   // These bypass the multi-step agent pipeline entirely. One LLM call reads
   // the full proposal and writes complete HTML directly — no AST, no themes.
@@ -2877,6 +3143,73 @@ ${layoutSummary}`;
       const d = await r.json() as { content: Array<{ type: string; text: string }> };
       const html = d.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
       return reply.send({ html });
+    }
+    return reply.code(502).send({ error: 'Max retries exceeded' });
+  });
+
+  // POST /presentations/:namespace/:proposalId/edit-tokens
+  // Direct LLM call: given current CSS custom-property tokens + instruction,
+  // returns only the token keys that need to change. No agent layer.
+  // Body: { instruction: string; currentTokens: Record<string, string> }
+  // Returns: { tokens: Record<string, string>; changed: string[]; summary: string }
+  app.post('/presentations/:namespace/:proposalId/edit-tokens', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { instruction?: string; currentTokens?: Record<string, string> } | undefined;
+    const instruction   = body?.instruction?.trim();
+    const currentTokens = body?.currentTokens ?? {};
+    if (!instruction) return reply.code(400).send({ error: 'instruction is required' });
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    const model  = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+    if (!apiKey) return reply.code(500).send({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    const systemPrompt = `You are a CSS design token editor for a professional microsite.
+You receive a JSON map of CSS custom properties and a user instruction.
+Return ONLY a valid JSON object containing the tokens that need to be updated.
+Only include keys that should change. Do not include unchanged tokens.
+Do not explain. No markdown. No code fences. Raw JSON only.
+
+Common token names and their roles:
+--ms-bg: main background  --ms-surface: card/surface bg  --ms-accent: brand accent color
+--ms-text: primary text   --ms-muted: secondary text     --ms-border: border/divider color
+--ms-font-body: body font family  --ms-font-heading: heading font  --ms-is-dark: "1" dark / "0" light
+--ms-gradient: hero gradient  --ms-overlay: overlay/scrim color  --ms-radius: base border-radius (px)`;
+
+    const userPrompt = `INSTRUCTION: ${instruction}\n\nCURRENT TOKENS:\n${JSON.stringify(currentTokens, null, 2)}`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model, max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (r.status === 429) {
+        const delay = parseInt(r.headers.get('retry-after') ?? '30', 10) * 1000 * (attempt + 1);
+        await new Promise(res => setTimeout(res, delay));
+        continue;
+      }
+      if (!r.ok) return reply.code(502).send({ error: `Anthropic ${r.status}: ${await r.text()}` });
+      const d = await r.json() as { content: Array<{ type: string; text: string }> };
+      const raw = d.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      let newTokens: Record<string, string> = {};
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        newTokens = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+      } catch {
+        return reply.code(502).send({ error: 'Failed to parse token response', raw });
+      }
+      const changed = Object.keys(newTokens);
+      const summary = changed.length > 0
+        ? `Updated ${changed.length} token${changed.length === 1 ? '' : 's'}: ${changed.slice(0, 3).join(', ')}${changed.length > 3 ? '…' : ''}`
+        : 'No tokens changed';
+      return reply.send({ tokens: newTokens, changed, summary });
     }
     return reply.code(502).send({ error: 'Max retries exceeded' });
   });

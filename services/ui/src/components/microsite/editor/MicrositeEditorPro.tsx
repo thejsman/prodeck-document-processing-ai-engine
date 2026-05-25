@@ -10,8 +10,8 @@
  * Visual tokens match MicrositeEditor — no logic or feature code is shared with it.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Wand2, Download, Check, ArrowLeft, Loader2, ChevronRight, Save, RotateCcw } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { RefreshCw, Download, Check, ArrowLeft, Loader2, Save, Sparkles, Undo2, Redo2, PanelLeft } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import {
   regenerateSection,
@@ -20,6 +20,7 @@ import {
   publishMicrosite,
 } from '@/lib/api';
 import { MicrositePro as Microsite } from '../MicrositePro';
+import { DesignAgentPanelPro } from './DesignAgentPanelPro';
 import type { LayoutAST, LayoutSection } from '@/types/presentation';
 
 // ---------------------------------------------------------------------------
@@ -35,16 +36,11 @@ interface SectionHtmlState {
 interface SectionUiState {
   regenerating: boolean;
   regenError: string | null;
-  promptOpen: boolean;
-  promptValue: string;
-  applying: boolean;
-  applyError: string | null;
+  aiEditing: boolean;
   saving: boolean;
   savedAt: number | null;
 }
 
-type SaveState  = 'idle' | 'saving' | 'saved' | 'no-changes';
-type RegenState = 'idle' | 'generating' | 'done';
 
 export interface MicrositeEditorProProps {
   ast: LayoutAST;
@@ -271,7 +267,7 @@ export function MicrositeEditorPro({
   const [sectionUi, setSectionUi] = useState<Record<string, SectionUiState>>(() => {
     const init: Record<string, SectionUiState> = {};
     for (const s of ast.sections) {
-      init[s.id] = { regenerating: false, regenError: null, promptOpen: false, promptValue: '', applying: false, applyError: null, saving: false, savedAt: null };
+      init[s.id] = { regenerating: false, regenError: null, aiEditing: false, saving: false, savedAt: null };
     }
     return init;
   });
@@ -279,16 +275,15 @@ export function MicrositeEditorPro({
   // ── Active section (scroll-to + sidebar highlight) ─────────────────────────
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
 
-  // ── Full-microsite regeneration state ──────────────────────────────────────
-  const [regenState, setRegenState]     = useState<RegenState>('idle');
-  const [pendingHtmls, setPendingHtmls] = useState<Record<string, string>>({});
-  const abortRegenRef = useRef<AbortController | null>(null);
+  // ── Local AST — updated by Design AI; base for currentAst ─────────────────
+  const [localAst, setLocalAst] = useState<LayoutAST>(() => ast);
 
-  // Cancel any in-flight generation when the editor unmounts
-  useEffect(() => () => { abortRegenRef.current?.abort(); }, []);
-
-  // ── Save state ─────────────────────────────────────────────────────────────
-  const [saveState, setSaveState] = useState<SaveState>('idle');
+  // ── Design AI panel state ──────────────────────────────────────────────────
+  const [showDesignPanel, setShowDesignPanel] = useState(false);
+  const [previewAst, setPreviewAst] = useState<LayoutAST | null>(null);
+  const [panelInitialTab, setPanelInitialTab] = useState<'design' | 'content'>('design');
+  const [panelTargetSectionId, setPanelTargetSectionId] = useState<string | undefined>(undefined);
+  const [panelInstruction, setPanelInstruction] = useState('');
   const savedSnapshotRef = useRef<Record<string, string>>(
     Object.fromEntries(ast.sections.map(s => [s.id, getSectionHtml(s)])),
   );
@@ -299,15 +294,53 @@ export function MicrositeEditorPro({
     () => Object.fromEntries(ast.sections.map(s => [s.id, getSectionHtml(s)])),
   );
 
-  // ── Derived AST — only depends on sectionHtmls, not UI state ───────────────
+  // ── Undo / Redo history ────────────────────────────────────────────────────
+  interface HistoryEntry { sectionHtmls: Record<string, SectionHtmlState>; localAst: LayoutAST; }
+  const historyRef = useRef<HistoryEntry[]>([{
+    sectionHtmls: Object.fromEntries(ast.sections.map(s => [s.id, { html: getSectionHtml(s) }])),
+    localAst: ast,
+  }]);
+  const histIdxRef = useRef(0);
+  const [histIdx, setHistIdx] = useState(0);
+  const [histLen, setHistLen] = useState(1);
+
+  const pushHistory = useCallback((entry: HistoryEntry) => {
+    const stack = historyRef.current.slice(0, histIdxRef.current + 1);
+    stack.push(entry);
+    if (stack.length > 30) stack.shift();
+    historyRef.current = stack;
+    histIdxRef.current = stack.length - 1;
+    setHistIdx(histIdxRef.current);
+    setHistLen(stack.length);
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (histIdxRef.current <= 0) return;
+    histIdxRef.current--;
+    const snap = historyRef.current[histIdxRef.current];
+    setSectionHtmls(snap.sectionHtmls);
+    setLocalAst(snap.localAst);
+    setHistIdx(histIdxRef.current);
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (histIdxRef.current >= historyRef.current.length - 1) return;
+    histIdxRef.current++;
+    const snap = historyRef.current[histIdxRef.current];
+    setSectionHtmls(snap.sectionHtmls);
+    setLocalAst(snap.localAst);
+    setHistIdx(histIdxRef.current);
+  }, []);
+
+  // ── Derived AST — only depends on localAst + sectionHtmls, not UI state ────
   const currentAst = useMemo<LayoutAST>(() => ({
-    ...ast,
-    sections: ast.sections.map(s => {
+    ...localAst,
+    sections: localAst.sections.map(s => {
       const html = sectionHtmls[s.id]?.html;
       if (!html) return s;
       return { ...s, customHtml: html } as LayoutSection;
     }),
-  }), [ast, sectionHtmls]);
+  }), [localAst, sectionHtmls]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   /** Update HTML for a section — re-renders the canvas. */
@@ -331,8 +364,8 @@ export function MicrositeEditorPro({
     patchUi(section.id, { regenerating: true, regenError: null });
 
     const latestAst = {
-      ...ast,
-      sections: ast.sections.map(s => ({
+      ...localAst,
+      sections: localAst.sections.map(s => ({
         ...s,
         customHtml: sectionHtmls[s.id]?.html ?? getSectionHtml(s),
       })),
@@ -344,6 +377,10 @@ export function MicrositeEditorPro({
         currentAst: latestAst,
       });
       patchHtml(section.id, html);
+      pushHistory({
+        sectionHtmls: { ...sectionHtmls, [section.id]: { html } },
+        localAst,
+      });
       patchUi(section.id, { regenerating: false, regenError: null });
     } catch (err) {
       patchUi(section.id, {
@@ -351,140 +388,58 @@ export function MicrositeEditorPro({
         regenError:   err instanceof Error ? err.message : 'Regeneration failed',
       });
     }
-  }, [apiKey, ast, namespace, proposalId, sectionHtmls, patchHtml, patchUi]);
+  }, [apiKey, localAst, namespace, proposalId, sectionHtmls, patchHtml, patchUi, pushHistory]);
 
-  // ── Feature 2: AI Edit ────────────────────────────────────────────────────
-  const handleApplyPrompt = useCallback(async (section: LayoutSection) => {
-    const ui = sectionUi[section.id];
-    if (!apiKey || !ui?.promptValue.trim()) return;
-    patchUi(section.id, { applying: true, applyError: null });
+  // ── Design AI — content tab: apply prompt to all (or one) section HTML ────
+  const handleContentApply = useCallback(async (
+    instruction: string,
+    targetSectionId?: string,
+  ): Promise<{ sectionsUpdated: number }> => {
+    if (!apiKey) return { sectionsUpdated: 0 };
+    const targets = targetSectionId
+      ? localAst.sections.filter(s => s.id === targetSectionId)
+      : localAst.sections;
 
-    try {
-      const { html } = await editSectionHtml(apiKey, namespace, proposalId, {
-        sectionHtml: sectionHtmls[section.id]?.html ?? getSectionHtml(section),
-        instruction: ui.promptValue.trim(),
-      });
-      patchHtml(section.id, html);
-      patchUi(section.id, { applying: false, promptOpen: false, promptValue: '' });
-    } catch (err) {
-      patchUi(section.id, {
-        applying:   false,
-        applyError: err instanceof Error ? err.message : 'Edit failed',
-      });
-    }
-  }, [apiKey, namespace, proposalId, sectionHtmls, sectionUi, patchHtml, patchUi]);
+    // Mark each section as being AI-edited so sidebar shows spinners
+    setSectionUi(prev => {
+      const next = { ...prev };
+      targets.forEach(s => { next[s.id] = { ...next[s.id], aiEditing: true }; });
+      return next;
+    });
 
-  // ── Feature 0: Full Microsite Regenerate ─────────────────────────────────
-  const handleFullRegenerate = useCallback(async () => {
-    if (!apiKey || regenState === 'generating') return;
-    const ctrl = new AbortController();
-    abortRegenRef.current = ctrl;
-    setRegenState('generating');
-    setPendingHtmls({});
-
-    // Resolve the actual proposal ID — prefer ast.proposalId which is the server-side key
-    const resolvedId = (ast as unknown as Record<string, unknown>).proposalId as string | undefined ?? proposalId;
-
-    try {
-      const res = await fetch(
-        `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(resolvedId)}/generate-structured-stream`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({}),
-          signal: ctrl.signal,
-        },
-      );
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: generation request failed`);
-
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer    = '';
-      let receivedHtml = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-
-          // Parse the SSE payload — skip truly malformed lines only
-          let ev: Record<string, unknown>;
-          try { ev = JSON.parse(line.slice(6)) as Record<string, unknown>; }
-          catch { continue; }
-
-          if (ev.type === 'error') {
-            // Server-level error — propagate to outer catch, do NOT swallow
-            throw new Error((ev.message as string | undefined) ?? 'Generation failed');
-          }
-          if (ev.type === 'section_html' && typeof ev.id === 'string' && typeof ev.customHtml === 'string') {
-            receivedHtml = true;
-            const sid  = ev.id as string;
-            const html = ev.customHtml as string;
-            // Update canvas immediately so the user sees each section render as it arrives
-            patchHtml(sid, html);
-            setPendingHtmls(prev => ({ ...prev, [sid]: html }));
-          }
+    // Process in parallel; update each section live, collect final state for history
+    const finalHtmls: Record<string, SectionHtmlState> = { ...sectionHtmls };
+    let count = 0;
+    await Promise.all(
+      targets.map(async s => {
+        const currentHtml = sectionHtmls[s.id]?.html ?? getSectionHtml(s);
+        try {
+          const { html } = await editSectionHtml(apiKey, namespace, proposalId, {
+            sectionHtml: currentHtml,
+            instruction,
+          });
+          setSectionHtmls(prev => ({ ...prev, [s.id]: { html } }));
+          finalHtmls[s.id] = { html };
+          count++;
+        } finally {
+          patchUi(s.id, { aiEditing: false });
         }
-      }
-
-      if (!receivedHtml) throw new Error('Generation completed but no HTML was produced. Check the server logs.');
-      setRegenState('done');
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        console.error('[MicrositeEditorPro] full regen failed:', err);
-        // Surface the error briefly so the user knows what went wrong
-        alert(`Regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      setRegenState('idle');
-      setPendingHtmls({});
-    }
-  }, [apiKey, ast, namespace, proposalId, regenState, patchHtml]);
-
-  // Save all newly generated section HTMLs, overriding the existing content
-  const handleSaveRegenerated = useCallback(async () => {
-    if (!apiKey || Object.keys(pendingHtmls).length === 0 || saveState === 'saving') return;
-    setSaveState('saving');
-
-    // Build the final HTML map: new generation takes priority, fall back to current
-    const merged = Object.fromEntries(
-      ast.sections.map(s => [s.id, pendingHtmls[s.id] ?? sectionHtmls[s.id]?.html ?? getSectionHtml(s)]),
+      }),
     );
 
-    const updatedAst: LayoutAST = {
-      ...ast,
-      sections: ast.sections.map(s => ({ ...s, customHtml: merged[s.id] } as LayoutSection)),
-    };
-
-    try {
-      await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst);
-      await publishMicrosite(apiKey, namespace, proposalId, updatedAst).catch(() => {});
-      onSaved?.(updatedAst);
-    } catch { /* best-effort */ }
-
-    // Apply to all state slices so canvas reflects the saved result
-    setSectionHtmls(Object.fromEntries(Object.entries(merged).map(([id, html]) => [id, { html }])));
-    setSavedHtmls(merged);
-    savedSnapshotRef.current = merged;
-    setPendingHtmls({});
-    setRegenState('idle');
-    setSaveState('saved');
-    setTimeout(() => setSaveState('idle'), 3000);
-  }, [apiKey, ast, namespace, proposalId, pendingHtmls, sectionHtmls, saveState, onSaved]);
+    if (count > 0) pushHistory({ sectionHtmls: finalHtmls, localAst });
+    return { sectionsUpdated: count };
+  }, [apiKey, localAst, namespace, proposalId, sectionHtmls, patchUi, pushHistory]);
 
   // ── Feature 2b: Per-section Save ─────────────────────────────────────────
   const handleSectionSave = useCallback(async (section: LayoutSection) => {
     if (!apiKey) return;
     patchUi(section.id, { saving: true });
 
-    const currentHtmls = ast.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
+    const currentHtmls = localAst.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
     const updatedAst: LayoutAST = {
-      ...ast,
-      sections: ast.sections.map((s, i) => ({ ...s, customHtml: currentHtmls[i] } as LayoutSection)),
+      ...localAst,
+      sections: localAst.sections.map((s, i) => ({ ...s, customHtml: currentHtmls[i] } as LayoutSection)),
     };
 
     try {
@@ -499,15 +454,46 @@ export function MicrositeEditorPro({
     } catch {
       patchUi(section.id, { saving: false });
     }
-  }, [apiKey, ast, namespace, proposalId, sectionHtmls, onSaved, patchUi]);
+  }, [apiKey, localAst, namespace, proposalId, sectionHtmls, onSaved, patchUi]);
 
-  // ── Feature 3: Save ───────────────────────────────────────────────────────
+  // ── Save All ──────────────────────────────────────────────────────────────
+  const hasUnsavedChanges = useMemo(
+    () => localAst.sections.some(s => (sectionHtmls[s.id]?.html ?? '') !== savedHtmls[s.id]),
+    [localAst.sections, sectionHtmls, savedHtmls],
+  );
+  const [savingAll, setSavingAll] = useState(false);
+  const [savedAllAt, setSavedAllAt] = useState<number | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const handleSaveAll = useCallback(async () => {
+    if (!apiKey || savingAll) return;
+    setSavingAll(true);
+    const currentHtmls = localAst.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
+    const updatedAst: LayoutAST = {
+      ...localAst,
+      sections: localAst.sections.map((s, i) => ({ ...s, customHtml: currentHtmls[i] } as LayoutSection)),
+    };
+    try {
+      await saveMicrositeAst(apiKey, namespace, proposalId, updatedAst);
+      await publishMicrosite(apiKey, namespace, proposalId, updatedAst).catch(() => {});
+      onSaved?.(updatedAst);
+      const newSaved = Object.fromEntries(localAst.sections.map((s, i) => [s.id, currentHtmls[i]]));
+      setSavedHtmls(newSaved);
+      savedSnapshotRef.current = newSaved;
+      setSavedAllAt(Date.now());
+      setTimeout(() => setSavedAllAt(null), 3000);
+    } finally {
+      setSavingAll(false);
+    }
+  }, [apiKey, savingAll, localAst, namespace, proposalId, sectionHtmls, onSaved]);
+
+  // ── Feature 3: Download ───────────────────────────────────────────────────
   const handleDownload = useCallback(() => {
-    const currentHtmls = ast.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
-    const fullHtml     = buildFullHtml(ast, currentHtmls);
+    const currentHtmls = localAst.sections.map(s => sectionHtmls[s.id]?.html ?? getSectionHtml(s));
+    const fullHtml     = buildFullHtml(localAst, currentHtmls);
 
     // Build a meaningful filename from client name + version
-    const client  = (ast.meta?.client ?? ast.brand?.companyName ?? '').trim();
+    const client  = (localAst.meta?.client ?? localAst.brand?.companyName ?? '').trim();
     const version = (proposalId as string).match(/[_\-v]v?(\d+)$/i)?.[1];
     const slug    = (client || proposalId.split('::').pop() || 'microsite')
       .toLowerCase()
@@ -516,7 +502,7 @@ export function MicrositeEditorPro({
     const filename = `${slug}-microsite${version ? `-v${version}` : ''}.html`;
 
     triggerDownload(fullHtml, filename);
-  }, [ast, proposalId, sectionHtmls]);
+  }, [localAst, proposalId, sectionHtmls]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -538,44 +524,125 @@ export function MicrositeEditorPro({
           Microsite Editor Pro
         </span>
         <span style={{ fontSize: 12, color: tok.muted }}>
-          {ast.sections.length} sections
+          {localAst.sections.length} sections
         </span>
+
+        {/* Undo / Redo */}
+        <div style={{ display: 'flex', gap: 2, marginLeft: 4 }}>
+          <button
+            onClick={handleUndo}
+            disabled={histIdx <= 0}
+            title={`Undo (${histIdx} step${histIdx === 1 ? '' : 's'} back)`}
+            style={{
+              width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', border: 'none', borderRadius: 6,
+              cursor: histIdx <= 0 ? 'default' : 'pointer',
+              color: histIdx <= 0 ? tok.border : tok.muted,
+              opacity: histIdx <= 0 ? 0.4 : 1,
+            }}
+            onMouseEnter={e => { if (histIdx > 0) (e.currentTarget as HTMLElement).style.background = tok.panelSoft; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          >
+            <Undo2 size={14} />
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={histIdx >= histLen - 1}
+            title={`Redo (${histLen - 1 - histIdx} step${histLen - 1 - histIdx === 1 ? '' : 's'} forward)`}
+            style={{
+              width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', border: 'none', borderRadius: 6,
+              cursor: histIdx >= histLen - 1 ? 'default' : 'pointer',
+              color: histIdx >= histLen - 1 ? tok.border : tok.muted,
+              opacity: histIdx >= histLen - 1 ? 0.4 : 1,
+            }}
+            onMouseEnter={e => { if (histIdx < histLen - 1) (e.currentTarget as HTMLElement).style.background = tok.panelSoft; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          >
+            <Redo2 size={14} />
+          </button>
+        </div>
+
+        {/* Sections sidebar toggle */}
+        <button
+          onClick={() => setSidebarOpen(v => !v)}
+          title={sidebarOpen ? 'Hide sections panel' : 'Show sections panel'}
+          style={{
+            width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: sidebarOpen ? tok.primaryDim : 'transparent',
+            border: `1px solid ${sidebarOpen ? tok.primary : 'transparent'}`,
+            borderRadius: 7, cursor: 'pointer',
+            color: sidebarOpen ? tok.primary : tok.muted,
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { if (!sidebarOpen) { (e.currentTarget as HTMLElement).style.background = tok.panelSoft; (e.currentTarget as HTMLElement).style.color = tok.text; } }}
+          onMouseLeave={e => { if (!sidebarOpen) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = tok.muted; } }}
+        >
+          <PanelLeft size={15} />
+        </button>
 
         <div style={{ flex: 1 }} />
 
-        {/* Full regenerate / save-changes button */}
+        {/* Design AI button */}
         <button
-          onClick={regenState === 'done' ? handleSaveRegenerated : handleFullRegenerate}
-          disabled={regenState === 'generating'}
-          title={regenState === 'done' ? 'Save the newly generated microsite' : 'Regenerate entire microsite from scratch'}
+          onClick={() => {
+            setPanelInitialTab('design');
+            setPanelTargetSectionId(undefined);
+            setPanelInstruction('');
+            setShowDesignPanel(v => !v);
+          }}
+          title="Design AI panel"
           style={{
             height: 34,
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
             padding: '0 14px',
-            background: regenState === 'done'
-              ? 'rgba(35,134,54,0.18)'
-              : regenState === 'generating'
-                ? 'rgba(99,110,123,0.15)'
-                : 'transparent',
-            border: `1px solid ${regenState === 'done' ? tok.success : tok.border}`,
+            background: showDesignPanel ? 'rgba(139,92,246,0.15)' : 'transparent',
+            border: `1px solid ${showDesignPanel ? '#7c3aed' : tok.border}`,
             borderRadius: 7,
-            cursor: regenState === 'generating' ? 'default' : 'pointer',
-            color: regenState === 'done' ? tok.success : tok.muted,
+            cursor: 'pointer',
+            color: showDesignPanel ? '#a78bfa' : tok.muted,
             fontSize: 13,
             fontWeight: 600,
-            opacity: regenState === 'generating' ? 0.6 : 1,
             transition: 'all 0.15s',
           }}
         >
-          {regenState === 'generating'
-            ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-            : regenState === 'done'
-              ? <Check size={14} />
-              : <RotateCcw size={14} />}
-          {regenState === 'generating' ? 'Generating…' : regenState === 'done' ? 'Save Changes' : 'Regenerate'}
+          <Sparkles size={14} />
+          Design AI
         </button>
+
+        {/* Save All button — appears when any section has unsaved changes */}
+        {hasUnsavedChanges && (
+          <button
+            onClick={handleSaveAll}
+            disabled={savingAll}
+            title="Save all changes to the server"
+            style={{
+              height: 34,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '0 14px',
+              background: savedAllAt ? tok.success : 'rgba(35,134,54,0.15)',
+              border: `1px solid ${savedAllAt ? tok.success : '#238636'}`,
+              borderRadius: 7,
+              cursor: savingAll ? 'default' : 'pointer',
+              color: savedAllAt ? '#fff' : '#3fb950',
+              fontSize: 13,
+              fontWeight: 600,
+              opacity: savingAll ? 0.7 : 1,
+              transition: 'all 0.15s',
+            }}
+          >
+            {savingAll
+              ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+              : savedAllAt
+                ? <Check size={14} />
+                : <Save size={14} />}
+            {savingAll ? 'Saving…' : savedAllAt ? 'Saved!' : 'Save All'}
+          </button>
+        )}
 
         {/* Download HTML button — always enabled, no server save */}
         <button
@@ -610,16 +677,17 @@ export function MicrositeEditorPro({
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         {/* ── Left sidebar — section list ───────────────────────────────── */}
-        <div style={{ width: SIDEBAR_W, flexShrink: 0, borderRight: `1px solid ${tok.border}`, overflowY: 'auto', background: tok.panel, display: 'flex', flexDirection: 'column' }}>
+        {sidebarOpen && <div style={{ width: SIDEBAR_W, flexShrink: 0, borderRight: `1px solid ${tok.border}`, overflowY: 'auto', background: tok.panel, display: 'flex', flexDirection: 'column' }}>
 
           <div style={{ padding: '10px 12px 6px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: tok.muted }}>
             Sections
           </div>
 
-          {ast.sections.map(section => {
-            const state    = sectionUi[section.id];
-            const isActive = activeSectionId === section.id;
-            const hasHtml  = !!sectionHtmls[section.id]?.html;
+          {localAst.sections.map(section => {
+            const state      = sectionUi[section.id];
+            const isActive   = activeSectionId === section.id;
+            const hasHtml    = !!sectionHtmls[section.id]?.html;
+            const isModified = (sectionHtmls[section.id]?.html ?? '') !== savedHtmls[section.id];
 
             return (
               <div key={section.id} style={{ borderBottom: `1px solid ${tok.border}` }}>
@@ -639,13 +707,24 @@ export function MicrositeEditorPro({
                   onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = tok.panelSoft; }}
                   onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
-                  <ChevronRight size={12} style={{ color: isActive ? tok.primary : tok.muted, flexShrink: 0 }} />
+                  {/* Modified dot — glows amber when section has unsaved changes */}
+                  <span style={{
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: state?.aiEditing ? '#818cf8' : isModified ? '#f59e0b' : 'transparent',
+                    border: isModified || state?.aiEditing ? 'none' : `1px solid ${tok.border}`,
+                    boxShadow: state?.aiEditing ? '0 0 6px #818cf8' : isModified ? '0 0 5px rgba(245,158,11,0.5)' : 'none',
+                    transition: 'all 0.2s',
+                  }} />
                   <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: isActive ? tok.text : tok.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {section.heading || section.sectionType}
                   </span>
-                  <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: tok.primaryDim, color: tok.primary, fontWeight: 600, flexShrink: 0 }}>
-                    {section.sectionType}
-                  </span>
+                  {/* AI editing spinner — shows while this section is being processed */}
+                  {state?.aiEditing
+                    ? <Loader2 size={11} style={{ color: '#818cf8', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                    : <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: tok.primaryDim, color: tok.primary, fontWeight: 600, flexShrink: 0 }}>
+                        {section.sectionType}
+                      </span>
+                  }
                 </div>
 
                 {/* Section actions */}
@@ -678,30 +757,35 @@ export function MicrositeEditorPro({
                     {state?.regenerating ? 'Running…' : hasHtml ? 'Regen' : 'Generate'}
                   </button>
 
-                  {/* Edit with AI */}
+                  {/* AI Edit — opens Design AI panel targeting this section */}
                   <button
-                    onClick={e => { e.stopPropagation(); patchUi(section.id, { promptOpen: !state?.promptOpen, applyError: null }); setActiveSectionId(section.id); }}
-                    disabled={state?.applying}
-                    title="Edit with natural language instruction"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setActiveSectionId(section.id);
+                      setPanelTargetSectionId(section.id);
+                      setPanelInitialTab('content');
+                      setPanelInstruction('');
+                      setShowDesignPanel(true);
+                    }}
+                    title="Edit this section with AI"
                     style={{
                       height: 26,
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
                       padding: '0 8px',
-                      background: state?.promptOpen ? `rgba(31,111,235,0.15)` : 'transparent',
-                      border: `1px solid ${state?.promptOpen ? tok.primary : tok.border}`,
+                      background: (showDesignPanel && panelTargetSectionId === section.id) ? 'rgba(139,92,246,0.15)' : 'transparent',
+                      border: `1px solid ${(showDesignPanel && panelTargetSectionId === section.id) ? '#7c3aed' : tok.border}`,
                       borderRadius: 5,
-                      cursor: state?.applying ? 'default' : 'pointer',
-                      color: state?.promptOpen ? tok.primary : tok.muted,
+                      cursor: 'pointer',
+                      color: (showDesignPanel && panelTargetSectionId === section.id) ? '#a78bfa' : tok.muted,
                       fontSize: 11,
-                      opacity: state?.applying ? 0.6 : 1,
                     }}
-                    onMouseEnter={e => { if (!state?.promptOpen) (e.currentTarget as HTMLElement).style.background = tok.panelSoft; }}
-                    onMouseLeave={e => { if (!state?.promptOpen) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(139,92,246,0.10)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = (showDesignPanel && panelTargetSectionId === section.id) ? 'rgba(139,92,246,0.15)' : 'transparent'; }}
                   >
-                    <Wand2 size={11} />
-                    Edit AI
+                    <Sparkles size={11} />
+                    AI Edit
                   </button>
 
                   {/* Per-section Save — appears only when this section has unsaved changes */}
@@ -748,87 +832,48 @@ export function MicrositeEditorPro({
                   </div>
                 )}
 
-                {/* Inline AI prompt */}
-                {state?.promptOpen && (
-                  <div style={{ padding: '0 10px 10px' }}>
-                    <textarea
-                      value={state.promptValue}
-                      onChange={e => patchUi(section.id, { promptValue: e.target.value })}
-                      placeholder='"make the headline bigger", "change bg to dark blue"…'
-                      disabled={state.applying}
-                      autoFocus
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleApplyPrompt(section);
-                        if (e.key === 'Escape') patchUi(section.id, { promptOpen: false, promptValue: '', applyError: null });
-                      }}
-                      style={{
-                        width: '100%',
-                        minHeight: 64,
-                        padding: '7px 8px',
-                        background: tok.bg,
-                        border: `1px solid ${tok.border}`,
-                        borderRadius: 6,
-                        color: tok.text,
-                        fontSize: 12,
-                        fontFamily: 'inherit',
-                        resize: 'vertical',
-                        outline: 'none',
-                        boxSizing: 'border-box',
-                      }}
-                    />
-                    {state.applyError && (
-                      <div style={{ marginTop: 4, padding: '5px 7px', borderRadius: 4, background: tok.dangerDim, color: tok.danger, fontSize: 11 }}>
-                        {state.applyError}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 5, marginTop: 6 }}>
-                      <button
-                        onClick={() => handleApplyPrompt(section)}
-                        disabled={state.applying || !state.promptValue.trim()}
-                        style={{
-                          flex: 1,
-                          height: 28,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 4,
-                          background: !state.promptValue.trim() ? 'rgba(99,110,123,0.2)' : tok.primary,
-                          border: 'none',
-                          borderRadius: 5,
-                          cursor: state.applying || !state.promptValue.trim() ? 'default' : 'pointer',
-                          color: !state.promptValue.trim() ? tok.muted : '#fff',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          opacity: state.applying ? 0.75 : 1,
-                        }}
-                      >
-                        {state.applying ? <><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Applying…</> : 'Apply'}
-                      </button>
-                      <button
-                        onClick={() => patchUi(section.id, { promptOpen: false, promptValue: '', applyError: null })}
-                        disabled={state.applying}
-                        style={{ height: 28, padding: '0 10px', background: 'transparent', border: `1px solid ${tok.border}`, borderRadius: 5, cursor: 'pointer', color: tok.muted, fontSize: 12 }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
-        </div>
+        </div>}
 
         {/* ── Right canvas — full microsite preview ────────────────────── */}
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', background: tok.bg }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', background: tok.bg, position: 'relative' }}>
+          {previewAst && (
+            <div style={{
+              position: 'sticky', top: 0, left: 0, right: 0, zIndex: 10,
+              background: '#fef3c7', borderBottom: '1px solid #f59e0b',
+              padding: '7px 16px', fontSize: 12, fontWeight: 500, color: '#92400e',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span>✦ Previewing AI changes</span>
+              <span style={{ color: '#a16207', fontWeight: 400 }}>Apply or Revert in the Design AI panel →</span>
+            </div>
+          )}
           <Microsite
-            ast={currentAst}
+            ast={previewAst ?? currentAst}
             mode="embedded"
             namespace={namespace}
             proposalId={proposalId}
           />
         </div>
       </div>
+
+      {/* ── Design AI panel ───────────────────────────────────────────── */}
+      {showDesignPanel && (
+        <DesignAgentPanelPro
+          ast={currentAst}
+          targetSectionId={panelTargetSectionId}
+          initialInstruction={panelInstruction}
+          initialTab={panelInitialTab}
+          onContentApply={handleContentApply}
+          onClose={() => {
+            setShowDesignPanel(false);
+            setPanelInstruction('');
+            setPanelTargetSectionId(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }
