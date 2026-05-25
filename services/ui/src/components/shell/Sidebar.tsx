@@ -10,8 +10,8 @@ import { Icon } from '@/components/ui/Icon';
 
 const OVERFLOW_ITEMS = [
   { href: '/proposal/templates', label: 'Templates' },
-  { href: '/chat',               label: 'Chat' },
-  { href: '/dashboard',          label: 'Dashboard' },
+  { href: '/chat', label: 'Chat' },
+  { href: '/dashboard', label: 'Dashboard' },
 ];
 
 interface SidebarProps {
@@ -35,16 +35,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  const sidebarClass = ['sidebar', mobileOpen ? 'sidebar--mobile-open' : '']
-    .filter(Boolean)
-    .join(' ');
+  const sidebarClass = ['sidebar', mobileOpen ? 'sidebar--mobile-open' : ''].filter(Boolean).join(' ');
 
   return (
     <aside className={sidebarClass}>
-
       {/* ── Header ── */}
       <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center' }}>
-        <Link href="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>ProDeck</Link>
+        <Link href="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>
+          ProDeck
+        </Link>
       </div>
 
       {/* ── Navigation ── */}
@@ -81,58 +80,124 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
       {/* ── Footer ── */}
       <div className="sidebar-footer" ref={menuRef} style={{ position: 'relative' }}>
-
         {/* Overflow menu */}
         {menuOpen && (
-          <div style={{
-            position: 'absolute', bottom: 'calc(100% + 4px)',
-            left: 0, right: 0,
-            background: 'var(--panel)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '4px 0', zIndex: 200,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-          }}>
-            {OVERFLOW_ITEMS.map(item => (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 'calc(100% + 4px)',
+              left: 0,
+              right: 0,
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '4px 0',
+              zIndex: 200,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+            }}
+          >
+            {OVERFLOW_ITEMS.map((item) => (
               <button
                 key={item.href}
                 className="sidebar-link"
-                style={{ borderRadius: 0, height: 36, paddingLeft: 12, width: '100%', border: 'none', background: 'none', cursor: 'pointer' }}
-                onClick={() => { setMenuOpen(false); onMobileClose(); router.push(item.href); }}
+                style={{
+                  borderRadius: 0,
+                  height: 36,
+                  paddingLeft: 12,
+                  width: '100%',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onMobileClose();
+                  router.push(item.href);
+                }}
               >
-                <span className="sidebar-label" style={{ fontSize: 13 }}>{item.label}</span>
+                <span className="sidebar-label" style={{ fontSize: 13 }}>
+                  {item.label}
+                </span>
               </button>
             ))}
             <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
             <button
               className="sidebar-link"
-              style={{ borderRadius: 0, height: 36, paddingLeft: 12, width: '100%', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--danger)' }}
-              onClick={() => { setMenuOpen(false); clearApiKey(); }}
+              style={{
+                borderRadius: 0,
+                height: 36,
+                paddingLeft: 12,
+                width: '100%',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                color: 'var(--danger)',
+              }}
+              onClick={() => {
+                setMenuOpen(false);
+                clearApiKey();
+              }}
             >
-              <span className="sidebar-label" style={{ fontSize: 13, color: 'var(--danger)' }}>Disconnect</span>
+              <span className="sidebar-label" style={{ fontSize: 13, color: 'var(--danger)' }}>
+                Disconnect
+              </span>
             </button>
           </div>
         )}
 
         {/* User row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-            background: 'var(--primary)', color: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 600, lineHeight: 1.5, letterSpacing: '0.01em',
-          }}>A</div>
-          <span style={{ flex: 1, fontSize: 13, fontWeight: 400, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: '50%',
+              flexShrink: 0,
+              background: 'var(--primary)',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.5,
+              letterSpacing: '0.01em',
+            }}
+          >
+            A
+          </div>
+          <span
+            style={{
+              flex: 1,
+              fontSize: 13,
+              fontWeight: 400,
+              color: 'var(--muted)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
             Admin
           </span>
           <button
-            onClick={() => setMenuOpen(v => !v)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 'auto' }}
+            onClick={() => setMenuOpen((v) => !v)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--muted)',
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              flexShrink: 0,
+              marginLeft: 'auto',
+            }}
             aria-label="User menu"
           >
             <Icon icon={MoreVertical} size="md" />
           </button>
         </div>
       </div>
-
     </aside>
   );
 }
