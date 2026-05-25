@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
+import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 
 function slugify(input: string): string {
   return input
@@ -223,17 +224,35 @@ async function extractFileToMemory(
 
     const prompt = `You are a client intelligence extractor.
 Extract facts worth remembering long-term from this document about client "${clientName}".
-Focus on: company facts, preferences, constraints, stakeholders (name + role), brand traits,
+Focus on: company facts, preferences, constraints, requirements, stakeholders (name + role), brand traits,
 business context, goals, and anything useful for future proposals or microsites.
 Skip generic filler or information that would not apply to future work.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
 
 DOCUMENT (${fileName}):
 ${excerpt}
 
-Return ONLY valid JSON (empty arrays if nothing notable):
+Return ONLY valid JSON (null for fields not found in the document):
 {
+  "stableFields": {
+    "clientIndustry": "string or null",
+    "projectType": "string or null",
+    "contactName": "string or null"
+  },
   "knowledge": [
-    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
   ],
   "stakeholders": [
     { "name": "...", "role": "...", "email": "", "notes": "" }
@@ -243,6 +262,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     const raw = await llmGenerateFn(prompt);
     const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
     const extracted = JSON.parse(json) as {
+      stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
       knowledge?: { content: string; category: string; confidence: number }[];
       stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
     };
@@ -251,9 +271,15 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     if (!(await memService.get(clientSlug))) {
       await memService.createEmpty(clientName);
     }
+
+    const sf = extracted.stableFields ?? {};
+    if (sf.clientIndustry?.trim()) await memService.updateField(clientSlug, 'clientIndustry', sf.clientIndustry.trim());
+    if (sf.projectType?.trim()) await memService.updateField(clientSlug, 'projectType', sf.projectType.trim());
+    if (sf.contactName?.trim()) await memService.updateField(clientSlug, 'contactName', sf.contactName.trim());
+
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as never, k.confidence ?? 0.7);
+        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7, fileName);
       }
     }
     for (const s of extracted.stakeholders ?? []) {
@@ -286,8 +312,21 @@ async function distillChatTurn(
 ): Promise<void> {
   const prompt = `You are a client intelligence extractor.
 Given this chat exchange about a client, extract any facts worth remembering long-term.
-Focus on: company facts, preferences, constraints, stakeholders (people + roles), brand traits.
+Focus on: company facts, preferences, constraints, requirements, stakeholders (people + roles), brand traits.
 Skip: conversational filler, questions without answers, project-specific one-off details.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
 
 CLIENT: ${clientName}
 
@@ -297,7 +336,7 @@ ASSISTANT: ${assistantReply}
 Return ONLY valid JSON (empty arrays if nothing notable):
 {
   "knowledge": [
-    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
   ],
   "stakeholders": [
     { "name": "...", "role": "...", "email": "", "notes": "" }
@@ -318,7 +357,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     }
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as never, k.confidence ?? 0.7);
+        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7);
       }
     }
     for (const s of extracted.stakeholders ?? []) {
@@ -426,17 +465,35 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       try {
         const extractPrompt = `You are a client intelligence extractor.
 Extract facts worth remembering long-term from this client intelligence summary about "${displayName}".
-Focus on: company facts, preferences, constraints, stakeholders (name + role), brand traits,
+Focus on: company facts, preferences, constraints, requirements, stakeholders (name + role), brand traits,
 business context, goals, and anything useful for future proposals or microsites.
 Skip generic filler or information that would not apply to future work.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
 
 CONTENT:
 ${contextMd.slice(0, 12000)}
 
-Return ONLY valid JSON (empty arrays if nothing notable):
+Return ONLY valid JSON (null for fields not found):
 {
+  "stableFields": {
+    "clientIndustry": "string or null",
+    "projectType": "string or null",
+    "contactName": "string or null"
+  },
   "knowledge": [
-    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
   ],
   "stakeholders": [
     { "name": "...", "role": "...", "email": "", "notes": "" }
@@ -445,12 +502,17 @@ Return ONLY valid JSON (empty arrays if nothing notable):
         const raw = await llmGenerateFn(extractPrompt);
         const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
         const extracted = JSON.parse(json) as {
+          stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
           knowledge?: { content: string; category: string; confidence: number }[];
           stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
         };
+        const sf = extracted.stableFields ?? {};
+        if (sf.clientIndustry?.trim()) await memService.updateField(name, 'clientIndustry', sf.clientIndustry.trim());
+        if (sf.projectType?.trim()) await memService.updateField(name, 'projectType', sf.projectType.trim());
+        if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
         for (const k of extracted.knowledge ?? []) {
           if (k.content?.trim()) {
-            await memService.addKnowledge(name, k.content, k.category as never, k.confidence ?? 0.8);
+            await memService.addKnowledge(name, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.8);
           }
         }
         for (const s of extracted.stakeholders ?? []) {
@@ -605,8 +667,19 @@ Return ONLY valid JSON (empty arrays if nothing notable):
         promptParts.push(`\n## Client Intelligence\n\n${contextMd.trim()}`);
       }
 
-      if (memResult.found && (memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {
+      if (memResult.found && (Object.keys(memResult.stableFields).length > 0 || memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {
         const memParts: string[] = ['\n## Accumulated Client Memory\nExtracted from ingested documents and prior conversations. Treat this as authoritative source material.'];
+
+        const sf = memResult.stableFields;
+        const profileLines: string[] = [];
+        if (sf.clientIndustry?.value) profileLines.push(`- **Industry:** ${sf.clientIndustry.value}`);
+        if (sf.projectType?.value) profileLines.push(`- **Project Type:** ${sf.projectType.value}`);
+        if (sf.contactName?.value) profileLines.push(`- **Primary Contact:** ${sf.contactName.value}`);
+        if (profileLines.length > 0) {
+          memParts.push('\n### Client Profile');
+          memParts.push(...profileLines);
+        }
+
         if (memResult.stakeholders.length > 0) {
           memParts.push('\n### Key Stakeholders');
           for (const s of memResult.stakeholders) {
@@ -803,6 +876,9 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     await rm(filePath, { force: true });
     const files = (await readScFiles(dir)).filter((f) => f.fileName !== fileName);
     await writeScFiles(dir, files);
+
+    const memService = new ClientMemoryService(workdir);
+    await memService.removeKnowledgeByDocument(name, fileName);
 
     return reply.send({ ok: true });
   });
