@@ -1421,7 +1421,13 @@ ${layoutSummary}`;
                 source: 'primary',
                 type,
                 version: meta.version ?? index.length - i,
-                title: meta.title,
+                title: (() => {
+                  const v = meta.version ?? index.length - i;
+                  if (meta.proposalTitle) return `${meta.proposalTitle} (v${v})`;
+                  // strip old "ClientName — " prefix from legacy titles
+                  const stripped = meta.title?.replace(/^.+?\s*—\s*/, '') ?? '';
+                  return stripped || meta.title;
+                })(),
               });
             } catch { /* skip missing AST files */ }
           }),
