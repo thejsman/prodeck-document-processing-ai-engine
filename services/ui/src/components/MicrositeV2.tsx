@@ -6,6 +6,7 @@
  * Zero dependency on plugins, theme tokens, or legacy section components.
  */
 
+import { useState, useEffect } from 'react';
 import type { LayoutAST, LayoutSection } from '@/types/presentation';
 
 interface Props {
@@ -32,11 +33,6 @@ ${fonts}
 </head><body>${sectionsHtml}</body></html>`;
 }
 
-function openFullPage(ast: LayoutAST) {
-  const blob = new Blob([buildHtml(ast)], { type: 'text/html' });
-  window.open(URL.createObjectURL(blob), '_blank');
-}
-
 function downloadMicrosite(ast: LayoutAST) {
   const blob = new Blob([buildHtml(ast)], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
@@ -60,38 +56,37 @@ export function MicrositeV2({ ast, generating, onBack }: Props) {
           .v2-site section { padding: 48px 0 !important; }
           .v2-site section > div { padding: 0 20px !important; }
         }
-        .v2-fab { opacity: 0.25; transition: opacity 0.2s; }
-        .v2-fab:hover { opacity: 1; }
+        .v2-action-btn { transition: background 0.15s, box-shadow 0.15s; }
+        .v2-action-btn:hover { background: #f5f5f5 !important; box-shadow: 0 2px 8px rgba(0,0,0,0.10) !important; }
       `}</style>
 
-      {/* Floating action buttons — bottom-right, unobtrusive */}
-      <div className="v2-fab" style={{
-        position: 'fixed', bottom: 20, right: 20, zIndex: 9999,
-        display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end',
+      {/* Floating buttons — bottom-right, each separate */}
+      <div style={{
+        position: 'fixed', bottom: 24, right: 24,
+        zIndex: 9999, display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center',
       }}>
-        <button onClick={() => openFullPage(ast)} style={{
-          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
-          color: '#fff', border: 'none', borderRadius: 20,
-          padding: '7px 14px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
-        }}>
-          Full Page ↗
-        </button>
-        <button onClick={() => downloadMicrosite(ast)} style={{
-          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
-          color: '#fff', border: 'none', borderRadius: 20,
-          padding: '7px 14px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
-        }}>
-          Download ↓
-        </button>
         {onBack && (
-          <button onClick={onBack} style={{
-            background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
-            color: '#fff', border: 'none', borderRadius: 20,
-            padding: '7px 14px', fontSize: 11, cursor: 'pointer',
+          <button className="v2-action-btn" onClick={onBack} style={{
+            background: 'rgba(255,255,255,0.96)', color: '#111',
+            border: '1px solid rgba(0,0,0,0.12)', borderRadius: 50,
+            padding: '8px 20px', fontSize: 13, fontWeight: 500,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+            whiteSpace: 'nowrap', backdropFilter: 'blur(12px)',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.10)',
           }}>
             ← Back
           </button>
         )}
+        <button className="v2-action-btn" onClick={() => downloadMicrosite(ast)} style={{
+          background: 'rgba(255,255,255,0.96)', color: '#111',
+          border: '1px solid rgba(0,0,0,0.12)', borderRadius: 50,
+          padding: '8px 20px', fontSize: 13, fontWeight: 500,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+          whiteSpace: 'nowrap', backdropFilter: 'blur(12px)',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.10)',
+        }}>
+          ↓ Download
+        </button>
       </div>
 
       {/* Sections — Claude-generated HTML owns the full viewport */}
@@ -111,21 +106,30 @@ export function MicrositeV2({ ast, generating, onBack }: Props) {
   );
 }
 
+function V2IframeSection({ html }: { html: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [html]);
+  if (!blobUrl) return null;
+  return (
+    <iframe
+      src={blobUrl}
+      style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
+      title="microsite"
+    />
+  );
+}
+
 function V2Section({ section }: { section: LayoutSection }) {
   const html = (section as LayoutSection & { customHtml?: string }).customHtml;
 
   if (html) {
     const isFullDoc = /^\s*<!DOCTYPE|^\s*<html/i.test(html);
-    if (isFullDoc) {
-      return (
-        <iframe
-          srcDoc={html}
-          style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
-          sandbox="allow-scripts allow-same-origin"
-          title="microsite"
-        />
-      );
-    }
+    if (isFullDoc) return <V2IframeSection html={html} />;
     return (
       <div
         data-section-type={section.sectionType}
