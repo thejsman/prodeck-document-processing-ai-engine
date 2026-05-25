@@ -239,17 +239,19 @@ export function MicrositeHistory({
           ? MicrositePro
           : Microsite;
     return (
-      <PreviewComponent
-        ast={previewEntry.ast}
-        onBack={() => {
-          refresh();
-          loadServerEntries();
-          setPreviewEntry(null);
-        }}
-        onEdit={() => handleEdit(previewEntry)}
-        namespace={previewEntry.namespace}
-        proposalId={previewEntry.id}
-      />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 40000, background: 'var(--panel, #fff)', overflow: 'auto' }}>
+        <PreviewComponent
+          ast={previewEntry.ast}
+          onBack={() => {
+            refresh();
+            loadServerEntries();
+            setPreviewEntry(null);
+          }}
+          onEdit={() => handleEdit(previewEntry)}
+          namespace={previewEntry.namespace}
+          proposalId={previewEntry.id}
+        />
+      </div>
     );
   }
 
