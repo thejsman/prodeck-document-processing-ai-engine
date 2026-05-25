@@ -44,6 +44,7 @@ interface ScMicrosite {
   title: string;
   proposalTitle: string;
   savedAt: string;
+  version: number;
 }
 
 async function readMeta(dir: string): Promise<SuperClientMeta> {
@@ -856,7 +857,8 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     if (!body?.ast) return reply.code(400).send({ error: 'Missing ast' });
 
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: `Super client "${name}" not found` }); }
+    let meta: SuperClientMeta;
+    try { meta = await readMeta(dir); } catch { return reply.code(404).send({ error: `Super client "${name}" not found` }); }
 
     const micrositesDir = path.join(dir, 'microsites');
     await mkdir(micrositesDir, { recursive: true });
@@ -864,10 +866,20 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     const now = new Date();
     const id = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const proposalTitle = body.proposalTitle?.trim() ?? 'Proposal';
-    const entry: ScMicrosite = { id, title: `${proposalTitle} — Microsite`, proposalTitle, savedAt: now.toISOString() };
+
+    const existing = await readMicrosites(dir);
+    const priorCount = existing.filter((m) => m.proposalTitle === proposalTitle).length;
+    const version = priorCount + 1;
+
+    const entry: ScMicrosite = {
+      id,
+      title: `${meta.displayName} — ${proposalTitle} (v${version})`,
+      proposalTitle,
+      savedAt: now.toISOString(),
+      version,
+    };
 
     await writeFile(path.join(micrositesDir, `${id}.json`), JSON.stringify(body.ast, null, 2));
-    const existing = await readMicrosites(dir);
     existing.unshift(entry);
     await writeMicrosites(dir, existing);
 
