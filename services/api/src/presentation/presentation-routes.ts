@@ -1360,11 +1360,12 @@ ${layoutSummary}`;
     return reply.send({ presentations });
   });
 
-  // GET /presentations/history — all saved microsite ASTs across every namespace
+  // GET /presentations/history — all saved microsite ASTs across every namespace + super-clients
   app.get('/presentations/history', async (req: FastifyRequest, reply: FastifyReply) => {
     const assetsDir = path.join(workdir, 'assets', 'presentations');
-    const allEntries: { id: string; namespace: string; savedAt: string; ast: unknown; source: string; type: string; version: number }[] = [];
+    const allEntries: { id: string; namespace: string; savedAt: string; ast: unknown; source: string; type: string; version: number; title?: string }[] = [];
 
+    // Regular namespace history
     let namespaceDirs: string[] = [];
     try { namespaceDirs = await readdir(assetsDir); } catch { /* directory may not exist yet */ }
 
@@ -1389,6 +1390,40 @@ ${layoutSummary}`;
                 version: entry.version,
               });
             } catch { /* skip malformed files */ }
+          }),
+        );
+      }),
+    );
+
+    // Super-client microsites — read directly from each client's microsites dir
+    const superClientsRoot = path.join(workdir, 'super-clients');
+    let superClientDirs: string[] = [];
+    try { superClientDirs = await readdir(superClientsRoot); } catch { /* no super-clients yet */ }
+
+    await Promise.all(
+      superClientDirs.map(async (clientName) => {
+        const micrositesDir = path.join(superClientsRoot, clientName, 'microsites');
+        let indexRaw: string;
+        try { indexRaw = await readFile(path.join(superClientsRoot, clientName, 'microsites.json'), 'utf-8'); } catch { return; }
+        const index = JSON.parse(indexRaw) as { id: string; title: string; proposalTitle: string; savedAt: string; version?: number }[];
+        await Promise.all(
+          index.map(async (meta, i) => {
+            try {
+              const astRaw = await readFile(path.join(micrositesDir, `${meta.id}.json`), 'utf-8');
+              const ast = JSON.parse(astRaw) as Record<string, unknown>;
+              const rawMode = typeof ast?.generationMode === 'string' ? ast.generationMode : null;
+              const type = rawMode === 'classic' ? 'classic' : rawMode === 'v2' ? 'v2' : 'pro';
+              allEntries.push({
+                id: `sc:${clientName}:${meta.id}`,
+                namespace: clientName,
+                savedAt: meta.savedAt,
+                ast,
+                source: 'primary',
+                type,
+                version: meta.version ?? index.length - i,
+                title: meta.title,
+              });
+            } catch { /* skip missing AST files */ }
           }),
         );
       }),
@@ -1430,6 +1465,7 @@ ${layoutSummary}`;
 
   // DELETE /presentations/history/:namespace?entryId=microsite:pro:1716023445123
   // Deletes exactly one entry by its unique id. Never bulk-deletes.
+  // Super-client entries use entryId format: sc:{clientName}:{scId}
   app.delete('/presentations/history/:namespace', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string };
     const { entryId } = req.query as { entryId?: string };
@@ -1438,7 +1474,27 @@ ${layoutSummary}`;
       return reply.code(400).send({ error: 'Missing required query param: entryId' });
     }
 
-    // microsite:pro:1716023445123 → microsite_pro_1716023445123.json
+    if (entryId.startsWith('sc:')) {
+      // Super-client entry — delete AST file and remove from microsites.json index
+      const parts = entryId.split(':');
+      // format: sc:{clientName}:{scId} — clientName may contain hyphens, scId is the remainder
+      const clientName = parts[1];
+      const scId = parts.slice(2).join(':');
+      const clientDir = path.join(workdir, 'super-clients', clientName);
+      await rm(path.join(clientDir, 'microsites', `${scId}.json`)).catch(() => {});
+      try {
+        const raw = await readFile(path.join(clientDir, 'microsites.json'), 'utf-8');
+        const index = JSON.parse(raw) as { id: string }[];
+        await writeFile(
+          path.join(clientDir, 'microsites.json'),
+          JSON.stringify(index.filter((m) => m.id !== scId), null, 2),
+          'utf-8',
+        );
+      } catch { /* index missing — nothing to update */ }
+      return reply.send({ ok: true });
+    }
+
+    // Regular namespace entry: microsite:pro:1716023445123 → microsite_pro_1716023445123.json
     const filename = entryId.replace(/:/g, '_') + '.json';
     const filePath = path.join(workdir, 'assets', 'presentations', namespace, filename);
     await rm(filePath).catch(() => {});

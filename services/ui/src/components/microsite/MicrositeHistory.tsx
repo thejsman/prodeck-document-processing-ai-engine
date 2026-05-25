@@ -23,6 +23,7 @@ interface CombinedEntry {
   namespace: string;
   ast: LayoutAST;
   source: 'local' | 'server';
+  title?: string;    // explicit title from super-client microsites.json
 }
 
 // Section type → accent color
@@ -121,6 +122,7 @@ export function MicrositeHistory({
                 namespace: item.namespace,
                 ast: item.ast as LayoutAST,
                 source: 'server' as const,
+                title: item.title,
               };
             }),
         );
@@ -221,7 +223,7 @@ export function MicrositeHistory({
     const localOnly = localMapped.filter((e) => !serverCoveredKeys.has(`${e.namespace}::${e.ast.generationMode || ''}`));
     return [...serverEntries, ...localOnly]
       .filter((e) => !deletedNamespaces.has(e.entryId ?? e.id))
-      .filter((e) => namespaces.length === 0 || namespaces.includes(e.namespace))
+      .filter((e) => e.source === 'server' || namespaces.length === 0 || namespaces.includes(e.namespace))
       .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
   })();
 
@@ -289,7 +291,7 @@ export function MicrositeHistory({
 
   const combinedWithVersion = combined.map((e) => ({
     entry: e,
-    companyName: e.ast.brand?.companyName || 'Untitled',
+    companyName: e.ast.brand?.companyName || e.title || 'Untitled',
     version: e.version ?? 1,
   }));
 

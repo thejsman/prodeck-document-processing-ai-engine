@@ -638,6 +638,7 @@ export interface MicrositeHistoryServerEntry {
   source?: string;
   type?: string;
   version?: number;
+  title?: string;
 }
 
 export async function saveMicrositeHistoryToServer(apiKey: string, namespace: string, ast: unknown): Promise<{ id: string; version: number }> {
