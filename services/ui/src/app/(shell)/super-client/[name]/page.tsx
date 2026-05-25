@@ -24,6 +24,8 @@ import {
   getSuperClientMicrosite,
   saveSuperClientMicrosite,
   deleteSuperClientMicrosite,
+  editSuperClientMicrosite,
+  revertSuperClientMicrosite,
   generateMicrositeV2Stream,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
@@ -88,6 +90,11 @@ export default function SuperClientPage() {
   const [micrositeModal, setMicrositeModal] = useState<{ proposal: SuperClientProposal; markdown: string } | null>(null);
   const [showProposalPicker, setShowProposalPicker] = useState(false);
   const [loadingMicrositeFor, setLoadingMicrositeFor] = useState<string | null>(null);
+  const [micrositeEditInput, setMicrositeEditInput] = useState('');
+  const [micrositeEditing, setMicrositeEditing] = useState(false);
+  const [micrositeEditBanner, setMicrositeEditBanner] = useState('');
+  const [canUndo, setCanUndo] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [proposalGenerating, setProposalGenerating] = useState(false);
   const [proposalStep, setProposalStep] = useState(0);
@@ -276,6 +283,54 @@ export default function SuperClientPage() {
       setMicrosites((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
       console.error('Delete microsite failed', err);
+    }
+  }
+
+  async function handleMicrositeEdit() {
+    if (!viewingMicrosite || !micrositeEditInput.trim() || micrositeEditing) return;
+    const instruction = micrositeEditInput.trim();
+    setMicrositeEditInput('');
+    setMicrositeEditing(true);
+    setMicrositeEditBanner('');
+    setCanUndo(false);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    try {
+      const { html, summary } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction);
+      setViewingMicrosite((prev) => prev ? {
+        ...prev,
+        ast: { ...prev.ast, sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)] },
+        renderKey: `${prev.id}-${Date.now()}`,
+      } : null);
+      setMicrositeEditBanner(summary);
+      setCanUndo(true);
+      undoTimerRef.current = setTimeout(() => {
+        setMicrositeEditBanner('');
+        setCanUndo(false);
+      }, 30000);
+    } catch (err) {
+      console.error('Microsite edit failed', err);
+    } finally {
+      setMicrositeEditing(false);
+    }
+  }
+
+  async function handleMicrositeRevert() {
+    if (!viewingMicrosite || micrositeEditing) return;
+    setMicrositeEditing(true);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setCanUndo(false);
+    setMicrositeEditBanner('');
+    try {
+      const { html } = await revertSuperClientMicrosite(apiKey, name, viewingMicrosite.id);
+      setViewingMicrosite((prev) => prev ? {
+        ...prev,
+        ast: { ...prev.ast, sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)] },
+        renderKey: `${prev.id}-${Date.now()}`,
+      } : null);
+    } catch (err) {
+      console.error('Microsite revert failed', err);
+    } finally {
+      setMicrositeEditing(false);
     }
   }
 
@@ -922,12 +977,45 @@ export default function SuperClientPage() {
                   border: 'none',
                   colorScheme: 'light',
                 }}
-                sandbox="allow-scripts"
+                sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
+                allow="autoplay; fullscreen; picture-in-picture"
               />
               {/* Overlay blocks iframe from swallowing mouse events during resize */}
               {micrositeDragging && (
                 <div style={{ position: 'absolute', inset: 0, zIndex: 10, cursor: 'col-resize' }} />
               )}
+            </div>
+
+            {/* Edit bar */}
+            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center', background: 'var(--panel)' }}>
+              {micrositeEditBanner ? (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{micrositeEditBanner}</span>
+              ) : (
+                <input
+                  value={micrositeEditInput}
+                  onChange={(e) => setMicrositeEditInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleMicrositeEdit(); } }}
+                  placeholder="Edit microsite… e.g. dark background, serif headings"
+                  disabled={micrositeEditing}
+                  style={{ flex: 1, fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--input)', color: 'var(--text)', outline: 'none' }}
+                />
+              )}
+              {canUndo && (
+                <button
+                  onClick={() => void handleMicrositeRevert()}
+                  disabled={micrositeEditing}
+                  style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)', cursor: micrositeEditing ? 'default' : 'pointer', flexShrink: 0 }}
+                >
+                  Undo
+                </button>
+              )}
+              <button
+                onClick={() => void handleMicrositeEdit()}
+                disabled={micrositeEditing || !micrositeEditInput.trim()}
+                style={{ padding: '6px 14px', borderRadius: 6, fontSize: 13, background: 'var(--primary)', color: '#fff', border: 'none', cursor: micrositeEditing || !micrositeEditInput.trim() ? 'default' : 'pointer', opacity: micrositeEditing || !micrositeEditInput.trim() ? 0.5 : 1, flexShrink: 0 }}
+              >
+                {micrositeEditing ? '…' : 'Apply'}
+              </button>
             </div>
           </div>
         )}

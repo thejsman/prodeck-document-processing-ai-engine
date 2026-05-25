@@ -2262,6 +2262,34 @@ export async function deleteSuperClientMicrosite(apiKey: string, name: string, i
   if (!res.ok) throw new Error(`deleteSuperClientMicrosite failed: ${res.status}`);
 }
 
+export async function editSuperClientMicrosite(
+  apiKey: string,
+  name: string,
+  id: string,
+  instruction: string,
+): Promise<{ html: string; summary: string }> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/edit`, {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instruction }),
+  });
+  if (!res.ok) throw new Error(`editSuperClientMicrosite failed: ${res.status}`);
+  return res.json() as Promise<{ html: string; summary: string }>;
+}
+
+export async function revertSuperClientMicrosite(
+  apiKey: string,
+  name: string,
+  id: string,
+): Promise<{ html: string }> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/revert`, {
+    method: 'POST',
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`revertSuperClientMicrosite failed: ${res.status}`);
+  return res.json() as Promise<{ html: string }>;
+}
+
 export async function listSuperClientProposals(apiKey: string, name: string): Promise<SuperClientProposal[]> {
   const res = await fetch(`/api/super-clients/${name}/proposals`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`listSuperClientProposals failed: ${res.status}`);
