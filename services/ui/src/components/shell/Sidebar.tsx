@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { NamespacesSection } from './NamespacesSection';
-import { Globe, FileText, MoreVertical, Layers } from 'lucide-react';
+import { Globe, FileText, MoreVertical, Layers, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
+import { useSidebar } from '@/lib/sidebar-store';
 
 const OVERFLOW_ITEMS = [
   { href: '/proposal/templates', label: 'Templates' },
@@ -25,6 +26,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { collapsed, toggle: toggleCollapsed } = useSidebar();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -35,15 +37,41 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  const sidebarClass = ['sidebar', mobileOpen ? 'sidebar--mobile-open' : ''].filter(Boolean).join(' ');
+  const sidebarClass = [
+    'sidebar',
+    mobileOpen ? 'sidebar--mobile-open' : '',
+    collapsed ? 'sidebar--collapsed' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <aside className={sidebarClass}>
       {/* ── Header ── */}
-      <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center' }}>
-        <Link href="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>
-          ProDeck
-        </Link>
+      <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', padding: collapsed ? '0 8px' : undefined }}>
+        {!collapsed && (
+          <Link href="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>
+            ProDeck
+          </Link>
+        )}
+        <button
+          onClick={toggleCollapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--muted)',
+            display: 'flex',
+            alignItems: 'center',
+            padding: 6,
+            borderRadius: 6,
+            flexShrink: 0,
+            transition: 'color 0.15s, background 0.15s',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)'; (e.currentTarget as HTMLButtonElement).style.background = 'var(--panel-soft)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+        >
+          <Icon icon={collapsed ? ChevronsRight : ChevronsLeft} size="md" />
+        </button>
       </div>
 
       {/* ── Navigation ── */}
@@ -75,7 +103,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           </Link>
         </div>
 
-        <NamespacesSection onMobileClose={onMobileClose} />
+        <NamespacesSection onMobileClose={onMobileClose} collapsed={collapsed} />
       </nav>
 
       {/* ── Footer ── */}
@@ -166,36 +194,40 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           >
             A
           </div>
-          <span
-            style={{
-              flex: 1,
-              fontSize: 13,
-              fontWeight: 400,
-              color: 'var(--muted)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Admin
-          </span>
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--muted)',
-              padding: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              flexShrink: 0,
-              marginLeft: 'auto',
-            }}
-            aria-label="User menu"
-          >
-            <Icon icon={MoreVertical} size="md" />
-          </button>
+          {!collapsed && (
+            <span
+              style={{
+                flex: 1,
+                fontSize: 13,
+                fontWeight: 400,
+                color: 'var(--muted)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Admin
+            </span>
+          )}
+          {!collapsed && (
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--muted)',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                flexShrink: 0,
+                marginLeft: 'auto',
+              }}
+              aria-label="User menu"
+            >
+              <Icon icon={MoreVertical} size="md" />
+            </button>
+          )}
         </div>
       </div>
     </aside>

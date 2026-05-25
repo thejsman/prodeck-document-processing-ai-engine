@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { ExternalLink, Send, Upload, X, CheckCircle, AlertCircle, Loader, Sparkles, Globe, ImagePlus } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
+import { useSidebar } from '@/lib/sidebar-store';
 import { MemorySection } from '@/components/chat/MemorySection';
 import ReactMarkdown from 'react-markdown';
 import { GenerateV2Modal } from '@/components/microsite/GenerateV2Modal';
@@ -46,6 +47,19 @@ function genId() {
 export default function SuperClientPage() {
   const { name } = useParams<{ name: string }>();
   const { apiKey } = useAuth();
+  const { collapsed: sidebarCollapsed, collapse: collapseSidebar, expand: expandSidebar } = useSidebar();
+  const sidebarWasCollapsedRef = useRef(false);
+
+  const collapseForPanel = useCallback(() => {
+    sidebarWasCollapsedRef.current = sidebarCollapsed;
+    collapseSidebar();
+  }, [sidebarCollapsed, collapseSidebar]);
+
+  const restoreSidebar = useCallback(() => {
+    if (!sidebarWasCollapsedRef.current) {
+      expandSidebar();
+    }
+  }, [expandSidebar]);
 
   const [meta, setMeta] = useState<SuperClientMeta | null>(null);
   const [contextMd, setContextMd] = useState('');
@@ -65,7 +79,11 @@ export default function SuperClientPage() {
   const [viewingProposal, setViewingProposal] = useState<{ fileName: string; title: string; content: string } | null>(null);
 
   const [microsites, setMicrosites] = useState<SuperClientMicrosite[]>([]);
-  const [viewingMicrosite, setViewingMicrosite] = useState<LayoutAST | null>(null);
+  const [viewingMicrosite, setViewingMicrosite] = useState<{ id: string; ast: LayoutAST; renderKey: string } | null>(null);
+  const [fullscreenMicrosite, setFullscreenMicrosite] = useState<LayoutAST | null>(null);
+  const [micrositePanelWidth, setMicrositePanelWidth] = useState(640);
+  const [micrositeDragging, setMicrositeDragging] = useState(false);
+  const micrositeDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [micrositeModal, setMicrositeModal] = useState<{ proposal: SuperClientProposal; markdown: string } | null>(null);
   const [showProposalPicker, setShowProposalPicker] = useState(false);
   const [loadingMicrositeFor, setLoadingMicrositeFor] = useState<string | null>(null);
@@ -187,6 +205,8 @@ export default function SuperClientPage() {
       setChangedSections(new Set());
       setUpdateBanner('');
       setViewingProposal({ fileName: proposal.fileName, title: proposal.title, content });
+      if (viewingMicrosite) { setViewingMicrosite(null); }
+      collapseForPanel();
     } catch (err) {
       console.error('Failed to load proposal', err);
     }
@@ -239,7 +259,9 @@ export default function SuperClientPage() {
     if (!name) return;
     try {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
-      setViewingMicrosite(ast);
+      setViewingMicrosite({ id: m.id, ast, renderKey: `${m.id}-${Date.now()}` });
+      if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+      collapseForPanel();
     } catch (err) {
       console.error('Failed to load microsite', err);
     }
@@ -253,6 +275,33 @@ export default function SuperClientPage() {
     } catch (err) {
       console.error('Delete microsite failed', err);
     }
+  }
+
+  function handleMicrositeDragStart(e: React.MouseEvent) {
+    e.preventDefault();
+    micrositeDragRef.current = { startX: e.clientX, startWidth: micrositePanelWidth };
+    setMicrositeDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!micrositeDragRef.current) return;
+      const delta = micrositeDragRef.current.startX - ev.clientX;
+      const next = Math.max(320, Math.min(1100, micrositeDragRef.current.startWidth + delta));
+      setMicrositePanelWidth(next);
+    }
+
+    function onMouseUp() {
+      micrositeDragRef.current = null;
+      setMicrositeDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   }
 
   function parseMarkdownSections(md: string): Array<{ heading: string; body: string }> {
@@ -374,7 +423,9 @@ export default function SuperClientPage() {
               try {
                 const saved = await saveSuperClientMicrosite(apiKey, name, ast, title);
                 setMicrosites((prev) => [saved, ...prev]);
-                setViewingMicrosite(ast);
+                setViewingMicrosite({ id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` });
+                if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+                collapseForPanel();
               } catch (err) {
                 console.error('Failed to save microsite', err);
               } finally {
@@ -802,6 +853,84 @@ export default function SuperClientPage() {
         </div>
       </div>
 
+      {/* Microsite slide-in panel */}
+      <div style={{
+        width: viewingMicrosite ? micrositePanelWidth : 0,
+        minWidth: 0,
+        flexShrink: 0,
+        overflow: 'hidden',
+        borderLeft: viewingMicrosite ? '1px solid var(--border)' : 'none',
+        transition: micrositeDragging ? 'none' : 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        {viewingMicrosite && (
+          <div style={{ width: micrositePanelWidth, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+            {/* Drag handle */}
+            <div
+              onMouseDown={handleMicrositeDragStart}
+              style={{
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 8,
+                cursor: 'col-resize', zIndex: 20,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <div style={{
+                width: 3, height: 36, borderRadius: 2,
+                background: micrositeDragging ? 'var(--primary)' : 'var(--border)',
+                transition: 'background 0.15s',
+              }} />
+            </div>
+            {/* Header */}
+            <div style={{
+              padding: '14px 20px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+            }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Globe size={14} style={{ color: 'var(--primary)' }} />
+                {(viewingMicrosite.ast.meta as { title?: string })?.title ?? 'Microsite'}
+              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  onClick={() => setFullscreenMicrosite(viewingMicrosite.ast)}
+                  style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <ExternalLink size={12} /> Full screen
+                </button>
+                <button
+                  onClick={() => { setViewingMicrosite(null); restoreSidebar(); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Responsive iframe preview */}
+            <div style={{ flex: 1, minHeight: 0, background: '#fff', position: 'relative' }}>
+              <iframe
+                key={viewingMicrosite.renderKey}
+                srcDoc={(viewingMicrosite.ast.sections?.[0] as { customHtml?: string })?.customHtml ?? ''}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  border: 'none',
+                  colorScheme: 'light',
+                }}
+                sandbox="allow-scripts"
+              />
+              {/* Overlay blocks iframe from swallowing mouse events during resize */}
+              {micrositeDragging && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 10, cursor: 'col-resize' }} />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Proposal slide-in panel */}
       <div style={{
         width: viewingProposal ? 560 : 0,
@@ -827,7 +956,7 @@ export default function SuperClientPage() {
                 {viewingProposal.title}
               </p>
               <button
-                onClick={() => { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }}
+                onClick={() => { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); restoreSidebar(); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}
               >
                 <X size={16} />
@@ -876,22 +1005,18 @@ export default function SuperClientPage() {
 
       {/* Right panel — client info */}
       <div style={{
-        width: viewingProposal ? 0 : 280,
+        width: (viewingProposal || viewingMicrosite) ? 0 : 280,
         minWidth: 0,
-        borderLeft: viewingProposal ? 'none' : '1px solid var(--border)',
+        borderLeft: (viewingProposal || viewingMicrosite) ? 'none' : '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        overflowX: 'hidden',
-        overflowY: viewingProposal ? 'hidden' : 'auto',
+        overflow: 'hidden',
         transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', flex: 1 }}>
           {/* Client meta */}
           <div>
-            <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-              Client
-            </p>
             <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>
               {meta.displayName}
             </p>
@@ -1142,7 +1267,9 @@ export default function SuperClientPage() {
             const saved = await saveSuperClientMicrosite(apiKey, name, ast, micrositeModal.proposal.title);
             setMicrosites((prev) => [saved, ...prev]);
             setMicrositeModal(null);
-            setViewingMicrosite(ast);
+            setViewingMicrosite({ id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` });
+            if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+            collapseForPanel();
           } catch (err) {
             console.error('Failed to save microsite', err);
             setMicrositeModal(null);
@@ -1153,9 +1280,9 @@ export default function SuperClientPage() {
     )}
 
     {/* MicrositeV2 full-screen viewer */}
-    {viewingMicrosite && (
+    {fullscreenMicrosite && (
       <div style={{ position: 'fixed', inset: 0, zIndex: 40000, background: 'var(--panel)' }}>
-        <MicrositeV2 ast={viewingMicrosite} onBack={() => setViewingMicrosite(null)} />
+        <MicrositeV2 ast={fullscreenMicrosite} onBack={() => setFullscreenMicrosite(null)} />
       </div>
     )}
     </>
