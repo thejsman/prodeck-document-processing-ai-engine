@@ -25,7 +25,18 @@ interface CombinedEntry {
   title?: string;    // explicit title from super-client microsites.json
 }
 
-// Section type → accent color
+// Derive a unique, vivid color pair from any string (namespace/id)
+function hashPalette(str: string): { primary: string; secondary: string; hue: number } {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0;
+  const hue = ((h >>> 0) % 360);
+  const hue2 = (hue + 150) % 360;
+  return {
+    primary: `hsl(${hue}, 78%, 58%)`,
+    secondary: `hsl(${hue2}, 72%, 52%)`,
+    hue,
+  };
+}
 
 function formatDate(iso: string): string {
   try {
@@ -283,8 +294,11 @@ export function MicrositeHistory({
           const isPro = entry.ast.generationMode === 'pro';
           const isV2 = entry.ast.generationMode === 'v2';
           const isHovered = hoveredCard === entry.id;
-          const primaryColor = entry.ast.brand?.primaryColor || '#4f46e5';
-          const secondaryColor = entry.ast.brand?.secondaryColor || '#7c3aed';
+          // Always derive from namespace so each client gets a unique, consistent palette
+          const { primary: primaryColor, secondary: secondaryColor, hue } = hashPalette(entry.namespace);
+
+          // Initials from namespace for the avatar
+          const initials = entry.namespace.split('-').map((w: string) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('');
 
           return (
             <div
@@ -296,149 +310,115 @@ export function MicrositeHistory({
                 padding: 0,
                 overflow: 'hidden',
                 cursor: 'default',
+                borderColor: isHovered ? primaryColor : 'var(--border)',
                 transform: isHovered ? 'translateY(-4px)' : 'translateY(0)',
                 boxShadow: isHovered
-                  ? `0 20px 48px rgba(0,0,0,0.36), 0 0 0 1.5px ${primaryColor}66`
-                  : `0 4px 16px rgba(0,0,0,0.18)`,
-                borderColor: isHovered ? `${primaryColor}55` : 'var(--border)',
+                  ? `0 16px 40px rgba(0,0,0,0.35), 0 0 0 1px ${primaryColor}`
+                  : '0 2px 10px rgba(0,0,0,0.2)',
                 transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
               }}
               onMouseEnter={() => setHoveredCard(entry.id)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              {/* ── Hero header ── */}
-              <div
-                style={{
-                  height: 72,
-                  background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
-                  position: 'relative',
-                  flexShrink: 0,
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Soft radial glow */}
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  background: `radial-gradient(ellipse at 30% 50%, ${primaryColor}88 0%, transparent 70%)`,
-                }} />
-                {/* Noise grain */}
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E\")",
-                  opacity: 0.6,
-                }} />
+              {/* ── Accent bar top ── */}
+              <div style={{ height: 3, background: `linear-gradient(90deg, ${primaryColor}, ${secondaryColor})`, flexShrink: 0 }} />
 
-                {/* Mode pill */}
+              {/* ── Header row: avatar + pills ── */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 14px 0' }}>
+                {/* Namespace avatar */}
                 <div style={{
-                  position: 'absolute',
-                  top: 12,
-                  left: 12,
-                  display: 'inline-flex',
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  background: `linear-gradient(135deg, ${primaryColor}22, ${secondaryColor}22)`,
+                  border: `1.5px solid ${primaryColor}44`,
+                  display: 'flex',
                   alignItems: 'center',
-                  gap: 5,
-                  background: 'rgba(255,255,255,0.18)',
-                  backdropFilter: 'blur(8px)',
-                  WebkitBackdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  borderRadius: 100,
-                  padding: '4px 10px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: '#fff',
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase' as const,
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: primaryColor,
+                  flexShrink: 0,
+                  letterSpacing: '-0.02em',
                 }}>
-                  {isV2 ? '✦' : isPro ? '⚡' : '🎨'} {isV2 ? 'Microsite' : isPro ? 'Pro' : 'Classic'}
+                  {initials}
                 </div>
 
-                {/* Version pill */}
-                <div style={{
-                  position: 'absolute',
-                  top: 12,
-                  right: 12,
-                  background: 'rgba(0,0,0,0.28)',
-                  backdropFilter: 'blur(8px)',
-                  WebkitBackdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: 100,
-                  padding: '4px 10px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: 'rgba(255,255,255,0.9)',
-                  letterSpacing: '0.06em',
-                }}>
-                  v{version}
+                {/* Mode + version + options */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase' as const,
+                    color: primaryColor,
+                    background: `${primaryColor}18`,
+                    border: `1px solid ${primaryColor}30`,
+                    borderRadius: 100,
+                    padding: '3px 8px',
+                  }}>
+                    {isV2 ? '✦ Microsite' : isPro ? '⚡ Pro' : '🎨 Classic'}
+                  </span>
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: 'var(--muted)',
+                    background: 'var(--panel-soft)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 100,
+                    padding: '3px 8px',
+                    letterSpacing: '0.06em',
+                  }}>
+                    v{version}
+                  </span>
+                  <button
+                    ref={(el) => { menuBtnRefs.current[entry.id] = el; }}
+                    className="btn btn-sm"
+                    title="Options"
+                    onClick={(e) => { e.stopPropagation(); openMenu(entry); }}
+                    style={{
+                      padding: '2px 4px',
+                      border: 'none',
+                      lineHeight: 1,
+                      opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0,
+                      pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none',
+                      transition: 'opacity 0.15s',
+                    }}
+                  >
+                    <Icon icon={MoreHorizontal} size="sm" />
+                  </button>
                 </div>
-
-                {/* Options menu button — bottom-right of hero */}
-                <button
-                  ref={(el) => { menuBtnRefs.current[entry.id] = el; }}
-                  className="btn btn-sm"
-                  title="Options"
-                  onClick={(e) => { e.stopPropagation(); openMenu(entry); }}
-                  style={{
-                    position: 'absolute',
-                    bottom: 8,
-                    right: 10,
-                    padding: '2px 4px',
-                    border: 'none',
-                    background: 'rgba(0,0,0,0.25)',
-                    borderRadius: 6,
-                    color: '#fff',
-                    lineHeight: 1,
-                    opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0,
-                    pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none',
-                    transition: 'opacity 0.15s',
-                  }}
-                >
-                  <Icon icon={MoreHorizontal} size="sm" />
-                </button>
               </div>
 
               {/* ── Body ── */}
-              <div style={{ padding: '14px 14px 12px' }}>
-                {/* Title */}
-                <span
-                  style={{
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: 'var(--text)',
-                    lineHeight: 1.4,
-                    marginBottom: 8,
-                  }}
-                >
+              <div style={{ padding: '12px 14px 14px' }}>
+                <span style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: 'var(--text)',
+                  lineHeight: 1.45,
+                }}>
                   {companyName}
                 </span>
 
-                {/* Namespace + timestamp row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 6 }}>
-                  <span
-                    title={entry.namespace}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: `${primaryColor}18`,
-                      border: `1px solid ${primaryColor}35`,
-                      borderRadius: 6,
-                      padding: '2px 8px 2px 6px',
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: primaryColor,
-                      maxWidth: '60%',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      letterSpacing: '0.03em',
-                    }}
-                  >
-                    <FolderOpen size={9} style={{ flexShrink: 0 }} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 6 }}>
+                  <span title={entry.namespace} style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: 'var(--muted)',
+                    maxWidth: '65%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    <FolderOpen size={9} style={{ flexShrink: 0, color: primaryColor }} />
                     {entry.namespace}
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
@@ -467,8 +447,8 @@ export function MicrositeHistory({
                     fontSize: 12,
                     fontWeight: 700,
                     cursor: 'pointer',
-                    letterSpacing: '0.03em',
-                    boxShadow: isHovered ? `0 4px 16px ${primaryColor}55` : `0 2px 8px ${primaryColor}33`,
+                    letterSpacing: '0.04em',
+                    boxShadow: isHovered ? `0 6px 20px ${primaryColor}55` : `0 2px 8px ${primaryColor}30`,
                     transition: 'filter 0.15s, box-shadow 0.2s',
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; }}
