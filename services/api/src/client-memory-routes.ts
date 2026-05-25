@@ -48,7 +48,7 @@ export function registerClientMemoryRoutes(
         return reply.code(400).send({ error: 'Missing required fields: key, value' });
       }
 
-      const validKeys: StableRequirementKey[] = ['clientName', 'clientIndustry', 'contactName'];
+      const validKeys: StableRequirementKey[] = ['clientName', 'clientIndustry', 'contactName', 'projectType'];
       if (!validKeys.includes(body.key as StableRequirementKey)) {
         return reply
           .code(400)
@@ -83,6 +83,8 @@ export function registerClientMemoryRoutes(
 
       const validCategories: ClientKnowledgeEntry['category'][] = [
         'preference', 'constraint', 'relationship', 'context',
+        'requirement', 'priority', 'problem', 'opportunity',
+        'decision', 'metric', 'action_item',
       ];
       if (!validCategories.includes(body.category as ClientKnowledgeEntry['category'])) {
         return reply.code(400).send({
