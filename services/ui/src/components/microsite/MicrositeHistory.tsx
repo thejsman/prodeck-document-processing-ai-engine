@@ -282,9 +282,6 @@ export function MicrositeHistory({
           <p style={{ fontSize: 14, color: 'var(--muted)', margin: '0 0 20px', lineHeight: 1.5 }}>
             Generate your first microsite to see it here.
           </p>
-          <button onClick={() => onGenerateNew?.()} className="btn btn-primary btn-sm" style={{ width: 'auto' }}>
-            + Generate Microsite
-          </button>
         </div>
       </div>
     );
