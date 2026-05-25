@@ -774,8 +774,7 @@ body {
   flex-direction: column;
   flex-shrink: 0;
   z-index: 100;
-  /* Desktop transition */
-  transition: width 0.2s ease;
+  transition: width 0.32s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Light mode sidebar */
@@ -812,6 +811,30 @@ body {
 
 .sidebar--collapsed {
   width: 72px;
+}
+
+.sidebar--collapsed .sidebar-label {
+  display: none;
+}
+
+.sidebar--collapsed .sidebar-link {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar--collapsed .sidebar-link:hover {
+  transform: none;
+}
+
+.sidebar--collapsed .sidebar-footer {
+  padding: 10px 8px;
+  display: flex;
+  justify-content: center;
+}
+
+.sidebar--collapsed .sidebar-footer > div {
+  justify-content: center;
+  gap: 0;
 }
 
 /* Mobile: sidebar is a fixed drawer, hidden by default */

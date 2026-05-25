@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 
 interface Props {
   onMobileClose: () => void;
+  collapsed?: boolean;
 }
 
 interface MenuPos {
@@ -21,7 +22,7 @@ interface MenuPos {
   right: number;
 }
 
-export function NamespacesSection({ onMobileClose }: Props) {
+export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
   const { namespaces, namespace: activeNamespace, setNamespace, refresh } = useNamespace();
   const { apiKey } = useAuth();
   const [showModal, setShowModal] = useState(false);
@@ -382,7 +383,10 @@ export function NamespacesSection({ onMobileClose }: Props) {
 
         {expandedSuper &&
           superClients.map((sc) => {
-            const isActive = !!pathname?.startsWith(`/super-client/${sc.name}`);
+            const isActive = !collapsed && (
+              pathname === `/super-client/${sc.name}` ||
+              !!pathname?.startsWith(`/super-client/${sc.name}/`)
+            );
             const isHovered = hoveredSc === sc.name;
 
             return (
