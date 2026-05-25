@@ -745,6 +745,7 @@ export interface AgentRunResult {
 
 export type StreamEvent =
   | { type: 'start'; message: string }
+  | { type: 'progress'; message: string }
   | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
@@ -1081,6 +1082,28 @@ export async function editSectionHtml(
     throw new Error(`Edit failed (${res.status}): ${text}`);
   }
   return res.json() as Promise<{ html: string }>;
+}
+
+/** Direct LLM: given current CSS tokens + instruction, returns only the changed token values. */
+export async function editDesignTokens(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  body: { instruction: string; currentTokens: Record<string, string> },
+): Promise<{ tokens: Record<string, string>; changed: string[]; summary: string }> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/edit-tokens`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Token edit failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ tokens: Record<string, string>; changed: string[]; summary: string }>;
 }
 
 /** Non-streaming single-pass generation. One LLM call, returns when complete. */
@@ -1976,5 +1999,338 @@ export async function extractUrlDesign(
     return res.json() as Promise<ExtractUrlDesignResult>;
   } catch {
     return { tokens: null, error: 'network_error' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V2 generation — direct LLM pipeline, no agents or design-skill
+// Takes only proposal markdown; returns same StreamEvent format as classic
+// ---------------------------------------------------------------------------
+
+// ── V2 Analyze ──────────────────────────────────────────────────────────────
+
+export interface V2AnalysisResult {
+  clientName: string;
+  projectType: string;
+  sections: { id: string; type: string; heading: string; summary: string }[];
+  keyThemes: string[];
+}
+
+export async function analyzeProposalV2(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  proposalMarkdown: string,
+): Promise<V2AnalysisResult> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/analyze-v2`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposalMarkdown }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Analysis failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<V2AnalysisResult>;
+}
+
+// ── V2 Generate Stream ───────────────────────────────────────────────────────
+
+export interface V2StreamOptions {
+  proposalMarkdown: string;
+  userPrompt?: string;
+  designPrompt?: string;
+  referenceImage?: { base64: string; mediaType: string };
+  coldStart?: boolean;
+  onEvent: (event: StreamEvent) => void;
+  signal?: AbortSignal;
+}
+
+export async function generateMicrositeV2Stream(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  opts: V2StreamOptions,
+): Promise<void> {
+  const res = await fetch(`/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/generate-v2-stream`, {
+    method: 'POST',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      proposalMarkdown: opts.proposalMarkdown,
+      ...(opts.userPrompt ? { userPrompt: opts.userPrompt } : {}),
+      ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
+      ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
+      ...(opts.coldStart ? { coldStart: true } : {}),
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`V2 stream request failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as StreamEvent;
+          opts.onEvent(event);
+        } catch { /* malformed line — skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Super Client
+// ---------------------------------------------------------------------------
+
+export interface SuperClientMeta {
+  name: string;
+  displayName: string;
+  url?: string;
+  createdAt: string;
+}
+
+export interface SuperClientHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
+
+export interface SuperClientDetail {
+  meta: SuperClientMeta;
+  contextMd: string;
+  history: SuperClientHistoryEntry[];
+}
+
+export async function listSuperClients(apiKey: string): Promise<SuperClientMeta[]> {
+  const res = await fetch('/api/super-clients', { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`listSuperClients failed: ${res.status}`);
+  const json = await res.json() as { clients: SuperClientMeta[] };
+  return json.clients;
+}
+
+export async function createSuperClient(
+  apiKey: string,
+  displayName: string,
+  url?: string,
+  notes?: string,
+): Promise<{ name: string; displayName: string; contextMd: string }> {
+  const res = await fetch('/api/super-clients', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ displayName, url, notes }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`createSuperClient failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ name: string; displayName: string; contextMd: string }>;
+}
+
+export async function getSuperClient(apiKey: string, name: string): Promise<SuperClientDetail> {
+  const res = await fetch(`/api/super-clients/${name}`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`getSuperClient failed: ${res.status}`);
+  return res.json() as Promise<SuperClientDetail>;
+}
+
+export async function deleteSuperClient(apiKey: string, name: string): Promise<void> {
+  const res = await fetch(`/api/super-clients/${name}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`deleteSuperClient failed: ${res.status}`);
+}
+
+export interface SuperClientFile {
+  fileName: string;
+  size: number;
+  uploadedAt: string;
+  status: 'processing' | 'extracted' | 'failed';
+  error?: string;
+}
+
+export async function listSuperClientDocuments(apiKey: string, name: string): Promise<SuperClientFile[]> {
+  const res = await fetch(`/api/super-clients/${name}/documents`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`listSuperClientDocuments failed: ${res.status}`);
+  const json = await res.json() as { files: SuperClientFile[] };
+  return json.files;
+}
+
+export async function uploadSuperClientDocument(
+  apiKey: string,
+  name: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<SuperClientFile[]> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/super-clients/${name}/documents/upload`);
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const json = JSON.parse(xhr.responseText) as { files: SuperClientFile[] };
+        resolve(json.files);
+      } else {
+        reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteSuperClientDocument(apiKey: string, name: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/super-clients/${name}/documents/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`deleteSuperClientDocument failed: ${res.status}`);
+}
+
+export interface SuperClientProposal {
+  fileName: string;
+  title: string;
+  savedAt: string;
+}
+
+export interface SuperClientMicrosite {
+  id: string;
+  title: string;
+  proposalTitle: string;
+  savedAt: string;
+}
+
+export async function listSuperClientMicrosites(apiKey: string, name: string): Promise<SuperClientMicrosite[]> {
+  const res = await fetch(`/api/super-clients/${name}/microsites`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`listSuperClientMicrosites failed: ${res.status}`);
+  const json = await res.json() as { microsites: SuperClientMicrosite[] };
+  return json.microsites;
+}
+
+export async function getSuperClientMicrosite(apiKey: string, name: string, id: string): Promise<import('@/types/presentation').LayoutAST> {
+  const res = await fetch(`/api/super-clients/${name}/microsites/${encodeURIComponent(id)}`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`getSuperClientMicrosite failed: ${res.status}`);
+  const json = await res.json() as { ast: import('@/types/presentation').LayoutAST };
+  return json.ast;
+}
+
+export async function saveSuperClientMicrosite(
+  apiKey: string,
+  name: string,
+  ast: import('@/types/presentation').LayoutAST,
+  proposalTitle: string,
+): Promise<SuperClientMicrosite> {
+  const res = await fetch(`/api/super-clients/${name}/microsites`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ ast, proposalTitle }),
+  });
+  if (!res.ok) throw new Error(`saveSuperClientMicrosite failed: ${res.status}`);
+  const json = await res.json() as { microsite: SuperClientMicrosite };
+  return json.microsite;
+}
+
+export async function deleteSuperClientMicrosite(apiKey: string, name: string, id: string): Promise<void> {
+  const res = await fetch(`/api/super-clients/${name}/microsites/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`deleteSuperClientMicrosite failed: ${res.status}`);
+}
+
+export async function listSuperClientProposals(apiKey: string, name: string): Promise<SuperClientProposal[]> {
+  const res = await fetch(`/api/super-clients/${name}/proposals`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`listSuperClientProposals failed: ${res.status}`);
+  const json = await res.json() as { proposals: SuperClientProposal[] };
+  return json.proposals;
+}
+
+export async function getSuperClientProposal(apiKey: string, name: string, fileName: string): Promise<string> {
+  const res = await fetch(`/api/super-clients/${name}/proposals/${encodeURIComponent(fileName)}`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) throw new Error(`getSuperClientProposal failed: ${res.status}`);
+  const json = await res.json() as { content: string };
+  return json.content;
+}
+
+export async function deleteSuperClientProposal(apiKey: string, name: string, fileName: string): Promise<void> {
+  const res = await fetch(`/api/super-clients/${name}/proposals/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`deleteSuperClientProposal failed: ${res.status}`);
+}
+
+export interface SuperClientChatEvent {
+  type: 'chunk' | 'done' | 'error';
+  text?: string;
+  message?: string;
+  proposalSaved?: SuperClientProposal;
+  proposalUpdated?: SuperClientProposal;
+}
+
+export async function streamSuperClientChat(
+  apiKey: string,
+  name: string,
+  message: string,
+  onEvent: (event: SuperClientChatEvent) => void,
+  signal?: AbortSignal,
+  activeProposalId?: string,
+): Promise<void> {
+  const res = await fetch(`/api/super-clients/${name}/chat`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ message, ...(activeProposalId ? { activeProposalId } : {}) }),
+    signal,
+  });
+
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Super client chat failed (${res.status}): ${text}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const evt = JSON.parse(line.slice(6)) as SuperClientChatEvent;
+          onEvent(evt);
+        } catch { /* skip */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
   }
 }
