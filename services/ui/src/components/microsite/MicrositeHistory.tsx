@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
 import { Microsite } from './Microsite';
 import { MicrositePro } from './MicrositePro';
+import { MicrositeV2 } from '../MicrositeV2';
 import { useMicrositeHistory } from '@/lib/useMicrositeHistory';
 import { fetchAllMicrositeHistory, deleteMicrositeHistoryFromServer } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
@@ -229,7 +230,12 @@ export function MicrositeHistory({
   }, [combined.length, onCountChange]);
 
   if (previewEntry) {
-    const PreviewComponent = previewEntry.ast.generationMode !== 'classic' ? MicrositePro : Microsite;
+    const PreviewComponent =
+      previewEntry.ast.generationMode === 'v2'
+        ? MicrositeV2
+        : previewEntry.ast.generationMode === 'pro'
+          ? MicrositePro
+          : Microsite;
     return (
       <PreviewComponent
         ast={previewEntry.ast}

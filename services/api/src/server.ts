@@ -28,6 +28,7 @@ import { registerChatRoutes } from './chat-routes.js';
 import { registerClientMemoryRoutes } from './client-memory-routes.js';
 import { registerContextRoutes } from './context-routes.js';
 import { clientDataRoutes } from './client-data-routes.js';
+import { registerSuperClientRoutes } from './super-client-routes.js';
 import { registerExtractionRoutes } from './ingestion/extraction-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
 import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
@@ -126,6 +127,7 @@ export async function createServer(opts: ServerOptions) {
   registerSkillRoutes(app, opts.workdir, policyConfig);
   registerDesignSkillRoutes(app, opts.workdir);
   registerClientMemoryRoutes(app, opts.workdir);
+  registerSuperClientRoutes(app, opts.workdir);
   app.register(clientDataRoutes);
 
   // ── Static exports (HTML downloads) ──────────────────────────
