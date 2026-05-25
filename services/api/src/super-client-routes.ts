@@ -873,7 +873,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
 
     const entry: ScMicrosite = {
       id,
-      title: `${meta.displayName} — ${proposalTitle} (v${version})`,
+      title: `${proposalTitle} (v${version})`,
       proposalTitle,
       savedAt: now.toISOString(),
       version,
