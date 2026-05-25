@@ -21,17 +21,51 @@ import { Section } from './NamespacePanel';
 
 // ── Category dot colors ───────────────────────────────────────────
 const CATEGORY_COLOR: Record<ClientKnowledgeEntry['category'], string> = {
-  preference: 'var(--primary, #6366f1)',
-  constraint: '#f59e0b',
+  preference:   'var(--primary, #6366f1)',
+  constraint:   '#f59e0b',
   relationship: '#a855f7',
-  context: 'var(--muted, #6b7280)',
+  context:      'var(--muted, #6b7280)',
+  requirement:  '#3b82f6',
+  priority:     '#f43f5e',
+  problem:      '#ef4444',
+  opportunity:  '#22c55e',
+  decision:     '#06b6d4',
+  metric:       '#14b8a6',
+  action_item:  '#f97316',
 };
 
 const CATEGORY_LABEL: Record<ClientKnowledgeEntry['category'], string> = {
-  preference: 'pref',
-  constraint: 'limit',
+  preference:   'pref',
+  constraint:   'limit',
   relationship: 'rel',
-  context: 'ctx',
+  context:      'ctx',
+  requirement:  'req',
+  priority:     'priority',
+  problem:      'problem',
+  opportunity:  'oppty',
+  decision:     'decided',
+  metric:       'metric',
+  action_item:  'action',
+};
+
+const CATEGORY_ORDER: ClientKnowledgeEntry['category'][] = [
+  'requirement', 'priority', 'constraint', 'problem',
+  'opportunity', 'decision', 'preference', 'metric',
+  'action_item', 'relationship', 'context',
+];
+
+const CATEGORY_DISPLAY_NAME: Record<ClientKnowledgeEntry['category'], string> = {
+  requirement:  'Requirements',
+  priority:     'Priorities',
+  constraint:   'Constraints',
+  problem:      'Problems',
+  opportunity:  'Opportunities',
+  decision:     'Decisions',
+  preference:   'Preferences',
+  metric:       'Metrics',
+  action_item:  'Actions',
+  relationship: 'Relationships',
+  context:      'Context',
 };
 
 // ── Sub-section header ────────────────────────────────────────────
@@ -160,7 +194,7 @@ interface NewKnowledgeFormProps {
 
 function NewKnowledgeForm({ onSubmit, onCancel }: NewKnowledgeFormProps) {
   const [content, setContent] = useState('');
-  const [category, setCategory] = useState<ClientKnowledgeEntry['category']>('context');
+  const [category, setCategory] = useState<ClientKnowledgeEntry['category']>('requirement');
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -193,10 +227,17 @@ function NewKnowledgeForm({ onSubmit, onCancel }: NewKnowledgeFormProps) {
           onChange={e => setCategory(e.target.value as ClientKnowledgeEntry['category'])}
           style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text)', fontSize: 11, padding: '2px 6px', outline: 'none' }}
         >
-          <option value="context">Context</option>
-          <option value="preference">Preference</option>
+          <option value="requirement">Requirement</option>
+          <option value="priority">Priority</option>
           <option value="constraint">Constraint</option>
+          <option value="problem">Problem</option>
+          <option value="opportunity">Opportunity</option>
+          <option value="decision">Decision</option>
+          <option value="preference">Preference</option>
+          <option value="metric">Metric</option>
+          <option value="action_item">Action</option>
           <option value="relationship">Relationship</option>
+          <option value="context">Context</option>
         </select>
         <button onClick={onCancel} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 6px', fontSize: 11, cursor: 'pointer', color: 'var(--muted)' }}>
           <X size={11} />
@@ -390,20 +431,22 @@ function ConflictsPanel({ conflicts, onResolve }: ConflictsPanelProps) {
 
 function StableFields({ memory }: { memory: ClientMemory }) {
   const { stableFields, clientIndustry } = memory;
-  const contact = stableFields.contactName?.value;
   const industry = stableFields.clientIndustry?.value ?? clientIndustry;
+  const projectType = stableFields.projectType?.value;
+  const contact = stableFields.contactName?.value;
 
-  const parts: string[] = [];
-  if (industry) parts.push(typeof industry === 'string' ? industry : industry.join(', '));
-  if (contact) parts.push(`Contact: ${typeof contact === 'string' ? contact : contact.join(', ')}`);
+  const parts: { label: string; value: string }[] = [];
+  if (industry) parts.push({ label: 'Industry', value: typeof industry === 'string' ? industry : industry.join(', ') });
+  if (projectType) parts.push({ label: 'Project Type', value: typeof projectType === 'string' ? projectType : projectType.join(', ') });
+  if (contact) parts.push({ label: 'Contact', value: typeof contact === 'string' ? contact : contact.join(', ') });
 
   if (!parts.length) return null;
 
   return (
     <div style={{ padding: '2px 12px 6px' }}>
       {parts.map((p, i) => (
-        <p key={i} style={{ fontSize: 11, color: 'var(--muted)', margin: '1px 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p}>
-          {p}
+        <p key={i} style={{ fontSize: 11, color: 'var(--muted)', margin: '1px 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${p.label}: ${p.value}`}>
+          <span style={{ opacity: 0.6 }}>{p.label}:</span> {p.value}
         </p>
       ))}
     </div>
@@ -590,19 +633,34 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
 
             {/* Knowledge sub-section */}
             <SubHeader label="Knowledge" onAdd={() => setAddingKnowledge(true)} />
-            {memory.knowledge.length === 0 && !addingKnowledge && (
+            {memory.knowledge.filter(e => !e.supersededBy).length === 0 && !addingKnowledge && (
               <div style={{ padding: '2px 8px 4px 12px' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', opacity: 0.4 }}>No facts yet</span>
               </div>
             )}
-            {memory.knowledge.map(entry => (
-              <KnowledgeRow
-                key={entry.id}
-                entry={entry}
-                onEdit={handleEditKnowledge}
-                onDelete={id => setConfirmDeleteKnowledge(memory.knowledge.find(e => e.id === id) ?? null)}
-              />
-            ))}
+            {CATEGORY_ORDER.map(cat => {
+              const entries = memory.knowledge.filter(e => e.category === cat && !e.supersededBy);
+              if (entries.length === 0) return null;
+              return (
+                <div key={cat}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px 2px' }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: CATEGORY_COLOR[cat], flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, color: CATEGORY_COLOR[cat], textTransform: 'uppercase', letterSpacing: '0.07em', flex: 1 }}>
+                      {CATEGORY_DISPLAY_NAME[cat]}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.6 }}>{entries.length}</span>
+                  </div>
+                  {entries.map(entry => (
+                    <KnowledgeRow
+                      key={entry.id}
+                      entry={entry}
+                      onEdit={handleEditKnowledge}
+                      onDelete={id => setConfirmDeleteKnowledge(memory.knowledge.find(e => e.id === id) ?? null)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
             {addingKnowledge && (
               <NewKnowledgeForm
                 onSubmit={handleAddKnowledge}

@@ -1836,9 +1836,13 @@ export interface MemoryField {
 export interface ClientKnowledgeEntry {
   id: string;
   content: string;
-  category: 'preference' | 'constraint' | 'relationship' | 'context';
+  category:
+    | 'preference' | 'constraint' | 'relationship' | 'context'
+    | 'requirement' | 'priority' | 'problem' | 'opportunity'
+    | 'decision' | 'metric' | 'action_item';
   confidence: number;
   sourceEngagements: string[];
+  sourceDocument?: string;
   firstSeenAt: string;
   lastConfirmedAt: string;
   supersededBy?: string;
@@ -1870,7 +1874,7 @@ export interface ClientMemory {
   clientSlug: string;
   clientName: string;
   clientIndustry: string;
-  stableFields: Partial<Record<'clientName' | 'clientIndustry' | 'contactName', MemoryField>>;
+  stableFields: Partial<Record<'clientName' | 'clientIndustry' | 'contactName' | 'projectType', MemoryField>>;
   knowledge: ClientKnowledgeEntry[];
   stakeholders: StakeholderRecord[];
   conflicts: MemoryConflict[];
