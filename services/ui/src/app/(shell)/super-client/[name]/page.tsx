@@ -12,7 +12,7 @@ import { MemorySection } from '@/components/chat/MemorySection';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { GenerateV2Modal } from '@/components/microsite/GenerateV2Modal';
-import { MicrositeV2 } from '@/components/MicrositeV2';
+import { MicrositeV2, buildHtml } from '@/components/MicrositeV2';
 import type { LayoutAST } from '@/types/presentation';
 import { generationStore, type Generation } from '@/lib/generation-store';
 import {
@@ -193,6 +193,15 @@ export default function SuperClientPage() {
   const [composerImage, setComposerImage] = useState<{ base64: string; mediaType: string } | null>(null);
   const [composerMessage, setComposerMessage] = useState('');
   const composerImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [toastMsg, setToastMsg] = useState<{ text: string; variant: 'default' | 'error'; key: number } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(text: string, variant: 'default' | 'error' = 'default') {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastMsg({ text, variant, key: Date.now() });
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 3500);
+  }
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -603,8 +612,10 @@ export default function SuperClientPage() {
                 // Swap temp ID for the real saved ID and refresh list
                 setViewingMicrosite((prev) => prev?.id === tempId ? { id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` } : prev);
                 loadMicrosites();
+                showToast('Microsite generated and saved');
               } catch (err) {
                 generationStore.error(msGenId, (err as Error).message);
+                showToast(`Failed to save microsite: ${(err as Error).message}`, 'error');
               }
             })();
           }
@@ -1117,7 +1128,7 @@ export default function SuperClientPage() {
             <div style={{ flex: 1, minHeight: 0, background: '#fff', position: 'relative' }}>
               <iframe
                 key={lastMicrositeRef.current!.renderKey}
-                srcDoc={(lastMicrositeRef.current!.ast.sections?.[0] as { customHtml?: string })?.customHtml ?? ''}
+                srcDoc={buildHtml(lastMicrositeRef.current!.ast)}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -1581,18 +1592,20 @@ export default function SuperClientPage() {
         proposalName={micrositeModal.proposal.title}
         proposalMarkdown={micrositeModal.markdown}
         onComplete={async (ast) => {
-          // Open panel immediately with stream AST
+          // Capture title before clearing modal state
+          const proposalTitle = micrositeModal.proposal.title;
           setMicrositeModal(null);
           const tempId = `preview-modal-${Date.now()}`;
           setViewingMicrosite({ id: tempId, ast, renderKey: `${tempId}-${Date.now()}` });
           if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
           collapseForPanel();
           try {
-            const saved = await saveSuperClientMicrosite(apiKey, name, ast, micrositeModal.proposal.title);
+            const saved = await saveSuperClientMicrosite(apiKey, name, ast, proposalTitle);
             setViewingMicrosite((prev) => prev?.id === tempId ? { id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` } : prev);
             loadMicrosites();
+            showToast('Microsite generated and saved');
           } catch (err) {
-            console.error('Failed to save microsite', err);
+            showToast(`Failed to save microsite: ${(err as Error).message}`, 'error');
           }
         }}
         onClose={() => setMicrositeModal(null)}
@@ -1603,6 +1616,24 @@ export default function SuperClientPage() {
     {fullscreenMicrosite && (
       <div style={{ position: 'fixed', inset: 0, zIndex: 40000, background: 'var(--panel)' }}>
         <MicrositeV2 ast={fullscreenMicrosite} onBack={() => setFullscreenMicrosite(null)} />
+      </div>
+    )}
+
+    {/* Toast notification */}
+    {toastMsg && (
+      <div
+        key={toastMsg.key}
+        style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 99999, padding: '10px 20px', borderRadius: 10,
+          background: toastMsg.variant === 'error' ? '#ef4444' : '#111',
+          color: '#fff', fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+          animation: 'scToastIn 0.2s ease',
+          pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}
+      >
+        {toastMsg.text}
       </div>
     )}
     </>
