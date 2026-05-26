@@ -2361,44 +2361,53 @@ ${imageInstructions}`;
       return out;
     };
 
-    const callLLM = async (prompt: string, maxTokens = 8000): Promise<string> => {
+    // Streaming LLM call — consumes SSE chunks from Anthropic and returns the full text.
+    // Streaming is used for all calls so output arrives faster (lower time-to-first-token).
+    const callLLMStream = async (
+      messages: { role: string; content: unknown }[],
+      maxTokens = 16000,
+    ): Promise<string> => {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model, max_tokens: maxTokens, system: ARTIFACT_SYSTEM, messages: [{ role: 'user', content: prompt }] }),
-      });
-      if (!r.ok) throw new Error(`LLM error: ${r.status}`);
-      const j = await r.json() as { content?: { text?: string }[] };
-      return j.content?.[0]?.text ?? '';
-    };
-
-    const callLLMWithImage = async (prompt: string, imageBase64: string, mediaType: string, maxTokens = 6000): Promise<string> => {
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          system: ARTIFACT_SYSTEM,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-              { type: 'text', text: prompt },
-            ],
-          }],
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, system: ARTIFACT_SYSTEM, messages }),
       });
       if (!r.ok) {
         const errBody = await r.text().catch(() => '');
-        throw new Error(`Vision LLM error: ${r.status} — ${errBody.slice(0, 300)}`);
+        throw new Error(`LLM error: ${r.status} — ${errBody.slice(0, 300)}`);
       }
-      const j = await r.json() as { content?: { text?: string }[] };
-      return j.content?.[0]?.text ?? '';
+      const reader = r.body!.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let text = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') continue;
+          try {
+            const evt = JSON.parse(raw) as { type?: string; delta?: { type?: string; text?: string } };
+            if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+              text += evt.delta.text ?? '';
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+      return text;
     };
 
     try {
       send({ type: 'start', message: 'Generating…' });
+      send({ type: 'progress', message: 'Analyzing proposal…' });
 
       // Detect Vimeo URL in user instructions and inject technical embed guidance
       const vimeoMatch = body?.userPrompt?.match(/https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/i);
@@ -2418,9 +2427,28 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 
-      const raw = body?.referenceImage?.base64
-        ? await callLLMWithImage(prompt, body.referenceImage.base64, body.referenceImage.mediaType || 'image/jpeg', 32000)
-        : await callLLM(prompt, 32000);
+      // Heartbeat: send progress messages every 6 s while the LLM is generating
+      const heartbeatSteps = ['Designing layout…', 'Building hero section…', 'Writing content…', 'Applying styles…', 'Polishing design…'];
+      let hbIdx = 0;
+      const hbTimer = setInterval(() => {
+        send({ type: 'progress', message: heartbeatSteps[hbIdx % heartbeatSteps.length] });
+        hbIdx++;
+      }, 6000);
+
+      let raw: string;
+      try {
+        const messages = body?.referenceImage?.base64
+          ? [{ role: 'user', content: [
+              { type: 'image', source: { type: 'base64', media_type: body.referenceImage.mediaType || 'image/jpeg', data: body.referenceImage.base64 } },
+              { type: 'text', text: prompt },
+            ] }]
+          : [{ role: 'user', content: prompt }];
+        raw = await callLLMStream(messages, 16000);
+      } finally {
+        clearInterval(hbTimer);
+      }
+
+      send({ type: 'progress', message: 'Fetching images…' });
 
       // Strip markdown fences, resolve image:// placeholders with real photos, inject onerror fallback
       const rawHtml = raw

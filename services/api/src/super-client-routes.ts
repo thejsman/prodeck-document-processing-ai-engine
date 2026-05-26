@@ -980,7 +980,9 @@ Return ONLY valid JSON (null for fields not found):
     await mkdir(micrositesDir, { recursive: true });
 
     const now = new Date();
-    const id = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    // Include milliseconds + 4-char random suffix to prevent collisions when two
+    // microsites are saved within the same second.
+    const id = `${now.toISOString().replace(/[:.]/g, '-').slice(0, 23)}-${Math.random().toString(36).slice(2, 6)}`;
     const proposalTitle = body.proposalTitle?.trim() ?? 'Proposal';
 
     const existing = await readMicrosites(dir);

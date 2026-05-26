@@ -1404,23 +1404,13 @@ export default function SuperClientPage() {
                                 gen.type === "microsite" &&
                                 gen.result?.micrositeId
                               ) {
-                                if (gen.result.ast) {
-                                  setViewingMicrosite({
-                                    id: gen.result.micrositeId,
-                                    ast: gen.result.ast as LayoutAST,
-                                    renderKey: `${gen.result.micrositeId}-${Date.now()}`,
-                                  });
-                                  if (viewingProposal) {
-                                    setViewingProposal(null);
-                                    setChangedSections(new Set());
-                                    setUpdateBanner("");
-                                  }
-                                  collapseForPanel();
+                                const found = microsites.find(
+                                  (m) => m.id === gen.result!.micrositeId,
+                                );
+                                if (!found) {
+                                  showToast("This microsite has been deleted", "error");
                                 } else {
-                                  const found = microsites.find(
-                                    (m) => m.id === gen.result!.micrositeId,
-                                  );
-                                  if (found) void handleOpenMicrosite(found);
+                                  void handleOpenMicrosite(found);
                                 }
                               } else if (
                                 gen.type === "proposal" &&
