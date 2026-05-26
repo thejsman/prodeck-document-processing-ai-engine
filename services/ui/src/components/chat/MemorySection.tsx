@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -19,6 +19,31 @@ import {
 } from "@/lib/api";
 
 // ── Category config ───────────────────────────────────────────────
+
+type KnowledgeCategory =
+  | 'preference' | 'constraint' | 'relationship' | 'context'
+  | 'requirement' | 'priority' | 'problem' | 'opportunity'
+  | 'decision' | 'metric' | 'action_item';
+
+const CATEGORIES: KnowledgeCategory[] = [
+  'preference', 'constraint', 'relationship', 'context',
+  'requirement', 'priority', 'problem', 'opportunity',
+  'decision', 'metric', 'action_item',
+];
+
+const CATEGORY_DISPLAY: Record<KnowledgeCategory, string> = {
+  preference: 'Preference',
+  constraint: 'Constraint',
+  relationship: 'Relationship',
+  context: 'Context',
+  requirement: 'Requirement',
+  priority: 'Priority',
+  problem: 'Problem',
+  opportunity: 'Opportunity',
+  decision: 'Decision',
+  metric: 'Metric',
+  action_item: 'Action Item',
+};
 
 const CATEGORY_COLOR: Record<string, string> = {
   preference: "var(--primary, #6366f1)",
@@ -204,6 +229,7 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
 // ── New knowledge form ────────────────────────────────────────────
 
 interface NewKnowledgeFormProps {
+  category?: ClientKnowledgeEntry["category"];
   onSubmit: (
     content: string,
     category: ClientKnowledgeEntry["category"],
@@ -211,10 +237,10 @@ interface NewKnowledgeFormProps {
   onCancel: () => void;
 }
 
-function NewKnowledgeForm({ onSubmit, onCancel }: NewKnowledgeFormProps) {
+function NewKnowledgeForm({ category: initialCategory = "context", onSubmit, onCancel }: NewKnowledgeFormProps) {
   const [content, setContent] = useState("");
   const [category, setCategory] =
-    useState<ClientKnowledgeEntry["category"]>("context");
+    useState<ClientKnowledgeEntry["category"]>(initialCategory);
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -788,7 +814,7 @@ export function MemorySection({
     if (!memory) return;
     const entry = await addKnowledgeEntry(apiKey, namespace, content, category);
     setMemory({ ...memory, knowledge: [...memory.knowledge, entry] });
-    setAddingKnowledge(false);
+    setAddingForCategory(null);
   };
 
   const handleEditKnowledge = async (id: string, content: string) => {
