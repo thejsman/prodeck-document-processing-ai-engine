@@ -1144,6 +1144,20 @@ export async function fetchMicrositeDirectHtml(
   return res.text();
 }
 
+export async function aiEditProposal(
+  apiKey: string,
+  fileName: string,
+  instruction: string,
+): Promise<string> {
+  const res = await fetch(`/api/proposals/${encodeURIComponent(fileName)}/ai-edit`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ instruction }),
+  });
+  const data = await handleResponse<{ markdown: string }>(res);
+  return data.markdown;
+}
+
 export async function runAgent(apiKey: string, request: AgentRunRequest): Promise<AgentRunResult> {
   const res = await fetch('/api/agent/run', {
     method: 'POST',
