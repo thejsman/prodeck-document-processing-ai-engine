@@ -25,12 +25,44 @@ type Listener = (gens: Generation[]) => void;
 const store = new Map<string, Generation>();
 const listeners = new Set<Listener>();
 
+// ── localStorage persistence ──────────────────────────────────────
+
+const STORAGE_KEY = 'prodeck-gen-store-v1';
+
+function persist(gens: Generation[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    // Only persist settled states — generating can't be recovered after reload
+    const data = gens
+      .filter(g => g.phase !== 'generating')
+      .map(({ abort: _abort, ...rest }) => rest);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore quota errors */ }
+}
+
+function hydrate(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data: Omit<Generation, 'abort'>[] = JSON.parse(raw);
+    for (const g of data) {
+      store.set(g.id, { ...g, abort: () => {} });
+    }
+  } catch { /* ignore parse errors */ }
+}
+
+hydrate();
+
+// ── Core ──────────────────────────────────────────────────────────
+
 function snap(): Generation[] {
   return [...store.values()];
 }
 
 function broadcast() {
   const s = snap();
+  persist(s);
   for (const l of listeners) l(s);
 }
 
