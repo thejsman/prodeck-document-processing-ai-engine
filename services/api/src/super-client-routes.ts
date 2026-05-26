@@ -297,6 +297,7 @@ Return ONLY valid JSON (null for fields not found in the document):
     if (sf.projectType?.trim()) await memService.updateField(clientSlug, 'projectType', sf.projectType.trim());
     if (sf.contactName?.trim()) await memService.updateField(clientSlug, 'contactName', sf.contactName.trim());
 
+    await memService.removeKnowledgeByDocument(clientSlug, fileName);
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
         await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7, fileName);
@@ -304,7 +305,7 @@ Return ONLY valid JSON (null for fields not found in the document):
     }
     for (const s of extracted.stakeholders ?? []) {
       if (s.name?.trim() && s.role?.trim()) {
-        await memService.addStakeholder(clientSlug, {
+        await memService.upsertStakeholder(clientSlug, {
           name: s.name,
           role: s.role,
           ...(s.email?.trim() ? { email: s.email } : {}),

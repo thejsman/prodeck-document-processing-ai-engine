@@ -469,6 +469,40 @@ export class ClientMemoryService {
     memory.version += 1;
     await this.save(clientSlug, memory);
   }
+
+  async upsertStakeholder(
+    clientSlug: string,
+    stakeholder: Omit<StakeholderRecord, 'id' | 'sourceEngagements' | 'lastSeenAt'>,
+  ): Promise<StakeholderRecord> {
+    const memory = await this.get(clientSlug);
+    if (!memory) throw new Error(`Client "${clientSlug}" not found`);
+
+    const now = new Date().toISOString();
+    const existing = memory.stakeholders.find(
+      (s) => s.name.toLowerCase() === stakeholder.name.toLowerCase(),
+    );
+
+    if (existing) {
+      existing.role = stakeholder.role;
+      if (stakeholder.email) existing.email = stakeholder.email;
+      if (stakeholder.notes) existing.notes = stakeholder.notes;
+      existing.lastSeenAt = now;
+      memory.version += 1;
+      await this.save(clientSlug, memory);
+      return existing;
+    }
+
+    const record: StakeholderRecord = {
+      id: crypto.randomUUID(),
+      ...stakeholder,
+      sourceEngagements: [],
+      lastSeenAt: now,
+    };
+    memory.stakeholders.push(record);
+    memory.version += 1;
+    await this.save(clientSlug, memory);
+    return record;
+  }
 }
 
 function compoundConfidence(existing: number, incoming: number): number {
