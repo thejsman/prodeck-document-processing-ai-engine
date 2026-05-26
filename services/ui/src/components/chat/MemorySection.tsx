@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/lib/auth-context';
 import {
   fetchClientMemory,
@@ -322,49 +322,6 @@ function ConflictsPanel({ conflicts, onResolve }: ConflictsPanelProps) {
   );
 }
 
-// ── Delete confirmation portal ────────────────────────────────────
-
-interface ConfirmDeleteProps {
-  label: string;
-  onConfirm: () => Promise<void>;
-  onCancel: () => void;
-}
-
-function ConfirmDelete({ label, onConfirm, onCancel }: ConfirmDeleteProps) {
-  const [deleting, setDeleting] = useState(false);
-
-  const handle = async () => {
-    setDeleting(true);
-    try { await onConfirm(); } finally { setDeleting(false); }
-  };
-
-  return createPortal(
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-      onMouseDown={e => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
-    >
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 20px 16px' }}>
-          <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Remove entry</p>
-        </div>
-        <div style={{ height: 1, background: 'var(--border)' }} />
-        <div style={{ padding: 20 }}>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.5 }}>
-            "{label.length > 60 ? label.slice(0, 60) + '…' : label}"
-          </p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={onCancel} disabled={deleting} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button onClick={handle} disabled={deleting} style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: 'var(--danger, #ef4444)', color: '#fff', fontSize: 13, cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}>
-              {deleting ? 'Removing…' : 'Remove'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 // ── Section header (category group) ──────────────────────────────
 
 function SectionHeader({
@@ -407,20 +364,10 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
   const [loading, setLoading] = useState(true);
 
   const [addingForCategory, setAddingForCategory] = useState<ClientKnowledgeEntry['category'] | null>(null);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [confirmDeleteKnowledge, setConfirmDeleteKnowledge] = useState<ClientKnowledgeEntry | null>(null);
   const [addingStakeholder, setAddingStakeholder] = useState(false);
-  const [showAllStakeholders, setShowAllStakeholders] = useState(false);
   const [confirmDeleteStakeholder, setConfirmDeleteStakeholder] = useState<StakeholderRecord | null>(null);
   const [showConflicts, setShowConflicts] = useState(false);
-
-  const COLLAPSED_LIMIT = 3;
-  const toggleCategory = (cat: string) =>
-    setExpandedCategories(prev => {
-      const next = new Set(prev);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
-      return next;
-    });
 
   useEffect(() => {
     if (!namespace || !apiKey) return;
@@ -515,9 +462,6 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
       {CATEGORIES.map(cat => {
         const entries = memory.knowledge.filter(e => e.category === cat);
         const isAdding = addingForCategory === cat;
-        const expanded = expandedCategories.has(cat);
-        const visible = expanded ? entries : entries.slice(0, COLLAPSED_LIMIT);
-        const hidden = entries.length - COLLAPSED_LIMIT;
         return (
           <div key={cat} className="brief-side-panel-section">
             <SectionHeader
@@ -526,8 +470,8 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
               count={entries.length}
               onAdd={() => setAddingForCategory(isAdding ? null : cat)}
             />
-            <div className="brief-side-panel-fields">
-              {visible.map(entry => (
+            <div className="brief-side-panel-fields" style={{ maxHeight: 245, overflowY: 'auto' }}>
+              {entries.map(entry => (
                 <KnowledgeRow
                   key={entry.id}
                   entry={entry}
@@ -545,16 +489,6 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
               {entries.length === 0 && !isAdding && (
                 <p style={{ fontSize: 13, color: 'var(--muted)', opacity: 0.4, margin: '2px 0 4px', paddingLeft: 4 }}>None yet</p>
               )}
-              {!expanded && hidden > 0 && (
-                <button className="brief-knowledge-show-more" onClick={() => toggleCategory(cat)}>
-                  +{hidden} more
-                </button>
-              )}
-              {expanded && entries.length > COLLAPSED_LIMIT && (
-                <button className="brief-knowledge-show-more" onClick={() => toggleCategory(cat)}>
-                  Show fewer
-                </button>
-              )}
             </div>
           </div>
         );
@@ -568,8 +502,8 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
           count={memory.stakeholders.length}
           onAdd={() => setAddingStakeholder(true)}
         />
-        <div className="brief-side-panel-fields">
-          {(showAllStakeholders ? memory.stakeholders : memory.stakeholders.slice(0, COLLAPSED_LIMIT)).map(s => (
+        <div className="brief-side-panel-fields" style={{ maxHeight: 245, overflowY: 'auto' }}>
+          {memory.stakeholders.map(s => (
             <StakeholderRow
               key={s.id}
               record={s}
@@ -582,16 +516,6 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
           )}
           {memory.stakeholders.length === 0 && !addingStakeholder && (
             <p style={{ fontSize: 13, color: 'var(--muted)', opacity: 0.4, margin: '2px 0 4px', paddingLeft: 4 }}>None yet</p>
-          )}
-          {!showAllStakeholders && memory.stakeholders.length > COLLAPSED_LIMIT && (
-            <button className="brief-knowledge-show-more" onClick={() => setShowAllStakeholders(true)}>
-              +{memory.stakeholders.length - COLLAPSED_LIMIT} more
-            </button>
-          )}
-          {showAllStakeholders && memory.stakeholders.length > COLLAPSED_LIMIT && (
-            <button className="brief-knowledge-show-more" onClick={() => setShowAllStakeholders(false)}>
-              Show fewer
-            </button>
           )}
         </div>
       </div>
@@ -614,15 +538,19 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
       )}
 
       {confirmDeleteKnowledge && (
-        <ConfirmDelete
-          label={confirmDeleteKnowledge.content}
+        <ConfirmDialog
+          title="Remove entry"
+          message={`"${confirmDeleteKnowledge.content.length > 80 ? confirmDeleteKnowledge.content.slice(0, 80) + '…' : confirmDeleteKnowledge.content}"`}
+          confirmLabel="Remove"
           onConfirm={handleDeleteKnowledge}
           onCancel={() => setConfirmDeleteKnowledge(null)}
         />
       )}
       {confirmDeleteStakeholder && (
-        <ConfirmDelete
-          label={`${confirmDeleteStakeholder.name} · ${confirmDeleteStakeholder.role}`}
+        <ConfirmDialog
+          title="Remove stakeholder"
+          message={`Remove ${confirmDeleteStakeholder.name}${confirmDeleteStakeholder.role ? ` (${confirmDeleteStakeholder.role})` : ''}?`}
+          confirmLabel="Remove"
           onConfirm={handleDeleteStakeholder}
           onCancel={() => setConfirmDeleteStakeholder(null)}
         />

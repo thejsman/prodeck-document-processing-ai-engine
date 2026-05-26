@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams } from 'next/navigation';
-import { ExternalLink, Send, X, CheckCircle, Loader, Sparkles, Globe, FileText, ImagePlus, MoreHorizontal, Trash2, ChevronRight, ChevronLeft, Plus } from 'lucide-react';
+import { ExternalLink, ArrowUp, X, CheckCircle, Loader, Sparkles, Globe, FileText, ImagePlus, MoreHorizontal, Trash2, ChevronRight, ChevronLeft, Plus } from 'lucide-react';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
@@ -12,6 +12,7 @@ import { MemorySection } from '@/components/chat/MemorySection';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { GenerateV2Modal } from '@/components/microsite/GenerateV2Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MicrositeV2 } from '@/components/MicrositeV2';
 import type { LayoutAST } from '@/types/presentation';
 import { generationStore, type Generation } from '@/lib/generation-store';
@@ -59,12 +60,12 @@ function ArtifactCard({ gid, generations, onView }: { gid: string; generations: 
   const isGenerating = gen.phase === 'generating';
   const isComplete = gen.phase === 'complete';
   return (
-    <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', maxWidth: 280 }}>
+    <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', maxWidth: 300 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
-        <div style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0, background: isMicrosite ? 'var(--primary)' : '#7c6fcd', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon icon={isMicrosite ? Globe : FileText} size="sm" style={{ color: '#fff' }} />
-        </div>
+        <span style={{ flexShrink: 0, width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-soft, rgba(99,102,241,0.12))', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon icon={isMicrosite ? Globe : FileText} size="sm" />
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>
             {isMicrosite ? 'Microsite' : 'Proposal'}
@@ -179,6 +180,9 @@ export default function SuperClientPage() {
   const [menuProposalPos, setMenuProposalPos] = useState({ top: 0, right: 0 });
   const [menuDocId, setMenuDocId] = useState<string | null>(null);
   const [menuDocPos, setMenuDocPos] = useState({ top: 0, right: 0 });
+  const [confirmDeleteDoc, setConfirmDeleteDoc] = useState<string | null>(null);
+  const [confirmDeleteMicrosite, setConfirmDeleteMicrosite] = useState<string | null>(null);
+  const [confirmDeleteProposal, setConfirmDeleteProposal] = useState<string | null>(null);
   const msMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const propMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const docMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -496,6 +500,15 @@ export default function SuperClientPage() {
     setChangedSections(new Set());
     setUpdateBanner('');
     restoreSidebar();
+  }
+
+  function dismissMicrosite() {
+    setViewingMicrosite(null);
+    restoreSidebar();
+    setMicrositeEditInput('');
+    setMicrositeEditBanner('');
+    setCanUndo(false);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   }
 
   function resetComposer() {
@@ -851,10 +864,15 @@ export default function SuperClientPage() {
                           gid={msg.generationId!}
                           generations={generations}
                           onView={(gen) => {
-                            if (gen.type === 'microsite' && gen.result?.micrositeId && gen.result?.ast) {
-                              setViewingMicrosite({ id: gen.result.micrositeId, ast: gen.result.ast as LayoutAST, renderKey: `${gen.result.micrositeId}-${Date.now()}` });
-                              if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
-                              collapseForPanel();
+                            if (gen.type === 'microsite' && gen.result?.micrositeId) {
+                              if (gen.result.ast) {
+                                setViewingMicrosite({ id: gen.result.micrositeId, ast: gen.result.ast as LayoutAST, renderKey: `${gen.result.micrositeId}-${Date.now()}` });
+                                if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+                                collapseForPanel();
+                              } else {
+                                const found = microsites.find(m => m.id === gen.result!.micrositeId);
+                                if (found) void handleOpenMicrosite(found);
+                              }
                             } else if (gen.type === 'proposal' && gen.result?.fileName) {
                               void openProposal({ fileName: gen.result.fileName, title: gen.title, savedAt: '' });
                             }
@@ -973,7 +991,7 @@ export default function SuperClientPage() {
           {!composerStage && (
             <div
               className="chat-v2-composer"
-              style={viewingProposal ? { flexDirection: 'column', alignItems: 'stretch', gap: 0 } : undefined}
+              style={(viewingProposal || viewingMicrosite) ? { flexDirection: 'column', alignItems: 'stretch', gap: 0 } : undefined}
             >
               {/* Proposal chip — lives inside the composer bubble */}
               {viewingProposal && (
@@ -988,7 +1006,7 @@ export default function SuperClientPage() {
                   }}>
                     <FileText size={10} style={{ flexShrink: 0 }} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      Editing: {viewingProposal.title}
+                      Editing: Proposal
                     </span>
                     <button
                       onClick={dismissProposal}
@@ -1006,28 +1024,85 @@ export default function SuperClientPage() {
                   </div>
                 </div>
               )}
+              {/* Microsite chip */}
+              {viewingMicrosite && (
+                <div style={{ display: 'flex', alignItems: 'center', padding: '2px 4px 6px 6px' }}>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '3px 4px 3px 8px', borderRadius: 20,
+                    background: 'color-mix(in srgb, var(--primary) 10%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--primary) 25%, transparent)',
+                    fontSize: 11, color: 'var(--primary)', fontWeight: 500,
+                    maxWidth: '100%', overflow: 'hidden',
+                  }}>
+                    <Globe size={10} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Editing: {(lastMicrositeRef.current?.ast.meta as { title?: string })?.title ?? 'Microsite'}
+                    </span>
+                    <button
+                      onClick={dismissMicrosite}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--primary)', display: 'flex', alignItems: 'center',
+                        padding: '2px 3px', borderRadius: 10, opacity: 0.7, flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
+                      title="Close microsite"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                </div>
+              )}
               {/* Input row */}
               <div style={{ display: 'flex', alignItems: 'flex-end', flex: 1 }}>
-                <textarea
-                  ref={textareaRef}
-                  className="chat-v2-input"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={`Ask about ${meta.displayName}…`}
-                  rows={1}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = 'auto';
-                    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-                  }}
-                />
+                {viewingMicrosite && micrositeEditBanner ? (
+                  <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '8px 10px', alignSelf: 'center' }}>
+                    {micrositeEditBanner}
+                  </span>
+                ) : (
+                  <textarea
+                    ref={textareaRef}
+                    className="chat-v2-input"
+                    value={viewingMicrosite ? micrositeEditInput : input}
+                    onChange={(e) => viewingMicrosite ? setMicrositeEditInput(e.target.value) : setInput(e.target.value)}
+                    onKeyDown={viewingMicrosite
+                      ? (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleMicrositeEdit(); } }
+                      : handleKeyDown}
+                    placeholder={
+                      viewingMicrosite
+                        ? 'Edit this microsite…'
+                        : viewingProposal
+                          ? 'Ask to edit or refine this proposal…'
+                          : `Ask about ${meta.displayName}…`
+                    }
+                    disabled={viewingMicrosite ? micrositeEditing : false}
+                    rows={1}
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      el.style.height = 'auto';
+                      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+                    }}
+                  />
+                )}
+                {viewingMicrosite && canUndo && (
+                  <button
+                    onClick={() => void handleMicrositeRevert()}
+                    disabled={micrositeEditing}
+                    style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)', cursor: micrositeEditing ? 'default' : 'pointer', flexShrink: 0, marginBottom: 2 }}
+                  >
+                    Undo
+                  </button>
+                )}
                 <button
                   className="chat-v2-send-btn"
-                  onClick={() => void sendMessage()}
-                  disabled={streaming || !input.trim()}
+                  onClick={() => viewingMicrosite ? void handleMicrositeEdit() : void sendMessage()}
+                  disabled={viewingMicrosite
+                    ? (micrositeEditing || (!micrositeEditInput.trim() && !micrositeEditBanner))
+                    : (streaming || !input.trim())}
                 >
-                  <Icon icon={Send} size="sm" />
+                  <Icon icon={viewingMicrosite && micrositeEditing ? Loader : ArrowUp} size="sm" style={viewingMicrosite && micrositeEditing ? { animation: 'spin 1s linear infinite' } : undefined} />
                 </button>
               </div>
             </div>
@@ -1080,7 +1155,7 @@ export default function SuperClientPage() {
                   <ExternalLink size={12} /> Full screen
                 </button>
                 <button
-                  onClick={() => { setViewingMicrosite(null); restoreSidebar(); }}
+                  onClick={dismissMicrosite}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}
                 >
                   <X size={16} />
@@ -1111,37 +1186,6 @@ export default function SuperClientPage() {
               )}
             </div>
 
-            {/* Edit bar */}
-            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center', background: 'var(--panel)' }}>
-              {micrositeEditBanner ? (
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{micrositeEditBanner}</span>
-              ) : (
-                <input
-                  value={micrositeEditInput}
-                  onChange={(e) => setMicrositeEditInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleMicrositeEdit(); } }}
-                  placeholder="Edit microsite… e.g. dark background, serif headings"
-                  disabled={micrositeEditing}
-                  style={{ flex: 1, fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--input)', color: 'var(--text)', outline: 'none' }}
-                />
-              )}
-              {canUndo && (
-                <button
-                  onClick={() => void handleMicrositeRevert()}
-                  disabled={micrositeEditing}
-                  style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)', cursor: micrositeEditing ? 'default' : 'pointer', flexShrink: 0 }}
-                >
-                  Undo
-                </button>
-              )}
-              <button
-                onClick={() => void handleMicrositeEdit()}
-                disabled={micrositeEditing || !micrositeEditInput.trim()}
-                style={{ padding: '6px 14px', borderRadius: 6, fontSize: 13, background: 'var(--primary)', color: '#fff', border: 'none', cursor: micrositeEditing || !micrositeEditInput.trim() ? 'default' : 'pointer', opacity: micrositeEditing || !micrositeEditInput.trim() ? 0.5 : 1, flexShrink: 0 }}
-              >
-                {micrositeEditing ? '…' : 'Apply'}
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -1480,7 +1524,7 @@ export default function SuperClientPage() {
       <div className="card" style={{ position: 'fixed', top: menuMicrositePos.top, right: menuMicrositePos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
         <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
           onMouseDown={e => e.preventDefault()}
-          onClick={() => { const id = menuMicrositeId; setMenuMicrositeId(null); void handleDeleteMicrosite(id); }}>
+          onClick={() => { const id = menuMicrositeId; setMenuMicrositeId(null); setConfirmDeleteMicrosite(id); }}>
           <Icon icon={Trash2} size="sm" /><span>Delete</span>
         </button>
       </div>, document.body,
@@ -1489,19 +1533,46 @@ export default function SuperClientPage() {
       <div className="card" style={{ position: 'fixed', top: menuProposalPos.top, right: menuProposalPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
         <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
           onMouseDown={e => e.preventDefault()}
-          onClick={() => { const id = menuProposalId; setMenuProposalId(null); void handleDeleteProposal(id); }}>
+          onClick={() => { const id = menuProposalId; setMenuProposalId(null); setConfirmDeleteProposal(id); }}>
           <Icon icon={Trash2} size="sm" /><span>Delete</span>
         </button>
       </div>, document.body,
+    )}
+    {confirmDeleteMicrosite && (
+      <ConfirmDialog
+        title="Delete microsite"
+        message={`Delete "${microsites.find(m => m.id === confirmDeleteMicrosite)?.title ?? confirmDeleteMicrosite}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={async () => { await handleDeleteMicrosite(confirmDeleteMicrosite); setConfirmDeleteMicrosite(null); }}
+        onCancel={() => setConfirmDeleteMicrosite(null)}
+      />
+    )}
+    {confirmDeleteProposal && (
+      <ConfirmDialog
+        title="Delete proposal"
+        message={`Delete "${proposals.find(p => p.fileName === confirmDeleteProposal)?.title ?? confirmDeleteProposal}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={async () => { await handleDeleteProposal(confirmDeleteProposal); setConfirmDeleteProposal(null); }}
+        onCancel={() => setConfirmDeleteProposal(null)}
+      />
     )}
     {menuDocId && createPortal(
       <div className="card" style={{ position: 'fixed', top: menuDocPos.top, right: menuDocPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
         <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
           onMouseDown={e => e.preventDefault()}
-          onClick={() => { const id = menuDocId; setMenuDocId(null); void handleDeleteDoc(id); }}>
+          onClick={() => { const id = menuDocId; setMenuDocId(null); setConfirmDeleteDoc(id); }}>
           <Icon icon={Trash2} size="sm" /><span>Delete</span>
         </button>
       </div>, document.body,
+    )}
+    {confirmDeleteDoc && (
+      <ConfirmDialog
+        title="Delete document"
+        message={`Delete "${confirmDeleteDoc}"? This will remove it from the knowledge base and cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={async () => { await handleDeleteDoc(confirmDeleteDoc); setConfirmDeleteDoc(null); }}
+        onCancel={() => setConfirmDeleteDoc(null)}
+      />
     )}
 
     {/* Proposal picker — shown when >1 proposals and user clicks Generate Microsite */}
