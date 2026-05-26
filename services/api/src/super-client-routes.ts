@@ -220,6 +220,13 @@ async function writeMicrosites(dir: string, list: ScMicrosite[]): Promise<void> 
   await writeFile(path.join(dir, 'microsites.json'), JSON.stringify(list, null, 2));
 }
 
+// Max chars sent to the LLM for knowledge extraction.
+// Chosen to fit within a 32K-token context window (Ollama/Mistral lower bound):
+// 32K tokens × ~4 chars/token = ~128K chars total, minus 8K tokens reserved for
+// response (~32K chars) and ~1K chars of prompt overhead → ~95K chars available.
+// 80K is a conservative value that leaves headroom across all supported providers.
+const EXCERPT_MAX_CHARS = 80_000;
+
 async function extractFileToMemory(
   workdir: string,
   clientSlug: string,
@@ -240,7 +247,7 @@ async function extractFileToMemory(
       text = await readFile(filePath, 'utf-8');
     }
 
-    const excerpt = text.slice(0, 12000);
+    const excerpt = text.slice(0, EXCERPT_MAX_CHARS);
 
     const prompt = `You are a client intelligence extractor.
 Extract facts worth remembering long-term from this document about client "${clientName}".
@@ -854,6 +861,7 @@ Return ONLY valid JSON (null for fields not found):
 
     const parts = req.parts();
     const added: ScFile[] = [];
+    const filesToExtract: { destPath: string; safeName: string }[] = [];
 
     for await (const part of parts) {
       if (part.type !== 'file') continue;
@@ -886,9 +894,16 @@ Return ONLY valid JSON (null for fields not found):
       if (idx !== -1) existing[idx] = entry; else existing.push(entry);
       await writeScFiles(dir, existing);
       added.push(entry);
-
-      void extractFileToMemory(workdir, name, meta.displayName, destPath, safeName, dir, app.log);
+      filesToExtract.push({ destPath, safeName });
     }
+
+    // Run extractions sequentially in the background to avoid concurrent
+    // read-modify-write races on memory.json.
+    void (async () => {
+      for (const f of filesToExtract) {
+        await extractFileToMemory(workdir, name, meta.displayName, f.destPath, f.safeName, dir, app.log);
+      }
+    })();
 
     if (added.length === 0) {
       return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md' });
