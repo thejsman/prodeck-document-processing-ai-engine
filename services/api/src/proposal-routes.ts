@@ -121,6 +121,7 @@ export function registerProposalRoutes(
   app: FastifyInstance,
   workdir: string,
   policyConfig: ProviderPolicyConfig | null,
+  generateFn?: (prompt: string) => Promise<string>,
 ): void {
   // Canonical proposal storage: workdir/namespaces/<ns>/proposals/
   // All routes that need a per-namespace output dir call proposalDir(ns).
@@ -503,6 +504,47 @@ export function registerProposalRoutes(
         }
         throw err;
       }
+    },
+  );
+
+  // POST /proposals/:fileName/ai-edit — rewrite/add sections via free-form LLM instruction
+  app.post(
+    '/proposals/:fileName/ai-edit',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { fileName } = req.params as { fileName: string };
+      if (!sanitizeFileName(fileName)) {
+        return reply.code(400).send({ error: 'Invalid file name' });
+      }
+      if (!generateFn) {
+        return reply.code(503).send({ error: 'LLM not configured' });
+      }
+      const body = req.body as { instruction?: string } | undefined;
+      if (!body?.instruction?.trim()) {
+        return reply.code(400).send({ error: 'instruction is required' });
+      }
+
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
+      let current: string;
+      try {
+        current = await readFile(filePath, 'utf-8');
+      } catch {
+        return reply.code(404).send({ error: 'Proposal not found' });
+      }
+
+      const prompt = `You are an AI assistant editing a business proposal document.
+
+The user has given you the following instruction:
+${body.instruction.trim()}
+
+Apply this instruction to the proposal. You may rewrite sections, add new sections, edit specific content, or any combination — whatever the instruction requires.
+
+Return the COMPLETE updated proposal as markdown only. No preamble, no commentary — just the full proposal markdown.
+
+CURRENT PROPOSAL:
+${current}`;
+
+      const updated = await generateFn(prompt);
+      return reply.send({ markdown: updated });
     },
   );
 
