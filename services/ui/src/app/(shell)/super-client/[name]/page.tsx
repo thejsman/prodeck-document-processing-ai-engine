@@ -684,7 +684,9 @@ export default function SuperClientPage() {
         setCanUndo(false);
       }, 30000);
     } catch (err) {
-      console.error("Microsite edit failed", err);
+      const msg = err instanceof Error ? err.message : "Edit failed";
+      setMicrositeEditBanner(`Error: ${msg}`);
+      setTimeout(() => setMicrositeEditBanner(""), 8000);
     } finally {
       setMicrositeEditing(false);
     }
@@ -1168,29 +1170,71 @@ export default function SuperClientPage() {
   }
 
   if (error || !meta) {
-    const is404 = error?.includes('404');
-    const isNetwork = error?.toLowerCase().includes('network') || error?.toLowerCase().includes('failed to fetch');
-    const title = is404 ? 'Client not found' : isNetwork ? 'Network error' : 'Something went wrong';
-    const detail = is404
-      ? 'This client may have been deleted.'
+    const is404 = error?.includes("404");
+    const isNetwork =
+      error?.toLowerCase().includes("network") ||
+      error?.toLowerCase().includes("failed to fetch");
+    const title = is404
+      ? "Client not found"
       : isNetwork
-        ? 'Check your connection and try again.'
-        : (error ?? 'Could not load client.');
+        ? "Network error"
+        : "Something went wrong";
+    const detail = is404
+      ? "This client may have been deleted."
+      : isNetwork
+        ? "Check your connection and try again."
+        : (error ?? "Could not load client.");
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
-        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{title}</p>
-        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{detail}</p>
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          gap: 12,
+        }}
+      >
+        <p
+          style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: "var(--text)",
+            margin: 0,
+          }}
+        >
+          {title}
+        </p>
+        <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
+          {detail}
+        </p>
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
           <button
-            onClick={() => router.push('/')}
-            style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, background: 'var(--panel)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)' }}
+            onClick={() => router.push("/")}
+            style={{
+              padding: "7px 16px",
+              borderRadius: 8,
+              fontSize: 13,
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              cursor: "pointer",
+              color: "var(--text)",
+            }}
           >
             ← All clients
           </button>
           {!is404 && (
             <button
               onClick={() => window.location.reload()}
-              style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, background: 'var(--primary)', border: 'none', cursor: 'pointer', color: '#fff' }}
+              style={{
+                padding: "7px 16px",
+                borderRadius: 8,
+                fontSize: 13,
+                background: "var(--primary)",
+                border: "none",
+                cursor: "pointer",
+                color: "#fff",
+              }}
             >
               Retry
             </button>
@@ -1784,16 +1828,31 @@ export default function SuperClientPage() {
                 >
                   {viewingMicrosite && micrositeEditBanner ? (
                     <span
+                      onClick={
+                        micrositeEditBanner.startsWith("Error:")
+                          ? () => setMicrositeEditBanner("")
+                          : undefined
+                      }
                       style={{
                         flex: 1,
                         fontSize: 12,
-                        color: "var(--muted)",
+                        color: micrositeEditBanner.startsWith("Error:")
+                          ? "var(--destructive, #ef4444)"
+                          : "var(--muted)",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                         padding: "8px 10px",
                         alignSelf: "center",
+                        cursor: micrositeEditBanner.startsWith("Error:")
+                          ? "pointer"
+                          : undefined,
                       }}
+                      title={
+                        micrositeEditBanner.startsWith("Error:")
+                          ? "Click to dismiss"
+                          : undefined
+                      }
                     >
                       {micrositeEditBanner}
                     </span>
@@ -1833,7 +1892,7 @@ export default function SuperClientPage() {
                       }}
                     />
                   )}
-                  {viewingMicrosite && canUndo && (
+                  {viewingMicrosite && (
                     <button
                       onClick={() => void handleMicrositeRevert()}
                       disabled={micrositeEditing}
@@ -2010,7 +2069,13 @@ export default function SuperClientPage() {
               >
                 <iframe
                   key={lastMicrositeRef.current!.renderKey}
-                  srcDoc={buildHtml(lastMicrositeRef.current!.ast)}
+                  srcDoc={
+                    (
+                      lastMicrositeRef.current!.ast.sections?.[0] as {
+                        customHtml?: string;
+                      }
+                    )?.customHtml ?? ""
+                  }
                   style={{
                     position: "absolute",
                     top: 0,
@@ -2020,8 +2085,8 @@ export default function SuperClientPage() {
                     border: "none",
                     colorScheme: "light",
                   }}
-                  sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
-                  allow="autoplay; fullscreen; picture-in-picture"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+                  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                 />
                 {/* Overlay blocks iframe from swallowing mouse events during resize */}
                 {micrositeDragging && (

@@ -2277,7 +2277,10 @@ export async function editSuperClientMicrosite(
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({ instruction }),
   });
-  if (!res.ok) throw new Error(`editSuperClientMicrosite failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Edit failed (${res.status})`);
+  }
   return res.json() as Promise<{ html: string; summary: string }>;
 }
 
