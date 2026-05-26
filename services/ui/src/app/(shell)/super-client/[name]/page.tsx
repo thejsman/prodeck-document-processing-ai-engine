@@ -1404,13 +1404,29 @@ export default function SuperClientPage() {
                                 gen.type === "microsite" &&
                                 gen.result?.micrositeId
                               ) {
-                                const found = microsites.find(
-                                  (m) => m.id === gen.result!.micrositeId,
-                                );
-                                if (!found) {
-                                  showToast("This microsite has been deleted", "error");
+                                if (gen.result.ast) {
+                                  // Fresh generation — AST already in memory, no list lookup needed
+                                  setViewingMicrosite({
+                                    id: gen.result.micrositeId as string,
+                                    ast: gen.result.ast as LayoutAST,
+                                    renderKey: `${gen.result.micrositeId}-${Date.now()}`,
+                                  });
+                                  if (viewingProposal) {
+                                    setViewingProposal(null);
+                                    setChangedSections(new Set());
+                                    setUpdateBanner("");
+                                  }
+                                  collapseForPanel();
                                 } else {
-                                  void handleOpenMicrosite(found);
+                                  // Older generation from history — check list
+                                  const found = microsites.find(
+                                    (m) => m.id === gen.result!.micrositeId,
+                                  );
+                                  if (!found) {
+                                    showToast("This microsite has been deleted", "error");
+                                  } else {
+                                    void handleOpenMicrosite(found);
+                                  }
                                 }
                               } else if (
                                 gen.type === "proposal" &&

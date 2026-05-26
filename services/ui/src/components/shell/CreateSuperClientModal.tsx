@@ -186,7 +186,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
 
           {(url.trim() || notes.trim()) && (
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: '-8px 0 0', opacity: 0.7 }}>
-              Claude will analyze this info to build client intelligence.
+              We will analyze this info to build client intelligence.
             </p>
           )}
 
