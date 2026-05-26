@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { useMobileNav } from '@/lib/mobile-nav-store';
@@ -1436,7 +1437,7 @@ export default function ChatPage() {
                               return (
                                 <>
                                   <div className="prose">
-                                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                                   </div>
                                   {m.confirmation && (
                                     <ConfirmationBlock
@@ -1582,7 +1583,7 @@ export default function ChatPage() {
                                 <div key={s.section} className="proposal-inline-section">
                                   <p className="proposal-inline-heading">{s.section}</p>
                                   <div className="proposal-inline-body">
-                                    <ReactMarkdown>{s.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.content}</ReactMarkdown>
                                     {isLast && <span className="chat-cursor" />}
                                   </div>
                                 </div>
@@ -1719,7 +1720,7 @@ export default function ChatPage() {
                           </>
                         ) : (
                           <div className="prose">
-                            <ReactMarkdown>{displayed}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayed}</ReactMarkdown>
                           </div>
                         )}
                         {!isStreaming && (doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl) && (

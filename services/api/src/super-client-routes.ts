@@ -144,6 +144,26 @@ function stripProposalTag(text: string): string {
   return text.replace(/<proposal\s+title="[^"]*">[\s\S]*?<\/proposal>/i, '').trim();
 }
 
+function extractTextReplacements(text: string): Array<{ find: string; replace: string }> {
+  const matches = [...text.matchAll(/<text-replace\s+find="((?:[^"\\]|\\.)*)"\s+replace="((?:[^"\\]|\\.)*)"\s*\/?>/gi)];
+  return matches.map((m) => ({
+    find: m[1].replace(/\\"/g, '"'),
+    replace: m[2].replace(/\\"/g, '"'),
+  }));
+}
+
+function stripTextReplaceTags(text: string): string {
+  return text.replace(/<text-replace\s+find="(?:[^"\\]|\\.)*"\s+replace="(?:[^"\\]|\\.)*"\s*\/?>/gi, '').trim();
+}
+
+function applyTextReplacements(original: string, replacements: Array<{ find: string; replace: string }>): string {
+  let result = original;
+  for (const r of replacements) {
+    if (r.find) result = result.split(r.find).join(r.replace);
+  }
+  return result;
+}
+
 function extractSectionUpdates(text: string): Array<{ heading: string; content: string }> {
   const matches = [...text.matchAll(/<section-update\s+heading="([^"]+)">([\s\S]*?)<\/section-update>/gi)];
   return matches.map((m) => ({ heading: m[1].trim(), content: m[2].trim() }));
@@ -637,19 +657,26 @@ Return ONLY valid JSON (null for fields not found):
           promptParts.push(
             `\n## Currently Open Proposal\n${activeProposalContent}`,
             `\nPROPOSAL EDITING RULE (applies only because a proposal is currently open):`,
-            `When the user requests any change to the proposal above, choose the lightest format:`,
+            `When the user requests any change, use the LIGHTEST format that is sufficient:`,
             ``,
-            `SMALL / TARGETED change (update a price, reword a paragraph, add/remove a bullet, fix a number, change a date):`,
+            `TIER 1 — PINPOINT (rename a heading, fix a number, change a date, replace a word or phrase):`,
+            `  Use one or more self-closing <text-replace> tags — no section parsing needed:`,
+            `  <text-replace find="exact original text" replace="new text" />`,
+            `  • "exact original text" must appear verbatim in the proposal (copy it exactly).`,
+            `  • Use the minimum number of replacements needed — usually just one.`,
+            `  • Outside the tags write a brief 1-sentence confirmation only.`,
+            ``,
+            `TIER 2 — SECTION (reword a paragraph body, add/remove bullets, rewrite a section's content):`,
             `  Output ONE or MORE <section-update> tags — one per changed section only:`,
             `  <section-update heading="## Exact Heading Text">`,
-            `  [full replacement body for that section — do NOT repeat the heading line inside the tag]`,
+            `  [full replacement body — do NOT include the heading line inside the tag]`,
             `  </section-update>`,
             `  Outside the tags write a brief 1-sentence confirmation only.`,
             ``,
-            `MAJOR rewrite / restructure (add new sections, reorder, change the whole proposal):`,
-            `  Use the full <proposal title="...">...</proposal> tag as normal.`,
+            `TIER 3 — FULL REWRITE (add new sections, restructure, change the whole proposal):`,
+            `  Use the full <proposal title="...">...</proposal> tag.`,
             ``,
-            `NEVER output both formats in the same response. Default to <section-update> unless the change clearly spans the entire document.`,
+            `NEVER mix formats in one response. Default to Tier 1 for any single-string substitution.`,
           );
         } catch {
           // Proposal file not found — proceed without it
@@ -717,13 +744,28 @@ Return ONLY valid JSON (null for fields not found):
         await new Promise<void>((r) => setTimeout(r, 12));
       }
 
-      // Detect proposal changes — section-level patch takes priority over full regeneration
+      // Detect proposal changes — apply the lightest format that fired
       let proposalSaved: ScProposal | undefined;
       let proposalUpdated: ScProposal | undefined;
+      let displayResponse = fullResponse;
 
+      const textReplacements = activeProposalId ? extractTextReplacements(fullResponse) : [];
       const sectionUpdates = activeProposalId ? extractSectionUpdates(fullResponse) : [];
 
-      if (sectionUpdates.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+      if (textReplacements.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+        // Tier 1: pinpoint string replacements — no section parsing
+        try {
+          const patchedContent = applyTextReplacements(activeProposalContent, textReplacements);
+          const existingProposals = await readProposals(dir);
+          const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
+          const title = existingEntry?.title ?? activeProposalId;
+          proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
+        } catch (err) {
+          app.log.warn({ err }, '[SuperClient] Failed to apply text replacements');
+        }
+        displayResponse = stripTextReplaceTags(fullResponse);
+      } else if (sectionUpdates.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+        // Tier 2: section-body patches
         try {
           const patchedContent = patchProposalSections(activeProposalContent, sectionUpdates);
           const existingProposals = await readProposals(dir);
@@ -733,7 +775,9 @@ Return ONLY valid JSON (null for fields not found):
         } catch (err) {
           app.log.warn({ err }, '[SuperClient] Failed to patch proposal sections');
         }
+        displayResponse = stripSectionUpdateTags(fullResponse);
       } else {
+        // Tier 3: full proposal tag
         const proposalMatch = extractProposalTag(fullResponse);
         if (proposalMatch) {
           try {
@@ -745,13 +789,9 @@ Return ONLY valid JSON (null for fields not found):
           } catch (err) {
             app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
+          displayResponse = stripProposalTag(fullResponse);
         }
       }
-
-      // Strip all XML tags from display text
-      const displayResponse = sectionUpdates.length > 0
-        ? stripSectionUpdateTags(fullResponse)
-        : (extractProposalTag(fullResponse) ? stripProposalTag(fullResponse) : fullResponse);
 
       // Persist turn to history
       const now = new Date().toISOString();
