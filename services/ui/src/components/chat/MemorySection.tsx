@@ -40,20 +40,6 @@ const CATEGORY_DISPLAY_NAME: Record<ClientKnowledgeEntry['category'], string> = 
   context:      'Context',
 };
 
-const CATEGORY_COLOR: Record<string, string> = {
-  preference: "var(--primary, #6366f1)",
-  constraint: "#f59e0b",
-  relationship: "#a855f7",
-  context: "var(--muted, #6b7280)",
-  requirement: "#3b82f6",
-  priority: "#f43f5e",
-  problem: "#ef4444",
-  opportunity: "#22c55e",
-  decision: "#06b6d4",
-  metric: "#14b8a6",
-  action_item: "#f97316",
-};
-
 // ── Sub-section header ────────────────────────────────────────────
 
 function SubHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
@@ -136,8 +122,6 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
     setEditing(false);
   };
 
-  const dotColor = CATEGORY_COLOR[entry.category] ?? "var(--muted)";
-
   if (editing) {
     return (
       <div className="brief-field-card">
@@ -174,16 +158,6 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
 
   return (
     <div className="brief-field-card" style={{ position: "relative" }}>
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: dotColor,
-          flexShrink: 0,
-          marginTop: 2,
-        }}
-      />
       <span className="brief-knowledge-content" style={{ flex: 1 }}>
         {entry.content}
       </span>

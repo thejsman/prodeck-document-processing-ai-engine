@@ -28,7 +28,8 @@ export function Topbar({ onMenuClick }: Props) {
     pathname?.startsWith("/proposal") ||
     pathname?.startsWith("/microsite") ||
     pathname?.startsWith("/presentation") ||
-    pathname?.startsWith("/super-client")
+    pathname?.startsWith("/super-client") ||
+    pathname?.startsWith("/skills")
   ) {
     return null;
   }
