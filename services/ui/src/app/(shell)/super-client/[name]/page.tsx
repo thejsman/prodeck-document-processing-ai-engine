@@ -303,7 +303,6 @@ export default function SuperClientPage() {
 
   async function openProposal(proposal: SuperClientProposal) {
     if (!name) return;
-    // Open panel immediately — don't wait for content fetch
     setChangedSections(new Set());
     setUpdateBanner('');
     setViewingProposal({ fileName: proposal.fileName, title: proposal.title, content: '' });
@@ -313,7 +312,15 @@ export default function SuperClientPage() {
       const content = await getSuperClientProposal(apiKey, name, proposal.fileName);
       setViewingProposal({ fileName: proposal.fileName, title: proposal.title, content });
     } catch (err) {
-      console.error('Failed to load proposal', err);
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('404')) {
+        setViewingProposal(null);
+        setProposals((prev) => prev.filter((p) => p.fileName !== proposal.fileName));
+        showToast('This proposal no longer exists', 'error');
+      } else {
+        setViewingProposal(null);
+        showToast(`Failed to load proposal: ${msg}`, 'error');
+      }
     }
   }
 
@@ -337,7 +344,13 @@ export default function SuperClientPage() {
         const markdown = await getSuperClientProposal(apiKey, name, p.fileName);
         setMicrositeModal({ proposal: p, markdown });
       } catch (err) {
-        console.error('Failed to load proposal', err);
+        const msg = (err as Error).message ?? '';
+        if (msg.includes('404')) {
+          setProposals((prev) => prev.filter((pr) => pr.fileName !== p.fileName));
+          showToast('This proposal no longer exists', 'error');
+        } else {
+          showToast(`Failed to load proposal: ${msg}`, 'error');
+        }
       } finally {
         setLoadingMicrositeFor(null);
       }
@@ -354,7 +367,13 @@ export default function SuperClientPage() {
       const markdown = await getSuperClientProposal(apiKey, name, p.fileName);
       setMicrositeModal({ proposal: p, markdown });
     } catch (err) {
-      console.error('Failed to load proposal', err);
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('404')) {
+        setProposals((prev) => prev.filter((pr) => pr.fileName !== p.fileName));
+        showToast('This proposal no longer exists', 'error');
+      } else {
+        showToast(`Failed to load proposal: ${msg}`, 'error');
+      }
     } finally {
       setLoadingMicrositeFor(null);
     }
@@ -368,7 +387,13 @@ export default function SuperClientPage() {
       if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
       collapseForPanel();
     } catch (err) {
-      console.error('Failed to load microsite', err);
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('404')) {
+        setMicrosites((prev) => prev.filter((ms) => ms.id !== m.id));
+        showToast('This microsite no longer exists', 'error');
+      } else {
+        showToast(`Failed to load microsite: ${msg}`, 'error');
+      }
     }
   }
 
@@ -1156,7 +1181,7 @@ export default function SuperClientPage() {
         transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
         display: 'flex',
         flexDirection: 'column',
-        background: '#fff',
+        background: 'var(--panel)',
       }}>
         {lastProposalRef.current && (
           <div style={{ width: 560, display: 'flex', flexDirection: 'column', height: '100%' }}>
