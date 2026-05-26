@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { Plus, Pencil, Trash2, X } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { useAuth } from '@/lib/auth-context';
+import { useEffect, useRef, useState } from "react";
+import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useAuth } from "@/lib/auth-context";
 import {
   fetchClientMemory,
   addKnowledgeEntry,
@@ -16,10 +16,9 @@ import {
   type ClientMemory,
   type ClientKnowledgeEntry,
   type StakeholderRecord,
-} from '@/lib/api';
+} from "@/lib/api";
 
 // ── Category config ───────────────────────────────────────────────
-
 
 const CATEGORY_ORDER: ClientKnowledgeEntry['category'][] = [
   'requirement', 'priority', 'constraint', 'problem',
@@ -41,7 +40,66 @@ const CATEGORY_DISPLAY_NAME: Record<ClientKnowledgeEntry['category'], string> = 
   context:      'Context',
 };
 
-// ── Knowledge row ─────────────────────────────────────────────────
+const CATEGORY_COLOR: Record<string, string> = {
+  preference: "var(--primary, #6366f1)",
+  constraint: "#f59e0b",
+  relationship: "#a855f7",
+  context: "var(--muted, #6b7280)",
+  requirement: "#3b82f6",
+  priority: "#f43f5e",
+  problem: "#ef4444",
+  opportunity: "#22c55e",
+  decision: "#06b6d4",
+  metric: "#14b8a6",
+  action_item: "#f97316",
+};
+
+// ── Sub-section header ────────────────────────────────────────────
+
+function SubHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "6px 12px 2px",
+        gap: 6,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: "var(--muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.07em",
+          flex: 1,
+        }}
+      >
+        {label}
+      </span>
+      <button
+        onClick={onAdd}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "1px 3px",
+          color: "var(--muted)",
+          borderRadius: 4,
+          lineHeight: 1,
+          display: "flex",
+          alignItems: "center",
+        }}
+        title={`Add ${label.toLowerCase()}`}
+      >
+        <Plus size={12} />
+      </button>
+    </div>
+  );
+}
+
+// ── Knowledge entry row ───────────────────────────────────────────
 
 interface KnowledgeRowProps {
   entry: ClientKnowledgeEntry;
@@ -55,16 +113,30 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { if (editing) textareaRef.current?.focus(); }, [editing]);
+  useEffect(() => {
+    if (editing) textareaRef.current?.focus();
+  }, [editing]);
 
   const handleSave = async () => {
-    if (!draft.trim() || draft === entry.content) { setEditing(false); return; }
+    if (!draft.trim() || draft === entry.content) {
+      setEditing(false);
+      return;
+    }
     setSaving(true);
-    try { await onEdit(entry.id, draft.trim()); setEditing(false); }
-    finally { setSaving(false); }
+    try {
+      await onEdit(entry.id, draft.trim());
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleCancel = () => { setDraft(entry.content); setEditing(false); };
+  const handleCancel = () => {
+    setDraft(entry.content);
+    setEditing(false);
+  };
+
+  const dotColor = CATEGORY_COLOR[entry.category] ?? "var(--muted)";
 
   if (editing) {
     return (
@@ -74,15 +146,26 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
             ref={textareaRef}
             className="brief-field-textarea"
             value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Escape') handleCancel(); }}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") handleCancel();
+            }}
             rows={3}
           />
           <div className="brief-field-edit-actions">
-            <button className="brief-knowledge-save-btn" disabled={saving || !draft.trim()} onClick={handleSave}>
-              {saving ? '…' : 'Save'}
+            <button
+              className="brief-knowledge-save-btn"
+              disabled={saving || !draft.trim()}
+              onClick={handleSave}
+            >
+              {saving ? "…" : "Save"}
             </button>
-            <button className="brief-knowledge-cancel-btn" onClick={handleCancel}>Cancel</button>
+            <button
+              className="brief-knowledge-cancel-btn"
+              onClick={handleCancel}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       </div>
@@ -90,13 +173,47 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
   }
 
   return (
-    <div className="brief-field-card" style={{ position: 'relative' }}>
-      <span className="brief-knowledge-content">{entry.content}</span>
-      <div className="brief-field-actions" style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'var(--panel)', paddingLeft: 4 }}>
-        <button className="brief-knowledge-icon-btn" title="Edit" onClick={() => { setDraft(entry.content); setEditing(true); }}>
+    <div className="brief-field-card" style={{ position: "relative" }}>
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: dotColor,
+          flexShrink: 0,
+          marginTop: 2,
+        }}
+      />
+      <span className="brief-knowledge-content" style={{ flex: 1 }}>
+        {entry.content}
+      </span>
+      <div
+        className="brief-field-actions"
+        style={{
+          position: "absolute",
+          right: 0,
+          top: "50%",
+          transform: "translateY(-50%)",
+          background: "var(--panel)",
+          paddingLeft: 4,
+        }}
+      >
+        <button
+          className="brief-knowledge-icon-btn"
+          title="Edit"
+          onClick={() => {
+            setDraft(entry.content);
+            setEditing(true);
+          }}
+        >
           <Pencil size={16} strokeWidth={1.5} />
         </button>
-        <button className="brief-knowledge-icon-btn" title="Delete" style={{ color: 'var(--danger, #ef4444)' }} onClick={() => onDelete(entry.id)}>
+        <button
+          className="brief-knowledge-icon-btn"
+          title="Delete"
+          style={{ color: "var(--danger, #ef4444)" }}
+          onClick={() => onDelete(entry.id)}
+        >
           <Trash2 size={16} strokeWidth={1.5} />
         </button>
       </div>
@@ -107,8 +224,11 @@ function KnowledgeRow({ entry, onEdit, onDelete }: KnowledgeRowProps) {
 // ── New knowledge form ────────────────────────────────────────────
 
 interface NewKnowledgeFormProps {
-  category: ClientKnowledgeEntry['category'];
-  onSubmit: (content: string, category: ClientKnowledgeEntry['category']) => Promise<void>;
+  category?: ClientKnowledgeEntry["category"];
+  onSubmit: (
+    content: string,
+    category: ClientKnowledgeEntry["category"],
+  ) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -117,13 +237,18 @@ function NewKnowledgeForm({ category, onSubmit, onCancel }: NewKnowledgeFormProp
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { textareaRef.current?.focus(); }, []);
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
 
   const handleSubmit = async () => {
     if (!content.trim()) return;
     setSaving(true);
-    try { await onSubmit(content.trim(), category); }
-    finally { setSaving(false); }
+    try {
+      await onSubmit(content.trim(), category);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -135,7 +260,7 @@ function NewKnowledgeForm({ category, onSubmit, onCancel }: NewKnowledgeFormProp
           value={content}
           onChange={e => setContent(e.target.value)}
           onKeyDown={e => { if (e.key === 'Escape') onCancel(); }}
-          placeholder={`Add to ${CATEGORY_DISPLAY_NAME[category].toLowerCase()}…`}
+          placeholder={`Add to ${CATEGORY_DISPLAY_NAME[category!].toLowerCase()}…`}
           rows={2}
         />
         <div className="brief-field-edit-actions">
@@ -153,7 +278,10 @@ function NewKnowledgeForm({ category, onSubmit, onCancel }: NewKnowledgeFormProp
 
 interface StakeholderRowProps {
   record: StakeholderRecord;
-  onEdit: (id: string, updates: Partial<{ name: string; role: string; notes: string }>) => Promise<void>;
+  onEdit: (
+    id: string,
+    updates: Partial<{ name: string; role: string; notes: string }>,
+  ) => Promise<void>;
   onDelete: (id: string) => void;
 }
 
@@ -166,11 +294,19 @@ function StakeholderRow({ record, onEdit, onDelete }: StakeholderRowProps) {
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    try { await onEdit(record.id, { name: name.trim(), role: role.trim() }); setEditing(false); }
-    finally { setSaving(false); }
+    try {
+      await onEdit(record.id, { name: name.trim(), role: role.trim() });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleCancel = () => { setName(record.name); setRole(record.role); setEditing(false); };
+  const handleCancel = () => {
+    setName(record.name);
+    setRole(record.role);
+    setEditing(false);
+  };
 
   if (editing) {
     return (
@@ -178,24 +314,35 @@ function StakeholderRow({ record, onEdit, onDelete }: StakeholderRowProps) {
         <div className="brief-knowledge-edit">
           <input
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={(e) => setName(e.target.value)}
             placeholder="Full name"
             autoFocus
             className="brief-knowledge-textarea"
-            style={{ resize: 'none' }}
+            style={{ resize: "none" }}
           />
           <input
             value={role}
-            onChange={e => setRole(e.target.value)}
+            onChange={(e) => setRole(e.target.value)}
             placeholder="Role or title"
-            onKeyDown={e => { if (e.key === 'Escape') handleCancel(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") handleCancel();
+            }}
             className="brief-knowledge-textarea"
-            style={{ resize: 'none' }}
+            style={{ resize: "none" }}
           />
           <div className="brief-knowledge-edit-actions">
-            <button className="brief-knowledge-cancel-btn" onClick={handleCancel}>Cancel</button>
-            <button className="brief-knowledge-save-btn" disabled={saving || !name.trim()} onClick={handleSave}>
-              {saving ? '…' : 'Save'}
+            <button
+              className="brief-knowledge-cancel-btn"
+              onClick={handleCancel}
+            >
+              Cancel
+            </button>
+            <button
+              className="brief-knowledge-save-btn"
+              disabled={saving || !name.trim()}
+              onClick={handleSave}
+            >
+              {saving ? "…" : "Save"}
             </button>
           </div>
         </div>
@@ -203,22 +350,77 @@ function StakeholderRow({ record, onEdit, onDelete }: StakeholderRowProps) {
     );
   }
 
-  const initials = record.name.split(' ').map((w: string) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  const initials = record.name
+    .split(" ")
+    .map((w: string) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
-    <div className="brief-field-card" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-      <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, background: 'var(--primary-soft, rgba(99,102,241,0.12))', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
+    <div
+      className="brief-field-card"
+      style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+    >
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: "50%",
+          flexShrink: 0,
+          background: "var(--primary-soft, rgba(99,102,241,0.12))",
+          color: "var(--primary)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+      >
         {initials}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.name}</div>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {record.name}
+        </div>
         {record.role && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.role}</div>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {record.role}
+          </div>
         )}
       </div>
       <div className="brief-field-actions">
-        <button className="brief-knowledge-icon-btn" onClick={() => setEditing(true)}><Pencil size={16} strokeWidth={1.5} /></button>
-        <button className="brief-knowledge-icon-btn" style={{ color: 'var(--danger, #ef4444)' }} onClick={() => onDelete(record.id)}><Trash2 size={16} strokeWidth={1.5} /></button>
+        <button
+          className="brief-knowledge-icon-btn"
+          onClick={() => setEditing(true)}
+        >
+          <Pencil size={16} strokeWidth={1.5} />
+        </button>
+        <button
+          className="brief-knowledge-icon-btn"
+          style={{ color: "var(--danger, #ef4444)" }}
+          onClick={() => onDelete(record.id)}
+        >
+          <Trash2 size={16} strokeWidth={1.5} />
+        </button>
       </div>
     </div>
   );
@@ -232,15 +434,18 @@ interface NewStakeholderFormProps {
 }
 
 function NewStakeholderForm({ onSubmit, onCancel }: NewStakeholderFormProps) {
-  const [name, setName] = useState('');
-  const [role, setRole] = useState('');
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    try { await onSubmit(name.trim(), role.trim()); }
-    finally { setSaving(false); }
+    try {
+      await onSubmit(name.trim(), role.trim());
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -248,24 +453,32 @@ function NewStakeholderForm({ onSubmit, onCancel }: NewStakeholderFormProps) {
       <div className="brief-knowledge-edit">
         <input
           value={name}
-          onChange={e => setName(e.target.value)}
+          onChange={(e) => setName(e.target.value)}
           placeholder="Full name"
           autoFocus
           className="brief-knowledge-textarea"
-          style={{ resize: 'none' }}
+          style={{ resize: "none" }}
         />
         <input
           value={role}
-          onChange={e => setRole(e.target.value)}
+          onChange={(e) => setRole(e.target.value)}
           placeholder="Role or title (optional)"
-          onKeyDown={e => { if (e.key === 'Escape') onCancel(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onCancel();
+          }}
           className="brief-knowledge-textarea"
-          style={{ resize: 'none' }}
+          style={{ resize: "none" }}
         />
         <div className="brief-knowledge-edit-actions">
-          <button className="brief-knowledge-cancel-btn" onClick={onCancel}><X size={11} /></button>
-          <button className="brief-knowledge-save-btn" disabled={saving || !name.trim()} onClick={handleSubmit}>
-            {saving ? '…' : 'Add'}
+          <button className="brief-knowledge-cancel-btn" onClick={onCancel}>
+            <X size={11} />
+          </button>
+          <button
+            className="brief-knowledge-save-btn"
+            disabled={saving || !name.trim()}
+            onClick={handleSubmit}
+          >
+            {saving ? "…" : "Add"}
           </button>
         </div>
       </div>
@@ -276,16 +489,26 @@ function NewStakeholderForm({ onSubmit, onCancel }: NewStakeholderFormProps) {
 // ── Conflicts panel ───────────────────────────────────────────────
 
 interface ConflictsPanelProps {
-  conflicts: ClientMemory['conflicts'];
-  onResolve: (id: string, resolution: 'keep_old' | 'use_new' | 'keep_both') => Promise<void>;
+  conflicts: ClientMemory["conflicts"];
+  onResolve: (
+    id: string,
+    resolution: "keep_old" | "use_new" | "keep_both",
+  ) => Promise<void>;
 }
 
 function ConflictsPanel({ conflicts, onResolve }: ConflictsPanelProps) {
   const [resolving, setResolving] = useState<string | null>(null);
 
-  const handle = async (id: string, resolution: 'keep_old' | 'use_new' | 'keep_both') => {
+  const handle = async (
+    id: string,
+    resolution: "keep_old" | "use_new" | "keep_both",
+  ) => {
     setResolving(id);
-    try { await onResolve(id, resolution); } finally { setResolving(null); }
+    try {
+      await onResolve(id, resolution);
+    } finally {
+      setResolving(null);
+    }
   };
 
   const resolutionLabels: Record<string, string> = { keep_old: 'Keep old', use_new: 'Use new', keep_both: 'Keep both' };
@@ -338,12 +561,31 @@ function SectionHeader({
 }) {
   return (
     <div className="brief-panel-section-header">
-      <span className="brief-panel-section-label" style={{ flex: 'none', textTransform: 'none', letterSpacing: 0, fontSize: 14, fontWeight: 400 }}>{label}</span>
+      <span
+        className="brief-panel-section-label"
+        style={{
+          flex: "none",
+          textTransform: "none",
+          letterSpacing: 0,
+          fontSize: 14,
+          fontWeight: 400,
+        }}
+      >
+        {label}
+      </span>
       <span style={{ flex: 1 }} />
       <button
         onClick={onAdd}
         title={`Add ${label.toLowerCase()}`}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '2px 4px', display: 'flex', lineHeight: 1 }}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: "var(--muted)",
+          padding: "2px 4px",
+          display: "flex",
+          lineHeight: 1,
+        }}
       >
         <Plus size={16} strokeWidth={1.5} />
       </button>
@@ -359,15 +601,23 @@ interface Props {
   onLoadingChange?: (loading: boolean) => void;
 }
 
-export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props) {
+export function MemorySection({
+  namespace,
+  onHasMemory,
+  onLoadingChange,
+}: Props) {
   const { apiKey } = useAuth();
   const [memory, setMemory] = useState<ClientMemory | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [addingForCategory, setAddingForCategory] = useState<ClientKnowledgeEntry['category'] | null>(null);
-  const [confirmDeleteKnowledge, setConfirmDeleteKnowledge] = useState<ClientKnowledgeEntry | null>(null);
+  const [addingForCategory, setAddingForCategory] = useState<
+    ClientKnowledgeEntry["category"] | null
+  >(null);
+  const [confirmDeleteKnowledge, setConfirmDeleteKnowledge] =
+    useState<ClientKnowledgeEntry | null>(null);
   const [addingStakeholder, setAddingStakeholder] = useState(false);
-  const [confirmDeleteStakeholder, setConfirmDeleteStakeholder] = useState<StakeholderRecord | null>(null);
+  const [confirmDeleteStakeholder, setConfirmDeleteStakeholder] =
+    useState<StakeholderRecord | null>(null);
   const [showConflicts, setShowConflicts] = useState(false);
 
   useEffect(() => {
@@ -375,13 +625,25 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
     setLoading(true);
     onLoadingChange?.(true);
     fetchClientMemory(apiKey, namespace)
-      .then(m => { setMemory(m); onHasMemory?.(true); })
-      .catch(() => { setMemory(null); onHasMemory?.(false); })
-      .finally(() => { setLoading(false); onLoadingChange?.(false); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      .then((m) => {
+        setMemory(m);
+        onHasMemory?.(true);
+      })
+      .catch(() => {
+        setMemory(null);
+        onHasMemory?.(false);
+      })
+      .finally(() => {
+        setLoading(false);
+        onLoadingChange?.(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, apiKey]);
 
-  const handleAddKnowledge = async (content: string, category: ClientKnowledgeEntry['category']) => {
+  const handleAddKnowledge = async (
+    content: string,
+    category: ClientKnowledgeEntry["category"],
+  ) => {
     if (!memory) return;
     const entry = await addKnowledgeEntry(apiKey, namespace, content, category);
     setMemory({ ...memory, knowledge: [...memory.knowledge, entry] });
@@ -391,19 +653,33 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
   const handleEditKnowledge = async (id: string, content: string) => {
     if (!memory) return;
     const prev = memory.knowledge;
-    setMemory({ ...memory, knowledge: memory.knowledge.map(e => e.id === id ? { ...e, content } : e) });
-    try { await updateClientKnowledgeEntry(apiKey, namespace, id, content); }
-    catch { setMemory({ ...memory, knowledge: prev }); }
+    setMemory({
+      ...memory,
+      knowledge: memory.knowledge.map((e) =>
+        e.id === id ? { ...e, content } : e,
+      ),
+    });
+    try {
+      await updateClientKnowledgeEntry(apiKey, namespace, id, content);
+    } catch {
+      setMemory({ ...memory, knowledge: prev });
+    }
   };
 
   const handleDeleteKnowledge = async () => {
     if (!memory || !confirmDeleteKnowledge) return;
     const id = confirmDeleteKnowledge.id;
     const prev = memory.knowledge;
-    setMemory({ ...memory, knowledge: memory.knowledge.filter(e => e.id !== id) });
+    setMemory({
+      ...memory,
+      knowledge: memory.knowledge.filter((e) => e.id !== id),
+    });
     setConfirmDeleteKnowledge(null);
-    try { await deleteClientKnowledgeEntry(apiKey, namespace, id); }
-    catch { setMemory({ ...memory, knowledge: prev }); }
+    try {
+      await deleteClientKnowledgeEntry(apiKey, namespace, id);
+    } catch {
+      setMemory({ ...memory, knowledge: prev });
+    }
   };
 
   const handleAddStakeholder = async (name: string, role: string) => {
@@ -413,49 +689,78 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
     setAddingStakeholder(false);
   };
 
-  const handleEditStakeholder = async (id: string, updates: Partial<{ name: string; role: string }>) => {
+  const handleEditStakeholder = async (
+    id: string,
+    updates: Partial<{ name: string; role: string }>,
+  ) => {
     if (!memory) return;
     const prev = memory.stakeholders;
-    setMemory({ ...memory, stakeholders: memory.stakeholders.map(s => s.id === id ? { ...s, ...updates } : s) });
-    try { await updateStakeholder(apiKey, namespace, id, updates); }
-    catch { setMemory({ ...memory, stakeholders: prev }); }
+    setMemory({
+      ...memory,
+      stakeholders: memory.stakeholders.map((s) =>
+        s.id === id ? { ...s, ...updates } : s,
+      ),
+    });
+    try {
+      await updateStakeholder(apiKey, namespace, id, updates);
+    } catch {
+      setMemory({ ...memory, stakeholders: prev });
+    }
   };
 
   const handleDeleteStakeholder = async () => {
     if (!memory || !confirmDeleteStakeholder) return;
     const id = confirmDeleteStakeholder.id;
     const prev = memory.stakeholders;
-    setMemory({ ...memory, stakeholders: memory.stakeholders.filter(s => s.id !== id) });
+    setMemory({
+      ...memory,
+      stakeholders: memory.stakeholders.filter((s) => s.id !== id),
+    });
     setConfirmDeleteStakeholder(null);
-    try { await deleteStakeholder(apiKey, namespace, id); }
-    catch { setMemory({ ...memory, stakeholders: prev }); }
+    try {
+      await deleteStakeholder(apiKey, namespace, id);
+    } catch {
+      setMemory({ ...memory, stakeholders: prev });
+    }
   };
 
-  const handleResolveConflict = async (id: string, resolution: 'keep_old' | 'use_new' | 'keep_both') => {
+  const handleResolveConflict = async (
+    id: string,
+    resolution: "keep_old" | "use_new" | "keep_both",
+  ) => {
     if (!memory) return;
     await resolveConflict(apiKey, namespace, id, resolution);
-    setMemory({ ...memory, conflicts: memory.conflicts.filter(c => c.id !== id) });
+    setMemory({
+      ...memory,
+      conflicts: memory.conflicts.filter((c) => c.id !== id),
+    });
   };
 
   if (!namespace) return null;
 
   if (loading) {
     return (
-      <div style={{ padding: '16px 12px' }}>
-        <span style={{ fontSize: 13, color: 'var(--muted)', opacity: 0.5 }}>Loading…</span>
+      <div style={{ padding: "16px 12px" }}>
+        <span style={{ fontSize: 13, color: "var(--muted)", opacity: 0.5 }}>
+          Loading…
+        </span>
       </div>
     );
   }
 
   if (!memory) {
     return (
-      <div style={{ padding: '16px 16px' }}>
-        <span style={{ fontSize: 13, color: 'var(--muted)', opacity: 0.45 }}>No memory yet</span>
+      <div style={{ padding: "16px 16px" }}>
+        <span style={{ fontSize: 13, color: "var(--muted)", opacity: 0.45 }}>
+          No memory yet
+        </span>
       </div>
     );
   }
 
-  const unresolvedConflicts = memory.conflicts.filter(c => c.status === 'needs_review');
+  const unresolvedConflicts = memory.conflicts.filter(
+    (c) => c.status === "needs_review",
+  );
 
   return (
     <>
@@ -469,13 +774,20 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
               label={CATEGORY_DISPLAY_NAME[cat]}
               onAdd={() => setAddingForCategory(isAdding ? null : cat)}
             />
-            <div className="brief-side-panel-fields" style={{ maxHeight: 245, overflowY: 'auto' }}>
-              {entries.map(entry => (
+            <div
+              className="brief-side-panel-fields"
+              style={{ maxHeight: 245, overflowY: "auto" }}
+            >
+              {entries.map((entry) => (
                 <KnowledgeRow
                   key={entry.id}
                   entry={entry}
                   onEdit={handleEditKnowledge}
-                  onDelete={id => setConfirmDeleteKnowledge(memory.knowledge.find(e => e.id === id) ?? null)}
+                  onDelete={(id) =>
+                    setConfirmDeleteKnowledge(
+                      memory.knowledge.find((e) => e.id === id) ?? null,
+                    )
+                  }
                 />
               ))}
               {isAdding && (
@@ -486,7 +798,17 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
                 />
               )}
               {entries.length === 0 && !isAdding && (
-                <p style={{ fontSize: 13, color: 'var(--muted)', opacity: 0.4, margin: '2px 0 4px', paddingLeft: 4 }}>None yet</p>
+                <p
+                  style={{
+                    fontSize: 13,
+                    color: "var(--muted)",
+                    opacity: 0.4,
+                    margin: "2px 0 4px",
+                    paddingLeft: 4,
+                  }}
+                >
+                  None yet
+                </p>
               )}
             </div>
           </div>
@@ -499,20 +821,40 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
           label="Stakeholders"
           onAdd={() => setAddingStakeholder(true)}
         />
-        <div className="brief-side-panel-fields" style={{ maxHeight: 245, overflowY: 'auto' }}>
-          {memory.stakeholders.map(s => (
+        <div
+          className="brief-side-panel-fields"
+          style={{ maxHeight: 245, overflowY: "auto" }}
+        >
+          {memory.stakeholders.map((s) => (
             <StakeholderRow
               key={s.id}
               record={s}
               onEdit={handleEditStakeholder}
-              onDelete={id => setConfirmDeleteStakeholder(memory.stakeholders.find(sh => sh.id === id) ?? null)}
+              onDelete={(id) =>
+                setConfirmDeleteStakeholder(
+                  memory.stakeholders.find((sh) => sh.id === id) ?? null,
+                )
+              }
             />
           ))}
           {addingStakeholder && (
-            <NewStakeholderForm onSubmit={handleAddStakeholder} onCancel={() => setAddingStakeholder(false)} />
+            <NewStakeholderForm
+              onSubmit={handleAddStakeholder}
+              onCancel={() => setAddingStakeholder(false)}
+            />
           )}
           {memory.stakeholders.length === 0 && !addingStakeholder && (
-            <p style={{ fontSize: 13, color: 'var(--muted)', opacity: 0.4, margin: '2px 0 4px', paddingLeft: 4 }}>None yet</p>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--muted)",
+                opacity: 0.4,
+                margin: "2px 0 4px",
+                paddingLeft: 4,
+              }}
+            >
+              None yet
+            </p>
           )}
         </div>
       </div>
@@ -521,23 +863,46 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
       {unresolvedConflicts.length > 0 && (
         <div className="brief-side-panel-section">
           <button
-            onClick={() => setShowConflicts(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px 6px', width: '100%' }}
+            onClick={() => setShowConflicts((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "0 4px 6px",
+              width: "100%",
+            }}
           >
-            <span className="brief-panel-section-dot" style={{ background: '#f59e0b' }} />
-            <span className="brief-panel-section-label" style={{ color: '#b45309' }}>
-              {unresolvedConflicts.length} conflict{unresolvedConflicts.length > 1 ? 's' : ''}
+            <span
+              className="brief-panel-section-dot"
+              style={{ background: "#f59e0b" }}
+            />
+            <span
+              className="brief-panel-section-label"
+              style={{ color: "#b45309" }}
+            >
+              {unresolvedConflicts.length} conflict
+              {unresolvedConflicts.length > 1 ? "s" : ""}
             </span>
-            <span style={{ fontSize: 10, color: 'var(--muted)' }}>{showConflicts ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 10, color: "var(--muted)" }}>
+              {showConflicts ? "▲" : "▼"}
+            </span>
           </button>
-          {showConflicts && <ConflictsPanel conflicts={unresolvedConflicts} onResolve={handleResolveConflict} />}
+          {showConflicts && (
+            <ConflictsPanel
+              conflicts={unresolvedConflicts}
+              onResolve={handleResolveConflict}
+            />
+          )}
         </div>
       )}
 
       {confirmDeleteKnowledge && (
         <ConfirmDialog
           title="Remove entry"
-          message={`"${confirmDeleteKnowledge.content.length > 80 ? confirmDeleteKnowledge.content.slice(0, 80) + '…' : confirmDeleteKnowledge.content}"`}
+          message={`"${confirmDeleteKnowledge.content.length > 80 ? confirmDeleteKnowledge.content.slice(0, 80) + "…" : confirmDeleteKnowledge.content}"`}
           confirmLabel="Remove"
           onConfirm={handleDeleteKnowledge}
           onCancel={() => setConfirmDeleteKnowledge(null)}
@@ -546,7 +911,7 @@ export function MemorySection({ namespace, onHasMemory, onLoadingChange }: Props
       {confirmDeleteStakeholder && (
         <ConfirmDialog
           title="Remove stakeholder"
-          message={`Remove ${confirmDeleteStakeholder.name}${confirmDeleteStakeholder.role ? ` (${confirmDeleteStakeholder.role})` : ''}?`}
+          message={`Remove ${confirmDeleteStakeholder.name}${confirmDeleteStakeholder.role ? ` (${confirmDeleteStakeholder.role})` : ""}?`}
           confirmLabel="Remove"
           onConfirm={handleDeleteStakeholder}
           onCancel={() => setConfirmDeleteStakeholder(null)}

@@ -15,7 +15,7 @@ interface Props {
   onBack?: () => void;
 }
 
-function buildHtml(ast: LayoutAST): string {
+export function buildHtml(ast: LayoutAST): string {
   const firstHtml = (ast.sections[0] as LayoutSection & { customHtml?: string })?.customHtml ?? '';
   const isFullDoc = /^\s*<!DOCTYPE|^\s*<html/i.test(firstHtml);
   if (isFullDoc) return firstHtml;
