@@ -26,6 +26,7 @@ import {
   fetchProposalDiff,
   runAgent,
   deleteProposal,
+  aiEditProposal,
 } from '@/lib/api';
 import { parseProposalSections, reassembleMarkdown, downloadMarkdown } from '@/lib/proposal-utils';
 import { useAuth } from '@/lib/auth-context';
@@ -516,6 +517,8 @@ export function ProposalPage() {
   // AI rewrite state
   const [aiEditingSection, setAiEditingSection] = useState<string | null>(null);
   const [isAIRewriting, setIsAIRewriting] = useState(false);
+  const [showGlobalAIEditor, setShowGlobalAIEditor] = useState(false);
+  const [isGlobalAIEditing, setIsGlobalAIEditing] = useState(false);
   const [aiPreview, setAiPreview] = useState<{
     section: string;
     original: string;
@@ -560,7 +563,10 @@ export function ProposalPage() {
     const proposalsIdx = parts.lastIndexOf('proposals');
     if (proposalsIdx > 0) {
       const ns = parts[proposalsIdx - 1];
-      if (ns && ns !== 'namespaces') return `${ns}::${fileName}`;
+      if (ns && ns !== 'namespaces') {
+        const isSuperClient = proposalsIdx > 1 && parts[proposalsIdx - 2] === 'super-clients';
+        return `${isSuperClient ? 'sc-' : ''}${ns}::${fileName}`;
+      }
     }
     return fileName;
   }
@@ -680,6 +686,25 @@ export function ProposalPage() {
 
   function escapeRegex(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  async function handleGlobalAIEdit(instruction: string) {
+    if (!currentDocument) return;
+    setIsGlobalAIEditing(true);
+    setRegenError('');
+    setShowGlobalAIEditor(false);
+    try {
+      const fileName = currentFileName();
+      if (!fileName) return;
+      const updated = await aiEditProposal(apiKey, fileName, instruction);
+      await saveProposalContent(apiKey, fileName, updated);
+      setCurrentDocument({ ...currentDocument, content: updated });
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setRegenError((err as Error).message);
+    } finally {
+      setIsGlobalAIEditing(false);
+    }
   }
 
   function handleOpenAIEditor(sectionTitle: string) {
@@ -953,6 +978,26 @@ export function ProposalPage() {
                 </div>
               </div>
               <div className="chat-v2-header-right">
+                <button
+                  style={{
+                    height: 30,
+                    padding: '0 12px',
+                    whiteSpace: 'nowrap',
+                    background: 'var(--panel-soft)',
+                    color: 'var(--muted)',
+                    border: 'none',
+                    borderRadius: 'var(--radius)',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: currentDocument && !isGlobalAIEditing ? 'pointer' : 'not-allowed',
+                    flexShrink: 0,
+                    opacity: currentDocument && !isGlobalAIEditing ? 1 : 0.45,
+                  }}
+                  disabled={!currentDocument || isGlobalAIEditing || isGenerating}
+                  onClick={() => setShowGlobalAIEditor(true)}
+                >
+                  {isGlobalAIEditing ? 'Editing…' : 'Edit with AI'}
+                </button>
                 {/* <button
                   style={{
                     height: 30,
@@ -1615,6 +1660,16 @@ export function ProposalPage() {
         )}
 
       {showDiff && <DiffViewer diffs={diffData} onClose={() => setShowDiff(false)} />}
+
+      {showGlobalAIEditor && (
+        <ProposalAIEditor
+          mode="global"
+          sectionTitle=""
+          onGenerate={handleGlobalAIEdit}
+          onCancel={() => setShowGlobalAIEditor(false)}
+          isLoading={isGlobalAIEditing}
+        />
+      )}
 
       {aiEditingSection && (
         <ProposalAIEditor
