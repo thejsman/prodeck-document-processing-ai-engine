@@ -1,16 +1,20 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams } from 'next/navigation';
-import { ExternalLink, Send, Upload, X, CheckCircle, AlertCircle, Loader, Sparkles, Globe, ImagePlus } from 'lucide-react';
+import { ExternalLink, Send, X, CheckCircle, Loader, Sparkles, Globe, FileText, ImagePlus, MoreHorizontal, Trash2, ChevronRight, ChevronLeft, Plus } from 'lucide-react';
+import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
 import { useSidebar } from '@/lib/sidebar-store';
 import { MemorySection } from '@/components/chat/MemorySection';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { GenerateV2Modal } from '@/components/microsite/GenerateV2Modal';
 import { MicrositeV2 } from '@/components/MicrositeV2';
 import type { LayoutAST } from '@/types/presentation';
+import { generationStore, type Generation } from '@/lib/generation-store';
 import {
   getSuperClient,
   streamSuperClientChat,
@@ -40,10 +44,73 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   streaming?: boolean;
+  generationId?: string;
 }
 
 function genId() {
   return Math.random().toString(36).slice(2);
+}
+
+// ArtifactCard — artifact capsule rendered in the chat message list
+function ArtifactCard({ gid, generations, onView }: { gid: string; generations: Generation[]; onView: (gen: Generation) => void }) {
+  const gen = generations.find((g) => g.id === gid);
+  if (!gen) return null;
+  const isMicrosite = gen.type === 'microsite';
+  const isGenerating = gen.phase === 'generating';
+  const isComplete = gen.phase === 'complete';
+  return (
+    <div style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--panel)', overflow: 'hidden', maxWidth: 280 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
+        <div style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0, background: isMicrosite ? 'var(--primary)' : '#7c6fcd', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon icon={isMicrosite ? Globe : FileText} size="sm" style={{ color: '#fff' }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>
+            {isMicrosite ? 'Microsite' : 'Proposal'}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {gen.title}
+          </div>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          {isGenerating && <Loader size={13} style={{ color: 'var(--primary)', animation: 'spin 1s linear infinite' }} />}
+          {isComplete && <CheckCircle size={13} style={{ color: '#22c55e' }} />}
+        </div>
+      </div>
+      {/* Steps */}
+      {gen.steps.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '7px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {gen.steps.slice(-4).map((step, i, arr) => {
+            const isLast = i === arr.length - 1;
+            return (
+              <div key={i} style={{ fontSize: 11, color: isLast && isGenerating ? 'var(--text)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                {isLast && isGenerating
+                  ? <span className="status-glyph" style={{ width: 6, height: 6, flexShrink: 0 }} />
+                  : <span style={{ color: '#22c55e', fontSize: 9, flexShrink: 0 }}>✓</span>}
+                {step}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {gen.phase === 'error' && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '7px 12px', fontSize: 11, color: 'var(--danger)' }}>
+          {gen.error ?? 'Generation failed'}
+        </div>
+      )}
+      {isComplete && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 12px', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={() => onView(gen)}
+            style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+          >
+            View <ChevronRight size={11} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function SuperClientPage() {
@@ -87,6 +154,12 @@ export default function SuperClientPage() {
   const [micrositePanelWidth, setMicrositePanelWidth] = useState(640);
   const [micrositeDragging, setMicrositeDragging] = useState(false);
   const micrositeDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Cache last-seen content so panels render content during close animation (prevents content flash)
+  const lastMicrositeRef = useRef(viewingMicrosite);
+  if (viewingMicrosite) lastMicrositeRef.current = viewingMicrosite;
+  const lastProposalRef = useRef(viewingProposal);
+  if (viewingProposal) lastProposalRef.current = viewingProposal;
   const [micrositeModal, setMicrositeModal] = useState<{ proposal: SuperClientProposal; markdown: string } | null>(null);
   const [showProposalPicker, setShowProposalPicker] = useState(false);
   const [loadingMicrositeFor, setLoadingMicrositeFor] = useState<string | null>(null);
@@ -95,21 +168,31 @@ export default function SuperClientPage() {
   const [micrositeEditBanner, setMicrositeEditBanner] = useState('');
   const [canUndo, setCanUndo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hoveredMicrositeId, setHoveredMicrositeId] = useState<string | null>(null);
+  const [hoveredProposalId, setHoveredProposalId] = useState<string | null>(null);
+  const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
+  const [activeRightTab, setActiveRightTab] = useState<'context' | 'artifacts'>('context');
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [menuMicrositeId, setMenuMicrositeId] = useState<string | null>(null);
+  const [menuMicrositePos, setMenuMicrositePos] = useState({ top: 0, right: 0 });
+  const [menuProposalId, setMenuProposalId] = useState<string | null>(null);
+  const [menuProposalPos, setMenuProposalPos] = useState({ top: 0, right: 0 });
+  const [menuDocId, setMenuDocId] = useState<string | null>(null);
+  const [menuDocPos, setMenuDocPos] = useState({ top: 0, right: 0 });
+  const msMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const propMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const docMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  const [proposalGenerating, setProposalGenerating] = useState(false);
-  const [proposalStep, setProposalStep] = useState(0);
-  const proposalStepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [generations, setGenerations] = useState<Generation[]>([]);
   const [changedSections, setChangedSections] = useState<Set<string>>(new Set());
   const [updateBanner, setUpdateBanner] = useState('');
 
-  const [composerStage, setComposerStage] = useState<null | 'select-proposal' | 'configure' | 'generating'>(null);
+  const [composerStage, setComposerStage] = useState<null | 'select-proposal' | 'configure'>(null);
   const [composerProposal, setComposerProposal] = useState<{ proposal: SuperClientProposal; markdown: string } | null>(null);
   const [composerInstructions, setComposerInstructions] = useState('');
   const [composerImage, setComposerImage] = useState<{ base64: string; mediaType: string } | null>(null);
-  const [composerProgress, setComposerProgress] = useState<string[]>([]);
   const [composerMessage, setComposerMessage] = useState('');
   const composerImageInputRef = useRef<HTMLInputElement | null>(null);
-  const composerAbortRef = useRef<AbortController | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -119,6 +202,9 @@ export default function SuperClientPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  // Sync generation store → local state (runs even when component is unmounted via subscription)
+  useEffect(() => generationStore.subscribe(setGenerations), []);
+
   useEffect(() => {
     if (!name) return;
     setLoading(true);
@@ -126,13 +212,21 @@ export default function SuperClientPage() {
       .then(({ meta: m, contextMd: ctx, history }) => {
         setMeta(m);
         setContextMd(ctx);
-        setMessages(
-          history.map((h: SuperClientHistoryEntry) => ({
-            id: genId(),
-            role: h.role,
-            content: h.content,
-          })),
-        );
+        const historyMsgs: Message[] = history.map((h: SuperClientHistoryEntry) => ({
+          id: genId(),
+          role: h.role,
+          content: h.content,
+        }));
+        // Re-inject capsule messages for any active/complete generations for this client
+        // (handles the case where the user navigated away and back during generation)
+        const activeGens = generationStore.forClient(name);
+        const genMsgs: Message[] = activeGens.map((gen) => ({
+          id: `gen-msg-${gen.id}`,
+          role: 'assistant',
+          content: '',
+          generationId: gen.id,
+        }));
+        setMessages([...historyMsgs, ...genMsgs]);
         setMemoryKey((k) => k + 1);
       })
       .catch((err: Error) => setError(err.message))
@@ -209,13 +303,15 @@ export default function SuperClientPage() {
 
   async function openProposal(proposal: SuperClientProposal) {
     if (!name) return;
+    // Open panel immediately — don't wait for content fetch
+    setChangedSections(new Set());
+    setUpdateBanner('');
+    setViewingProposal({ fileName: proposal.fileName, title: proposal.title, content: '' });
+    if (viewingMicrosite) { setViewingMicrosite(null); }
+    collapseForPanel();
     try {
       const content = await getSuperClientProposal(apiKey, name, proposal.fileName);
-      setChangedSections(new Set());
-      setUpdateBanner('');
       setViewingProposal({ fileName: proposal.fileName, title: proposal.title, content });
-      if (viewingMicrosite) { setViewingMicrosite(null); }
-      collapseForPanel();
     } catch (err) {
       console.error('Failed to load proposal', err);
     }
@@ -392,38 +488,21 @@ export default function SuperClientPage() {
 
   const MICROSITE_INTENT_RE = /\b(generate|create|make|build|design)\b[^.?!]*\bmicrosite\b|\bmicrosite\b[^.?!]*\b(generate|create|make|build|design)\b/i;
   const PROPOSAL_INTENT_RE = /\b(generate|create|write|draft|make|build)\s+(a\s+)?proposal\b/i;
-  const PROPOSAL_STEPS = [
-    'Analyzing client context…',
-    'Generating proposal outline…',
-    'Writing executive summary…',
-    'Drafting service sections…',
-    'Finalizing proposal…',
-  ];
 
-  useEffect(() => {
-    if (proposalGenerating && streaming) {
-      setProposalStep(0);
-      proposalStepTimerRef.current = setInterval(() => {
-        setProposalStep((prev) => Math.min(prev + 1, PROPOSAL_STEPS.length - 1));
-      }, 1600);
-    } else {
-      if (proposalStepTimerRef.current) {
-        clearInterval(proposalStepTimerRef.current);
-        proposalStepTimerRef.current = null;
-      }
-      setProposalStep(0);
-    }
-    return () => {
-      if (proposalStepTimerRef.current) clearInterval(proposalStepTimerRef.current);
-    };
-  }, [proposalGenerating, streaming]); // eslint-disable-line react-hooks/exhaustive-deps
+  function dismissProposal() {
+    // Abort any in-flight stream so the backend cannot save further changes
+    abortRef.current?.abort();
+    setViewingProposal(null);
+    setChangedSections(new Set());
+    setUpdateBanner('');
+    restoreSidebar();
+  }
 
   function resetComposer() {
     setComposerStage(null);
     setComposerProposal(null);
     setComposerInstructions('');
     setComposerImage(null);
-    setComposerProgress([]);
     setComposerMessage('');
   }
 
@@ -453,51 +532,65 @@ export default function SuperClientPage() {
 
   async function generateComposerMicrosite() {
     if (!composerProposal || !name) return;
-    setComposerStage('generating');
-    setComposerProgress(['Starting…']);
-    composerAbortRef.current = new AbortController();
+
+    const msGenId = genId();
+    const msAbort = new AbortController();
+    const proposalTitle = composerProposal.proposal.title;
+    const proposalMarkdown = composerProposal.markdown;
+    const proposalInstructions = composerInstructions || undefined;
+    const proposalImage = composerImage ?? undefined;
     const proposalId = composerProposal.proposal.fileName.replace(/\.md$/, '');
+
+    // Start in the module store (survives navigation)
+    generationStore.start({ id: msGenId, clientSlug: name, type: 'microsite', title: proposalTitle, abort: () => msAbort.abort() });
+
+    // Add artifact message to chat and collapse composer immediately
+    setMessages((prev) => [...prev, { id: `gen-msg-${msGenId}`, role: 'assistant', content: '', generationId: msGenId }]);
+    resetComposer();
+
     try {
       await generateMicrositeV2Stream(apiKey, name, proposalId, {
-        proposalMarkdown: composerProposal.markdown,
-        userPrompt: composerInstructions || undefined,
-        referenceImage: composerImage ?? undefined,
-        signal: composerAbortRef.current.signal,
+        proposalMarkdown,
+        userPrompt: proposalInstructions,
+        referenceImage: proposalImage,
+        signal: msAbort.signal,
         onEvent: (evt) => {
           if (evt.type === 'progress' && evt.message) {
-            setComposerProgress((prev) => [...prev, evt.message!]);
+            generationStore.addStep(msGenId, evt.message);
           }
           if (evt.type === 'plan' && evt.totalSections) {
-            setComposerProgress((prev) => [...prev, `Building ${evt.totalSections} sections…`]);
+            generationStore.addStep(msGenId, `Building ${evt.totalSections} sections…`);
           }
           if (evt.type === 'section' && evt.heading) {
-            setComposerProgress((prev) => [...prev, `✓ ${evt.heading}`]);
+            generationStore.addStep(msGenId, `${evt.heading}`);
           }
           if (evt.type === 'complete' && evt.ast) {
             const ast = evt.ast as LayoutAST;
-            const title = composerProposal!.proposal.title;
+            // Open panel immediately with the stream AST — don't block on save
+            const tempId = `preview-${msGenId}`;
+            setViewingMicrosite({ id: tempId, ast, renderKey: `${tempId}-${Date.now()}` });
+            if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+            collapseForPanel();
             void (async () => {
               try {
-                const saved = await saveSuperClientMicrosite(apiKey, name, ast, title);
-                setMicrosites((prev) => [saved, ...prev]);
-                setViewingMicrosite({ id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` });
-                if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
-                collapseForPanel();
+                const saved = await saveSuperClientMicrosite(apiKey, name, ast, proposalTitle);
+                generationStore.complete(msGenId, { micrositeId: saved.id, ast }, saved.title);
+                // Swap temp ID for the real saved ID and refresh list
+                setViewingMicrosite((prev) => prev?.id === tempId ? { id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` } : prev);
+                loadMicrosites();
               } catch (err) {
-                console.error('Failed to save microsite', err);
-              } finally {
-                resetComposer();
+                generationStore.error(msGenId, (err as Error).message);
               }
             })();
           }
           if (evt.type === 'error') {
-            setComposerProgress((prev) => [...prev, `Error: ${evt.message ?? 'Unknown error'}`]);
+            generationStore.error(msGenId, evt.message ?? 'Unknown error');
           }
         },
       });
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        setComposerProgress((prev) => [...prev, `Error: ${(err as Error).message}`]);
+        generationStore.error(msGenId, (err as Error).message);
       }
     }
   }
@@ -533,13 +626,19 @@ export default function SuperClientPage() {
       return;
     }
 
+    // Start a proposal generation entry in the store so the capsule shows in chat
+    let proposalGenId: string | null = null;
     if (PROPOSAL_INTENT_RE.test(text)) {
-      setProposalGenerating(true);
+      proposalGenId = genId();
+      generationStore.start({ id: proposalGenId, clientSlug: name, type: 'proposal', title: 'Proposal', abort: () => abortRef.current?.abort() });
     }
 
     const userMsg: Message = { id: genId(), role: 'user', content: text };
     const assistantMsgId = genId();
-    const assistantMsg: Message = { id: assistantMsgId, role: 'assistant', content: '', streaming: true };
+    const assistantMsg: Message = {
+      id: assistantMsgId, role: 'assistant', content: '', streaming: true,
+      ...(proposalGenId ? { generationId: proposalGenId } : {}),
+    };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput('');
@@ -568,10 +667,14 @@ export default function SuperClientPage() {
                   : m,
               ),
             );
-            setProposalGenerating(false);
             if (evt.proposalSaved) {
-              setProposals((prev) => [evt.proposalSaved!, ...prev]);
+              generationStore.complete(proposalGenId ?? `noop`, { fileName: evt.proposalSaved.fileName }, evt.proposalSaved.title);
+              loadProposals(); // refresh list from server
               void openProposal(evt.proposalSaved!);
+            } else if (proposalGenId) {
+              // Proposal intent matched but LLM didn't generate one — remove the capsule
+              generationStore.dismiss(proposalGenId);
+              setMessages((prev) => prev.filter((m) => m.generationId !== proposalGenId));
             }
             if (evt.proposalUpdated) {
               setProposals((prev) =>
@@ -599,7 +702,6 @@ export default function SuperClientPage() {
             }
           }
           if (evt.type === 'error') {
-            setProposalGenerating(false);
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantMsgId
@@ -650,112 +752,126 @@ export default function SuperClientPage() {
     );
   }
 
+  // Version maps: group by key, sort oldest→newest, assign v1/v2…
+  const msVersionMap = new Map<string, number>();
+  {
+    const grouped = new Map<string, typeof microsites>();
+    for (const ms of [...microsites].sort((a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime())) {
+      const key = ms.proposalTitle || ms.title.split(/\s*[-–—]\s*/)[0];
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(ms);
+    }
+    for (const group of grouped.values()) group.forEach((ms, i) => msVersionMap.set(ms.id, i + 1));
+  }
+  const propVersionMap = new Map<string, number>();
+  {
+    const grouped = new Map<string, typeof proposals>();
+    for (const p of [...proposals].sort((a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime())) {
+      const key = p.title.split(/\s*[-–—]\s*/)[0];
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(p);
+    }
+    for (const group of grouped.values()) group.forEach((p, i) => propVersionMap.set(p.fileName, i + 1));
+  }
+
   return (
     <>
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       {/* Center — chat */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         {/* Header */}
-        <div style={{
-          padding: '14px 20px',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexShrink: 0,
-        }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
-            {meta.displayName}
-          </span>
-          {meta.url && (
-            <a
-              href={meta.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)', textDecoration: 'none' }}
+        <header className="chat-v2-header">
+          <div className="chat-v2-header-left">
+            <span className="chat-v2-ns">{meta.displayName}</span>
+          </div>
+          <div className="chat-v2-header-right">
+            <ThemeToggle />
+            <button
+              className="chat-v2-panel-toggle"
+              onClick={() => setRightPanelOpen(v => !v)}
+              title={rightPanelOpen ? 'Hide panel' : 'Show panel'}
             >
-              <Icon icon={ExternalLink} size="sm" />
-              {(() => { try { return new URL(meta.url).hostname; } catch { return meta.url; } })()}
-            </a>
-          )}
-        </div>
+              <Icon icon={rightPanelOpen ? ChevronRight : ChevronLeft} size="sm" />
+            </button>
+          </div>
+        </header>
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {messages.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 14, marginTop: 60 }}>
-              Ask anything about {meta.displayName}
-            </div>
-          )}
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              style={{
-                display: 'flex',
-                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-              }}
-            >
-              <div
-                style={{
-                  maxWidth: '72%',
-                  padding: '10px 14px',
-                  borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                  background: msg.role === 'user' ? 'var(--primary)' : 'var(--panel-soft)',
-                  color: msg.role === 'user' ? '#fff' : 'var(--text)',
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {/* Pre-content thinking state — morphing glyph + status text */}
-                {msg.streaming && !msg.content && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="status-glyph" aria-hidden="true" />
-                    <em className="chat-status-text">
-                      {proposalGenerating ? PROPOSAL_STEPS[proposalStep] : 'Thinking…'}
-                    </em>
-                  </div>
-                )}
+        <div className="chat-v2-body">
+          <div className="chat-v2-main">
+            <div className="chat-v2-messages">
+              {messages.length === 0 && (
+                <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 14, marginTop: 60 }}>
+                  Ask anything about {meta.displayName}
+                </div>
+              )}
+              {messages.map((msg) => {
+                // Strip XML artifact tags from the streaming display so raw markup isn't shown
+                const visibleContent = msg.streaming && msg.role === 'assistant'
+                  ? msg.content.replace(/<(proposal|section-update)[^>]*>[\s\S]*$/, '').trim()
+                  : msg.content;
+                const hasContent = !!visibleContent;
+                const hasArtifact = !!msg.generationId;
 
-                {/* Content + proper blinking cursor */}
-                {msg.content}
-                {msg.streaming && msg.content && (
-                  <span className="chat-cursor" />
-                )}
+                if (msg.role === 'user') {
+                  return (
+                    <div key={msg.id} className="chat-v2-message chat-v2-message--user">
+                      <div className="chat-v2-bubble">{visibleContent}</div>
+                    </div>
+                  );
+                }
 
-                {/* Proposal step progress pill — shown while content is streaming */}
-                {msg.streaming && proposalGenerating && msg.content && (
-                  <div style={{
-                    marginTop: 8,
-                    padding: '5px 10px',
-                    borderRadius: 6,
-                    background: 'rgba(0,0,0,0.05)',
-                    fontSize: 12,
-                    color: 'var(--muted)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}>
-                    <span className="status-glyph" style={{ width: '0.5em', height: '0.5em' }} aria-hidden="true" />
-                    {PROPOSAL_STEPS[proposalStep]}
+                // Assistant message — column wrapper needed to stack bubble + artifact card
+                return (
+                  <div key={msg.id} className="chat-v2-message chat-v2-message--assistant">
+                    <div className="chat-v2-avatar">AI</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, flex: 1 }}>
+                      {/* Text bubble — hidden for pure artifact messages */}
+                      {(hasContent || (msg.streaming && !hasArtifact)) && (
+                        <div className="chat-v2-bubble">
+                          {msg.streaming && !visibleContent && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span className="status-glyph" aria-hidden="true" />
+                              <em className="chat-status-text">Thinking…</em>
+                            </div>
+                          )}
+                          {visibleContent && (
+                            <>
+                              <div className="prose">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleContent}</ReactMarkdown>
+                              </div>
+                              {msg.streaming && <span className="chat-cursor" />}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {/* Artifact card */}
+                      {hasArtifact && (
+                        <ArtifactCard
+                          gid={msg.generationId!}
+                          generations={generations}
+                          onView={(gen) => {
+                            if (gen.type === 'microsite' && gen.result?.micrositeId && gen.result?.ast) {
+                              setViewingMicrosite({ id: gen.result.micrositeId, ast: gen.result.ast as LayoutAST, renderKey: `${gen.result.micrositeId}-${Date.now()}` });
+                              if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+                              collapseForPanel();
+                            } else if (gen.type === 'proposal' && gen.result?.fileName) {
+                              void openProposal({ fileName: gen.result.fileName, title: gen.title, savedAt: '' });
+                            }
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
+                );
+              })}
+              <div ref={bottomRef} />
             </div>
-          ))}
-          <div ref={bottomRef} />
+          </div>
         </div>
 
         {/* Input */}
-        <div style={{
-          padding: '12px 16px',
-          borderTop: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          flexShrink: 0,
-        }}>
+        <div className="chat-v2-composer-wrap">
 
           {/* Composer expansion — select proposal */}
           {composerStage === 'select-proposal' && (
@@ -853,69 +969,69 @@ export default function SuperClientPage() {
             </div>
           )}
 
-          {/* Composer expansion — generating progress */}
-          {composerStage === 'generating' && (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12, background: 'var(--panel-soft)', maxHeight: 140, overflowY: 'auto' }}>
-              <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Generating microsite…
-              </p>
-              {composerProgress.map((line, i) => (
-                <p key={i} style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0' }}>{line}</p>
-              ))}
+          {/* Textarea row — hidden while composer expansion is active */}
+          {!composerStage && (
+            <div
+              className="chat-v2-composer"
+              style={viewingProposal ? { flexDirection: 'column', alignItems: 'stretch', gap: 0 } : undefined}
+            >
+              {/* Proposal chip — lives inside the composer bubble */}
+              {viewingProposal && (
+                <div style={{ display: 'flex', alignItems: 'center', padding: '2px 4px 6px 6px' }}>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '3px 4px 3px 8px', borderRadius: 20,
+                    background: 'color-mix(in srgb, var(--primary) 10%, transparent)',
+                    border: '1px solid color-mix(in srgb, var(--primary) 25%, transparent)',
+                    fontSize: 11, color: 'var(--primary)', fontWeight: 500,
+                    maxWidth: '100%', overflow: 'hidden',
+                  }}>
+                    <FileText size={10} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Editing: {viewingProposal.title}
+                    </span>
+                    <button
+                      onClick={dismissProposal}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--primary)', display: 'flex', alignItems: 'center',
+                        padding: '2px 3px', borderRadius: 10, opacity: 0.7, flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
+                      title="Dismiss proposal"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* Input row */}
+              <div style={{ display: 'flex', alignItems: 'flex-end', flex: 1 }}>
+                <textarea
+                  ref={textareaRef}
+                  className="chat-v2-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={`Ask about ${meta.displayName}…`}
+                  rows={1}
+                  onInput={(e) => {
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+                  }}
+                />
+                <button
+                  className="chat-v2-send-btn"
+                  onClick={() => void sendMessage()}
+                  disabled={streaming || !input.trim()}
+                >
+                  <Icon icon={Send} size="sm" />
+                </button>
+              </div>
             </div>
           )}
-
-          {/* Textarea row — hidden while composer expansion is active */}
-          {!composerStage && <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={`Ask about ${meta.displayName}…`}
-            rows={1}
-            style={{
-              flex: 1,
-              resize: 'none',
-              padding: '9px 12px',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              background: 'var(--panel-soft)',
-              color: 'var(--text)',
-              fontSize: 14,
-              outline: 'none',
-              fontFamily: 'inherit',
-              lineHeight: 1.5,
-              maxHeight: 120,
-              overflowY: 'auto',
-            }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-            }}
-          />
-          <button
-            onClick={() => void sendMessage()}
-            disabled={streaming || !input.trim()}
-            style={{
-              padding: '9px 14px',
-              borderRadius: 10,
-              border: 'none',
-              background: streaming || !input.trim() ? 'var(--border)' : 'var(--primary)',
-              color: streaming || !input.trim() ? 'var(--muted)' : '#fff',
-              cursor: streaming || !input.trim() ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 14,
-              flexShrink: 0,
-              transition: 'background 0.15s',
-            }}
-          >
-            <Icon icon={Send} size="sm" />
-          </button>
-        </div>}
         </div>
       </div>
 
@@ -930,7 +1046,7 @@ export default function SuperClientPage() {
         display: 'flex',
         flexDirection: 'column',
       }}>
-        {viewingMicrosite && (
+        {lastMicrositeRef.current && (
           <div style={{ width: micrositePanelWidth, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
             {/* Drag handle */}
             <div
@@ -954,11 +1070,11 @@ export default function SuperClientPage() {
             }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Globe size={14} style={{ color: 'var(--primary)' }} />
-                {(viewingMicrosite.ast.meta as { title?: string })?.title ?? 'Microsite'}
+                {(lastMicrositeRef.current!.ast.meta as { title?: string })?.title ?? 'Microsite'}
               </p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button
-                  onClick={() => setFullscreenMicrosite(viewingMicrosite.ast)}
+                  onClick={() => setFullscreenMicrosite(lastMicrositeRef.current!.ast)}
                   style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}
                 >
                   <ExternalLink size={12} /> Full screen
@@ -975,8 +1091,8 @@ export default function SuperClientPage() {
             {/* Responsive iframe preview */}
             <div style={{ flex: 1, minHeight: 0, background: '#fff', position: 'relative' }}>
               <iframe
-                key={viewingMicrosite.renderKey}
-                srcDoc={(viewingMicrosite.ast.sections?.[0] as { customHtml?: string })?.customHtml ?? ''}
+                key={lastMicrositeRef.current!.renderKey}
+                srcDoc={(lastMicrositeRef.current!.ast.sections?.[0] as { customHtml?: string })?.customHtml ?? ''}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -1040,8 +1156,9 @@ export default function SuperClientPage() {
         transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
         display: 'flex',
         flexDirection: 'column',
+        background: '#fff',
       }}>
-        {viewingProposal && (
+        {lastProposalRef.current && (
           <div style={{ width: 560, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div style={{
               padding: '14px 20px',
@@ -1052,10 +1169,10 @@ export default function SuperClientPage() {
               flexShrink: 0,
             }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', margin: 0 }}>
-                {viewingProposal.title}
+                {lastProposalRef.current!.title}
               </p>
               <button
-                onClick={() => { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); restoreSidebar(); }}
+                onClick={dismissProposal}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}
               >
                 <X size={16} />
@@ -1078,7 +1195,7 @@ export default function SuperClientPage() {
               </div>
             )}
             <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }} className="proposal-body">
-              {parseMarkdownSections(viewingProposal.content).map((section, i) => {
+              {parseMarkdownSections(lastProposalRef.current!.content).map((section, i) => {
                 const isChanged = changedSections.has(section.heading);
                 const mdChunk = [section.heading, section.body].filter(Boolean).join('\n');
                 return (
@@ -1093,7 +1210,9 @@ export default function SuperClientPage() {
                       transition: 'background 0.4s ease, border-color 0.4s ease',
                     }}
                   >
-                    <ReactMarkdown>{mdChunk}</ReactMarkdown>
+                    <div className="prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{mdChunk}</ReactMarkdown>
+                    </div>
                   </div>
                 );
               })}
@@ -1104,211 +1223,286 @@ export default function SuperClientPage() {
 
       {/* Right panel — client info */}
       <div style={{
-        width: (viewingProposal || viewingMicrosite) ? 0 : 280,
+        width: (viewingProposal || viewingMicrosite || !rightPanelOpen) ? 0 : 320,
         minWidth: 0,
-        borderLeft: (viewingProposal || viewingMicrosite) ? 'none' : '1px solid var(--border)',
+        borderLeft: (viewingProposal || viewingMicrosite || !rightPanelOpen) ? 'none' : '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
         overflow: 'hidden',
         transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', flex: 1 }}>
-          {/* Client meta */}
-          <div>
-            <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>
-              {meta.displayName}
-            </p>
-            {meta.url && (
-              <a
-                href={meta.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ fontSize: 12, color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}
-              >
-                <Icon icon={ExternalLink} size="sm" />
-                {meta.url}
-              </a>
-            )}
-            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0' }}>
-              Created {new Date(meta.createdAt).toLocaleDateString()}
-            </p>
-          </div>
-
-          {/* Microsites */}
-          <div>
-            <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-              Microsites
-            </p>
-            {microsites.length === 0 && (
-              <p style={{ fontSize: 12, color: 'var(--muted)', opacity: 0.6 }}>
-                Generate a microsite from a proposal.
-              </p>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {microsites.map((m) => (
-                <div key={m.id} style={{
-                  padding: '7px 10px', borderRadius: 6,
-                  background: 'var(--panel-soft)', border: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'flex-start', gap: 6,
+        <div className="client-panel">
+          {/* ── Tab bar ── */}
+          <div className="client-panel-tabs" style={{ height: 52 }}>
+            <button
+              className={`client-panel-tab${activeRightTab === 'context' ? ' active' : ''}`}
+              onClick={() => setActiveRightTab('context')}
+            >
+              Context
+            </button>
+            <button
+              className={`client-panel-tab${activeRightTab === 'artifacts' ? ' active' : ''}`}
+              onClick={() => setActiveRightTab('artifacts')}
+              style={{ gap: 5 }}
+            >
+              Artifacts
+              {(microsites.length + proposals.length) > 0 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  minWidth: 16, height: 16, borderRadius: '50%',
+                  background: activeRightTab === 'artifacts' ? 'var(--primary)' : 'var(--border)',
+                  color: activeRightTab === 'artifacts' ? '#fff' : 'var(--muted)',
+                  fontSize: 10, fontWeight: 600, lineHeight: 1,
+                  padding: '0 4px', marginBottom: 1,
                 }}>
-                  <button
-                    onClick={() => void handleOpenMicrosite(m)}
-                    style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
-                  >
-                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', margin: 0, lineHeight: 1.4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Icon icon={Globe} size="sm" style={{ flexShrink: 0, color: 'var(--primary)' }} />
-                      {m.title}
-                    </p>
-                    <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>
-                      {new Date(m.savedAt).toLocaleDateString()}
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => void handleDeleteMicrosite(m.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, flexShrink: 0, display: 'flex' }}
-                  >
-                    <Icon icon={X} size="sm" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                  {microsites.length + proposals.length}
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* Proposals */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
-                Proposals
-              </p>
-              <button
-                onClick={() => void handleGenerateMicrosite()}
-                disabled={proposals.length === 0 || loadingMicrositeFor !== null}
-                title="Generate microsite from proposal"
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                  padding: '3px 8px', cursor: proposals.length === 0 ? 'not-allowed' : 'pointer',
-                  fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4,
-                  opacity: proposals.length === 0 ? 0.4 : 1,
-                }}
-              >
-                <Icon icon={Sparkles} size="sm" />
-                {loadingMicrositeFor ? 'Loading…' : '→ Microsite'}
-              </button>
-            </div>
-            {proposals.length === 0 && (
-              <p style={{ fontSize: 12, color: 'var(--muted)', opacity: 0.6 }}>
-                Ask me to generate a proposal in chat.
-              </p>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {proposals.map((p) => (
-                <div
-                  key={p.fileName}
-                  style={{
-                    padding: '7px 10px',
-                    borderRadius: 6,
-                    background: 'var(--panel-soft)',
-                    border: '1px solid var(--border)',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 6,
-                  }}
-                >
-                  <button
-                    onClick={() => void openProposal(p)}
-                    style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
-                  >
-                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', margin: 0, lineHeight: 1.4 }}>{p.title}</p>
-                    <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>
-                      {new Date(p.savedAt).toLocaleDateString()}
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => void handleDeleteProposal(p.fileName)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, flexShrink: 0, display: 'flex' }}
-                  >
-                    <Icon icon={X} size="sm" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* ── Tab content ── */}
+          <div className="client-panel-body">
 
-          {/* Documents */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
-                Documents
-              </p>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                  padding: '3px 8px', cursor: uploading ? 'not-allowed' : 'pointer',
-                  fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4,
-                }}
-              >
-                <Icon icon={Upload} size="sm" />
-                {uploading ? `${uploadPct}%` : 'Upload'}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.txt,.md"
-                style={{ display: 'none' }}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) { void handleFileUpload(f); e.target.value = ''; } }}
-              />
-            </div>
-
-            {docs.length === 0 && !uploading && (
-              <p style={{ fontSize: 12, color: 'var(--muted)', opacity: 0.6 }}>
-                No documents yet. Upload .pdf, .txt, or .md files.
-              </p>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {docs.map((doc) => (
-                <div
-                  key={doc.fileName}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 8px', borderRadius: 6, background: 'var(--panel-soft)',
-                    border: '1px solid var(--border)',
-                  }}
-                >
-                  <span style={{ flex: 1, fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {doc.fileName}
-                  </span>
-                  {doc.status === 'processing' && <Icon icon={Loader} size="sm" style={{ color: 'var(--muted)', flexShrink: 0 }} />}
-                  {doc.status === 'extracted' && <Icon icon={CheckCircle} size="sm" style={{ color: 'var(--success, #22c55e)', flexShrink: 0 }} />}
-                  {doc.status === 'failed' && (
-                    <span title={doc.error} style={{ display: 'flex', flexShrink: 0 }}>
-                      <Icon icon={AlertCircle} size="sm" style={{ color: 'var(--danger)' }} />
-                    </span>
+            {/* Context tab: documents + memory */}
+            {activeRightTab === 'context' && (
+              <>
+                {/* Client identity */}
+                <div style={{ padding: '14px 12px 10px 16px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 400, color: 'var(--text)' }}>{meta?.displayName ?? name}</div>
+                  {meta?.url && (
+                    <a href={meta.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', marginTop: 2 }}>
+                      {meta.url.replace(/^https?:\/\//, '')}
+                    </a>
                   )}
+                </div>
+
+                {/* Documents */}
+                <div className="client-panel-list" style={{ paddingTop: 8, paddingLeft: 12, paddingRight: 12 }}>
+                  <div className="brief-panel-section-header" style={{ padding: '0 4px 2px' }}>
+                    <span style={{ flex: 'none', fontSize: 14, fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>Documents</span>
+                    <span style={{ flex: 1 }} />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      title="Upload document"
+                      style={{ background: 'none', border: 'none', cursor: uploading ? 'not-allowed' : 'pointer', padding: '2px 4px', color: 'var(--muted)', display: 'flex', lineHeight: 1 }}
+                    >
+                      {uploading ? <span style={{ fontSize: 10 }}>{uploadPct}%</span> : <Plus size={16} strokeWidth={1.5} />}
+                    </button>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.md"
+                    style={{ display: 'none' }}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void handleFileUpload(f); e.target.value = ''; } }}
+                  />
+                  {docs.length === 0 && !uploading ? (
+                    <div style={{ padding: '4px 2px', fontSize: 13, color: 'var(--muted)', opacity: 0.5 }}>
+                      Upload .pdf, .txt, or .md files.
+                    </div>
+                  ) : docs.map((doc) => {
+                    const isHov = hoveredDocId === doc.fileName;
+                    const menuOpen = menuDocId === doc.fileName;
+                    return (
+                      <div
+                        key={doc.fileName}
+                        style={{ position: 'relative' }}
+                        onMouseEnter={() => { if (!menuDocId || menuDocId === doc.fileName) setHoveredDocId(doc.fileName); }}
+                        onMouseLeave={() => setHoveredDocId(null)}
+                      >
+                        <div className="client-panel-row" style={{ paddingRight: isHov || menuOpen ? 36 : 10, cursor: 'default' }}>
+                          <span className="client-panel-row-name">{doc.fileName}</span>
+                          {doc.status === 'processing' && (
+                            <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--primary)' }}>
+                              <Icon icon={Loader} size="sm" style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }} />
+                              Processing
+                            </span>
+                          )}
+                          {doc.status === 'extracted' && (
+                            <span className="ingestion-badge--indexed" style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}>INDEXED</span>
+                          )}
+                          {doc.status === 'failed' && (
+                            <span className="ingestion-badge--failed" style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}>FAILED</span>
+                          )}
+                        </div>
+                        <button
+                          ref={el => { docMenuBtnRefs.current[doc.fileName] = el; }}
+                          className="btn btn-sm client-panel-row-menu"
+                          title="Options"
+                          style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHov || menuOpen ? 1 : 0, pointerEvents: isHov || menuOpen ? 'auto' : 'none', transition: 'opacity 0.15s' }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            const btn = docMenuBtnRefs.current[doc.fileName];
+                            if (!btn) return;
+                            const rect = btn.getBoundingClientRect();
+                            setMenuDocPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                            setMenuDocId(menuOpen ? null : doc.fileName);
+                          }}
+                        >
+                          <Icon icon={MoreHorizontal} size="sm" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <MemorySection key={memoryKey} namespace={name} />
+              </>
+            )}
+
+            {/* Artifacts tab: microsites + proposals */}
+            {activeRightTab === 'artifacts' && (
+              <div className="client-panel-list" style={{ padding: '6px 12px' }}>
+                {/* Microsites */}
+                <div className="brief-panel-section-header" style={{ padding: '12px 4px 2px' }}>
+                  <span style={{ flex: 'none', fontSize: 14, fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>Microsites</span>
+                  <span style={{ flex: 1 }} />
                   <button
-                    onClick={() => void handleDeleteDoc(doc.fileName)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, display: 'flex', flexShrink: 0 }}
+                    onClick={() => void handleGenerateMicrosite()}
+                    disabled={proposals.length === 0 || loadingMicrositeFor !== null}
+                    title="Generate microsite"
+                    style={{ background: 'none', border: 'none', cursor: proposals.length === 0 ? 'not-allowed' : 'pointer', padding: '2px 4px', color: 'var(--muted)', display: 'flex', lineHeight: 1, opacity: proposals.length === 0 ? 0.3 : 1 }}
                   >
-                    <Icon icon={X} size="sm" />
+                    <Plus size={16} strokeWidth={1.5} />
                   </button>
                 </div>
-              ))}
-            </div>
-          </div>
+                {microsites.length === 0 ? (
+                  <div style={{ padding: '4px 2px', fontSize: 13, color: 'var(--muted)', opacity: 0.5 }}>
+                    {proposals.length === 0 ? 'Create a proposal first' : 'No microsites yet'}
+                  </div>
+                ) : microsites.map((m) => {
+                  const isHov = hoveredMicrositeId === m.id;
+                  const menuOpen = menuMicrositeId === m.id;
+                  return (
+                    <div
+                      key={m.id}
+                      className="client-panel-row"
+                      onClick={() => void handleOpenMicrosite(m)}
+                      onMouseEnter={() => setHoveredMicrositeId(m.id)}
+                      onMouseLeave={() => setHoveredMicrositeId(null)}
+                      style={{ paddingRight: isHov || menuOpen ? 36 : 10, height: 'auto', paddingTop: 7, paddingBottom: 7, alignItems: 'flex-start' }}
+                    >
+                      <span style={{ flexShrink: 0, width: 26, height: 26, borderRadius: '50%', background: 'var(--primary-soft, rgba(99,102,241,0.12))', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                        <Globe size={13} strokeWidth={1.5} />
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title.split(/\s*[-–—]\s*/)[0]}</span>
+                          <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, color: 'var(--primary)', background: 'var(--primary-soft, rgba(99,102,241,0.12))', borderRadius: 4, padding: '1px 5px', lineHeight: 1.5 }}>v{msVersionMap.get(m.id) ?? 1}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {meta?.displayName ?? name} · {new Date(m.savedAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      </div>
+                      <button
+                        ref={el => { msMenuBtnRefs.current[m.id] = el; }}
+                        className="btn btn-sm client-panel-row-menu"
+                        title="Options"
+                        onClick={e => {
+                          e.stopPropagation();
+                          const btn = msMenuBtnRefs.current[m.id];
+                          if (!btn) return;
+                          const rect = btn.getBoundingClientRect();
+                          setMenuMicrositePos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                          setMenuMicrositeId(menuOpen ? null : m.id);
+                        }}
+                        style={{ opacity: isHov || menuOpen ? 1 : 0 }}
+                      >
+                        <Icon icon={MoreHorizontal} size="sm" />
+                      </button>
+                    </div>
+                  );
+                })}
 
-          {/* Memory — auto-built from chat + ingested docs */}
-          <div style={{ marginTop: 4 }}>
-            <p style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-              Memory
-            </p>
-            <MemorySection key={memoryKey} namespace={name} />
+                {/* Proposals */}
+                <div className="brief-panel-section-header" style={{ padding: '10px 4px 2px' }}>
+                  <span style={{ flex: 'none', fontSize: 14, fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>Proposals</span>
+                </div>
+                {proposals.length === 0 ? (
+                  <div style={{ padding: '4px 2px', fontSize: 13, color: 'var(--muted)', opacity: 0.5 }}>
+                    Ask me to generate a proposal in chat.
+                  </div>
+                ) : proposals.map((p) => {
+                  const isHov = hoveredProposalId === p.fileName;
+                  const menuOpen = menuProposalId === p.fileName;
+                  return (
+                    <div
+                      key={p.fileName}
+                      className="client-panel-row"
+                      onClick={() => void openProposal(p)}
+                      onMouseEnter={() => setHoveredProposalId(p.fileName)}
+                      onMouseLeave={() => setHoveredProposalId(null)}
+                      style={{ paddingRight: isHov || menuOpen ? 36 : 10, height: 'auto', paddingTop: 7, paddingBottom: 7, alignItems: 'flex-start' }}
+                    >
+                      <span style={{ flexShrink: 0, width: 26, height: 26, borderRadius: '50%', background: 'var(--primary-soft, rgba(99,102,241,0.12))', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                        <FileText size={13} strokeWidth={1.5} />
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ flex: 1, fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title.split(/\s*[-–—]\s*/)[0]}</span>
+                          <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, color: 'var(--primary)', background: 'var(--primary-soft, rgba(99,102,241,0.12))', borderRadius: 4, padding: '1px 5px', lineHeight: 1.5 }}>v{propVersionMap.get(p.fileName) ?? 1}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {meta?.displayName ?? name} · {new Date(p.savedAt).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      </div>
+                      <button
+                        ref={el => { propMenuBtnRefs.current[p.fileName] = el; }}
+                        className="btn btn-sm client-panel-row-menu"
+                        title="Options"
+                        onClick={e => {
+                          e.stopPropagation();
+                          const btn = propMenuBtnRefs.current[p.fileName];
+                          if (!btn) return;
+                          const rect = btn.getBoundingClientRect();
+                          setMenuProposalPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                          setMenuProposalId(menuOpen ? null : p.fileName);
+                        }}
+                        style={{ opacity: isHov || menuOpen ? 1 : 0 }}
+                      >
+                        <Icon icon={MoreHorizontal} size="sm" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
     </div>
+
+    {/* ── Right panel ··· dropdown menus ── */}
+    {menuMicrositeId && createPortal(
+      <div className="card" style={{ position: 'fixed', top: menuMicrositePos.top, right: menuMicrositePos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
+        <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { const id = menuMicrositeId; setMenuMicrositeId(null); void handleDeleteMicrosite(id); }}>
+          <Icon icon={Trash2} size="sm" /><span>Delete</span>
+        </button>
+      </div>, document.body,
+    )}
+    {menuProposalId && createPortal(
+      <div className="card" style={{ position: 'fixed', top: menuProposalPos.top, right: menuProposalPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
+        <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { const id = menuProposalId; setMenuProposalId(null); void handleDeleteProposal(id); }}>
+          <Icon icon={Trash2} size="sm" /><span>Delete</span>
+        </button>
+      </div>, document.body,
+    )}
+    {menuDocId && createPortal(
+      <div className="card" style={{ position: 'fixed', top: menuDocPos.top, right: menuDocPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
+        <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { const id = menuDocId; setMenuDocId(null); void handleDeleteDoc(id); }}>
+          <Icon icon={Trash2} size="sm" /><span>Delete</span>
+        </button>
+      </div>, document.body,
+    )}
 
     {/* Proposal picker — shown when >1 proposals and user clicks Generate Microsite */}
     {showProposalPicker && (
@@ -1362,16 +1556,18 @@ export default function SuperClientPage() {
         proposalName={micrositeModal.proposal.title}
         proposalMarkdown={micrositeModal.markdown}
         onComplete={async (ast) => {
+          // Open panel immediately with stream AST
+          setMicrositeModal(null);
+          const tempId = `preview-modal-${Date.now()}`;
+          setViewingMicrosite({ id: tempId, ast, renderKey: `${tempId}-${Date.now()}` });
+          if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
+          collapseForPanel();
           try {
             const saved = await saveSuperClientMicrosite(apiKey, name, ast, micrositeModal.proposal.title);
-            setMicrosites((prev) => [saved, ...prev]);
-            setMicrositeModal(null);
-            setViewingMicrosite({ id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` });
-            if (viewingProposal) { setViewingProposal(null); setChangedSections(new Set()); setUpdateBanner(''); }
-            collapseForPanel();
+            setViewingMicrosite((prev) => prev?.id === tempId ? { id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` } : prev);
+            loadMicrosites();
           } catch (err) {
             console.error('Failed to save microsite', err);
-            setMicrositeModal(null);
           }
         }}
         onClose={() => setMicrositeModal(null)}
