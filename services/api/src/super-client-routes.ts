@@ -1216,21 +1216,28 @@ ${html}`;
     let summary = 'Applied edit';
 
     if (isLarge && sectionCtx) {
-      // Large HTML path: response is either FORMAT A patches or a bare section HTML
+      // Large HTML path: response is FORMAT A patches or a section/block HTML.
+      // Strip code fences first — LLM often wraps output regardless of instructions.
+      const stripped = raw.trim()
+        .replace(/^```(?:html)?\r?\n?/, '')
+        .replace(/\r?\n?```\s*$/, '')
+        .trim();
+
       const jsonStart = raw.indexOf('{');
       const jsonEnd = raw.lastIndexOf('}');
-      const looksLikeSection = raw.trimStart().startsWith('<section');
 
-      if (looksLikeSection) {
-        // FORMAT B section output — strip code fences, splice back
-        const cleanSection = raw.trim()
-          .replace(/^```(?:html)?\r?\n?/, '')
-          .replace(/\r?\n?```\s*$/, '')
-          .trim();
-        if (!cleanSection.toLowerCase().includes('</section>')) {
-          return reply.code(502).send({ error: 'Section edit appears truncated — try a simpler instruction' });
-        }
-        updatedHtml = sectionCtx.before + cleanSection + sectionCtx.after;
+      // Detect section HTML: find the first <section or <div that contains the edit target.
+      // We search the stripped response rather than requiring it to start with the tag.
+      const sectionTagIdx = stripped.search(/<section[\s>]/i);
+      const divTagIdx = stripped.search(/<div[\s>]/i);
+      const blockStart = sectionTagIdx !== -1 ? sectionTagIdx : divTagIdx;
+      const closingTag = sectionTagIdx !== -1 ? '</section>' : '</div>';
+      const blockEnd = blockStart !== -1 ? stripped.lastIndexOf(closingTag) : -1;
+      const looksLikeBlock = blockStart !== -1 && blockEnd !== -1 && blockEnd > blockStart;
+
+      if (looksLikeBlock) {
+        const cleanBlock = stripped.slice(blockStart, blockEnd + closingTag.length);
+        updatedHtml = sectionCtx.before + cleanBlock + sectionCtx.after;
         summary = 'Section updated';
       } else if (jsonStart !== -1 && jsonEnd !== -1) {
         // FORMAT A patches — apply to full HTML

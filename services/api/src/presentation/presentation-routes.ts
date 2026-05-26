@@ -2443,7 +2443,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
               { type: 'text', text: prompt },
             ] }]
           : [{ role: 'user', content: prompt }];
-        raw = await callLLMStream(messages, 16000);
+        raw = await callLLMStream(messages, 32000);
       } finally {
         clearInterval(hbTimer);
       }

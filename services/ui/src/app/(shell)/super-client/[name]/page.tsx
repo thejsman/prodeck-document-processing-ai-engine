@@ -519,9 +519,7 @@ export default function SuperClientPage() {
       title: proposal.title,
       content: "",
     });
-    if (viewingMicrosite) {
-      setViewingMicrosite(null);
-    }
+    setViewingMicrosite(null);
     collapseForPanel();
     try {
       const content = await getSuperClientProposal(
@@ -909,11 +907,10 @@ export default function SuperClientPage() {
               ast,
               renderKey: `${tempId}-${Date.now()}`,
             });
-            if (viewingProposal) {
-              setViewingProposal(null);
-              setChangedSections(new Set());
-              setUpdateBanner("");
-            }
+            setViewingProposal(null);
+            setChangedSections(new Set());
+            setUpdateBanner("");
+            setActiveRightTab("artifacts");
             collapseForPanel();
             void (async () => {
               try {
@@ -928,7 +925,7 @@ export default function SuperClientPage() {
                   { micrositeId: saved.id, ast },
                   saved.title,
                 );
-                // Swap temp ID for the real saved ID and refresh list
+                // Swap temp ID for the real saved ID
                 setViewingMicrosite((prev) =>
                   prev?.id === tempId
                     ? {
@@ -938,7 +935,12 @@ export default function SuperClientPage() {
                       }
                     : prev,
                 );
-                loadMicrosites();
+                // Optimistic update so the artifacts tab is populated immediately
+                setMicrosites((prev) => {
+                  if (prev.some((m) => m.id === saved.id)) return prev;
+                  return [saved, ...prev];
+                });
+                loadMicrosites(); // sync with server
                 showToast("Microsite generated and saved");
               } catch (err) {
                 generationStore.error(msGenId, (err as Error).message);
@@ -1058,12 +1060,39 @@ export default function SuperClientPage() {
               ),
             );
             if (evt.proposalSaved) {
+              // If the proposal intent regex didn't match, retroactively attach a generation
+              // entry to the assistant message so the ArtifactCard appears in the chat.
+              let effectiveGenId = proposalGenId;
+              if (!effectiveGenId) {
+                effectiveGenId = genId();
+                generationStore.start({
+                  id: effectiveGenId,
+                  clientSlug: name,
+                  type: "proposal",
+                  title: evt.proposalSaved.title,
+                  abort: () => {},
+                });
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, generationId: effectiveGenId! }
+                      : m,
+                  ),
+                );
+              }
               generationStore.complete(
-                proposalGenId ?? `noop`,
+                effectiveGenId,
                 { fileName: evt.proposalSaved.fileName },
                 evt.proposalSaved.title,
               );
-              loadProposals(); // refresh list from server
+              setActiveRightTab("artifacts");
+              // Optimistic update so the artifacts tab is populated immediately
+              setProposals((prev) => {
+                if (prev.some((p) => p.fileName === evt.proposalSaved!.fileName))
+                  return prev;
+                return [evt.proposalSaved!, ...prev];
+              });
+              loadProposals(); // sync with server
               void openProposal(evt.proposalSaved!);
             } else if (proposalGenId) {
               // Proposal intent matched but LLM didn't generate one — remove the capsule
@@ -1404,13 +1433,29 @@ export default function SuperClientPage() {
                                 gen.type === "microsite" &&
                                 gen.result?.micrositeId
                               ) {
-                                const found = microsites.find(
-                                  (m) => m.id === gen.result!.micrositeId,
-                                );
-                                if (!found) {
-                                  showToast("This microsite has been deleted", "error");
+                                if (gen.result.ast) {
+                                  // Fresh generation — AST already in memory, no list lookup needed
+                                  setViewingMicrosite({
+                                    id: gen.result.micrositeId as string,
+                                    ast: gen.result.ast as LayoutAST,
+                                    renderKey: `${gen.result.micrositeId}-${Date.now()}`,
+                                  });
+                                  if (viewingProposal) {
+                                    setViewingProposal(null);
+                                    setChangedSections(new Set());
+                                    setUpdateBanner("");
+                                  }
+                                  collapseForPanel();
                                 } else {
-                                  void handleOpenMicrosite(found);
+                                  // Older generation from history — check list
+                                  const found = microsites.find(
+                                    (m) => m.id === gen.result!.micrositeId,
+                                  );
+                                  if (!found) {
+                                    showToast("This microsite has been deleted", "error");
+                                  } else {
+                                    void handleOpenMicrosite(found);
+                                  }
                                 }
                               } else if (
                                 gen.type === "proposal" &&
