@@ -408,7 +408,9 @@ export default function SuperClientPage() {
         setCanUndo(false);
       }, 30000);
     } catch (err) {
-      console.error('Microsite edit failed', err);
+      const msg = err instanceof Error ? err.message : 'Edit failed';
+      setMicrositeEditBanner(`Error: ${msg}`);
+      setTimeout(() => setMicrositeEditBanner(''), 8000);
     } finally {
       setMicrositeEditing(false);
     }
@@ -1058,7 +1060,11 @@ export default function SuperClientPage() {
               {/* Input row */}
               <div style={{ display: 'flex', alignItems: 'flex-end', flex: 1 }}>
                 {viewingMicrosite && micrositeEditBanner ? (
-                  <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '8px 10px', alignSelf: 'center' }}>
+                  <span
+                    onClick={micrositeEditBanner.startsWith('Error:') ? () => setMicrositeEditBanner('') : undefined}
+                    style={{ flex: 1, fontSize: 12, color: micrositeEditBanner.startsWith('Error:') ? 'var(--destructive, #ef4444)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '8px 10px', alignSelf: 'center', cursor: micrositeEditBanner.startsWith('Error:') ? 'pointer' : undefined }}
+                    title={micrositeEditBanner.startsWith('Error:') ? 'Click to dismiss' : undefined}
+                  >
                     {micrositeEditBanner}
                   </span>
                 ) : (
@@ -1086,7 +1092,7 @@ export default function SuperClientPage() {
                     }}
                   />
                 )}
-                {viewingMicrosite && canUndo && (
+                {viewingMicrosite && (
                   <button
                     onClick={() => void handleMicrositeRevert()}
                     disabled={micrositeEditing}
@@ -1177,8 +1183,8 @@ export default function SuperClientPage() {
                   border: 'none',
                   colorScheme: 'light',
                 }}
-                sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
-                allow="autoplay; fullscreen; picture-in-picture"
+                sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
               />
               {/* Overlay blocks iframe from swallowing mouse events during resize */}
               {micrositeDragging && (

@@ -992,7 +992,121 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
-    const combinedPrompt = `You are an HTML microsite editor. Given a complete HTML microsite and an edit instruction, choose one of two response formats:
+    // ── Deterministic video-background injection (bypasses LLM entirely) ──────
+    const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
+    const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+    if (vimeoIdMatch ?? youtubeIdMatch) {
+      const isVimeo = !!vimeoIdMatch;
+      const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
+      const src = isVimeo
+        ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
+        : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
+      // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
+      const iframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
+
+      // Remove any existing video iframes in hero
+      let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
+
+      // Strip background-image from hero photo/background elements so video shows through
+      updatedHtml = updatedHtml.replace(
+        /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
+        '$1',
+      );
+
+      // Inject iframe as first child of the first <section>, add position:relative;overflow:hidden
+      updatedHtml = updatedHtml.replace(/<section\b([^>]*)>/i, (_full, attrs: string) => {
+        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+        const styleMatch = styleRx.exec(attrs);
+        if (styleMatch) {
+          const cleaned = styleMatch[1]
+            .replace(/\bposition\s*:[^;]+;?\s*/g, '')
+            .replace(/\boverflow\s*:[^;]+;?\s*/g, '')
+            .trim().replace(/;$/, '');
+          attrs = attrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
+        } else {
+          attrs = `${attrs} style="position:relative;overflow:hidden"`;
+        }
+        return `<section${attrs}>\n  ${iframe}`;
+      });
+
+      const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
+      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      return reply.send({ html: updatedHtml, summary });
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // ── Section extraction helpers ────────────────────────────────────────────
+    type SectionSlice = { before: string; section: string; after: string };
+
+    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+      const out: Array<{ start: number; end: number }> = [];
+      let pos = 0;
+      while (pos < src.length) {
+        const openIdx = src.indexOf('<section', pos);
+        if (openIdx === -1) break;
+        const tagEnd = src.indexOf('>', openIdx);
+        if (tagEnd === -1) break;
+        let depth = 1, i = tagEnd + 1, sectionEnd = -1;
+        while (i < src.length && depth > 0) {
+          const nextOpen = src.indexOf('<section', i);
+          const nextClose = src.indexOf('</section>', i);
+          if (nextClose === -1) break;
+          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + 8; }
+          else { depth--; i = nextClose + 10; if (depth === 0) sectionEnd = i; }
+        }
+        if (sectionEnd !== -1) { out.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+        else { pos = tagEnd + 1; }
+      }
+      return out;
+    }
+
+    function extractBestSection(src: string, hint: string): SectionSlice | null {
+      const secs = extractAllTopLevelSections(src);
+      if (secs.length === 0) return null;
+      const words = hint.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+      let best = secs[0], bestScore = 0;
+      for (const sec of secs) {
+        const text = src.slice(sec.start, sec.end).toLowerCase();
+        const score = words.filter(w => text.includes(w)).length;
+        if (score > bestScore) { bestScore = score; best = sec; }
+      }
+      return { before: src.slice(0, best.start), section: src.slice(best.start, best.end), after: src.slice(best.end) };
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // Extract CSS :root block so the LLM knows available design tokens
+    const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+    const LARGE_HTML = 15000;
+    const isLarge = html.length > LARGE_HTML;
+
+    let combinedPrompt: string;
+    let sectionCtx: SectionSlice | null = null;
+
+    if (isLarge) {
+      sectionCtx = extractBestSection(html, instruction);
+    }
+
+    if (isLarge && sectionCtx) {
+      // Section-scoped prompt: LLM only sees/outputs the first section + CSS vars
+      combinedPrompt = `You are editing a section of an HTML microsite. Choose one format:
+
+FORMAT A — CSS variable changes (colors, fonts, spacing only). Output ONLY a JSON object:
+{ "patches": [{ "find": "exact single-line CSS variable", "replace": "new value" }], "summary": "one-line description" }
+Rules: target only :root CSS custom properties; single-line strings; 1–3 patches max.
+
+FORMAT B — structural changes (images, layout, add/remove elements). Output ONLY the complete modified section HTML — start with <section, end with </section>, no preamble, no code fences.
+
+CSS CUSTOM PROPERTIES (reference for FORMAT A):
+${cssVarsBlock}
+
+HERO SECTION HTML (modify this for FORMAT B):
+${sectionCtx.section}
+
+EDIT INSTRUCTION: ${instruction}`;
+    } else {
+      combinedPrompt = `You are an HTML microsite editor. Given a complete HTML microsite and an edit instruction, choose one of two response formats:
 
 FORMAT A — targeted changes (colors, fonts, text, spacing). Use this for most edits.
 Respond with ONLY a JSON object (no preamble, start with {, end with }):
@@ -1011,52 +1125,78 @@ REWRITE
 <!DOCTYPE html>
 ...complete new HTML document...
 
-VIDEO BACKGROUND RULE:
-If the instruction references a Vimeo or YouTube URL for a background:
-- Vimeo: extract the numeric ID from the URL (e.g. vimeo.com/789106059 → ID is 789106059), embed as:
-  <iframe src="https://player.vimeo.com/video/{ID}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
-- YouTube: extract the video ID, embed as:
-  <iframe src="https://www.youtube.com/embed/{ID}?autoplay=1&loop=1&mute=1&controls=0&playlist={ID}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
-- Place the iframe as the first child of the hero section; set the hero section to position:relative and overflow:hidden
-- Ensure all hero text/content elements have position:relative and z-index:1 so they appear above the video
-- Remove any existing background-image or background CSS from the hero section
-- This always requires FORMAT B (REWRITE) since it modifies HTML structure
-
 EDIT INSTRUCTION: ${instruction}
 
 CURRENT HTML:
 ${html}`;
+    }
 
     const raw = await llmGenerateFn(combinedPrompt);
 
     let updatedHtml = html;
     let summary = 'Applied edit';
 
-    // Detect FORMAT B: response starts with REWRITE sentinel (possibly after whitespace/fences)
-    const rewriteMatch = raw.match(/REWRITE\s*\n([\s\S]+)/);
-    if (rewriteMatch) {
-      updatedHtml = rewriteMatch[1].trim();
-      summary = 'Full rewrite applied';
-    } else {
-      // FORMAT A: JSON patches
+    if (isLarge && sectionCtx) {
+      // Large HTML path: response is either FORMAT A patches or a bare section HTML
       const jsonStart = raw.indexOf('{');
       const jsonEnd = raw.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd === -1) return reply.code(502).send({ error: 'LLM returned no recognisable format' });
+      const looksLikeSection = raw.trimStart().startsWith('<section');
 
-      let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
-      try {
-        // Sanitize literal newlines inside JSON string values (LLM sometimes forgets to escape them)
-        const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
-        parsed = JSON.parse(jsonSlice) as typeof parsed;
-      } catch {
-        return reply.code(502).send({ error: 'LLM returned malformed JSON' });
+      if (looksLikeSection) {
+        // FORMAT B section output — strip code fences, splice back
+        const cleanSection = raw.trim()
+          .replace(/^```(?:html)?\r?\n?/, '')
+          .replace(/\r?\n?```\s*$/, '')
+          .trim();
+        if (!cleanSection.toLowerCase().includes('</section>')) {
+          return reply.code(502).send({ error: 'Section edit appears truncated — try a simpler instruction' });
+        }
+        updatedHtml = sectionCtx.before + cleanSection + sectionCtx.after;
+        summary = 'Section updated';
+      } else if (jsonStart !== -1 && jsonEnd !== -1) {
+        // FORMAT A patches — apply to full HTML
+        let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
+        try {
+          const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
+            .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+          parsed = JSON.parse(jsonSlice) as typeof parsed;
+        } catch {
+          return reply.code(502).send({ error: 'LLM returned malformed JSON' });
+        }
+        summary = parsed.summary ?? summary;
+        for (const patch of parsed.patches ?? []) {
+          if (patch.find && patch.replace !== undefined) updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
+        }
+      } else {
+        return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
       }
-
-      summary = parsed.summary ?? summary;
-      for (const patch of parsed.patches ?? []) {
-        if (patch.find && patch.replace !== undefined) {
-          updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
+    } else {
+      // Small HTML path: original FORMAT A / FORMAT B REWRITE logic
+      const rewriteMatch = raw.match(/REWRITE\s*\n([\s\S]+)/);
+      if (rewriteMatch) {
+        updatedHtml = rewriteMatch[1].trim()
+          .replace(/^```(?:html)?\r?\n?/, '')
+          .replace(/\r?\n?```\s*$/, '')
+          .trim();
+        if (!updatedHtml.includes('</body>') && !updatedHtml.includes('</html>')) {
+          return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
+        }
+        summary = 'Full rewrite applied';
+      } else {
+        const jsonStart = raw.indexOf('{');
+        const jsonEnd = raw.lastIndexOf('}');
+        if (jsonStart === -1 || jsonEnd === -1) return reply.code(502).send({ error: 'LLM returned no recognisable format' });
+        let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
+        try {
+          const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
+            .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+          parsed = JSON.parse(jsonSlice) as typeof parsed;
+        } catch {
+          return reply.code(502).send({ error: 'LLM returned malformed JSON' });
+        }
+        summary = parsed.summary ?? summary;
+        for (const patch of parsed.patches ?? []) {
+          if (patch.find && patch.replace !== undefined) updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
         }
       }
     }
