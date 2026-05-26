@@ -1150,13 +1150,6 @@ export function ProposalPage() {
                       <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6, marginBottom: 0 }}>
                         Create your first one to get started.
                       </p>
-                      <button
-                        onClick={() => setShowGenerateModal(true)}
-                        className="btn btn-primary btn-sm"
-                        style={{ marginTop: 20, width: 'auto' }}
-                      >
-                        New Proposal
-                      </button>
                     </div>
                   </div>
                 ) : null}
