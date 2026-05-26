@@ -45,12 +45,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
     if (hasUrlOrNotes) setAnalyzing(true);
 
     try {
-      const result = await createSuperClient(
-        apiKey,
-        trimmedName,
-        url.trim() || undefined,
-        notes.trim() || undefined,
-      );
+      const result = await createSuperClient(apiKey, trimmedName, url.trim() || undefined, notes.trim() || undefined);
       onCreated(result.name);
       onClose();
       router.push(`/super-client/${result.name}`);
@@ -87,7 +82,9 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
         justifyContent: 'center',
         padding: 24,
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="create-ns-modal"
@@ -140,14 +137,17 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
             <input
               autoFocus
               value={displayName}
-              onChange={(e) => { setDisplayName(e.target.value); setError(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+              onChange={(e) => {
+                setDisplayName(e.target.value);
+                setError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreate();
+              }}
               placeholder="e.g. Acme Corporation"
               style={{ ...inputStyle, borderColor: error ? 'var(--danger)' : 'var(--border)' }}
             />
-            {error && (
-              <p style={{ fontSize: 12, color: 'var(--danger)', margin: '4px 0 0' }}>{error}</p>
-            )}
+            {error && <p style={{ fontSize: 12, color: 'var(--danger)', margin: '4px 0 0' }}>{error}</p>}
           </div>
 
           {/* Website URL */}
@@ -158,7 +158,9 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
             <input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreate();
+              }}
               placeholder="https://acme.com"
               type="url"
               style={inputStyle}
@@ -186,15 +188,11 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
 
           {(url.trim() || notes.trim()) && (
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: '-8px 0 0', opacity: 0.7 }}>
-              Claude will analyze this info to build client intelligence.
+              Ley me analyze this info to build client intelligence.
             </p>
           )}
 
-          <button
-            onClick={handleCreate}
-            disabled={creating || !displayName.trim()}
-            className="btn btn-primary"
-          >
+          <button onClick={handleCreate} disabled={creating || !displayName.trim()} className="btn btn-primary">
             {analyzing ? 'Analyzing client…' : creating ? 'Creating…' : 'Create Super Client'}
           </button>
         </div>
