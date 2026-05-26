@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ExternalLink,
   ArrowUp,
@@ -245,6 +245,7 @@ function ArtifactCard({
 export default function SuperClientPage() {
   const { name } = useParams<{ name: string }>();
   const { apiKey } = useAuth();
+  const router = useRouter();
   const {
     collapsed: sidebarCollapsed,
     collapse: collapseSidebar,
@@ -1167,18 +1168,34 @@ export default function SuperClientPage() {
   }
 
   if (error || !meta) {
+    const is404 = error?.includes('404');
+    const isNetwork = error?.toLowerCase().includes('network') || error?.toLowerCase().includes('failed to fetch');
+    const title = is404 ? 'Client not found' : isNetwork ? 'Network error' : 'Something went wrong';
+    const detail = is404
+      ? 'This client may have been deleted.'
+      : isNetwork
+        ? 'Check your connection and try again.'
+        : (error ?? 'Could not load client.');
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100%",
-          color: "var(--danger)",
-          fontSize: 14,
-        }}
-      >
-        {error || "Super client not found"}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
+        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{title}</p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{detail}</p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button
+            onClick={() => router.push('/')}
+            style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, background: 'var(--panel)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)' }}
+          >
+            ← All clients
+          </button>
+          {!is404 && (
+            <button
+              onClick={() => window.location.reload()}
+              style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, background: 'var(--primary)', border: 'none', cursor: 'pointer', color: '#fff' }}
+            >
+              Retry
+            </button>
+          )}
+        </div>
       </div>
     );
   }
