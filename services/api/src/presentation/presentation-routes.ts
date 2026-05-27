@@ -2263,6 +2263,179 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
     }
   });
 
+  // ── Website design context extractor (used by V2 route) ────────────────────
+  // Fetches a URL and pulls out brand colors, fonts, logo, and og:image so the
+  // LLM can replicate the visual identity without being able to browse the web.
+  interface WebsiteDesignContext { note: string; logoBase64?: string; logoMediaType?: string; }
+
+  async function fetchWebsiteDesignContext(url: string): Promise<WebsiteDesignContext> {
+    const baseUrl = new URL(url);
+
+    // ── Resolve a potentially-relative URL to absolute ──────────────────────
+    const toAbsolute = (href: string): string => {
+      if (!href) return '';
+      if (href.startsWith('http')) return href;
+      return href.startsWith('/') ? `${baseUrl.origin}${href}` : `${baseUrl.origin}/${href}`;
+    };
+
+    // ── Fetch helper with timeout + size cap ─────────────────────────────────
+    const fetchText = async (targetUrl: string, maxKb = 200, timeoutMs = 6000): Promise<string> => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const r = await fetch(targetUrl, {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Bot/1.0)', 'Accept': '*/*' },
+        });
+        clearTimeout(t);
+        if (!r.ok) return '';
+        let out = ''; let bytes = 0;
+        const reader = r.body?.getReader();
+        if (reader) {
+          const dec = new TextDecoder();
+          while (bytes < maxKb * 1024) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) { out += dec.decode(value, { stream: true }); bytes += value.length; }
+          }
+          try { reader.cancel(); } catch { /* ignore */ }
+        } else { out = await r.text(); }
+        return out;
+      } catch { clearTimeout(t); return ''; }
+    };
+
+    // ── Fetch the page HTML ──────────────────────────────────────────────────
+    const html = await fetchText(url, 500, 10000);
+    if (!html) return { note: '' };
+
+    // ── Meta: title & theme-color ────────────────────────────────────────────
+    const title = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? '';
+    const themeColor = (
+      html.match(/<meta[^>]+name=["']theme-color["'][^>]+content=["']([^"']+)["']/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']theme-color["']/i)
+    )?.[1]?.trim() ?? '';
+
+    // ── Google Fonts ─────────────────────────────────────────────────────────
+    const gFontsUrl = html.match(/(https:\/\/fonts\.googleapis\.com\/css[^"'\s)]+)/i)?.[1] ?? '';
+
+    // ── Collect ALL CSS: inline <style> blocks + up to 3 external sheets ─────
+    const inlineStyleBlocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
+      .map(m => m[1]).join('\n');
+
+    // Find external stylesheet hrefs (skip google fonts — they're font-only)
+    const cssHrefs = [...html.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi)]
+      .map(m => m[1])
+      .filter(h => !h.includes('fonts.googleapis'))
+      .slice(0, 3);
+
+    const externalCssChunks = await Promise.all(
+      cssHrefs.map(href => fetchText(toAbsolute(href), 120, 5000)),
+    );
+    const allCss = [inlineStyleBlocks, ...externalCssChunks].join('\n');
+
+    // ── Also harvest colors from inline style="" attributes ──────────────────
+    const inlineStyleAttrs = [...html.matchAll(/style=["']([^"']{0,300})["']/gi)]
+      .map(m => m[1]).join(';');
+    const allCssAndInline = allCss + '\n' + inlineStyleAttrs;
+
+    // ── Extract CSS custom properties (color-related) ─────────────────────────
+    const cssVarColors = [...allCss.matchAll(
+      /(--[a-z][a-z0-9-]*(?:color|primary|secondary|accent|brand|bg|background|text|surface|foreground|highlight|muted)[^:]*)\s*:\s*(#[0-9a-f]{3,8}|rgb[^;,}]+|hsl[^;,}]+)/gi,
+    )].slice(0, 12).map(m => `${m[1].trim()}: ${m[2].trim()}`);
+
+    // ── Distinct hex colors — skip near-neutral grays & pure black/white ─────
+    const neutralFilter = new Set([
+      '#fff','#000','#ffffff','#000000','#eee','#ddd','#ccc','#bbb','#aaa','#999',
+      '#888','#777','#666','#555','#444','#333','#222','#111',
+      '#f5f5f5','#f0f0f0','#fafafa','#e5e5e5','#e0e0e0','#d9d9d9',
+      '#1a1a1a','#2a2a2a','#3a3a3a','#4a4a4a',
+    ]);
+    const hexColors = [...new Set(
+      [...allCssAndInline.matchAll(/#([0-9a-f]{3,6})\b/gi)].map(m => '#' + m[1].toLowerCase()),
+    )].filter(c => !neutralFilter.has(c)).slice(0, 10);
+
+    // ── Font families ─────────────────────────────────────────────────────────
+    const fontFamilies = [...new Set(
+      [...allCss.matchAll(/font-family\s*:\s*([^;}{]+)/gi)].map(m =>
+        m[1].trim().replace(/["']/g, '').split(',')[0].trim(),
+      ),
+    )].filter(f => f && f !== 'inherit' && f !== 'initial' && f !== 'sans-serif' && f !== 'serif').slice(0, 3);
+
+    // ── og:image and favicon ──────────────────────────────────────────────────
+    const ogImage = (
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
+    )?.[1] ?? '';
+
+    // Prefer high-res favicon icon types (SVG > PNG > ICO) for logo — better
+    // than og:image which is usually a big hero photo that misleads color detection
+    const faviconLinks = [...html.matchAll(
+      /<link[^>]+rel=["'](?:[^"']*\s)?(?:icon|apple-touch-icon)[^"']*["'][^>]+href=["']([^"']+)["']/gi,
+    )].map(m => toAbsolute(m[1]));
+
+    const favicon = faviconLinks.find(f => f.endsWith('.svg') || f.endsWith('.png'))
+      ?? faviconLinks[0]
+      ?? toAbsolute('/favicon.ico');
+
+    // ── Build the design-context prompt note ─────────────────────────────────
+    const logoUrl = favicon || ogImage;   // favicon first — it's the actual logo
+    const bgColor = themeColor || hexColors[0] || '';
+    const paletteStr = [themeColor, ...hexColors].filter(Boolean).slice(0, 8).join(', ');
+
+    const lines: string[] = [
+      `=== BRAND DESIGN SYSTEM (extracted from ${url}) ===`,
+      `You MUST use these exact brand colors. Do not invent or substitute your own colors.`,
+    ];
+    if (title) lines.push(`Brand: ${title}`);
+    if (bgColor) lines.push(`Primary brand color (use as main background or hero): ${bgColor}`);
+    if (paletteStr) lines.push(`Full color palette — use ALL of these: ${paletteStr}`);
+    if (cssVarColors.length) lines.push(`CSS design tokens:\n  ${cssVarColors.join('\n  ')}`);
+    if (fontFamilies.length) lines.push(`Typography (use these exact fonts): ${fontFamilies.join(', ')}`);
+    if (gFontsUrl) lines.push(`Load this Google Fonts URL in <head>: ${gFontsUrl}`);
+    if (logoUrl) {
+      lines.push(`Logo: ${logoUrl}`);
+      lines.push(`In the site header, embed: <img src="${logoUrl}" alt="${title || 'Logo'}" style="height:40px;object-fit:contain;">`);
+    }
+    lines.push(
+      ``,
+      `STRICT RULES:`,
+      `1. The hero/header background MUST be ${bgColor || 'the primary brand color above'} — not black, not white, not a generic gradient.`,
+      `2. Every section must use the extracted palette. No generic colors allowed.`,
+      `3. The logo image above MUST appear in the navigation/header.`,
+      `4. Typography MUST use the fonts listed above.`,
+      `=== END BRAND DESIGN SYSTEM ===`,
+    );
+
+    const note = lines.join('\n');
+
+    // ── Fetch favicon as base64 vision input ─────────────────────────────────
+    // Using favicon (not og:image) avoids the LLM mistaking a dark hero photo
+    // for the brand's color scheme.
+    let logoBase64: string | undefined;
+    let logoMediaType: string | undefined;
+    if (favicon) {
+      try {
+        const imgCtrl = new AbortController();
+        const imgTimeout = setTimeout(() => imgCtrl.abort(), 5000);
+        const imgRes = await fetch(favicon, { signal: imgCtrl.signal });
+        clearTimeout(imgTimeout);
+        if (imgRes.ok) {
+          const buf = await imgRes.arrayBuffer();
+          if (buf.byteLength > 0 && buf.byteLength < 2 * 1024 * 1024) {
+            const ct = (imgRes.headers.get('content-type') ?? 'image/png').split(';')[0].trim();
+            // Only pass raster images as vision (Anthropic doesn't support SVG)
+            if (ct !== 'image/svg+xml' && !favicon.endsWith('.svg')) {
+              logoBase64 = Buffer.from(buf).toString('base64');
+              logoMediaType = ct;
+            }
+          }
+        }
+      } catch { /* skip if unavailable */ }
+    }
+
+    return { note, logoBase64, logoMediaType };
+  }
+
   // ── V2 experimental generation route ──────────────────────────────────────
   // Completely independent from the existing agent/plugin pipeline.
   // Accepts: proposalMarkdown, userPrompt (content instructions), designPrompt
@@ -2419,11 +2592,32 @@ Implement as a full-bleed iframe background inside a position:relative container
 The hero section must have position:relative; overflow:hidden. All overlay text sits above with position:relative; z-index:1.`
         : '';
 
+      // Detect non-Vimeo website URLs in userPrompt and extract design tokens
+      // so the LLM can replicate colors/fonts/logo without live web access.
+      let websiteDesignNote = '';
+      let websiteLogoImage: { base64: string; mediaType: string } | undefined;
+      const webUrlMatch = body?.userPrompt?.match(
+        /https?:\/\/(?!(?:www\.)?vimeo\.com\/)[^\s'"<>]+\.[a-z]{2,}[^\s'"<>]*/i,
+      );
+      if (webUrlMatch) {
+        try {
+          send({ type: 'progress', message: `Extracting design from ${new URL(webUrlMatch[0]).hostname}…` });
+          const designCtx = await fetchWebsiteDesignContext(webUrlMatch[0]);
+          websiteDesignNote = designCtx.note;
+          // Only use fetched logo as vision input if the user didn't supply their own image
+          if (designCtx.logoBase64 && !body?.referenceImage?.base64) {
+            websiteLogoImage = { base64: designCtx.logoBase64, mediaType: designCtx.logoMediaType ?? 'image/jpeg' };
+          }
+        } catch { /* silently skip — never fail generation over URL extraction */ }
+      }
+
       // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
+      const effectiveRefImage = body?.referenceImage ?? websiteLogoImage;
       const parts: string[] = [];
       if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
       if (vimeoNote) parts.push(vimeoNote);
-      if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
+      if (websiteDesignNote) parts.push(websiteDesignNote);
+      if (effectiveRefImage?.base64) parts.push('A reference design screenshot/logo is attached — use it to match the visual style.');
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 
@@ -2437,9 +2631,9 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       let raw: string;
       try {
-        const messages = body?.referenceImage?.base64
+        const messages = effectiveRefImage?.base64
           ? [{ role: 'user', content: [
-              { type: 'image', source: { type: 'base64', media_type: body.referenceImage.mediaType || 'image/jpeg', data: body.referenceImage.base64 } },
+              { type: 'image', source: { type: 'base64', media_type: effectiveRefImage.mediaType || 'image/jpeg', data: effectiveRefImage.base64 } },
               { type: 'text', text: prompt },
             ] }]
           : [{ role: 'user', content: prompt }];
