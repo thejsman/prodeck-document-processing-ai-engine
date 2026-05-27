@@ -469,5 +469,17 @@ async function isValidNamespace(
     if (s.isDirectory()) return true;
   } catch { /* not present */ }
 
+  // Has a proposals/ subdirectory (namespace seeded by proposal generation).
+  try {
+    const s = await stat(path.join(nsDir, 'proposals'));
+    if (s.isDirectory()) return true;
+  } catch { /* not present */ }
+
+  // Has a context.json (namespace initialised by chat/context service).
+  try {
+    const s = await stat(path.join(nsDir, 'context.json'));
+    if (s.isFile()) return true;
+  } catch { /* not present */ }
+
   return false;
 }
