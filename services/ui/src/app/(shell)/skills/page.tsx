@@ -371,7 +371,7 @@ export default function SkillsPage() {
   const hasDetail = detail !== null && selectedSlug !== null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', paddingTop: 12 }}>
 
       {/* ── Topbar ── */}
       <div style={{

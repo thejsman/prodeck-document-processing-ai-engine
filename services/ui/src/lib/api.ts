@@ -1144,6 +1144,20 @@ export async function fetchMicrositeDirectHtml(
   return res.text();
 }
 
+export async function aiEditProposal(
+  apiKey: string,
+  fileName: string,
+  instruction: string,
+): Promise<string> {
+  const res = await fetch(`/api/proposals/${encodeURIComponent(fileName)}/ai-edit`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ instruction }),
+  });
+  const data = await handleResponse<{ markdown: string }>(res);
+  return data.markdown;
+}
+
 export async function runAgent(apiKey: string, request: AgentRunRequest): Promise<AgentRunResult> {
   const res = await fetch('/api/agent/run', {
     method: 'POST',
@@ -1836,9 +1850,13 @@ export interface MemoryField {
 export interface ClientKnowledgeEntry {
   id: string;
   content: string;
-  category: 'preference' | 'constraint' | 'relationship' | 'context';
+  category:
+    | 'preference' | 'constraint' | 'relationship' | 'context'
+    | 'requirement' | 'priority' | 'problem' | 'opportunity'
+    | 'decision' | 'metric' | 'action_item';
   confidence: number;
   sourceEngagements: string[];
+  sourceDocument?: string;
   firstSeenAt: string;
   lastConfirmedAt: string;
   supersededBy?: string;
@@ -1870,7 +1888,7 @@ export interface ClientMemory {
   clientSlug: string;
   clientName: string;
   clientIndustry: string;
-  stableFields: Partial<Record<'clientName' | 'clientIndustry' | 'contactName', MemoryField>>;
+  stableFields: Partial<Record<'clientName' | 'clientIndustry' | 'contactName' | 'projectType', MemoryField>>;
   knowledge: ClientKnowledgeEntry[];
   stakeholders: StakeholderRecord[];
   conflicts: MemoryConflict[];
@@ -1880,6 +1898,21 @@ export interface ClientMemory {
 export async function fetchClientMemory(apiKey: string, clientSlug: string): Promise<ClientMemory | null> {
   const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}`, { headers: authHeaders(apiKey) });
   if (res.status === 404) return null;
+  const data = await handleResponse<{ memory: ClientMemory }>(res);
+  return data.memory;
+}
+
+export async function updateClientStableField(
+  apiKey: string,
+  clientSlug: string,
+  key: 'clientName' | 'clientIndustry' | 'contactName' | 'projectType',
+  value: string,
+): Promise<ClientMemory> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/fields`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ key, value }),
+  });
   const data = await handleResponse<{ memory: ClientMemory }>(res);
   return data.memory;
 }
@@ -2146,6 +2179,23 @@ export async function createSuperClient(
   return res.json() as Promise<{ name: string; displayName: string; contextMd: string }>;
 }
 
+export async function enrichSuperClientUrl(
+  apiKey: string,
+  name: string,
+  url: string,
+): Promise<{ meta: SuperClientMeta; contextMd: string }> {
+  const res = await fetch(`/api/super-clients/${name}/enrich-url`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`enrichSuperClientUrl failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ meta: SuperClientMeta; contextMd: string }>;
+}
+
 export async function getSuperClient(apiKey: string, name: string): Promise<SuperClientDetail> {
   const res = await fetch(`/api/super-clients/${name}`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`getSuperClient failed: ${res.status}`);
@@ -2273,7 +2323,10 @@ export async function editSuperClientMicrosite(
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({ instruction }),
   });
-  if (!res.ok) throw new Error(`editSuperClientMicrosite failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Edit failed (${res.status})`);
+  }
   return res.json() as Promise<{ html: string; summary: string }>;
 }
 

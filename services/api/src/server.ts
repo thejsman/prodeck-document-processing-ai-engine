@@ -17,7 +17,7 @@ import { registerClassicPresentationRoutes } from './presentation/presentation-c
 import { registerKnowledgeRoutes } from './ingestion/knowledge-routes.js';
 import { registerConfigRoutes } from './config-routes.js';
 import { registerTemplateAgentRoutes } from './template-agent-routes.js';
-import { registerAgentRoutes } from './agent-routes.js';
+import { registerAgentRoutes, llmGenerateFn } from './agent-routes.js';
 import { registerAssetRoutes } from './asset-routes.js';
 import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js';
 import { registerImageRoutes } from './image-routes.js';
@@ -106,7 +106,7 @@ export async function createServer(opts: ServerOptions) {
 
   // ── Routes ───────────────────────────────────────────────────
   registerRoutes(app, opts.workdir, policyConfig);
-  registerProposalRoutes(app, opts.workdir, policyConfig);
+  registerProposalRoutes(app, opts.workdir, policyConfig, llmGenerateFn);
   registerMemoryRoutes(app, opts.workdir);
   registerUploadRoutes(app, opts.workdir, policyConfig);
   registerPresentationRoutes(app, opts.workdir);

@@ -29,21 +29,35 @@ YOUR TASK:
 Extract facts that are stable and likely to apply to future engagements with this client.
 
 RULES:
-- Include: preferences, standing constraints, stakeholder relationships, company-level facts
+- Include: preferences, standing constraints, requirements, stakeholder relationships, company-level facts
 - Exclude: budget, timeline, project type, deliverables, anything project-specific
 - For each knowledge entry, mark if it CONFIRMS an existing entry (by existingId), CONTRADICTS one, or is NEW
 - Deduplicate — if incoming says the same as an existing entry, mark as confirmed, do not duplicate
 - Flag contradictions for user review — do not silently overwrite
+
+Categories for newKnowledge (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
 
 Respond in JSON only (no markdown, no code fences):
 {
   "stableFields": {
     "clientName": { "value": "string", "confidence": 0.0 },
     "clientIndustry": { "value": "string", "confidence": 0.0 },
-    "contactName": { "value": "string", "confidence": 0.0 }
+    "contactName": { "value": "string", "confidence": 0.0 },
+    "projectType": { "value": "string", "confidence": 0.0 }
   },
   "newKnowledge": [
-    { "content": "string", "category": "preference|constraint|relationship|context", "confidence": 0.0 }
+    { "content": "string", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
   ],
   "confirmedKnowledge": [
     { "existingId": "string", "confidence": 0.0 }

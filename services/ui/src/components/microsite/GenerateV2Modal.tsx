@@ -136,6 +136,10 @@ export function GenerateV2Modal({
             }
             setProgressLines(p => [...p, 'Done ✓']);
             setDone(true);
+            if (astRef.current) {
+              onComplete(astRef.current);
+              onClose();
+            }
           } else if (event.type === 'error') {
             throw new Error((event as { type: 'error'; message: string }).message ?? 'Generation failed');
           }

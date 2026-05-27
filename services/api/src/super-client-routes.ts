@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
+import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 
 function slugify(input: string): string {
   return input
@@ -143,6 +144,26 @@ function stripProposalTag(text: string): string {
   return text.replace(/<proposal\s+title="[^"]*">[\s\S]*?<\/proposal>/i, '').trim();
 }
 
+function extractTextReplacements(text: string): Array<{ find: string; replace: string }> {
+  const matches = [...text.matchAll(/<text-replace\s+find="((?:[^"\\]|\\.)*)"\s+replace="((?:[^"\\]|\\.)*)"\s*\/?>/gi)];
+  return matches.map((m) => ({
+    find: m[1].replace(/\\"/g, '"'),
+    replace: m[2].replace(/\\"/g, '"'),
+  }));
+}
+
+function stripTextReplaceTags(text: string): string {
+  return text.replace(/<text-replace\s+find="(?:[^"\\]|\\.)*"\s+replace="(?:[^"\\]|\\.)*"\s*\/?>/gi, '').trim();
+}
+
+function applyTextReplacements(original: string, replacements: Array<{ find: string; replace: string }>): string {
+  let result = original;
+  for (const r of replacements) {
+    if (r.find) result = result.split(r.find).join(r.replace);
+  }
+  return result;
+}
+
 function extractSectionUpdates(text: string): Array<{ heading: string; content: string }> {
   const matches = [...text.matchAll(/<section-update\s+heading="([^"]+)">([\s\S]*?)<\/section-update>/gi)];
   return matches.map((m) => ({ heading: m[1].trim(), content: m[2].trim() }));
@@ -199,6 +220,13 @@ async function writeMicrosites(dir: string, list: ScMicrosite[]): Promise<void> 
   await writeFile(path.join(dir, 'microsites.json'), JSON.stringify(list, null, 2));
 }
 
+// Max chars sent to the LLM for knowledge extraction.
+// Chosen to fit within a 32K-token context window (Ollama/Mistral lower bound):
+// 32K tokens × ~4 chars/token = ~128K chars total, minus 8K tokens reserved for
+// response (~32K chars) and ~1K chars of prompt overhead → ~95K chars available.
+// 80K is a conservative value that leaves headroom across all supported providers.
+const EXCERPT_MAX_CHARS = 80_000;
+
 async function extractFileToMemory(
   workdir: string,
   clientSlug: string,
@@ -219,21 +247,39 @@ async function extractFileToMemory(
       text = await readFile(filePath, 'utf-8');
     }
 
-    const excerpt = text.slice(0, 12000);
+    const excerpt = text.slice(0, EXCERPT_MAX_CHARS);
 
     const prompt = `You are a client intelligence extractor.
 Extract facts worth remembering long-term from this document about client "${clientName}".
-Focus on: company facts, preferences, constraints, stakeholders (name + role), brand traits,
+Focus on: company facts, preferences, constraints, requirements, stakeholders (name + role), brand traits,
 business context, goals, and anything useful for future proposals or microsites.
 Skip generic filler or information that would not apply to future work.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
 
 DOCUMENT (${fileName}):
 ${excerpt}
 
-Return ONLY valid JSON (empty arrays if nothing notable):
+Return ONLY valid JSON (null for fields not found in the document):
 {
+  "stableFields": {
+    "clientIndustry": "string or null",
+    "projectType": "string or null",
+    "contactName": "string or null"
+  },
   "knowledge": [
-    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
   ],
   "stakeholders": [
     { "name": "...", "role": "...", "email": "", "notes": "" }
@@ -243,6 +289,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     const raw = await llmGenerateFn(prompt);
     const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
     const extracted = JSON.parse(json) as {
+      stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
       knowledge?: { content: string; category: string; confidence: number }[];
       stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
     };
@@ -251,14 +298,21 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     if (!(await memService.get(clientSlug))) {
       await memService.createEmpty(clientName);
     }
+
+    const sf = extracted.stableFields ?? {};
+    if (sf.clientIndustry?.trim()) await memService.updateField(clientSlug, 'clientIndustry', sf.clientIndustry.trim());
+    if (sf.projectType?.trim()) await memService.updateField(clientSlug, 'projectType', sf.projectType.trim());
+    if (sf.contactName?.trim()) await memService.updateField(clientSlug, 'contactName', sf.contactName.trim());
+
+    await memService.removeKnowledgeByDocument(clientSlug, fileName);
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as never, k.confidence ?? 0.7);
+        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7, fileName);
       }
     }
     for (const s of extracted.stakeholders ?? []) {
       if (s.name?.trim() && s.role?.trim()) {
-        await memService.addStakeholder(clientSlug, {
+        await memService.upsertStakeholder(clientSlug, {
           name: s.name,
           role: s.role,
           ...(s.email?.trim() ? { email: s.email } : {}),
@@ -286,8 +340,21 @@ async function distillChatTurn(
 ): Promise<void> {
   const prompt = `You are a client intelligence extractor.
 Given this chat exchange about a client, extract any facts worth remembering long-term.
-Focus on: company facts, preferences, constraints, stakeholders (people + roles), brand traits.
+Focus on: company facts, preferences, constraints, requirements, stakeholders (people + roles), brand traits.
 Skip: conversational filler, questions without answers, project-specific one-off details.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
 
 CLIENT: ${clientName}
 
@@ -297,7 +364,7 @@ ASSISTANT: ${assistantReply}
 Return ONLY valid JSON (empty arrays if nothing notable):
 {
   "knowledge": [
-    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
   ],
   "stakeholders": [
     { "name": "...", "role": "...", "email": "", "notes": "" }
@@ -318,7 +385,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     }
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as never, k.confidence ?? 0.7);
+        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7);
       }
     }
     for (const s of extracted.stakeholders ?? []) {
@@ -333,6 +400,83 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     }
   } catch (err) {
     log.warn({ err }, '[SuperClient] Memory distillation failed — chat unaffected');
+  }
+}
+
+async function seedClientMemory(
+  name: string,
+  displayName: string,
+  contextMd: string,
+  workdir: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  if (!contextMd.trim()) return;
+  const memService = new ClientMemoryService(workdir);
+  try {
+    const extractPrompt = `You are a client intelligence extractor.
+Extract facts worth remembering long-term from this client intelligence summary about "${displayName}".
+Focus on: company facts, preferences, constraints, requirements, stakeholders (name + role), brand traits,
+business context, goals, and anything useful for future proposals or microsites.
+Skip generic filler or information that would not apply to future work.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
+
+CONTENT:
+${contextMd.slice(0, 12000)}
+
+Return ONLY valid JSON (null for fields not found):
+{
+  "stableFields": {
+    "clientIndustry": "string or null",
+    "projectType": "string or null",
+    "contactName": "string or null"
+  },
+  "knowledge": [
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
+  ],
+  "stakeholders": [
+    { "name": "...", "role": "...", "email": "", "notes": "" }
+  ]
+}`;
+    const raw = await llmGenerateFn(extractPrompt);
+    const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+    const extracted = JSON.parse(json) as {
+      stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
+      knowledge?: { content: string; category: string; confidence: number }[];
+      stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
+    };
+    const sf = extracted.stableFields ?? {};
+    if (sf.clientIndustry?.trim()) await memService.updateField(name, 'clientIndustry', sf.clientIndustry.trim());
+    if (sf.projectType?.trim()) await memService.updateField(name, 'projectType', sf.projectType.trim());
+    if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
+    for (const k of extracted.knowledge ?? []) {
+      if (k.content?.trim()) {
+        await memService.addKnowledge(name, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.8);
+      }
+    }
+    for (const s of extracted.stakeholders ?? []) {
+      if (s.name?.trim() && s.role?.trim()) {
+        await memService.addStakeholder(name, {
+          name: s.name,
+          role: s.role,
+          ...(s.email?.trim() ? { email: s.email } : {}),
+          ...(s.notes?.trim() ? { notes: s.notes } : {}),
+        });
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, '[SuperClient] Failed to seed memory from contextMd');
   }
 }
 
@@ -421,52 +565,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     await writeFile(path.join(dir, 'context.md'), contextMd);
 
-    // Seed ClientMemory by extracting structured knowledge from contextMd (same pipeline as document ingestion)
-    if (contextMd.trim()) {
-      try {
-        const extractPrompt = `You are a client intelligence extractor.
-Extract facts worth remembering long-term from this client intelligence summary about "${displayName}".
-Focus on: company facts, preferences, constraints, stakeholders (name + role), brand traits,
-business context, goals, and anything useful for future proposals or microsites.
-Skip generic filler or information that would not apply to future work.
-
-CONTENT:
-${contextMd.slice(0, 12000)}
-
-Return ONLY valid JSON (empty arrays if nothing notable):
-{
-  "knowledge": [
-    { "content": "...", "category": "preference|constraint|context|relationship", "confidence": 0.0 }
-  ],
-  "stakeholders": [
-    { "name": "...", "role": "...", "email": "", "notes": "" }
-  ]
-}`;
-        const raw = await llmGenerateFn(extractPrompt);
-        const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
-        const extracted = JSON.parse(json) as {
-          knowledge?: { content: string; category: string; confidence: number }[];
-          stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
-        };
-        for (const k of extracted.knowledge ?? []) {
-          if (k.content?.trim()) {
-            await memService.addKnowledge(name, k.content, k.category as never, k.confidence ?? 0.8);
-          }
-        }
-        for (const s of extracted.stakeholders ?? []) {
-          if (s.name?.trim() && s.role?.trim()) {
-            await memService.addStakeholder(name, {
-              name: s.name,
-              role: s.role,
-              ...(s.email?.trim() ? { email: s.email } : {}),
-              ...(s.notes?.trim() ? { notes: s.notes } : {}),
-            });
-          }
-        }
-      } catch (err) {
-        app.log.warn({ err }, '[SuperClient] Failed to seed memory from contextMd');
-      }
-    }
+    await seedClientMemory(name, displayName, contextMd, workdir, app.log);
 
     return reply.code(201).send({ name, displayName, contextMd });
   });
@@ -575,19 +674,28 @@ Return ONLY valid JSON (empty arrays if nothing notable):
           promptParts.push(
             `\n## Currently Open Proposal\n${activeProposalContent}`,
             `\nPROPOSAL EDITING RULE (applies only because a proposal is currently open):`,
-            `When the user requests any change to the proposal above, choose the lightest format:`,
+            `When the user requests any change, use the LIGHTEST format that is sufficient:`,
             ``,
-            `SMALL / TARGETED change (update a price, reword a paragraph, add/remove a bullet, fix a number, change a date):`,
+            `TIER 1 — PINPOINT (rename a heading, fix a number, change a date, replace a word or phrase):`,
+            `  Use one or more self-closing <text-replace> tags — no section parsing needed:`,
+            `  <text-replace find="exact original text" replace="new text" />`,
+            `  • "exact original text" must appear verbatim in the proposal (copy it exactly).`,
+            `  • Use the minimum number of replacements needed — usually just one.`,
+            `  • Outside the tags write a brief 1-sentence confirmation only.`,
+            ``,
+            `TIER 2 — SECTION (reword a paragraph body, add/remove bullets, rewrite a section's content):`,
             `  Output ONE or MORE <section-update> tags — one per changed section only:`,
             `  <section-update heading="## Exact Heading Text">`,
-            `  [full replacement body for that section — do NOT repeat the heading line inside the tag]`,
+            `  [full replacement body — do NOT include the heading line inside the tag]`,
             `  </section-update>`,
             `  Outside the tags write a brief 1-sentence confirmation only.`,
+            `  NOTE: Tier 2 can only REPLACE section content — it cannot remove an entire section heading. To remove a section entirely, use Tier 3.`,
             ``,
-            `MAJOR rewrite / restructure (add new sections, reorder, change the whole proposal):`,
-            `  Use the full <proposal title="...">...</proposal> tag as normal.`,
+            `TIER 3 — FULL REWRITE (add new sections, remove a section entirely, restructure, or change the whole proposal):`,
+            `  Use the full <proposal title="...">...</proposal> tag containing the complete new markdown.`,
+            `  When REMOVING a section, simply omit that section's heading and body from the new proposal.`,
             ``,
-            `NEVER output both formats in the same response. Default to <section-update> unless the change clearly spans the entire document.`,
+            `NEVER mix formats in one response. Default to Tier 1 for any single-string substitution.`,
           );
         } catch {
           // Proposal file not found — proceed without it
@@ -605,8 +713,19 @@ Return ONLY valid JSON (empty arrays if nothing notable):
         promptParts.push(`\n## Client Intelligence\n\n${contextMd.trim()}`);
       }
 
-      if (memResult.found && (memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {
+      if (memResult.found && (Object.keys(memResult.stableFields).length > 0 || memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {
         const memParts: string[] = ['\n## Accumulated Client Memory\nExtracted from ingested documents and prior conversations. Treat this as authoritative source material.'];
+
+        const sf = memResult.stableFields;
+        const profileLines: string[] = [];
+        if (sf.clientIndustry?.value) profileLines.push(`- **Industry:** ${sf.clientIndustry.value}`);
+        if (sf.projectType?.value) profileLines.push(`- **Project Type:** ${sf.projectType.value}`);
+        if (sf.contactName?.value) profileLines.push(`- **Primary Contact:** ${sf.contactName.value}`);
+        if (profileLines.length > 0) {
+          memParts.push('\n### Client Profile');
+          memParts.push(...profileLines);
+        }
+
         if (memResult.stakeholders.length > 0) {
           memParts.push('\n### Key Stakeholders');
           for (const s of memResult.stakeholders) {
@@ -644,13 +763,28 @@ Return ONLY valid JSON (empty arrays if nothing notable):
         await new Promise<void>((r) => setTimeout(r, 12));
       }
 
-      // Detect proposal changes — section-level patch takes priority over full regeneration
+      // Detect proposal changes — apply the lightest format that fired
       let proposalSaved: ScProposal | undefined;
       let proposalUpdated: ScProposal | undefined;
+      let displayResponse = fullResponse;
 
+      const textReplacements = activeProposalId ? extractTextReplacements(fullResponse) : [];
       const sectionUpdates = activeProposalId ? extractSectionUpdates(fullResponse) : [];
 
-      if (sectionUpdates.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+      if (textReplacements.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+        // Tier 1: pinpoint string replacements — no section parsing
+        try {
+          const patchedContent = applyTextReplacements(activeProposalContent, textReplacements);
+          const existingProposals = await readProposals(dir);
+          const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
+          const title = existingEntry?.title ?? activeProposalId;
+          proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
+        } catch (err) {
+          app.log.warn({ err }, '[SuperClient] Failed to apply text replacements');
+        }
+        displayResponse = stripTextReplaceTags(fullResponse);
+      } else if (sectionUpdates.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+        // Tier 2: section-body patches
         try {
           const patchedContent = patchProposalSections(activeProposalContent, sectionUpdates);
           const existingProposals = await readProposals(dir);
@@ -660,7 +794,9 @@ Return ONLY valid JSON (empty arrays if nothing notable):
         } catch (err) {
           app.log.warn({ err }, '[SuperClient] Failed to patch proposal sections');
         }
+        displayResponse = stripSectionUpdateTags(fullResponse);
       } else {
+        // Tier 3: full proposal tag
         const proposalMatch = extractProposalTag(fullResponse);
         if (proposalMatch) {
           try {
@@ -672,13 +808,9 @@ Return ONLY valid JSON (empty arrays if nothing notable):
           } catch (err) {
             app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
+          displayResponse = stripProposalTag(fullResponse);
         }
       }
-
-      // Strip all XML tags from display text
-      const displayResponse = sectionUpdates.length > 0
-        ? stripSectionUpdateTags(fullResponse)
-        : (extractProposalTag(fullResponse) ? stripProposalTag(fullResponse) : fullResponse);
 
       // Persist turn to history
       const now = new Date().toISOString();
@@ -740,6 +872,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
 
     const parts = req.parts();
     const added: ScFile[] = [];
+    const filesToExtract: { destPath: string; safeName: string }[] = [];
 
     for await (const part of parts) {
       if (part.type !== 'file') continue;
@@ -772,9 +905,16 @@ Return ONLY valid JSON (empty arrays if nothing notable):
       if (idx !== -1) existing[idx] = entry; else existing.push(entry);
       await writeScFiles(dir, existing);
       added.push(entry);
-
-      void extractFileToMemory(workdir, name, meta.displayName, destPath, safeName, dir, app.log);
+      filesToExtract.push({ destPath, safeName });
     }
+
+    // Run extractions sequentially in the background to avoid concurrent
+    // read-modify-write races on memory.json.
+    void (async () => {
+      for (const f of filesToExtract) {
+        await extractFileToMemory(workdir, name, meta.displayName, f.destPath, f.safeName, dir, app.log);
+      }
+    })();
 
     if (added.length === 0) {
       return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md' });
@@ -803,6 +943,9 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     await rm(filePath, { force: true });
     const files = (await readScFiles(dir)).filter((f) => f.fileName !== fileName);
     await writeScFiles(dir, files);
+
+    const memService = new ClientMemoryService(workdir);
+    await memService.removeKnowledgeByDocument(name, fileName);
 
     return reply.send({ ok: true });
   });
@@ -864,7 +1007,9 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     await mkdir(micrositesDir, { recursive: true });
 
     const now = new Date();
-    const id = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    // Include milliseconds + 4-char random suffix to prevent collisions when two
+    // microsites are saved within the same second.
+    const id = `${now.toISOString().replace(/[:.]/g, '-').slice(0, 23)}-${Math.random().toString(36).slice(2, 6)}`;
     const proposalTitle = body.proposalTitle?.trim() ?? 'Proposal';
 
     const existing = await readMicrosites(dir);
@@ -952,72 +1097,347 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
-    const combinedPrompt = `You are an HTML microsite editor. Given a complete HTML microsite and an edit instruction, choose one of two response formats:
+    // ── Deterministic video-background injection (bypasses LLM entirely) ──────
+    const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
+    const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+    if (vimeoIdMatch ?? youtubeIdMatch) {
+      const isVimeo = !!vimeoIdMatch;
+      const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
+      const src = isVimeo
+        ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
+        : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
+      // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
+      const iframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
 
-FORMAT A — targeted changes (colors, fonts, text, spacing). Use this for most edits.
-Respond with ONLY a JSON object (no preamble, start with {, end with }):
-{ "patches": [{ "find": "exact single-line string", "replace": "new single-line string" }], "summary": "one-line description" }
+      // Remove any existing video iframes in hero
+      let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
 
+      // Strip background-image from hero photo/background elements so video shows through
+      updatedHtml = updatedHtml.replace(
+        /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
+        '$1',
+      );
+
+      // Inject iframe as first child of the first <section>, add position:relative;overflow:hidden
+      updatedHtml = updatedHtml.replace(/<section\b([^>]*)>/i, (_full, attrs: string) => {
+        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+        const styleMatch = styleRx.exec(attrs);
+        if (styleMatch) {
+          const cleaned = styleMatch[1]
+            .replace(/\bposition\s*:[^;]+;?\s*/g, '')
+            .replace(/\boverflow\s*:[^;]+;?\s*/g, '')
+            .trim().replace(/;$/, '');
+          attrs = attrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
+        } else {
+          attrs = `${attrs} style="position:relative;overflow:hidden"`;
+        }
+        return `<section${attrs}>\n  ${iframe}`;
+      });
+
+      const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
+      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      return reply.send({ html: updatedHtml, summary });
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // ── Section extraction helpers ────────────────────────────────────────────
+    type SectionSlice = { before: string; section: string; after: string; tag: string };
+
+    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+      const out: Array<{ start: number; end: number }> = [];
+      let pos = 0;
+      while (pos < src.length) {
+        const openIdx = src.indexOf('<section', pos);
+        if (openIdx === -1) break;
+        const tagEnd = src.indexOf('>', openIdx);
+        if (tagEnd === -1) break;
+        let depth = 1, i = tagEnd + 1, sectionEnd = -1;
+        while (i < src.length && depth > 0) {
+          const nextOpen = src.indexOf('<section', i);
+          const nextClose = src.indexOf('</section>', i);
+          if (nextClose === -1) break;
+          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + 8; }
+          else { depth--; i = nextClose + 10; if (depth === 0) sectionEnd = i; }
+        }
+        if (sectionEnd !== -1) { out.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+        else { pos = tagEnd + 1; }
+      }
+      return out;
+    }
+
+    function extractBestSection(src: string, hint: string): SectionSlice | null {
+      const secs = extractAllTopLevelSections(src);
+      if (secs.length === 0) return null;
+      const hintLower = hint.toLowerCase();
+      const words = hintLower.split(/\W+/).filter(w => w.length > 2);
+
+      let best = secs[0], bestScore = -1;
+      for (let i = 0; i < secs.length; i++) {
+        const text = src.slice(secs[i].start, secs[i].end);
+        const textLower = text.toLowerCase();
+        let score = 0;
+
+        // High-weight: id and class attributes contain section names like "hero", "about", "features"
+        const idVal = (/\bid="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const classVal = (/\bclass="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const dataSection = (/\bdata-section="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const attrs = `${idVal} ${classVal} ${dataSection}`;
+
+        // High-weight: first heading text inside the section
+        const headingText = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
+
+        for (const w of words) {
+          if (attrs.includes(w)) score += 4;       // id/class match is the strongest signal
+          if (headingText.includes(w)) score += 3; // heading text is second strongest
+          if (textLower.includes(w)) score += 1;   // general content match
+        }
+
+        // Positional aliases: "hero" or "first" → first section; "footer"/"last" → last
+        if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
+        if (i === secs.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
+
+        if (score > bestScore) { bestScore = score; best = secs[i]; }
+      }
+      return { before: src.slice(0, best.start), section: src.slice(best.start, best.end), after: src.slice(best.end), tag: 'section' };
+    }
+
+    function extractHeaderBlock(src: string): SectionSlice | null {
+      const rx = /<(header|nav)\b[^>]*>[\s\S]*?<\/\1>/i;
+      const m = rx.exec(src);
+      if (!m) return null;
+      return { before: src.slice(0, m.index), section: m[0], after: src.slice(m.index + m[0].length), tag: m[1].toLowerCase() };
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    function applyPatches(base: string, patches: Array<{ find: string; replace: string }>): { html: string; applied: number; missed: number } {
+      let result = base;
+      let applied = 0, missed = 0;
+      for (const p of patches) {
+        if (!p.find || p.replace === undefined) continue;
+        if (!result.includes(p.find)) { missed++; continue; }
+        result = result.split(p.find).join(p.replace);
+        applied++;
+      }
+      return { html: result, applied, missed };
+    }
+
+    function parseJsonPatches(rawText: string): { patches: Array<{ find: string; replace: string }>; summary: string } | null {
+      const start = rawText.indexOf('{');
+      const end = rawText.lastIndexOf('}');
+      if (start === -1 || end === -1) return null;
+      try {
+        const slice = rawText.slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        const parsed = JSON.parse(slice) as { patches?: Array<{ find: string; replace: string }>; summary?: string };
+        return { patches: parsed.patches ?? [], summary: parsed.summary ?? 'Applied edit' };
+      } catch { return null; }
+    }
+
+    function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
+      const stripped = rawText.trim().replace(/^```(?:html)?\r?\n?/, '').replace(/\r?\n?```\s*$/, '').trim();
+      for (const tag of ['section', 'header', 'nav', 'div']) {
+        const startIdx = stripped.search(new RegExp(`<${tag}[\\s>]`, 'i'));
+        if (startIdx === -1) continue;
+        const closeTag = `</${tag}>`;
+        const endIdx = stripped.lastIndexOf(closeTag);
+        if (endIdx !== -1 && endIdx > startIdx) {
+          return { block: stripped.slice(startIdx, endIdx + closeTag.length), tag };
+        }
+      }
+      return null;
+    }
+
+    // Extract CSS :root block so the LLM knows available design tokens
+    const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+    const LARGE_HTML = 15000;
+    const isLarge = html.length > LARGE_HTML;
+
+    // "regenerate/rewrite/rebuild/redesign" → skip patches, go straight to section rewrite
+    const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
+
+    // For logo/header/nav instructions on large HTML, prefer to extract the header block
+    const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
+
+    let sectionCtx: SectionSlice | null = null;
+    if (isLarge) {
+      sectionCtx = (isHeaderInstruction ? extractHeaderBlock(html) : null) ?? extractBestSection(html, instruction);
+    }
+
+    // ── Section regeneration helper (used by regen intent + fallback) ─────────
+    async function regenSection(ctx: SectionSlice): Promise<string> {
+      const regenPrompt = `You are rewriting one section of an HTML microsite.
+
+Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
+Preserve: overall section structure unless told otherwise, CSS class names, responsive/grid patterns, and references to CSS design tokens below.
+
+Output ONLY the replacement HTML block — start with the opening tag (<section, <header, <nav, or <div), end with its closing tag. No preamble, no explanation, no markdown fences.
+${cssVarsBlock ? `\nCSS DESIGN TOKENS (use var(--name) for colors/fonts/spacing where applicable):\n${cssVarsBlock}\n` : ''}
+INSTRUCTION: ${instruction}
+
+CURRENT SECTION:
+${ctx.section}`;
+      const regenRaw = await llmGenerateFn(regenPrompt);
+      const block = extractBlockFromResponse(regenRaw);
+      if (!block) throw new Error('LLM did not return a valid HTML block');
+      return ctx.before + block.block + ctx.after;
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    const EDIT_TYPE_HINT = `
+Edit type examples (all supported):
+- Text/content  : "change heading to X", "update body copy", "add bullet point"
+- Color         : "make background dark blue", "change primary color to #e05", "update button color"
+- Font/typography: "use Inter font", "make headings bold", "increase font size to 18px"
+- Images        : "replace hero image with X", "add logo", "change background image"
+- Layout/spacing: "add more padding", "make two columns", "center the text"
+- Style         : "make it more modern", "add a gradient background", "remove border"
+- Regeneration  : "regenerate this section", "rewrite with dark theme"`;
+
+    let combinedPrompt: string;
+
+    if (isLarge && sectionCtx && !isRegenIntent) {
+      combinedPrompt = `You are editing a section of an HTML microsite. Apply the instruction using the lightest format that works.
+${EDIT_TYPE_HINT}
+
+OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
+Output ONLY a JSON object, no preamble:
+{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
 Patch rules:
-- ONLY target CSS custom properties defined in the :root block — these are always single-line (e.g. find "--color-bg: #ffffff", replace "--color-bg: #0a1628")
-- NEVER include newlines inside "find" or "replace" values — single-line strings only
-- If the change cannot be expressed as :root variable swaps, use FORMAT B instead
-- Each "find" must appear exactly once in the document
-- Use the minimum patches needed (usually 1–3)
+- Copy "find" strings EXACTLY from the HTML/CSS below — character-for-character, no rewording
+- Include 15–30 chars of surrounding context so each "find" is unique in the full document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- For COLORS: patch the CSS variable value → find "--color-primary: #aabbcc", replace "--color-primary: #112233"
+- For FONTS: patch font variable → find "--font-heading: 'OldFont'", replace "--font-heading: 'NewFont'" OR patch font-family in a style attribute
+- For TEXT: patch the exact text node or attribute value with enough surrounding markup to be unique
+- For IMAGES: patch src="old-url" with src="new-url"
+- For INLINE STYLES: patch the specific style property string
+- Use 1–8 patches; use multiple patches for the same change across multiple places
 
-FORMAT B — use when patches would require multi-line strings, or for structural changes (add/remove sections, complete redesign).
-Respond with this exact format — the sentinel line first, then the complete HTML:
+OPTION 2 — full section rewrite (use for: add/remove elements, major layout change, section restructure):
+Output ONLY the complete replacement HTML block — start with the opening tag, end with closing tag. No preamble, no code fences.
+
+CSS DESIGN TOKENS (patch these variables for color/font/spacing changes):
+${cssVarsBlock}
+
+SECTION HTML (copy "find" strings EXACTLY from this text):
+${sectionCtx.section}
+
+EDIT INSTRUCTION: ${instruction}`;
+    } else if (!isLarge) {
+      combinedPrompt = `You are an HTML microsite editor. Apply the edit instruction with minimal, surgical changes.
+${EDIT_TYPE_HINT}
+
+OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
+Respond with ONLY a JSON object (no preamble, start with {, end with }):
+{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
+Patch rules:
+- Copy "find" strings EXACTLY from the HTML below — character-for-character
+- Include enough surrounding context to make each "find" unique in the document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- For COLORS: patch CSS variable → find "--color-bg: #fff", replace "--color-bg: #1a1a2e"
+- For FONTS: patch font variable or font-family in style attribute
+- For TEXT: patch the exact visible text with surrounding markup for uniqueness
+- For IMAGES: patch src="old" with src="new"
+- For STYLES: patch specific inline style property strings
+- Use 1–8 patches
+
+OPTION 2 — full HTML rewrite (for: adding/removing entire sections, major structural redesign, complete regeneration):
+Output the sentinel line then a complete valid HTML document:
 REWRITE
 <!DOCTYPE html>
-...complete new HTML document...
-
-VIDEO BACKGROUND RULE:
-If the instruction references a Vimeo or YouTube URL for a background:
-- Vimeo: extract the numeric ID from the URL (e.g. vimeo.com/789106059 → ID is 789106059), embed as:
-  <iframe src="https://player.vimeo.com/video/{ID}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
-- YouTube: extract the video ID, embed as:
-  <iframe src="https://www.youtube.com/embed/{ID}?autoplay=1&loop=1&mute=1&controls=0&playlist={ID}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
-- Place the iframe as the first child of the hero section; set the hero section to position:relative and overflow:hidden
-- Ensure all hero text/content elements have position:relative and z-index:1 so they appear above the video
-- Remove any existing background-image or background CSS from the hero section
-- This always requires FORMAT B (REWRITE) since it modifies HTML structure
+...complete new HTML...
 
 EDIT INSTRUCTION: ${instruction}
 
 CURRENT HTML:
 ${html}`;
+    } else {
+      combinedPrompt = ''; // handled by isRegenIntent path
+    }
 
-    const raw = await llmGenerateFn(combinedPrompt);
+    const raw = combinedPrompt ? await llmGenerateFn(combinedPrompt) : '';
 
     let updatedHtml = html;
     let summary = 'Applied edit';
+    let changedTexts: string[] = [];
 
-    // Detect FORMAT B: response starts with REWRITE sentinel (possibly after whitespace/fences)
-    const rewriteMatch = raw.match(/REWRITE\s*\n([\s\S]+)/);
-    if (rewriteMatch) {
-      updatedHtml = rewriteMatch[1].trim();
-      summary = 'Full rewrite applied';
-    } else {
-      // FORMAT A: JSON patches
-      const jsonStart = raw.indexOf('{');
-      const jsonEnd = raw.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd === -1) return reply.code(502).send({ error: 'LLM returned no recognisable format' });
-
-      let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
-      try {
-        // Sanitize literal newlines inside JSON string values (LLM sometimes forgets to escape them)
-        const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
-        parsed = JSON.parse(jsonSlice) as typeof parsed;
-      } catch {
-        return reply.code(502).send({ error: 'LLM returned malformed JSON' });
-      }
-
-      summary = parsed.summary ?? summary;
-      for (const patch of parsed.patches ?? []) {
-        if (patch.find && patch.replace !== undefined) {
-          updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
+    if (isLarge && sectionCtx) {
+      if (isRegenIntent) {
+        // User explicitly asked for regeneration — skip patches entirely
+        try {
+          updatedHtml = await regenSection(sectionCtx);
+          summary = 'Section regenerated';
+        } catch {
+          return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
         }
+      } else {
+        // Try OPTION 1 patches first
+        const parsed = parseJsonPatches(raw);
+        if (parsed && parsed.patches.length > 0) {
+          const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
+          if (applied > 0) {
+            updatedHtml = patched;
+            summary = parsed.summary;
+            changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          } else {
+            // All patches missed — fall back to section rewrite
+            const blockResult = extractBlockFromResponse(raw);
+            if (blockResult) {
+              updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
+              summary = 'Section rewritten';
+            } else {
+              try {
+                updatedHtml = await regenSection(sectionCtx);
+                summary = 'Section regenerated (patch fallback)';
+              } catch {
+                return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
+              }
+            }
+          }
+        } else {
+          // No JSON patches — try block extraction (LLM may have chosen OPTION 2 directly)
+          const blockResult = extractBlockFromResponse(raw);
+          if (blockResult) {
+            updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
+            summary = 'Section updated';
+          } else {
+            // Empty patches or unparseable — fall back to regen
+            try {
+              updatedHtml = await regenSection(sectionCtx);
+              summary = 'Section regenerated';
+            } catch {
+              return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
+            }
+          }
+        }
+      }
+    } else {
+      // Small HTML: try patches, then REWRITE sentinel
+      const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
+      if (rewriteMatch) {
+        const candidate = rewriteMatch[1].trim()
+          .replace(/^```(?:html)?\r?\n?/, '')
+          .replace(/\r?\n?```\s*$/, '')
+          .trim();
+        if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
+          return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
+        }
+        updatedHtml = candidate;
+        summary = 'Full rewrite applied';
+      } else {
+        const parsed = parseJsonPatches(raw);
+        if (!parsed) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+        const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
+        if (applied === 0) {
+          return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+        }
+        updatedHtml = patched;
+        summary = parsed.summary;
+        changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+        if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
       }
     }
 
@@ -1025,7 +1445,158 @@ ${html}`;
     const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
     await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
 
-    return reply.send({ html: updatedHtml, summary });
+    return reply.send({ html: updatedHtml, summary, changedTexts });
+  });
+
+  // GET /super-clients/:name/microsites/:id/sections  — list top-level sections with index + preview
+  app.get('/super-clients/:name/microsites/:id/sections', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const filePath = path.join(superClientsRoot, name, 'microsites', `${id}.json`);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(path.join(superClientsRoot, name, 'microsites')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+    let ast: Record<string, unknown>;
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+    } catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+
+    const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
+
+    // extractAllTopLevelSections is a local fn inside the edit handler, so inline a copy here
+    const sectionBounds: Array<{ start: number; end: number }> = [];
+    let pos = 0;
+    while (pos < html.length) {
+      const openIdx = html.indexOf('<section', pos);
+      if (openIdx === -1) break;
+      const tagEnd = html.indexOf('>', openIdx);
+      if (tagEnd === -1) break;
+      let depth = 1, i = tagEnd + 1, sectionEnd = -1;
+      while (i < html.length && depth > 0) {
+        const nOpen = html.indexOf('<section', i);
+        const nClose = html.indexOf('</section>', i);
+        if (nClose === -1) break;
+        if (nOpen !== -1 && nOpen < nClose) { depth++; i = nOpen + 8; }
+        else { depth--; i = nClose + 10; if (depth === 0) sectionEnd = i; }
+      }
+      if (sectionEnd !== -1) { sectionBounds.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+      else { pos = tagEnd + 1; }
+    }
+
+    const sections = sectionBounds.map((s, i) => {
+      const text = html.slice(s.start, s.end);
+      const headingMatch = /<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i.exec(text);
+      const idMatch = /\bid="([^"]+)"/.exec(text);
+      const classMatch = /\bclass="([^"]+)"/.exec(text);
+      const label = headingMatch?.[1]?.trim() ?? idMatch?.[1]?.trim() ?? classMatch?.[1]?.split(/\s+/)[0] ?? `Section ${i + 1}`;
+      return { index: i, label, length: text.length, preview: text.slice(0, 200) };
+    });
+
+    return reply.send({ sections, total: sections.length });
+  });
+
+  // POST /super-clients/:name/microsites/:id/sections/regenerate  — rewrite one section with LLM
+  app.post('/super-clients/:name/microsites/:id/sections/regenerate', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { instruction?: string; sectionIndex?: number } | undefined;
+    const instruction = body?.instruction?.trim();
+    if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
+
+    const dir = path.join(superClientsRoot, name);
+    const filePath = path.join(dir, 'microsites', `${id}.json`);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+    let ast: Record<string, unknown>;
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+    } catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+
+    const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
+    if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
+
+    // Locate the target section (by index or best keyword match)
+    const bounds: Array<{ start: number; end: number }> = [];
+    let p = 0;
+    while (p < html.length) {
+      const oi = html.indexOf('<section', p);
+      if (oi === -1) break;
+      const te = html.indexOf('>', oi);
+      if (te === -1) break;
+      let depth = 1, ci = te + 1, se = -1;
+      while (ci < html.length && depth > 0) {
+        const no = html.indexOf('<section', ci);
+        const nc = html.indexOf('</section>', ci);
+        if (nc === -1) break;
+        if (no !== -1 && no < nc) { depth++; ci = no + 8; }
+        else { depth--; ci = nc + 10; if (depth === 0) se = ci; }
+      }
+      if (se !== -1) { bounds.push({ start: oi, end: se }); p = se; } else { p = te + 1; }
+    }
+
+    if (bounds.length === 0) return reply.code(400).send({ error: 'No sections found in microsite HTML' });
+
+    let target = bounds[0];
+    const idx = body?.sectionIndex ?? -1;
+    if (idx >= 0 && idx < bounds.length) {
+      target = bounds[idx];
+    } else {
+      // Score by id/class/heading match (same logic as edit endpoint)
+      const hintLower = instruction.toLowerCase();
+      const words = hintLower.split(/\W+/).filter(w => w.length > 2);
+      let best = bounds[0], bestScore = -1;
+      for (let i = 0; i < bounds.length; i++) {
+        const text = html.slice(bounds[i].start, bounds[i].end);
+        const textLower = text.toLowerCase();
+        let score = 0;
+        const attrs = [
+          (/\bid="([^"]+)"/.exec(text)?.[1] ?? ''),
+          (/\bclass="([^"]+)"/.exec(text)?.[1] ?? ''),
+        ].join(' ').toLowerCase();
+        const heading = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
+        for (const w of words) {
+          if (attrs.includes(w)) score += 4;
+          if (heading.includes(w)) score += 3;
+          if (textLower.includes(w)) score += 1;
+        }
+        if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
+        if (i === bounds.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
+        if (score > bestScore) { bestScore = score; best = bounds[i]; }
+      }
+      target = best;
+    }
+
+    const sectionHtml = html.slice(target.start, target.end);
+    const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+    const prompt = `You are rewriting one section of an HTML microsite.
+
+Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
+Preserve: overall section structure unless told otherwise, CSS class names, responsive patterns.
+
+Output ONLY the replacement HTML block — start with the opening tag (<section, <header, <nav, or <div), end with its closing tag. No preamble, no explanation, no markdown fences.
+${cssVarsBlock ? `\nCSS DESIGN TOKENS (use var(--name) for colors/fonts/spacing where applicable):\n${cssVarsBlock}\n` : ''}
+INSTRUCTION: ${instruction}
+
+CURRENT SECTION:
+${sectionHtml}`;
+
+    const regenRaw = await llmGenerateFn(prompt);
+    const sectionMatch = regenRaw.match(/<section[\s\S]*<\/section>/i);
+    if (!sectionMatch) return reply.code(502).send({ error: 'LLM did not return a valid section — try rephrasing' });
+
+    const updatedHtml = html.slice(0, target.start) + sectionMatch[0] + html.slice(target.end);
+    const updatedAst = { ...ast, sections: [{ ...astSections![0], customHtml: updatedHtml, previousHtml: html }, ...((astSections ?? []).slice(1))] };
+    await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+
+    return reply.send({ html: updatedHtml, sectionHtml: sectionMatch[0], sectionIndex: idx >= 0 ? idx : null, summary: 'Section regenerated' });
   });
 
   // POST /super-clients/:name/microsites/:id/revert  — undo last edit
@@ -1067,5 +1638,48 @@ ${html}`;
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
     }
+  });
+
+  // POST /super-clients/:name/enrich-url  — (re)generate context from a website URL
+  app.post('/super-clients/:name/enrich-url', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const body = req.body as { url?: string } | undefined;
+    const url = body?.url?.trim();
+
+    if (!url) {
+      return reply.code(400).send({ error: 'Missing required field: url' });
+    }
+
+    const dir = path.join(superClientsRoot, name);
+    let meta: SuperClientMeta;
+    try {
+      meta = await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+
+    meta.url = url;
+    await writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
+
+    const parts: string[] = [
+      'You are a client intelligence researcher. Given a company website URL, extract structured information useful for building microsites and proposals.',
+      'Focus on: product or service description, company tone and personality, industry and target market, key selling points and differentiators, visual brand cues (colors, style).',
+      'Output clean, well-structured markdown without preamble.',
+      '',
+      `Website URL: ${url}`,
+    ];
+
+    let contextMd: string;
+    try {
+      contextMd = await llmGenerateFn(parts.join('\n'));
+    } catch (err) {
+      app.log.warn({ err }, '[SuperClient] URL enrichment context generation failed');
+      return reply.code(500).send({ error: 'Context generation failed' });
+    }
+
+    await writeFile(path.join(dir, 'context.md'), contextMd);
+    await seedClientMemory(name, meta.displayName, contextMd, workdir, app.log);
+
+    return reply.send({ meta, contextMd });
   });
 }

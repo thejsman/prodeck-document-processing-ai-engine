@@ -75,6 +75,9 @@ function resolveProposalPath(fileName: string, workdir: string, legacyOutputDir:
   if (sep !== -1) {
     const ns = fileName.slice(0, sep);
     const file = fileName.slice(sep + 2);
+    if (ns.startsWith('sc-')) {
+      return path.join(workdir, 'super-clients', ns.slice(3), 'proposals', file);
+    }
     return path.join(workdir, 'namespaces', ns, 'proposals', file);
   }
   return path.join(legacyOutputDir, fileName);
@@ -118,6 +121,7 @@ export function registerProposalRoutes(
   app: FastifyInstance,
   workdir: string,
   policyConfig: ProviderPolicyConfig | null,
+  generateFn?: (prompt: string) => Promise<string>,
 ): void {
   // Canonical proposal storage: workdir/namespaces/<ns>/proposals/
   // All routes that need a per-namespace output dir call proposalDir(ns).
@@ -503,6 +507,47 @@ export function registerProposalRoutes(
     },
   );
 
+  // POST /proposals/:fileName/ai-edit — rewrite/add sections via free-form LLM instruction
+  app.post(
+    '/proposals/:fileName/ai-edit',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { fileName } = req.params as { fileName: string };
+      if (!sanitizeFileName(fileName)) {
+        return reply.code(400).send({ error: 'Invalid file name' });
+      }
+      if (!generateFn) {
+        return reply.code(503).send({ error: 'LLM not configured' });
+      }
+      const body = req.body as { instruction?: string } | undefined;
+      if (!body?.instruction?.trim()) {
+        return reply.code(400).send({ error: 'instruction is required' });
+      }
+
+      const filePath = resolveProposalPath(fileName, workdir, legacyOutputDir);
+      let current: string;
+      try {
+        current = await readFile(filePath, 'utf-8');
+      } catch {
+        return reply.code(404).send({ error: 'Proposal not found' });
+      }
+
+      const prompt = `You are an AI assistant editing a business proposal document.
+
+The user has given you the following instruction:
+${body.instruction.trim()}
+
+Apply this instruction to the proposal. You may rewrite sections, add new sections, edit specific content, or any combination — whatever the instruction requires.
+
+Return the COMPLETE updated proposal as markdown only. No preamble, no commentary — just the full proposal markdown.
+
+CURRENT PROPOSAL:
+${current}`;
+
+      const updated = await generateFn(prompt);
+      return reply.send({ markdown: updated });
+    },
+  );
+
   // GET /proposals
   app.get(
     '/proposals',
@@ -549,6 +594,41 @@ export function registerProposalRoutes(
         for (const ns of namespaces) {
           const nsProposalsDir = path.join(nsRoot, ns, 'proposals');
           await scanProposalDir(nsProposalsDir, ns);
+        }
+
+        // Scan super-client proposal dirs: workdir/super-clients/*/proposals/
+        const scRoot = path.join(workdir, 'super-clients');
+        let superClients: string[] = [];
+        try { superClients = await readdir(scRoot); } catch { /* not yet created */ }
+        for (const sc of superClients) {
+          let titleMap: Record<string, string> = {};
+          try {
+            const indexRaw = await readFile(path.join(scRoot, sc, 'proposals.json'), 'utf-8');
+            const index = JSON.parse(indexRaw) as Array<{ fileName: string; title: string }>;
+            for (const entry of index) {
+              titleMap[entry.fileName] = entry.title;
+            }
+          } catch { /* no index */ }
+
+          const scProposalsDir = path.join(scRoot, sc, 'proposals');
+          let scEntries: string[];
+          try { scEntries = await readdir(scProposalsDir); } catch { continue; }
+          const scMdFiles = scEntries.filter((f) => f.endsWith('.md') && !f.startsWith('.'));
+          for (const file of scMdFiles) {
+            const filePath = path.join(scProposalsDir, file);
+            const fileStat = await stat(filePath);
+            const meta = await readMeta(filePath);
+            const title = titleMap[file] ?? file.replace(/\.md$/, '').replace(/-/g, ' ');
+            proposals.push({
+              fileName: `sc-${sc}::${file}`,
+              client: title,
+              version: null,
+              createdAt: fileStat.mtime.toISOString(),
+              sizeBytes: fileStat.size,
+              status: meta?.status ?? null,
+              lockedSections: meta?.lockedSections ?? [],
+            });
+          }
         }
 
         // Also scan legacy output dir so old proposals remain accessible during transition
