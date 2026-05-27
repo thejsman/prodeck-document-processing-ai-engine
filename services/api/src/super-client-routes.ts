@@ -1131,7 +1131,7 @@ Return ONLY valid JSON (null for fields not found):
     // ──────────────────────────────────────────────────────────────────────────
 
     // ── Section extraction helpers ────────────────────────────────────────────
-    type SectionSlice = { before: string; section: string; after: string };
+    type SectionSlice = { before: string; section: string; after: string; tag: string };
 
     function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
       const out: Array<{ start: number; end: number }> = [];
@@ -1158,16 +1158,84 @@ Return ONLY valid JSON (null for fields not found):
     function extractBestSection(src: string, hint: string): SectionSlice | null {
       const secs = extractAllTopLevelSections(src);
       if (secs.length === 0) return null;
-      const words = hint.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-      let best = secs[0], bestScore = 0;
-      for (const sec of secs) {
-        const text = src.slice(sec.start, sec.end).toLowerCase();
-        const score = words.filter(w => text.includes(w)).length;
-        if (score > bestScore) { bestScore = score; best = sec; }
+      const hintLower = hint.toLowerCase();
+      const words = hintLower.split(/\W+/).filter(w => w.length > 2);
+
+      let best = secs[0], bestScore = -1;
+      for (let i = 0; i < secs.length; i++) {
+        const text = src.slice(secs[i].start, secs[i].end);
+        const textLower = text.toLowerCase();
+        let score = 0;
+
+        // High-weight: id and class attributes contain section names like "hero", "about", "features"
+        const idVal = (/\bid="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const classVal = (/\bclass="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const dataSection = (/\bdata-section="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const attrs = `${idVal} ${classVal} ${dataSection}`;
+
+        // High-weight: first heading text inside the section
+        const headingText = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
+
+        for (const w of words) {
+          if (attrs.includes(w)) score += 4;       // id/class match is the strongest signal
+          if (headingText.includes(w)) score += 3; // heading text is second strongest
+          if (textLower.includes(w)) score += 1;   // general content match
+        }
+
+        // Positional aliases: "hero" or "first" → first section; "footer"/"last" → last
+        if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
+        if (i === secs.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
+
+        if (score > bestScore) { bestScore = score; best = secs[i]; }
       }
-      return { before: src.slice(0, best.start), section: src.slice(best.start, best.end), after: src.slice(best.end) };
+      return { before: src.slice(0, best.start), section: src.slice(best.start, best.end), after: src.slice(best.end), tag: 'section' };
+    }
+
+    function extractHeaderBlock(src: string): SectionSlice | null {
+      const rx = /<(header|nav)\b[^>]*>[\s\S]*?<\/\1>/i;
+      const m = rx.exec(src);
+      if (!m) return null;
+      return { before: src.slice(0, m.index), section: m[0], after: src.slice(m.index + m[0].length), tag: m[1].toLowerCase() };
     }
     // ──────────────────────────────────────────────────────────────────────────
+
+    function applyPatches(base: string, patches: Array<{ find: string; replace: string }>): { html: string; applied: number; missed: number } {
+      let result = base;
+      let applied = 0, missed = 0;
+      for (const p of patches) {
+        if (!p.find || p.replace === undefined) continue;
+        if (!result.includes(p.find)) { missed++; continue; }
+        result = result.split(p.find).join(p.replace);
+        applied++;
+      }
+      return { html: result, applied, missed };
+    }
+
+    function parseJsonPatches(rawText: string): { patches: Array<{ find: string; replace: string }>; summary: string } | null {
+      const start = rawText.indexOf('{');
+      const end = rawText.lastIndexOf('}');
+      if (start === -1 || end === -1) return null;
+      try {
+        const slice = rawText.slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        const parsed = JSON.parse(slice) as { patches?: Array<{ find: string; replace: string }>; summary?: string };
+        return { patches: parsed.patches ?? [], summary: parsed.summary ?? 'Applied edit' };
+      } catch { return null; }
+    }
+
+    function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
+      const stripped = rawText.trim().replace(/^```(?:html)?\r?\n?/, '').replace(/\r?\n?```\s*$/, '').trim();
+      for (const tag of ['section', 'header', 'nav', 'div']) {
+        const startIdx = stripped.search(new RegExp(`<${tag}[\\s>]`, 'i'));
+        if (startIdx === -1) continue;
+        const closeTag = `</${tag}>`;
+        const endIdx = stripped.lastIndexOf(closeTag);
+        if (endIdx !== -1 && endIdx > startIdx) {
+          return { block: stripped.slice(startIdx, endIdx + closeTag.length), tag };
+        }
+      }
+      return null;
+    }
 
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
@@ -1175,130 +1243,190 @@ Return ONLY valid JSON (null for fields not found):
     const LARGE_HTML = 15000;
     const isLarge = html.length > LARGE_HTML;
 
-    let combinedPrompt: string;
-    let sectionCtx: SectionSlice | null = null;
+    // "regenerate/rewrite/rebuild/redesign" → skip patches, go straight to section rewrite
+    const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
 
+    // For logo/header/nav instructions on large HTML, prefer to extract the header block
+    const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
+
+    let sectionCtx: SectionSlice | null = null;
     if (isLarge) {
-      sectionCtx = extractBestSection(html, instruction);
+      sectionCtx = (isHeaderInstruction ? extractHeaderBlock(html) : null) ?? extractBestSection(html, instruction);
     }
 
-    if (isLarge && sectionCtx) {
-      // Section-scoped prompt: LLM only sees/outputs the first section + CSS vars
-      combinedPrompt = `You are editing a section of an HTML microsite. Choose one format:
+    // ── Section regeneration helper (used by regen intent + fallback) ─────────
+    async function regenSection(ctx: SectionSlice): Promise<string> {
+      const regenPrompt = `You are rewriting one section of an HTML microsite.
 
-FORMAT A — CSS variable changes (colors, fonts, spacing only). Output ONLY a JSON object:
-{ "patches": [{ "find": "exact single-line CSS variable", "replace": "new value" }], "summary": "one-line description" }
-Rules: target only :root CSS custom properties; single-line strings; 1–3 patches max.
+Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
+Preserve: overall section structure unless told otherwise, CSS class names, responsive/grid patterns, and references to CSS design tokens below.
 
-FORMAT B — structural changes (images, layout, add/remove elements). Output ONLY the complete modified section HTML — start with <section, end with </section>, no preamble, no code fences.
+Output ONLY the replacement HTML block — start with the opening tag (<section, <header, <nav, or <div), end with its closing tag. No preamble, no explanation, no markdown fences.
+${cssVarsBlock ? `\nCSS DESIGN TOKENS (use var(--name) for colors/fonts/spacing where applicable):\n${cssVarsBlock}\n` : ''}
+INSTRUCTION: ${instruction}
 
-CSS CUSTOM PROPERTIES (reference for FORMAT A):
+CURRENT SECTION:
+${ctx.section}`;
+      const regenRaw = await llmGenerateFn(regenPrompt);
+      const block = extractBlockFromResponse(regenRaw);
+      if (!block) throw new Error('LLM did not return a valid HTML block');
+      return ctx.before + block.block + ctx.after;
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    const EDIT_TYPE_HINT = `
+Edit type examples (all supported):
+- Text/content  : "change heading to X", "update body copy", "add bullet point"
+- Color         : "make background dark blue", "change primary color to #e05", "update button color"
+- Font/typography: "use Inter font", "make headings bold", "increase font size to 18px"
+- Images        : "replace hero image with X", "add logo", "change background image"
+- Layout/spacing: "add more padding", "make two columns", "center the text"
+- Style         : "make it more modern", "add a gradient background", "remove border"
+- Regeneration  : "regenerate this section", "rewrite with dark theme"`;
+
+    let combinedPrompt: string;
+
+    if (isLarge && sectionCtx && !isRegenIntent) {
+      combinedPrompt = `You are editing a section of an HTML microsite. Apply the instruction using the lightest format that works.
+${EDIT_TYPE_HINT}
+
+OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
+Output ONLY a JSON object, no preamble:
+{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
+Patch rules:
+- Copy "find" strings EXACTLY from the HTML/CSS below — character-for-character, no rewording
+- Include 15–30 chars of surrounding context so each "find" is unique in the full document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- For COLORS: patch the CSS variable value → find "--color-primary: #aabbcc", replace "--color-primary: #112233"
+- For FONTS: patch font variable → find "--font-heading: 'OldFont'", replace "--font-heading: 'NewFont'" OR patch font-family in a style attribute
+- For TEXT: patch the exact text node or attribute value with enough surrounding markup to be unique
+- For IMAGES: patch src="old-url" with src="new-url"
+- For INLINE STYLES: patch the specific style property string
+- Use 1–8 patches; use multiple patches for the same change across multiple places
+
+OPTION 2 — full section rewrite (use for: add/remove elements, major layout change, section restructure):
+Output ONLY the complete replacement HTML block — start with the opening tag, end with closing tag. No preamble, no code fences.
+
+CSS DESIGN TOKENS (patch these variables for color/font/spacing changes):
 ${cssVarsBlock}
 
-HERO SECTION HTML (modify this for FORMAT B):
+SECTION HTML (copy "find" strings EXACTLY from this text):
 ${sectionCtx.section}
 
 EDIT INSTRUCTION: ${instruction}`;
-    } else {
-      combinedPrompt = `You are an HTML microsite editor. Given a complete HTML microsite and an edit instruction, choose one of two response formats:
+    } else if (!isLarge) {
+      combinedPrompt = `You are an HTML microsite editor. Apply the edit instruction with minimal, surgical changes.
+${EDIT_TYPE_HINT}
 
-FORMAT A — targeted changes (colors, fonts, text, spacing). Use this for most edits.
+OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
 Respond with ONLY a JSON object (no preamble, start with {, end with }):
-{ "patches": [{ "find": "exact single-line string", "replace": "new single-line string" }], "summary": "one-line description" }
-
+{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
 Patch rules:
-- ONLY target CSS custom properties defined in the :root block — these are always single-line (e.g. find "--color-bg: #ffffff", replace "--color-bg: #0a1628")
-- NEVER include newlines inside "find" or "replace" values — single-line strings only
-- If the change cannot be expressed as :root variable swaps, use FORMAT B instead
-- Each "find" must appear exactly once in the document
-- Use the minimum patches needed (usually 1–3)
+- Copy "find" strings EXACTLY from the HTML below — character-for-character
+- Include enough surrounding context to make each "find" unique in the document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- For COLORS: patch CSS variable → find "--color-bg: #fff", replace "--color-bg: #1a1a2e"
+- For FONTS: patch font variable or font-family in style attribute
+- For TEXT: patch the exact visible text with surrounding markup for uniqueness
+- For IMAGES: patch src="old" with src="new"
+- For STYLES: patch specific inline style property strings
+- Use 1–8 patches
 
-FORMAT B — use when patches would require multi-line strings, or for structural changes (add/remove sections, complete redesign).
-Respond with this exact format — the sentinel line first, then the complete HTML:
+OPTION 2 — full HTML rewrite (for: adding/removing entire sections, major structural redesign, complete regeneration):
+Output the sentinel line then a complete valid HTML document:
 REWRITE
 <!DOCTYPE html>
-...complete new HTML document...
+...complete new HTML...
 
 EDIT INSTRUCTION: ${instruction}
 
 CURRENT HTML:
 ${html}`;
+    } else {
+      combinedPrompt = ''; // handled by isRegenIntent path
     }
 
-    const raw = await llmGenerateFn(combinedPrompt);
+    const raw = combinedPrompt ? await llmGenerateFn(combinedPrompt) : '';
 
     let updatedHtml = html;
     let summary = 'Applied edit';
+    let changedTexts: string[] = [];
 
     if (isLarge && sectionCtx) {
-      // Large HTML path: response is FORMAT A patches or a section/block HTML.
-      // Strip code fences first — LLM often wraps output regardless of instructions.
-      const stripped = raw.trim()
-        .replace(/^```(?:html)?\r?\n?/, '')
-        .replace(/\r?\n?```\s*$/, '')
-        .trim();
-
-      const jsonStart = raw.indexOf('{');
-      const jsonEnd = raw.lastIndexOf('}');
-
-      // Detect section HTML: find the first <section or <div that contains the edit target.
-      // We search the stripped response rather than requiring it to start with the tag.
-      const sectionTagIdx = stripped.search(/<section[\s>]/i);
-      const divTagIdx = stripped.search(/<div[\s>]/i);
-      const blockStart = sectionTagIdx !== -1 ? sectionTagIdx : divTagIdx;
-      const closingTag = sectionTagIdx !== -1 ? '</section>' : '</div>';
-      const blockEnd = blockStart !== -1 ? stripped.lastIndexOf(closingTag) : -1;
-      const looksLikeBlock = blockStart !== -1 && blockEnd !== -1 && blockEnd > blockStart;
-
-      if (looksLikeBlock) {
-        const cleanBlock = stripped.slice(blockStart, blockEnd + closingTag.length);
-        updatedHtml = sectionCtx.before + cleanBlock + sectionCtx.after;
-        summary = 'Section updated';
-      } else if (jsonStart !== -1 && jsonEnd !== -1) {
-        // FORMAT A patches — apply to full HTML
-        let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
+      if (isRegenIntent) {
+        // User explicitly asked for regeneration — skip patches entirely
         try {
-          const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
-            .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
-          parsed = JSON.parse(jsonSlice) as typeof parsed;
+          updatedHtml = await regenSection(sectionCtx);
+          summary = 'Section regenerated';
         } catch {
-          return reply.code(502).send({ error: 'LLM returned malformed JSON' });
-        }
-        summary = parsed.summary ?? summary;
-        for (const patch of parsed.patches ?? []) {
-          if (patch.find && patch.replace !== undefined) updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
+          return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
         }
       } else {
-        return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
+        // Try OPTION 1 patches first
+        const parsed = parseJsonPatches(raw);
+        if (parsed && parsed.patches.length > 0) {
+          const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
+          if (applied > 0) {
+            updatedHtml = patched;
+            summary = parsed.summary;
+            changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          } else {
+            // All patches missed — fall back to section rewrite
+            const blockResult = extractBlockFromResponse(raw);
+            if (blockResult) {
+              updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
+              summary = 'Section rewritten';
+            } else {
+              try {
+                updatedHtml = await regenSection(sectionCtx);
+                summary = 'Section regenerated (patch fallback)';
+              } catch {
+                return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
+              }
+            }
+          }
+        } else {
+          // No JSON patches — try block extraction (LLM may have chosen OPTION 2 directly)
+          const blockResult = extractBlockFromResponse(raw);
+          if (blockResult) {
+            updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
+            summary = 'Section updated';
+          } else {
+            // Empty patches or unparseable — fall back to regen
+            try {
+              updatedHtml = await regenSection(sectionCtx);
+              summary = 'Section regenerated';
+            } catch {
+              return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
+            }
+          }
+        }
       }
     } else {
-      // Small HTML path: original FORMAT A / FORMAT B REWRITE logic
-      const rewriteMatch = raw.match(/REWRITE\s*\n([\s\S]+)/);
+      // Small HTML: try patches, then REWRITE sentinel
+      const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
       if (rewriteMatch) {
-        updatedHtml = rewriteMatch[1].trim()
+        const candidate = rewriteMatch[1].trim()
           .replace(/^```(?:html)?\r?\n?/, '')
           .replace(/\r?\n?```\s*$/, '')
           .trim();
-        if (!updatedHtml.includes('</body>') && !updatedHtml.includes('</html>')) {
+        if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
           return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
         }
+        updatedHtml = candidate;
         summary = 'Full rewrite applied';
       } else {
-        const jsonStart = raw.indexOf('{');
-        const jsonEnd = raw.lastIndexOf('}');
-        if (jsonStart === -1 || jsonEnd === -1) return reply.code(502).send({ error: 'LLM returned no recognisable format' });
-        let parsed: { patches?: Array<{ find: string; replace: string }>; summary?: string };
-        try {
-          const jsonSlice = raw.slice(jsonStart, jsonEnd + 1)
-            .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
-          parsed = JSON.parse(jsonSlice) as typeof parsed;
-        } catch {
-          return reply.code(502).send({ error: 'LLM returned malformed JSON' });
+        const parsed = parseJsonPatches(raw);
+        if (!parsed) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+        const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
+        if (applied === 0) {
+          return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
         }
-        summary = parsed.summary ?? summary;
-        for (const patch of parsed.patches ?? []) {
-          if (patch.find && patch.replace !== undefined) updatedHtml = updatedHtml.split(patch.find).join(patch.replace);
-        }
+        updatedHtml = patched;
+        summary = parsed.summary;
+        changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+        if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
       }
     }
 
@@ -1306,7 +1434,158 @@ ${html}`;
     const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
     await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
 
-    return reply.send({ html: updatedHtml, summary });
+    return reply.send({ html: updatedHtml, summary, changedTexts });
+  });
+
+  // GET /super-clients/:name/microsites/:id/sections  — list top-level sections with index + preview
+  app.get('/super-clients/:name/microsites/:id/sections', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const filePath = path.join(superClientsRoot, name, 'microsites', `${id}.json`);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(path.join(superClientsRoot, name, 'microsites')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+    let ast: Record<string, unknown>;
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+    } catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+
+    const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
+
+    // extractAllTopLevelSections is a local fn inside the edit handler, so inline a copy here
+    const sectionBounds: Array<{ start: number; end: number }> = [];
+    let pos = 0;
+    while (pos < html.length) {
+      const openIdx = html.indexOf('<section', pos);
+      if (openIdx === -1) break;
+      const tagEnd = html.indexOf('>', openIdx);
+      if (tagEnd === -1) break;
+      let depth = 1, i = tagEnd + 1, sectionEnd = -1;
+      while (i < html.length && depth > 0) {
+        const nOpen = html.indexOf('<section', i);
+        const nClose = html.indexOf('</section>', i);
+        if (nClose === -1) break;
+        if (nOpen !== -1 && nOpen < nClose) { depth++; i = nOpen + 8; }
+        else { depth--; i = nClose + 10; if (depth === 0) sectionEnd = i; }
+      }
+      if (sectionEnd !== -1) { sectionBounds.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+      else { pos = tagEnd + 1; }
+    }
+
+    const sections = sectionBounds.map((s, i) => {
+      const text = html.slice(s.start, s.end);
+      const headingMatch = /<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i.exec(text);
+      const idMatch = /\bid="([^"]+)"/.exec(text);
+      const classMatch = /\bclass="([^"]+)"/.exec(text);
+      const label = headingMatch?.[1]?.trim() ?? idMatch?.[1]?.trim() ?? classMatch?.[1]?.split(/\s+/)[0] ?? `Section ${i + 1}`;
+      return { index: i, label, length: text.length, preview: text.slice(0, 200) };
+    });
+
+    return reply.send({ sections, total: sections.length });
+  });
+
+  // POST /super-clients/:name/microsites/:id/sections/regenerate  — rewrite one section with LLM
+  app.post('/super-clients/:name/microsites/:id/sections/regenerate', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { instruction?: string; sectionIndex?: number } | undefined;
+    const instruction = body?.instruction?.trim();
+    if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
+
+    const dir = path.join(superClientsRoot, name);
+    const filePath = path.join(dir, 'microsites', `${id}.json`);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+    let ast: Record<string, unknown>;
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+    } catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+
+    const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
+    if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
+
+    // Locate the target section (by index or best keyword match)
+    const bounds: Array<{ start: number; end: number }> = [];
+    let p = 0;
+    while (p < html.length) {
+      const oi = html.indexOf('<section', p);
+      if (oi === -1) break;
+      const te = html.indexOf('>', oi);
+      if (te === -1) break;
+      let depth = 1, ci = te + 1, se = -1;
+      while (ci < html.length && depth > 0) {
+        const no = html.indexOf('<section', ci);
+        const nc = html.indexOf('</section>', ci);
+        if (nc === -1) break;
+        if (no !== -1 && no < nc) { depth++; ci = no + 8; }
+        else { depth--; ci = nc + 10; if (depth === 0) se = ci; }
+      }
+      if (se !== -1) { bounds.push({ start: oi, end: se }); p = se; } else { p = te + 1; }
+    }
+
+    if (bounds.length === 0) return reply.code(400).send({ error: 'No sections found in microsite HTML' });
+
+    let target = bounds[0];
+    const idx = body?.sectionIndex ?? -1;
+    if (idx >= 0 && idx < bounds.length) {
+      target = bounds[idx];
+    } else {
+      // Score by id/class/heading match (same logic as edit endpoint)
+      const hintLower = instruction.toLowerCase();
+      const words = hintLower.split(/\W+/).filter(w => w.length > 2);
+      let best = bounds[0], bestScore = -1;
+      for (let i = 0; i < bounds.length; i++) {
+        const text = html.slice(bounds[i].start, bounds[i].end);
+        const textLower = text.toLowerCase();
+        let score = 0;
+        const attrs = [
+          (/\bid="([^"]+)"/.exec(text)?.[1] ?? ''),
+          (/\bclass="([^"]+)"/.exec(text)?.[1] ?? ''),
+        ].join(' ').toLowerCase();
+        const heading = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
+        for (const w of words) {
+          if (attrs.includes(w)) score += 4;
+          if (heading.includes(w)) score += 3;
+          if (textLower.includes(w)) score += 1;
+        }
+        if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
+        if (i === bounds.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
+        if (score > bestScore) { bestScore = score; best = bounds[i]; }
+      }
+      target = best;
+    }
+
+    const sectionHtml = html.slice(target.start, target.end);
+    const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+    const prompt = `You are rewriting one section of an HTML microsite.
+
+Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
+Preserve: overall section structure unless told otherwise, CSS class names, responsive patterns.
+
+Output ONLY the replacement HTML block — start with the opening tag (<section, <header, <nav, or <div), end with its closing tag. No preamble, no explanation, no markdown fences.
+${cssVarsBlock ? `\nCSS DESIGN TOKENS (use var(--name) for colors/fonts/spacing where applicable):\n${cssVarsBlock}\n` : ''}
+INSTRUCTION: ${instruction}
+
+CURRENT SECTION:
+${sectionHtml}`;
+
+    const regenRaw = await llmGenerateFn(prompt);
+    const sectionMatch = regenRaw.match(/<section[\s\S]*<\/section>/i);
+    if (!sectionMatch) return reply.code(502).send({ error: 'LLM did not return a valid section — try rephrasing' });
+
+    const updatedHtml = html.slice(0, target.start) + sectionMatch[0] + html.slice(target.end);
+    const updatedAst = { ...ast, sections: [{ ...astSections![0], customHtml: updatedHtml, previousHtml: html }, ...((astSections ?? []).slice(1))] };
+    await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+
+    return reply.send({ html: updatedHtml, sectionHtml: sectionMatch[0], sectionIndex: idx >= 0 ? idx : null, summary: 'Section regenerated' });
   });
 
   // POST /super-clients/:name/microsites/:id/revert  — undo last edit
