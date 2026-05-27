@@ -1902,6 +1902,21 @@ export async function fetchClientMemory(apiKey: string, clientSlug: string): Pro
   return data.memory;
 }
 
+export async function updateClientStableField(
+  apiKey: string,
+  clientSlug: string,
+  key: 'clientName' | 'clientIndustry' | 'contactName' | 'projectType',
+  value: string,
+): Promise<ClientMemory> {
+  const res = await fetch(`/api/clients/${encodeURIComponent(clientSlug)}/memory/fields`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ key, value }),
+  });
+  const data = await handleResponse<{ memory: ClientMemory }>(res);
+  return data.memory;
+}
+
 export async function addKnowledgeEntry(
   apiKey: string,
   clientSlug: string,
@@ -2162,6 +2177,23 @@ export async function createSuperClient(
     throw new Error(`createSuperClient failed (${res.status}): ${text}`);
   }
   return res.json() as Promise<{ name: string; displayName: string; contextMd: string }>;
+}
+
+export async function enrichSuperClientUrl(
+  apiKey: string,
+  name: string,
+  url: string,
+): Promise<{ meta: SuperClientMeta; contextMd: string }> {
+  const res = await fetch(`/api/super-clients/${name}/enrich-url`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`enrichSuperClientUrl failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<{ meta: SuperClientMeta; contextMd: string }>;
 }
 
 export async function getSuperClient(apiKey: string, name: string): Promise<SuperClientDetail> {

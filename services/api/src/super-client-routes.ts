@@ -403,6 +403,83 @@ Return ONLY valid JSON (empty arrays if nothing notable):
   }
 }
 
+async function seedClientMemory(
+  name: string,
+  displayName: string,
+  contextMd: string,
+  workdir: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  if (!contextMd.trim()) return;
+  const memService = new ClientMemoryService(workdir);
+  try {
+    const extractPrompt = `You are a client intelligence extractor.
+Extract facts worth remembering long-term from this client intelligence summary about "${displayName}".
+Focus on: company facts, preferences, constraints, requirements, stakeholders (name + role), brand traits,
+business context, goals, and anything useful for future proposals or microsites.
+Skip generic filler or information that would not apply to future work.
+
+Categories (use the most specific one that fits):
+- requirement  : A stated must-have or should-have capability or deliverable
+- priority     : An explicitly ranked client priority
+- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
+- action_item  : A committed next step with a responsible party or deadline
+- problem      : A business pain point or challenge
+- opportunity  : A potential growth area or strategic opening
+- decision     : A direction or choice that was agreed upon
+- constraint   : A limitation, risk, or boundary condition
+- preference   : A stated style or approach preference
+- relationship : A stakeholder connection or reporting relationship
+- context      : Background about the company, people, or situation
+
+CONTENT:
+${contextMd.slice(0, 12000)}
+
+Return ONLY valid JSON (null for fields not found):
+{
+  "stableFields": {
+    "clientIndustry": "string or null",
+    "projectType": "string or null",
+    "contactName": "string or null"
+  },
+  "knowledge": [
+    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
+  ],
+  "stakeholders": [
+    { "name": "...", "role": "...", "email": "", "notes": "" }
+  ]
+}`;
+    const raw = await llmGenerateFn(extractPrompt);
+    const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+    const extracted = JSON.parse(json) as {
+      stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
+      knowledge?: { content: string; category: string; confidence: number }[];
+      stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
+    };
+    const sf = extracted.stableFields ?? {};
+    if (sf.clientIndustry?.trim()) await memService.updateField(name, 'clientIndustry', sf.clientIndustry.trim());
+    if (sf.projectType?.trim()) await memService.updateField(name, 'projectType', sf.projectType.trim());
+    if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
+    for (const k of extracted.knowledge ?? []) {
+      if (k.content?.trim()) {
+        await memService.addKnowledge(name, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.8);
+      }
+    }
+    for (const s of extracted.stakeholders ?? []) {
+      if (s.name?.trim() && s.role?.trim()) {
+        await memService.addStakeholder(name, {
+          name: s.name,
+          role: s.role,
+          ...(s.email?.trim() ? { email: s.email } : {}),
+          ...(s.notes?.trim() ? { notes: s.notes } : {}),
+        });
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, '[SuperClient] Failed to seed memory from contextMd');
+  }
+}
+
 export function registerSuperClientRoutes(app: FastifyInstance, workdir: string): void {
   const superClientsRoot = path.join(workdir, 'super-clients');
 
@@ -488,75 +565,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     await writeFile(path.join(dir, 'context.md'), contextMd);
 
-    // Seed ClientMemory by extracting structured knowledge from contextMd (same pipeline as document ingestion)
-    if (contextMd.trim()) {
-      try {
-        const extractPrompt = `You are a client intelligence extractor.
-Extract facts worth remembering long-term from this client intelligence summary about "${displayName}".
-Focus on: company facts, preferences, constraints, requirements, stakeholders (name + role), brand traits,
-business context, goals, and anything useful for future proposals or microsites.
-Skip generic filler or information that would not apply to future work.
-
-Categories (use the most specific one that fits):
-- requirement  : A stated must-have or should-have capability or deliverable
-- priority     : An explicitly ranked client priority
-- metric       : A business number or KPI (budget, traffic, conversion rates, etc.)
-- action_item  : A committed next step with a responsible party or deadline
-- problem      : A business pain point or challenge
-- opportunity  : A potential growth area or strategic opening
-- decision     : A direction or choice that was agreed upon
-- constraint   : A limitation, risk, or boundary condition
-- preference   : A stated style or approach preference
-- relationship : A stakeholder connection or reporting relationship
-- context      : Background about the company, people, or situation
-
-CONTENT:
-${contextMd.slice(0, 12000)}
-
-Return ONLY valid JSON (null for fields not found):
-{
-  "stableFields": {
-    "clientIndustry": "string or null",
-    "projectType": "string or null",
-    "contactName": "string or null"
-  },
-  "knowledge": [
-    { "content": "...", "category": "requirement|priority|metric|action_item|problem|opportunity|decision|constraint|preference|relationship|context", "confidence": 0.0 }
-  ],
-  "stakeholders": [
-    { "name": "...", "role": "...", "email": "", "notes": "" }
-  ]
-}`;
-        const raw = await llmGenerateFn(extractPrompt);
-        const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
-        const extracted = JSON.parse(json) as {
-          stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
-          knowledge?: { content: string; category: string; confidence: number }[];
-          stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
-        };
-        const sf = extracted.stableFields ?? {};
-        if (sf.clientIndustry?.trim()) await memService.updateField(name, 'clientIndustry', sf.clientIndustry.trim());
-        if (sf.projectType?.trim()) await memService.updateField(name, 'projectType', sf.projectType.trim());
-        if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
-        for (const k of extracted.knowledge ?? []) {
-          if (k.content?.trim()) {
-            await memService.addKnowledge(name, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.8);
-          }
-        }
-        for (const s of extracted.stakeholders ?? []) {
-          if (s.name?.trim() && s.role?.trim()) {
-            await memService.addStakeholder(name, {
-              name: s.name,
-              role: s.role,
-              ...(s.email?.trim() ? { email: s.email } : {}),
-              ...(s.notes?.trim() ? { notes: s.notes } : {}),
-            });
-          }
-        }
-      } catch (err) {
-        app.log.warn({ err }, '[SuperClient] Failed to seed memory from contextMd');
-      }
-    }
+    await seedClientMemory(name, displayName, contextMd, workdir, app.log);
 
     return reply.code(201).send({ name, displayName, contextMd });
   });
@@ -1629,5 +1638,48 @@ ${sectionHtml}`;
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
     }
+  });
+
+  // POST /super-clients/:name/enrich-url  — (re)generate context from a website URL
+  app.post('/super-clients/:name/enrich-url', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const body = req.body as { url?: string } | undefined;
+    const url = body?.url?.trim();
+
+    if (!url) {
+      return reply.code(400).send({ error: 'Missing required field: url' });
+    }
+
+    const dir = path.join(superClientsRoot, name);
+    let meta: SuperClientMeta;
+    try {
+      meta = await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+
+    meta.url = url;
+    await writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
+
+    const parts: string[] = [
+      'You are a client intelligence researcher. Given a company website URL, extract structured information useful for building microsites and proposals.',
+      'Focus on: product or service description, company tone and personality, industry and target market, key selling points and differentiators, visual brand cues (colors, style).',
+      'Output clean, well-structured markdown without preamble.',
+      '',
+      `Website URL: ${url}`,
+    ];
+
+    let contextMd: string;
+    try {
+      contextMd = await llmGenerateFn(parts.join('\n'));
+    } catch (err) {
+      app.log.warn({ err }, '[SuperClient] URL enrichment context generation failed');
+      return reply.code(500).send({ error: 'Context generation failed' });
+    }
+
+    await writeFile(path.join(dir, 'context.md'), contextMd);
+    await seedClientMemory(name, meta.displayName, contextMd, workdir, app.log);
+
+    return reply.send({ meta, contextMd });
   });
 }

@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Plus,
+  Pencil,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
@@ -35,6 +36,7 @@ import { uploadStore, type UploadEntry } from '@/lib/upload-store';
 // UploadEntry is used inside UploadMessageCard only
 import {
   getSuperClient,
+  enrichSuperClientUrl,
   streamSuperClientChat,
   listSuperClientDocuments,
   uploadSuperClientDocument,
@@ -467,6 +469,12 @@ export default function SuperClientPage() {
   const [hoveredProposalId, setHoveredProposalId] = useState<string | null>(null);
   const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<'context' | 'artifacts'>('context');
+
+  const [urlEditMode, setUrlEditMode] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [enriching, setEnriching] = useState(false);
+  const [enrichError, setEnrichError] = useState('');
+  const [enrichConfirmPending, setEnrichConfirmPending] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [menuMicrositeId, setMenuMicrositeId] = useState<string | null>(null);
   const [menuMicrositePos, setMenuMicrositePos] = useState({
@@ -512,6 +520,25 @@ export default function SuperClientPage() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMsg({ text, variant, key: Date.now() });
     toastTimerRef.current = setTimeout(() => setToastMsg(null), 3500);
+  }
+
+  async function handleEnrichUrl() {
+    if (!urlInput.trim() || !name || !apiKey) return;
+    setEnriching(true);
+    setEnrichError('');
+    try {
+      const result = await enrichSuperClientUrl(apiKey, name, urlInput.trim());
+      setMeta(result.meta);
+      setContextMd(result.contextMd);
+      setMemoryKey(k => k + 1);
+      setUrlEditMode(false);
+      setUrlInput('');
+      showToast('Client context updated from website');
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : 'Failed to fetch context');
+    } finally {
+      setEnriching(false);
+    }
   }
 
   const abortRef = useRef<AbortController | null>(null);
@@ -2489,36 +2516,159 @@ export default function SuperClientPage() {
                 <>
                   {/* Client identity */}
                   <div style={{ padding: '14px 12px 10px 16px' }}>
-                    <div
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 400,
-                        color: 'var(--text)',
-                      }}
-                    >
+                    <div style={{ fontSize: 14, fontWeight: 400, color: 'var(--text)' }}>
                       {meta?.displayName ?? name}
                     </div>
-                    {meta?.url && (
-                      <a
-                        href={meta.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+
+                    {urlEditMode ? (
+                      <div style={{ marginTop: 6 }}>
+                        <input
+                          type="url"
+                          value={urlInput}
+                          onChange={e => setUrlInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && urlInput.trim() && !enriching) {
+                              if (contextMd.trim()) {
+                                setEnrichConfirmPending(true);
+                              } else {
+                                void handleEnrichUrl();
+                              }
+                            }
+                            if (e.key === 'Escape') { setUrlEditMode(false); setEnrichError(''); }
+                          }}
+                          placeholder="https://example.com"
+                          disabled={enriching}
+                          autoFocus
+                          style={{
+                            width: '100%',
+                            fontSize: 12,
+                            padding: '4px 8px',
+                            background: 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 4,
+                            color: 'var(--text)',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                        {enrichError && (
+                          <div style={{ fontSize: 11, color: '#e55', marginTop: 3 }}>
+                            {enrichError}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                          <button
+                            disabled={enriching || !urlInput.trim()}
+                            onClick={() => {
+                              if (contextMd.trim()) {
+                                setEnrichConfirmPending(true);
+                              } else {
+                                void handleEnrichUrl();
+                              }
+                            }}
+                            style={{
+                              fontSize: 12,
+                              padding: '3px 10px',
+                              background: 'var(--accent, #6366f1)',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: 4,
+                              cursor: enriching || !urlInput.trim() ? 'not-allowed' : 'pointer',
+                              opacity: enriching || !urlInput.trim() ? 0.6 : 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            {enriching && <Loader size={11} strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />}
+                            {enriching ? 'Fetching…' : 'Fetch'}
+                          </button>
+                          <button
+                            disabled={enriching}
+                            onClick={() => { setUrlEditMode(false); setEnrichError(''); }}
+                            style={{
+                              fontSize: 12,
+                              padding: '3px 8px',
+                              background: 'none',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              color: 'var(--muted)',
+                              cursor: enriching ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : meta?.url ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                        <a
+                          href={meta.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 400,
+                            color: 'var(--muted)',
+                            textDecoration: 'none',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {meta.url.replace(/^https?:\/\//, '')}
+                        </a>
+                        <button
+                          onClick={() => { setUrlInput(meta.url ?? ''); setUrlEditMode(true); setEnrichError(''); }}
+                          title="Edit website URL"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '1px 2px',
+                            color: 'var(--muted)',
+                            flexShrink: 0,
+                            display: 'flex',
+                            lineHeight: 1,
+                          }}
+                        >
+                          <Pencil size={12} strokeWidth={1.5} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setUrlInput(''); setUrlEditMode(true); setEnrichError(''); }}
                         style={{
-                          fontSize: 13,
-                          fontWeight: 400,
+                          marginTop: 4,
+                          fontSize: 12,
                           color: 'var(--muted)',
-                          textDecoration: 'none',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'block',
-                          marginTop: 2,
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: 0,
+                          textDecoration: 'underline',
+                          textDecorationStyle: 'dashed',
+                          textUnderlineOffset: 2,
                         }}
                       >
-                        {meta.url.replace(/^https?:\/\//, '')}
-                      </a>
+                        Add website URL
+                      </button>
                     )}
                   </div>
+
+                  {enrichConfirmPending && (
+                    <ConfirmDialog
+                      title="Replace client context?"
+                      message="This will overwrite the existing client context with new content fetched from the website. This cannot be undone."
+                      confirmLabel="Replace"
+                      onConfirm={async () => {
+                        setEnrichConfirmPending(false);
+                        await handleEnrichUrl();
+                      }}
+                      onCancel={() => setEnrichConfirmPending(false)}
+                    />
+                  )}
 
                   {/* Documents */}
                   <div className="client-panel-list" style={{ paddingTop: 8, paddingLeft: 12, paddingRight: 12 }}>
