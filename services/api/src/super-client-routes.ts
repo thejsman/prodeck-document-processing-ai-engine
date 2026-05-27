@@ -989,8 +989,7 @@ Return ONLY valid JSON (null for fields not found):
     if (!body?.ast) return reply.code(400).send({ error: 'Missing ast' });
 
     const dir = path.join(superClientsRoot, name);
-    let meta: SuperClientMeta;
-    try { meta = await readMeta(dir); } catch { return reply.code(404).send({ error: `Super client "${name}" not found` }); }
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: `Super client "${name}" not found` }); }
 
     const micrositesDir = path.join(dir, 'microsites');
     await mkdir(micrositesDir, { recursive: true });
@@ -1095,20 +1094,53 @@ Return ONLY valid JSON (null for fields not found):
       const src = isVimeo
         ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
         : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
-      // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
-      const iframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
+      // z-index:-1 keeps the video BEHIND gradient/color overlays — those sit at z-index:0
+      // and provide text-readability tinting while still showing the video beneath them.
+      const iframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:-1" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
 
       // Remove any existing video iframes in hero
       let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
 
-      // Strip background-image from hero photo/background elements so video shows through
+      // Replace solid backgrounds on hero overlay/bg elements with a semi-transparent dark
+      // overlay so the video shows through while keeping text readable.
+      // Handles both `background-image:` and the `background:` shorthand (gradients, images).
       updatedHtml = updatedHtml.replace(
-        /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
-        '$1',
+        /(\.(?:hero|banner|splash|header)[-_]?(?:photo|image|img|bg|background|overlay|mask|cover)[^{]*\{)([^}]*)/gi,
+        (_match, selector: string, body: string) => {
+          // Replace any background / background-image declaration (possibly multiline) with
+          // a dark semi-transparent overlay that lets the video show through.
+          const cleaned = body.replace(
+            /\bbackground(?:-image)?\s*:[\s\S]*?;/g,
+            'background: rgba(0,0,0,0.45);',
+          );
+          return selector + cleaned;
+        },
       );
 
-      // Inject iframe as first child of the first <section>, add position:relative;overflow:hidden
-      updatedHtml = updatedHtml.replace(/<section\b([^>]*)>/i, (_full, attrs: string) => {
+      // Belt-and-suspenders: inject a targeted <style> override so even class names not
+      // matched by the regex above are forced transparent. Uses !important to beat any
+      // inline or late-loaded styles.
+      const videoOverrideStyle = [
+        '<style>',
+        '/* prodeck-video-bg: make overlay divs semi-transparent so video shows through */',
+        '.hero-bg,.hero-background,.hero-overlay,.hero-photo,.hero-image,.hero-img,',
+        '.banner-bg,.banner-overlay,.splash-bg,.section-bg,.header-bg{',
+        '  background:rgba(0,0,0,0.45)!important;',
+        '  background-image:none!important;',
+        '}',
+        '</style>',
+      ].join('\n');
+      updatedHtml = updatedHtml.includes('</head>')
+        ? updatedHtml.replace('</head>', `${videoOverrideStyle}\n</head>`)
+        : `${videoOverrideStyle}\n${updatedHtml}`;
+
+      // Inject iframe as first child of the first <section id="hero"> or
+      // <section …hero…> — fall back to the very first <section> if no hero id found.
+      const heroSectionRx = /<section\b([^>]*\bid\s*=\s*["'](?:hero|banner|splash|header)[^>]*)>/i;
+      const firstSectionRx = /<section\b([^>]*)>/i;
+      const targetRx = heroSectionRx.test(updatedHtml) ? heroSectionRx : firstSectionRx;
+
+      updatedHtml = updatedHtml.replace(targetRx, (_full, attrs: string) => {
         const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
         const styleMatch = styleRx.exec(attrs);
         if (styleMatch) {

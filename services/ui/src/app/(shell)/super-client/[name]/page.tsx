@@ -835,14 +835,22 @@ export default function SuperClientPage() {
   function handleComposerImageUpload(file: File) {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      const base64 = dataUrl.split(",")[1];
-      const mediaType = file.type as
-        | "image/jpeg"
-        | "image/png"
-        | "image/webp"
-        | "image/gif";
-      setComposerImage({ base64, mediaType });
+      const raw = e.target?.result as string;
+      // Compress to ≤4 MB so the Anthropic API never rejects the payload
+      const maxBytes = 4 * 1024 * 1024;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(1, Math.sqrt((maxBytes * 0.72) / (img.width * img.height * 3)));
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        let out = canvas.toDataURL('image/jpeg', 0.85);
+        if (out.length * 0.75 > maxBytes) out = canvas.toDataURL('image/jpeg', 0.70);
+        const base64 = out.split(',')[1];
+        setComposerImage({ base64, mediaType: 'image/jpeg' });
+      };
+      img.src = raw;
     };
     reader.readAsDataURL(file);
   }

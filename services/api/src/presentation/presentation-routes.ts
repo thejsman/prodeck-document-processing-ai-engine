@@ -2274,7 +2274,8 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
     // ── Resolve a potentially-relative URL to absolute ──────────────────────
     const toAbsolute = (href: string): string => {
       if (!href) return '';
-      if (href.startsWith('http')) return href;
+      // Preserve data: URIs (inline SVGs, base64 images) and protocol-relative URLs unchanged
+      if (href.startsWith('http') || href.startsWith('data:') || href.startsWith('//')) return href;
       return href.startsWith('/') ? `${baseUrl.origin}${href}` : `${baseUrl.origin}/${href}`;
     };
 
@@ -2304,8 +2305,8 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       } catch { clearTimeout(t); return ''; }
     };
 
-    // ── Fetch the page HTML ──────────────────────────────────────────────────
-    const html = await fetchText(url, 500, 10000);
+    // ── Fetch HTML (5 s cap, 500 KB max) ────────────────────────────────────
+    const html = await fetchText(url, 500, 5000);
     if (!html) return { note: '' };
 
     // ── Meta: title & theme-color ────────────────────────────────────────────
@@ -2318,41 +2319,195 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
     // ── Google Fonts ─────────────────────────────────────────────────────────
     const gFontsUrl = html.match(/(https:\/\/fonts\.googleapis\.com\/css[^"'\s)]+)/i)?.[1] ?? '';
 
-    // ── Collect ALL CSS: inline <style> blocks + up to 3 external sheets ─────
+    // ── Inline <style> blocks ────────────────────────────────────────────────
     const inlineStyleBlocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
       .map(m => m[1]).join('\n');
 
-    // Find external stylesheet hrefs (skip google fonts — they're font-only)
-    const cssHrefs = [...html.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi)]
-      .map(m => m[1])
-      .filter(h => !h.includes('fonts.googleapis'))
+    // ── HIGHEST PRIORITY: structural element backgrounds ──────────────────────
+    // <header style="background-color:#..."> and <footer style="..."> are the
+    // most reliable brand color signals — they're set by the site owner, not by
+    // third-party plugins or WP block defaults.
+    const structuralBgMatch =
+      // Exact <header>/<footer> elements with inline background-color
+      html.match(/<(?:header|footer)\b[^>]+style=["'][^"']*background(?:-color)?\s*:\s*#([0-9a-f]{3,6})/i) ??
+      // Divs/sections with header/navbar class carrying an inline background
+      html.match(/<(?:div|section)\b[^>]+class=["'][^"']*(?:header|site-header|navbar|top-bar|main-header)[^"']*["'][^>]+style=["'][^"']*background(?:-color)?\s*:\s*#([0-9a-f]{3,6})/i);
+    const structuralBg = structuralBgMatch?.[1] ? '#' + structuralBgMatch[1].toLowerCase() : '';
+
+    // ── Logo from HTML — try before favicon (actual brand logo, not icon) ───────
+    // Match <a id="logo">, <div class="logo">, <header class="...logo..."> etc.
+    // containing an <img src="...">
+    const logoImgFromHtml = (
+      html.match(/<(?:a|div|header|nav|span)[^>]+(?:id|class)=["'][^"']*(?:site-logo|navbar-brand|header-logo|logo-img|brand-logo|logo)[^"']*["'][^>]*>[\s\S]{0,400}?<img[^>]+src=["']([^"']+)["']/i) ??
+      html.match(/<(?:a|div)[^>]+id=["']logo["'][^>]*>[\s\S]{0,200}?<img[^>]+src=["']([^"']+)["']/i) ??
+      html.match(/<img[^>]+(?:class|id)=["'][^"']*(?:site-logo|header-logo|logo-img|brand-logo)[^"']*["'][^>]+src=["']([^"']+)["']/i) ??
+      html.match(/<img[^>]+src=["']([^"']+)["'][^>]*(?:class|id)=["'][^"']*(?:site-logo|header-logo|logo-img)[^"']*["']/i)
+    )?.[1] ?? '';
+    const logoUrlFromHtml = logoImgFromHtml ? toAbsolute(logoImgFromHtml) : '';
+
+    // ── Pick external stylesheets — theme CSS first, skip WP core & plugins ──
+    // Priority order: /themes/ > everything else; exclude WP core, plugins, 3rd-party
+    const thirdPartyPattern = /fontawesome|bootstrap|normalize|reset|jquery|slick|swiper|animate|material|bulma|foundation|tailwind\.cdn|cdnjs|jsdelivr|unpkg/i;
+    const wpCoreOrPluginPattern = /wp-includes\/|wp-content\/plugins\/|ghostkit|dashicons/i;
+    const allCssLinks = [...html.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi)]
+      .map(m => m[1]);
+    const cssHrefs = allCssLinks
+      .filter(h => !h.includes('fonts.googleapis') && !thirdPartyPattern.test(h) && !wpCoreOrPluginPattern.test(h))
+      .sort((a, b) => {
+        // Theme CSS (wp-content/themes/) ranks first — most likely to have brand colors
+        const aScore = a.includes('/themes/') ? 0 : 1;
+        const bScore = b.includes('/themes/') ? 0 : 1;
+        return aScore - bScore;
+      })
       .slice(0, 3);
 
-    const externalCssChunks = await Promise.all(
-      cssHrefs.map(href => fetchText(toAbsolute(href), 120, 5000)),
-    );
-    const allCss = [inlineStyleBlocks, ...externalCssChunks].join('\n');
+    // ── Favicon candidates — ordered: small PNG > any PNG/JPG > no-SVG > ico ──
+    const faviconLinks = [...html.matchAll(
+      /<link[^>]+rel=["'](?:[^"']*\s)?(?:shortcut icon|icon|apple-touch-icon)[^"']*["'][^>]+href=["']([^"']+)["']/gi,
+    )].map(m => toAbsolute(m[1]));
+    // Prefer small theme-specific PNGs (favicon.png) over large apple-touch-icons
+    const favicon =
+      faviconLinks.find(f => f.includes('favicon') && f.endsWith('.png')) ??
+      faviconLinks.find(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.webp')) ??
+      faviconLinks.find(f => !f.endsWith('.svg') && !f.endsWith('.ico')) ??
+      toAbsolute('/favicon.png');
+
+    // ── Fetch CSS with @import following + favicon IN PARALLEL ──────────────
+    // If a CSS file is just @import rules, follow up to 4 of them one directory level.
+    const fetchCssFollowImports = async (cssUrl: string): Promise<string> => {
+      const cssText = await fetchText(toAbsolute(cssUrl), 80, 3000);
+      if (!cssText) return '';
+      const importMatches = [...cssText.matchAll(/@import\s+["']([^"']+)["']/g)].slice(0, 12);
+      if (importMatches.length === 0) return cssText;
+      // Fetch imported files concurrently
+      const baseDir = cssUrl.split('?')[0].replace(/\/[^/]+$/, '/');
+      const toAbsoluteFromBase = (href: string) =>
+        href.startsWith('http') ? href : href.startsWith('/') ? `${baseUrl.origin}${href}` : baseDir + href;
+      const imported = await Promise.all(
+        importMatches.map(m => fetchText(toAbsoluteFromBase(m[1]), 40, 2000)),
+      );
+      return [cssText, ...imported].join('\n');
+    };
+
+    const [externalCssChunks, faviconFetchResult] = await Promise.all([
+      Promise.all(cssHrefs.map(href => fetchCssFollowImports(href))),
+      (async () => {
+        // Try favicon candidates in order until one succeeds (2 s each, max 3 tries)
+        const candidates = [favicon, toAbsolute('/favicon.png'), toAbsolute('/favicon.ico')]
+          .filter((v, i, a) => v && a.indexOf(v) === i); // deduplicate
+        for (const candidate of candidates) {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 2000);
+          try {
+            const r = await fetch(candidate, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } });
+            clearTimeout(t);
+            if (!r.ok) continue;
+            const ct = (r.headers.get('content-type') ?? '').split(';')[0].trim();
+            if (ct === 'image/svg+xml' || candidate.endsWith('.svg')) continue; // Anthropic doesn't accept SVG
+            const buf = await r.arrayBuffer();
+            if (buf.byteLength > 0 && buf.byteLength < 2 * 1024 * 1024) {
+              return { base64: Buffer.from(buf).toString('base64'), mediaType: ct || 'image/png' };
+            }
+          } catch { clearTimeout(t); /* try next */ }
+        }
+        return null;
+      })(),
+    ]);
+
+    // Theme CSS = only the externally fetched files (imports followed).
+    // Inline <style> blocks on WordPress/Shopify/etc. are contaminated with
+    // WP admin, Gutenberg editor, and plugin CSS variables that don't reflect
+    // brand colors. We keep inline CSS as a low-priority fallback only.
+    const themeCss = externalCssChunks.join('\n');
+    const allCss = themeCss || inlineStyleBlocks; // prefer theme CSS; fallback to inline
 
     // ── Also harvest colors from inline style="" attributes ──────────────────
     const inlineStyleAttrs = [...html.matchAll(/style=["']([^"']{0,300})["']/gi)]
       .map(m => m[1]).join(';');
-    const allCssAndInline = allCss + '\n' + inlineStyleAttrs;
 
-    // ── Extract CSS custom properties (color-related) ─────────────────────────
-    const cssVarColors = [...allCss.matchAll(
-      /(--[a-z][a-z0-9-]*(?:color|primary|secondary|accent|brand|bg|background|text|surface|foreground|highlight|muted)[^:]*)\s*:\s*(#[0-9a-f]{3,8}|rgb[^;,}]+|hsl[^;,}]+)/gi,
-    )].slice(0, 12).map(m => `${m[1].trim()}: ${m[2].trim()}`);
+    // Known WP admin / block-editor colors that bleed into inline <style>
+    // and are NOT brand colors — always exclude them.
+    const wpAdminFilter = new Set([
+      '#007cba','#006ba1','#005a87','#7a00df','#0a7aff','#0757fe',
+      '#00d084','#0693e3','#34e2e4','#4721fb','#ab1dfe','#1ea0c3',
+    ]);
 
-    // ── Distinct hex colors — skip near-neutral grays & pure black/white ─────
+    // Bootstrap 5 default palette — these are framework defaults, NOT brand colors.
+    // Includes base palette + contextual shades + emphasis/subtle tones.
+    // Themes that bundle Bootstrap will export all of these; never treat them as brand.
+    const bootstrapDefaultFilter = new Set([
+      // Base palette
+      '#0d6efd','#6610f2','#6f42c1','#d63384','#dc3545','#fd7e14','#ffc107',
+      '#198754','#20c997','#0dcaf0','#6c757d','#343a40','#f8f9fa','#e9ecef',
+      '#dee2e6','#ced4da','#adb5bd','#495057','#212529',
+      // Hover/active shades
+      '#0a58ca','#0b5ed7','#0c63e4','#0d6efd',
+      // Text-emphasis (dark contextual shades)
+      '#052c65','#2b2f32','#0a3622','#055160','#664d03','#58151c','#2b2f32','#373b3e',
+      // Background-subtle (light tints)
+      '#cfe2ff','#9ec5fe','#b6d4fe','#e2e3e5','#d1e7dd','#a3cfbb','#d1ecf1',
+      '#fff3cd','#ffd700','#f8d7da','#f1aeb5','#e685b5',
+      // Additional Bootstrap grays
+      '#c4c8cb','#e2e3e5','#6ea8fe','#6edff6','#3dd5f3','#31d2f2','#25cff2',
+    ]);
+
     const neutralFilter = new Set([
       '#fff','#000','#ffffff','#000000','#eee','#ddd','#ccc','#bbb','#aaa','#999',
       '#888','#777','#666','#555','#444','#333','#222','#111',
       '#f5f5f5','#f0f0f0','#fafafa','#e5e5e5','#e0e0e0','#d9d9d9',
       '#1a1a1a','#2a2a2a','#3a3a3a','#4a4a4a',
     ]);
-    const hexColors = [...new Set(
-      [...allCssAndInline.matchAll(/#([0-9a-f]{3,6})\b/gi)].map(m => '#' + m[1].toLowerCase()),
-    )].filter(c => !neutralFilter.has(c)).slice(0, 10);
+
+    // ── CSS custom properties — two-pass with brand priority ────────────────
+    // Pass 1: Elementor brand globals (--e-global-color-primary/secondary/accent)
+    const elementorVars = [...allCss.matchAll(
+      /(--e-global-color-(?:primary|secondary|text|accent|[a-z0-9]+))\s*:\s*(#[0-9a-f]{3,8})/gi,
+    )].map(m => `${m[1].trim()}: ${m[2].trim()}`);
+
+    // Pass 2: generic brand CSS vars — exclude WP admin, preset, editor vars, and
+    // Bootstrap framework vars (--bs-*) which are bundled by many themes but are
+    // framework defaults, not actual brand choices.
+    const genericVars = [...allCss.matchAll(
+      /(?:^|[;{}\n])\s*(--[a-z][a-z0-9-]*(?:color|primary|secondary|accent|brand|surface|highlight|muted)[^:]*)\s*:\s*(#[0-9a-f]{3,8}|rgb[^;,}]+)/gim,
+    )].map(m => ({ name: m[1].trim(), val: m[2].trim() }))
+      .filter(({ name }) =>
+        !name.includes('--wp--') && !name.includes('--preset--') &&
+        !name.includes('--wp-admin') && !name.includes('--wp-editor') &&
+        !name.includes('--wp-block') && !name.includes('--wp-components') &&
+        !name.startsWith('--bs-'),   // Bootstrap 5 framework vars (--bs-primary, --bs-blue etc.)
+      )
+      .map(({ name, val }) => `${name}: ${val}`);
+
+    const cssVarColors = [...new Set([...elementorVars, ...genericVars])].slice(0, 12);
+
+    // ── Hex colors: priority order matters ───────────────────────────────────
+    // 1. From CSS custom properties (already brand-filtered above)
+    const hexFromVars = cssVarColors
+      .map(v => { const m = v.match(/#([0-9a-f]{3,8})\b/i); return m ? ('#' + m[1]).toLowerCase() : ''; })
+      .filter(Boolean) as string[];
+
+    // 2. background-color / color property values from THEME CSS (not inline)
+    //    Regex captures hex WITHOUT the leading #, so we prepend it once.
+    const hexFromThemeProps = [...new Set([
+      ...[...themeCss.matchAll(/background(?:-color)?\s*:\s*#([0-9a-f]{3,6})\b/gi)].map(m => '#' + m[1].toLowerCase()),
+      ...[...themeCss.matchAll(/(?<![a-z-])color\s*:\s*#([0-9a-f]{3,6})\b/gi)].map(m => '#' + m[1].toLowerCase()),
+    ])].filter(c => !neutralFilter.has(c) && !wpAdminFilter.has(c));
+
+    // 3. All hex from theme CSS (broader scan, lower priority)
+    const hexFromThemeAll = [...themeCss.matchAll(/#([0-9a-f]{3,6})\b/gi)]
+      .map(m => '#' + m[1].toLowerCase());
+
+    // 4. Inline style attrs on elements (last resort)
+    const hexFromInlineAttrs = [...inlineStyleAttrs.matchAll(/#([0-9a-f]{3,6})\b/gi)]
+      .map(m => '#' + m[1].toLowerCase());
+
+    // structuralBg is placed first so the real header/footer brand color always
+    // lands in the palette even when theme-CSS colors fill the first N slots.
+    // bootstrapDefaultFilter removes Bootstrap 5 framework defaults (#0d6efd etc.)
+    // that bleed through themes which bundle Bootstrap CSS.
+    const hexColors = [
+      ...new Set([structuralBg, ...hexFromVars, ...hexFromThemeProps, ...hexFromThemeAll, ...hexFromInlineAttrs].filter(Boolean)),
+    ].filter(c => !neutralFilter.has(c) && !wpAdminFilter.has(c) && !bootstrapDefaultFilter.has(c)).slice(0, 10);
 
     // ── Font families ─────────────────────────────────────────────────────────
     const fontFamilies = [...new Set(
@@ -2361,26 +2516,39 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       ),
     )].filter(f => f && f !== 'inherit' && f !== 'initial' && f !== 'sans-serif' && f !== 'serif').slice(0, 3);
 
-    // ── og:image and favicon ──────────────────────────────────────────────────
+    // ── Logo URL priority: HTML logo img > favicon > og:image ────────────────
+    // og:image is often a hero photo, not the actual logo — use it last.
     const ogImage = (
       html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
     )?.[1] ?? '';
+    // SVG sources (data:image/svg+xml or .svg URLs) cannot be sent to the Anthropic API
+    // as image content, and inline SVG data: URLs are not usable as <img src> in all browsers.
+    // Skip them so we fall through to a rasterised favicon or og:image instead.
+    const isSvgLogoSource = logoUrlFromHtml.startsWith('data:image/svg') || logoUrlFromHtml.toLowerCase().endsWith('.svg');
+    const logoUrl = (!isSvgLogoSource && logoUrlFromHtml) || favicon || ogImage;
 
-    // Prefer high-res favicon icon types (SVG > PNG > ICO) for logo — better
-    // than og:image which is usually a big hero photo that misleads color detection
-    const faviconLinks = [...html.matchAll(
-      /<link[^>]+rel=["'](?:[^"']*\s)?(?:icon|apple-touch-icon)[^"']*["'][^>]+href=["']([^"']+)["']/gi,
-    )].map(m => toAbsolute(m[1]));
+    // ── Build the strict design-context note ─────────────────────────────────
+    // Skip very light colors as primary (luminance > 0.65 = backgrounds/tints, not brand primaries)
+    const isLight = (hex: string): boolean => {
+      const h = hex.replace('#', '').padEnd(6, '0');
+      const r = parseInt(h.slice(0, 2), 16) / 255;
+      const g = parseInt(h.slice(2, 4), 16) / 255;
+      const b = parseInt(h.slice(4, 6), 16) / 255;
+      return 0.299 * r + 0.587 * g + 0.114 * b > 0.65;
+    };
 
-    const favicon = faviconLinks.find(f => f.endsWith('.svg') || f.endsWith('.png'))
-      ?? faviconLinks[0]
-      ?? toAbsolute('/favicon.ico');
-
-    // ── Build the design-context prompt note ─────────────────────────────────
-    const logoUrl = favicon || ogImage;   // favicon first — it's the actual logo
-    const bgColor = themeColor || hexColors[0] || '';
-    const paletteStr = [themeColor, ...hexColors].filter(Boolean).slice(0, 8).join(', ');
+    // Primary: CSS var > first dark theme prop color > first dark theme hex
+    // Skip Bootstrap framework defaults and neutrals at every level.
+    const primaryFromVars = hexFromVars.find(c => !bootstrapDefaultFilter.has(c) && !neutralFilter.has(c)) || '';
+    const primaryFromTheme =
+      hexFromThemeProps.find(c => !isLight(c) && !bootstrapDefaultFilter.has(c)) ||
+      hexFromThemeAll.find(c => !neutralFilter.has(c) && !wpAdminFilter.has(c) && !bootstrapDefaultFilter.has(c) && !isLight(c)) ||
+      hexFromThemeProps.find(c => !bootstrapDefaultFilter.has(c)) || '';
+    // Structural bg (header/footer inline style) wins over generic CSS extraction
+    // because it directly reflects a deliberate brand color choice.
+    const bgColor = structuralBg || themeColor || primaryFromVars || primaryFromTheme || hexColors.find(c => !isLight(c)) || hexColors[0] || '';
+    const paletteStr = [...new Set([structuralBg, themeColor, ...hexColors].filter(Boolean))].slice(0, 8).join(', ');
 
     const lines: string[] = [
       `=== BRAND DESIGN SYSTEM (extracted from ${url}) ===`,
@@ -2393,47 +2561,21 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
     if (fontFamilies.length) lines.push(`Typography (use these exact fonts): ${fontFamilies.join(', ')}`);
     if (gFontsUrl) lines.push(`Load this Google Fonts URL in <head>: ${gFontsUrl}`);
     if (logoUrl) {
-      lines.push(`Logo: ${logoUrl}`);
-      lines.push(`In the site header, embed: <img src="${logoUrl}" alt="${title || 'Logo'}" style="height:40px;object-fit:contain;">`);
+      lines.push(`Logo URL (copy this exactly — do NOT invent or change the URL): ${logoUrl}`);
+      lines.push(`Copy this exact img tag verbatim into the nav/header: <img src="${logoUrl}" alt="${title || 'Logo'}" style="height:40px;object-fit:contain;" onerror="this.style.display='none'">`);
     }
     lines.push(
       ``,
       `STRICT RULES:`,
-      `1. The hero/header background MUST be ${bgColor || 'the primary brand color above'} — not black, not white, not a generic gradient.`,
-      `2. Every section must use the extracted palette. No generic colors allowed.`,
-      `3. The logo image above MUST appear in the navigation/header.`,
+      `1. Hero/header background MUST be ${bgColor || 'the primary brand color above'} — never plain black or white.`,
+      `2. Every section must use only the extracted palette. No generic colors.`,
+      `3. The logo img tag above MUST be copied verbatim into the navigation/header — use that exact src URL, no substitutions.`,
       `4. Typography MUST use the fonts listed above.`,
+      `5. DO NOT use scroll-triggered JS animations (no IntersectionObserver, no opacity:0 fade-up that needs JS). Use CSS @keyframes or load-time animations only.`,
       `=== END BRAND DESIGN SYSTEM ===`,
     );
 
-    const note = lines.join('\n');
-
-    // ── Fetch favicon as base64 vision input ─────────────────────────────────
-    // Using favicon (not og:image) avoids the LLM mistaking a dark hero photo
-    // for the brand's color scheme.
-    let logoBase64: string | undefined;
-    let logoMediaType: string | undefined;
-    if (favicon) {
-      try {
-        const imgCtrl = new AbortController();
-        const imgTimeout = setTimeout(() => imgCtrl.abort(), 5000);
-        const imgRes = await fetch(favicon, { signal: imgCtrl.signal });
-        clearTimeout(imgTimeout);
-        if (imgRes.ok) {
-          const buf = await imgRes.arrayBuffer();
-          if (buf.byteLength > 0 && buf.byteLength < 2 * 1024 * 1024) {
-            const ct = (imgRes.headers.get('content-type') ?? 'image/png').split(';')[0].trim();
-            // Only pass raster images as vision (Anthropic doesn't support SVG)
-            if (ct !== 'image/svg+xml' && !favicon.endsWith('.svg')) {
-              logoBase64 = Buffer.from(buf).toString('base64');
-              logoMediaType = ct;
-            }
-          }
-        }
-      } catch { /* skip if unavailable */ }
-    }
-
-    return { note, logoBase64, logoMediaType };
+    return { note: lines.join('\n'), logoBase64: faviconFetchResult?.base64, logoMediaType: faviconFetchResult?.mediaType };
   }
 
   // ── V2 experimental generation route ──────────────────────────────────────
@@ -2501,10 +2643,17 @@ Always write descriptive alt attributes. Never use placeholder services.`;
     const ARTIFACT_SYSTEM = `You are a world-class frontend developer and creative director with deep expertise in modern CSS, animation, and interaction design. You have an exceptional eye for typography, spacing, color, and visual hierarchy. You build websites that feel premium, polished, and alive — the kind of work that wins design awards.
 
 When asked to create a website or microsite:
-- Use your full frontend skills: CSS custom properties, smooth scroll, parallax, scroll-driven animations, glassmorphism, gradients, blur effects, micro-interactions
+- Use your full frontend skills: CSS custom properties, smooth scroll, glassmorphism, gradients, blur effects, micro-interactions, hover transitions
 - Choose fonts, colors, and layouts that feel intentional and high-end
 - Write clean, semantic HTML5 with all CSS and JS embedded inline
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
+- ALWAYS close the document properly with </body></html> as the very last lines
+
+CRITICAL — ANIMATIONS:
+- NEVER use scroll-triggered JavaScript animations (no IntersectionObserver, no "fade-up"/"reveal" classes that start at opacity:0 and need JS to become visible). Elements must be fully visible without any JavaScript running.
+- You MAY use CSS @keyframes that trigger automatically on page load (e.g. animation: fadeIn 0.6s ease forwards), hover transitions, and CSS :hover effects — these are safe.
+- If you want a "fade-up on scroll" effect, use the CSS Scroll-Driven Animations spec (animation-timeline: scroll()) which requires NO JavaScript and has wide browser support.
+- Acceptable JS: tab switching, mobile menu toggle, smooth scroll, interactive charts, counter animations on load — all of which render content immediately.
 
 ${imageInstructions}`;
 
@@ -2582,6 +2731,21 @@ ${imageInstructions}`;
       send({ type: 'start', message: 'Generating…' });
       send({ type: 'progress', message: 'Analyzing proposal…' });
 
+      // ── Heartbeat starts IMMEDIATELY so the UI always has regular updates ───
+      // It runs across URL extraction AND the LLM call — cleared only after both.
+      const heartbeatSteps = [
+        'Analyzing proposal…', 'Fetching design reference…', 'Designing layout…',
+        'Building hero section…', 'Writing content…', 'Applying styles…', 'Polishing design…',
+      ];
+      let hbIdx = 0;
+      const hbTimer = setInterval(() => {
+        send({ type: 'progress', message: heartbeatSteps[hbIdx % heartbeatSteps.length] });
+        hbIdx++;
+      }, 5000);
+
+      let websiteDesignNote = '';
+      let websiteLogoImage: { base64: string; mediaType: string } | undefined;
+
       // Detect Vimeo URL in user instructions and inject technical embed guidance
       const vimeoMatch = body?.userPrompt?.match(/https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/i);
       const vimeoNote = vimeoMatch
@@ -2594,8 +2758,6 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       // Detect non-Vimeo website URLs in userPrompt and extract design tokens
       // so the LLM can replicate colors/fonts/logo without live web access.
-      let websiteDesignNote = '';
-      let websiteLogoImage: { base64: string; mediaType: string } | undefined;
       const webUrlMatch = body?.userPrompt?.match(
         /https?:\/\/(?!(?:www\.)?vimeo\.com\/)[^\s'"<>]+\.[a-z]{2,}[^\s'"<>]*/i,
       );
@@ -2604,10 +2766,10 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
           send({ type: 'progress', message: `Extracting design from ${new URL(webUrlMatch[0]).hostname}…` });
           const designCtx = await fetchWebsiteDesignContext(webUrlMatch[0]);
           websiteDesignNote = designCtx.note;
-          // Only use fetched logo as vision input if the user didn't supply their own image
           if (designCtx.logoBase64 && !body?.referenceImage?.base64) {
             websiteLogoImage = { base64: designCtx.logoBase64, mediaType: designCtx.logoMediaType ?? 'image/jpeg' };
           }
+          if (websiteDesignNote) send({ type: 'progress', message: 'Design reference loaded ✓' });
         } catch { /* silently skip — never fail generation over URL extraction */ }
       }
 
@@ -2617,17 +2779,23 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
       if (vimeoNote) parts.push(vimeoNote);
       if (websiteDesignNote) parts.push(websiteDesignNote);
-      if (effectiveRefImage?.base64) parts.push('A reference design screenshot/logo is attached — use it to match the visual style.');
+      // Different hint depending on whether this is a full screenshot or just a favicon logo
+      if (effectiveRefImage?.base64) {
+        const isLogoOnly = !body?.referenceImage?.base64 && !!websiteLogoImage;
+        parts.push(
+          isLogoOnly
+            ? 'A brand logo image is attached — embed it in the navigation header using the logo URL provided in the design system above.'
+            : `A design reference screenshot is attached.
+Extract and apply the following from it:
+- PRIMARY COLORS: identify the dominant background color, text color, and accent/button color — use these exactly
+- TYPOGRAPHY: match the heading weight/style (bold, serif, uppercase, etc.) visible in the image
+- LAYOUT STYLE: match the general layout density and section structure (full-bleed, card-based, editorial, etc.)
+- VISUAL TONE: match the mood — dark/light, minimal/rich, corporate/playful
+Do NOT copy the screenshot's actual content or copy — generate fresh content from the proposal document.`,
+        );
+      }
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
-
-      // Heartbeat: send progress messages every 6 s while the LLM is generating
-      const heartbeatSteps = ['Designing layout…', 'Building hero section…', 'Writing content…', 'Applying styles…', 'Polishing design…'];
-      let hbIdx = 0;
-      const hbTimer = setInterval(() => {
-        send({ type: 'progress', message: heartbeatSteps[hbIdx % heartbeatSteps.length] });
-        hbIdx++;
-      }, 6000);
 
       let raw: string;
       try {
@@ -2637,7 +2805,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
               { type: 'text', text: prompt },
             ] }]
           : [{ role: 'user', content: prompt }];
-        raw = await callLLMStream(messages, 32000);
+        raw = await callLLMStream(messages, 24000);
       } finally {
         clearInterval(hbTimer);
       }

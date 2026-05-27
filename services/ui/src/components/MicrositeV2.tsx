@@ -18,7 +18,7 @@ interface Props {
 export function buildHtml(ast: LayoutAST): string {
   const firstHtml = (ast.sections[0] as LayoutSection & { customHtml?: string })?.customHtml ?? '';
   const isFullDoc = /^\s*<!DOCTYPE|^\s*<html/i.test(firstHtml);
-  if (isFullDoc) return firstHtml;
+  if (isFullDoc) return injectSafetyScript(firstHtml);
   const fonts = ast.brand?.googleFontsUrl
     ? `<link rel="stylesheet" href="${ast.brand.googleFontsUrl}">` : '';
   const sectionsHtml = ast.sections
@@ -30,7 +30,7 @@ export function buildHtml(ast: LayoutAST): string {
 <title>${ast.meta?.client || 'Microsite'}</title>
 ${fonts}
 <style>*{box-sizing:border-box;margin:0;padding:0}body{line-height:1.6}</style>
-</head><body>${sectionsHtml}</body></html>`;
+</head><body>${SAFETY_SCRIPT}${sectionsHtml}</body></html>`;
 }
 
 function downloadMicrosite(ast: LayoutAST) {
@@ -106,10 +106,56 @@ export function MicrositeV2({ ast, generating, onBack }: Props) {
   );
 }
 
+// Safety-net script injected into every V2 iframe.
+// Makes all scroll-triggered hidden elements (fade-up, reveal, etc.) immediately
+// visible so truncated or JS-less HTML never shows blank sections.
+const SAFETY_SCRIPT = `<script>
+(function(){
+  // Immediately mark common scroll-animation classes as visible
+  var selectors = ['.fade-up','.reveal','.scroll-reveal','.animate','.animated',
+    '[data-aos]','[data-sal]','.aos-init:not(.aos-animate)'];
+  function show(el){
+    el.style.opacity='1';
+    el.style.transform='none';
+    el.style.visibility='visible';
+    el.classList.add('visible','aos-animate','sal-animate','in-view');
+  }
+  function init(){
+    selectors.forEach(function(s){
+      document.querySelectorAll(s).forEach(show);
+    });
+  }
+  // Run immediately and again after DOMContentLoaded + load in case of late paint
+  init();
+  document.addEventListener('DOMContentLoaded',init);
+  window.addEventListener('load',init);
+  // Also override IntersectionObserver so any late-registered observers fire instantly
+  if(window.IntersectionObserver){
+    var _IO=window.IntersectionObserver;
+    window.IntersectionObserver=function(cb,opts){
+      var io=new _IO(cb,opts);
+      var _obs=io.observe.bind(io);
+      io.observe=function(el){_obs(el);show(el);};
+      return io;
+    };
+  }
+})();
+</script>`;
+
+function injectSafetyScript(html: string): string {
+  // Insert right after <body> (or at start of body content if no explicit tag)
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/(<body[^>]*>)/i, `$1${SAFETY_SCRIPT}`);
+  }
+  // Fallback: prepend before first visible element
+  return SAFETY_SCRIPT + html;
+}
+
 function V2IframeSection({ html }: { html: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   useEffect(() => {
-    const blob = new Blob([html], { type: 'text/html' });
+    const safeHtml = injectSafetyScript(html);
+    const blob = new Blob([safeHtml], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);
