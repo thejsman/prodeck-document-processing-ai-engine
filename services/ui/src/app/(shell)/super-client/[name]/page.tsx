@@ -319,6 +319,7 @@ export default function SuperClientPage() {
   const [micrositeEditing, setMicrositeEditing] = useState(false);
   const [micrositeEditBanner, setMicrositeEditBanner] = useState("");
   const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredMicrositeId, setHoveredMicrositeId] = useState<string | null>(
     null,
@@ -482,6 +483,21 @@ export default function SuperClientPage() {
       }
     };
   }, [docs, loadDocs]);
+
+  // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo for microsite editor
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      if (e.key === 'z' && !e.shiftKey) {
+        if (canUndo) { e.preventDefault(); void handleMicrositeRevert(); }
+      } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+        if (canRedo) { e.preventDefault(); void handleMicrositeRedo(); }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [canUndo, canRedo]);
 
   async function handleFileUpload(file: File) {
     if (uploading || !name) return;
@@ -664,6 +680,7 @@ export default function SuperClientPage() {
     setMicrositeEditing(true);
     setMicrositeEditBanner("");
     setCanUndo(false);
+    setCanRedo(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     try {
       const { html, summary } = await editSuperClientMicrosite(
@@ -689,6 +706,7 @@ export default function SuperClientPage() {
       );
       setMicrositeEditBanner(summary);
       setCanUndo(true);
+      setCanRedo(false);
       undoTimerRef.current = setTimeout(() => {
         setMicrositeEditBanner("");
         setCanUndo(false);
@@ -729,8 +747,43 @@ export default function SuperClientPage() {
             }
           : null,
       );
+      setCanRedo(true);
     } catch (err) {
       console.error("Microsite revert failed", err);
+    } finally {
+      setMicrositeEditing(false);
+    }
+  }
+
+  async function handleMicrositeRedo() {
+    if (!viewingMicrosite || micrositeEditing || !canRedo) return;
+    setMicrositeEditing(true);
+    setCanRedo(false);
+    setMicrositeEditBanner("");
+    try {
+      const { html } = await revertSuperClientMicrosite(
+        apiKey,
+        name,
+        viewingMicrosite.id,
+      );
+      setViewingMicrosite((prev) =>
+        prev
+          ? {
+              ...prev,
+              ast: {
+                ...prev.ast,
+                sections: [
+                  { ...prev.ast.sections[0], customHtml: html },
+                  ...prev.ast.sections.slice(1),
+                ],
+              },
+              renderKey: `${prev.id}-${Date.now()}`,
+            }
+          : null,
+      );
+      setCanUndo(true);
+    } catch (err) {
+      console.error("Microsite redo failed", err);
     } finally {
       setMicrositeEditing(false);
     }
@@ -820,6 +873,7 @@ export default function SuperClientPage() {
     setMicrositeEditInput("");
     setMicrositeEditBanner("");
     setCanUndo(false);
+    setCanRedo(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   }
 
@@ -1940,23 +1994,46 @@ export default function SuperClientPage() {
                     />
                   )}
                   {viewingMicrosite && (
-                    <button
-                      onClick={() => void handleMicrositeRevert()}
-                      disabled={micrositeEditing}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 6,
-                        fontSize: 13,
-                        background: "transparent",
-                        color: "var(--muted)",
-                        border: "1px solid var(--border)",
-                        cursor: micrositeEditing ? "default" : "pointer",
-                        flexShrink: 0,
-                        marginBottom: 2,
-                      }}
-                    >
-                      Undo
-                    </button>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      <button
+                        onClick={() => void handleMicrositeRevert()}
+                        disabled={micrositeEditing || !canUndo}
+                        title="Undo last edit (Ctrl+Z)"
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          background: "transparent",
+                          color: canUndo ? "var(--foreground)" : "var(--muted)",
+                          border: "1px solid var(--border)",
+                          cursor: micrositeEditing || !canUndo ? "default" : "pointer",
+                          flexShrink: 0,
+                          marginBottom: 2,
+                          opacity: canUndo ? 1 : 0.4,
+                        }}
+                      >
+                        ↩ Undo
+                      </button>
+                      <button
+                        onClick={() => void handleMicrositeRedo()}
+                        disabled={micrositeEditing || !canRedo}
+                        title="Redo last undone edit (Ctrl+Y)"
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          background: "transparent",
+                          color: canRedo ? "var(--foreground)" : "var(--muted)",
+                          border: "1px solid var(--border)",
+                          cursor: micrositeEditing || !canRedo ? "default" : "pointer",
+                          flexShrink: 0,
+                          marginBottom: 2,
+                          opacity: canRedo ? 1 : 0.4,
+                        }}
+                      >
+                        ↪ Redo
+                      </button>
+                    </div>
                   )}
                   <button
                     className="chat-v2-send-btn"
