@@ -278,6 +278,7 @@ export default function SuperClientPage() {
   const [uploadPct, setUploadPct] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hadProcessingRef = useRef(false);
 
   const [proposals, setProposals] = useState<SuperClientProposal[]>([]);
   const [viewingProposal, setViewingProposal] = useState<{
@@ -459,10 +460,20 @@ export default function SuperClientPage() {
   useEffect(() => {
     const hasProcessing = docs.some((d) => d.status === "processing");
     if (hasProcessing && !pollRef.current) {
+      hadProcessingRef.current = true;
       pollRef.current = setInterval(loadDocs, 3000);
     } else if (!hasProcessing && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
+      if (hadProcessingRef.current) {
+        hadProcessingRef.current = false;
+        setMemoryKey((k) => k + 1);
+      }
+    } else if (!hasProcessing && !pollRef.current && hadProcessingRef.current) {
+      // The cleanup already cleared pollRef before this effect ran —
+      // detect the transition by checking hadProcessingRef directly.
+      hadProcessingRef.current = false;
+      setMemoryKey((k) => k + 1);
     }
     return () => {
       if (pollRef.current) {
@@ -505,6 +516,7 @@ export default function SuperClientPage() {
     try {
       await deleteSuperClientDocument(apiKey, name, fileName);
       setDocs((prev) => prev.filter((d) => d.fileName !== fileName));
+      setMemoryKey((k) => k + 1);
     } catch (err) {
       console.error("Delete failed", err);
     }
