@@ -219,7 +219,7 @@ function NewKnowledgeForm({ category, onSubmit, onCancel }: NewKnowledgeFormProp
     if (!content.trim()) return;
     setSaving(true);
     try {
-      await onSubmit(content.trim(), category);
+      await onSubmit(content.trim(), category ?? 'context');
     } finally {
       setSaving(false);
     }
