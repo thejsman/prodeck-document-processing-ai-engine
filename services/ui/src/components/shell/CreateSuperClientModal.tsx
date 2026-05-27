@@ -18,8 +18,8 @@ type StepStatus = 'pending' | 'active' | 'done' | 'error';
 interface Step {
   id: string;
   label: string;
-  activeLabel: string;   // shown while spinning
-  doneLabel: string;     // shown when complete
+  activeLabel: string; // shown while spinning
+  doneLabel: string; // shown when complete
   status: StepStatus;
 }
 
@@ -58,9 +58,9 @@ function buildSteps(hasUrl: boolean, hasNotes: boolean): Step[] {
 
 // ── Step row component ───────────────────────────────────────────
 function StepRow({ step }: { step: Step }) {
-  const isActive  = step.status === 'active';
-  const isDone    = step.status === 'done';
-  const isError   = step.status === 'error';
+  const isActive = step.status === 'active';
+  const isDone = step.status === 'done';
+  const isError = step.status === 'error';
   const isPending = step.status === 'pending';
 
   return (
@@ -75,9 +75,28 @@ function StepRow({ step }: { step: Step }) {
       }}
     >
       {/* Icon */}
-      <div style={{ width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <div
+        style={{
+          width: 18,
+          height: 18,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
         {isDone && (
-          <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'color-mix(in srgb, #16a34a 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              background: 'color-mix(in srgb, #16a34a 12%, transparent)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <Check size={11} strokeWidth={2.5} style={{ color: '#16a34a' }} />
           </div>
         )}
@@ -88,7 +107,17 @@ function StepRow({ step }: { step: Step }) {
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--muted)', opacity: 0.5 }} />
         )}
         {isError && (
-          <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'color-mix(in srgb, #ef4444 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              background: 'color-mix(in srgb, #ef4444 12%, transparent)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <X size={10} strokeWidth={2.5} style={{ color: '#ef4444' }} />
           </div>
         )}
@@ -103,7 +132,13 @@ function StepRow({ step }: { step: Step }) {
           transition: 'color 0.2s ease',
         }}
       >
-        {isDone ? step.doneLabel : isActive ? step.activeLabel : isError ? `Failed — ${step.activeLabel.toLowerCase().replace('…', '')}` : step.label}
+        {isDone
+          ? step.doneLabel
+          : isActive
+            ? step.activeLabel
+            : isError
+              ? `Failed — ${step.activeLabel.toLowerCase().replace('…', '')}`
+              : step.label}
       </span>
     </div>
   );
@@ -124,7 +159,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
   const [phase, setPhase] = useState<Phase>('form');
   const [steps, setSteps] = useState<Step[]>([]);
   const [apiError, setApiError] = useState('');
-  const [pendingName, setPendingName] = useState('');  // display name shown during progress
+  const [pendingName, setPendingName] = useState(''); // display name shown during progress
 
   useEffect(() => {
     mountedRef.current = true;
@@ -150,13 +185,13 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
   }
 
   function setStepStatus(id: string, status: StepStatus) {
-    setSteps(prev => prev.map(s => s.id === id ? { ...s, status } : s));
+    setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
   }
 
   function activateNextPending() {
-    setSteps(prev => {
+    setSteps((prev) => {
       const next = [...prev];
-      const idx = next.findIndex(s => s.status === 'pending');
+      const idx = next.findIndex((s) => s.status === 'pending');
       if (idx !== -1) next[idx] = { ...next[idx], status: 'active' };
       return next;
     });
@@ -164,9 +199,12 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
 
   async function handleCreate() {
     const trimmedName = displayName.trim();
-    if (!trimmedName) { setFieldError('Client name is required'); return; }
+    if (!trimmedName) {
+      setFieldError('Client name is required');
+      return;
+    }
 
-    const hasUrl   = !!url.trim();
+    const hasUrl = !!url.trim();
     const hasNotes = !!notes.trim();
     const initialSteps = buildSteps(hasUrl, hasNotes);
 
@@ -191,12 +229,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
     }
 
     try {
-      const result = await createSuperClient(
-        apiKey,
-        trimmedName,
-        url.trim() || undefined,
-        notes.trim() || undefined,
-      );
+      const result = await createSuperClient(apiKey, trimmedName, url.trim() || undefined, notes.trim() || undefined);
 
       timersRef.current.forEach(clearTimeout);
 
@@ -207,7 +240,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
       }
 
       // All steps → done
-      setSteps(prev => prev.map(s => ({ ...s, status: 'done' })));
+      setSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })));
       onCreated(result.name);
       setPhase('done');
 
@@ -217,11 +250,10 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
         onClose();
         router.push(`/super-client/${result.name}`);
       }, 900);
-
     } catch (err) {
       timersRef.current.forEach(clearTimeout);
       if (!mountedRef.current) return;
-      setSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
+      setSteps((prev) => prev.map((s) => (s.status === 'active' ? { ...s, status: 'error' } : s)));
       setApiError((err as Error).message ?? 'Something went wrong');
       setPhase('error');
     }
@@ -287,10 +319,13 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
                 style={{ color: phase === 'done' ? '#16a34a' : 'var(--accent)', transition: 'color 0.3s' }}
               />
               <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', margin: 0 }}>
-                {phase === 'form'     ? 'New Super Client' :
-                 phase === 'creating' ? 'Setting up…' :
-                 phase === 'done'     ? 'Ready' :
-                                        'Something went wrong'}
+                {phase === 'form'
+                  ? 'New Client'
+                  : phase === 'creating'
+                    ? 'Setting up…'
+                    : phase === 'done'
+                      ? 'Ready'
+                      : 'Something went wrong'}
               </p>
             </div>
             <button
@@ -308,8 +343,8 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
                 opacity: 0.7,
                 transition: 'opacity 0.15s',
               }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '0.7')}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
             >
               <Icon icon={X} size="md" />
             </button>
@@ -322,14 +357,29 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
         {phase === 'form' && (
           <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--muted)',
+                  marginBottom: 6,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
                 Client name <span style={{ color: 'var(--danger)', marginLeft: 2 }}>*</span>
               </label>
               <input
                 autoFocus
                 value={displayName}
-                onChange={e => { setDisplayName(e.target.value); setFieldError(''); }}
-                onKeyDown={e => { if (e.key === 'Enter') void handleCreate(); }}
+                onChange={(e) => {
+                  setDisplayName(e.target.value);
+                  setFieldError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleCreate();
+                }}
                 placeholder="e.g. Acme Corporation"
                 style={{ ...inputStyle, borderColor: fieldError ? 'var(--danger)' : 'var(--border)' }}
               />
@@ -337,13 +387,28 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Website URL <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.6, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--muted)',
+                  marginBottom: 6,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                Website URL{' '}
+                <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.6, textTransform: 'none', letterSpacing: 0 }}>
+                  (optional)
+                </span>
               </label>
               <input
                 value={url}
-                onChange={e => setUrl(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') void handleCreate(); }}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleCreate();
+                }}
                 placeholder="https://acme.com"
                 type="url"
                 style={inputStyle}
@@ -351,12 +416,25 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Notes <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.6, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--muted)',
+                  marginBottom: 6,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                Notes{' '}
+                <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.6, textTransform: 'none', letterSpacing: 0 }}>
+                  (optional)
+                </span>
               </label>
               <textarea
                 value={notes}
-                onChange={e => setNotes(e.target.value)}
+                onChange={(e) => setNotes(e.target.value)}
                 placeholder="Industry, target audience, brand tone, anything useful…"
                 rows={3}
                 style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
@@ -364,7 +442,17 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
             </div>
 
             {(url.trim() || notes.trim()) && (
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 0', opacity: 0.65, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <p
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  margin: '-4px 0 0',
+                  opacity: 0.65,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
                 <Sparkles size={11} />
                 We will analyze this to build client intelligence.
               </p>
@@ -376,7 +464,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
               className="btn btn-primary"
               style={{ marginTop: 2 }}
             >
-              Create Super Client
+              Create Client
             </button>
           </div>
         )}
@@ -384,7 +472,6 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
         {/* ── CREATING / DONE / ERROR PHASES ──────────────────── */}
         {phase !== 'form' && (
           <div style={{ padding: '20px 20px 24px', display: 'flex', flexDirection: 'column', gap: 0 }}>
-
             {/* Client identity card */}
             <div
               style={{
@@ -413,11 +500,33 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
                 <Building2 size={16} strokeWidth={1.75} style={{ color: 'var(--primary)' }} />
               </div>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: 'var(--text)',
+                    margin: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   {pendingName}
                 </p>
                 {url.trim() && (
-                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '1px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      margin: '1px 0 0',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
                     <Globe size={10} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                     {url.replace(/^https?:\/\//, '')}
                   </p>
@@ -427,7 +536,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
 
             {/* Step list */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
-              {steps.map(step => (
+              {steps.map((step) => (
                 <StepRow key={step.id} step={step} />
               ))}
             </div>
@@ -440,7 +549,16 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
             )}
 
             {phase === 'done' && (
-              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: 'var(--muted)',
+                  margin: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
                 <Loader size={12} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
                 Opening {pendingName}…
               </p>
@@ -460,23 +578,13 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
                   }}
                 >
                   <AlertTriangle size={14} strokeWidth={2} style={{ color: '#ef4444', flexShrink: 0, marginTop: 1 }} />
-                  <p style={{ fontSize: 12, color: '#ef4444', margin: 0, lineHeight: 1.5 }}>
-                    {apiError}
-                  </p>
+                  <p style={{ fontSize: 12, color: '#ef4444', margin: 0, lineHeight: 1.5 }}>{apiError}</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={handleRetry}
-                    className="btn btn-primary"
-                    style={{ flex: 1 }}
-                  >
+                  <button onClick={handleRetry} className="btn btn-primary" style={{ flex: 1 }}>
                     Try again
                   </button>
-                  <button
-                    onClick={onClose}
-                    className="btn"
-                    style={{ flex: 1, border: '1px solid var(--border)' }}
-                  >
+                  <button onClick={onClose} className="btn" style={{ flex: 1, border: '1px solid var(--border)' }}>
                     Cancel
                   </button>
                 </div>

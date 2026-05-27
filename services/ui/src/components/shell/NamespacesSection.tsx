@@ -357,7 +357,7 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
       <div className="sidebar-group">
         <div className="sidebar-link" onClick={() => setShowSuperModal(true)} style={{ cursor: 'pointer' }}>
           <Icon icon={Sparkles} size="md" className="sidebar-icon" />
-          <span className="sidebar-label">Super Client</span>
+          <span className="sidebar-label">New Client</span>
         </div>
 
         <div
@@ -368,7 +368,7 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           style={{ cursor: 'pointer' }}
         >
           <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>
-            Super Clients
+            Clients
           </span>
           <Icon
             icon={ChevronDown}
@@ -384,10 +384,9 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
 
         {expandedSuper &&
           superClients.map((sc) => {
-            const isActive = !collapsed && (
-              pathname === `/super-client/${sc.name}` ||
-              !!pathname?.startsWith(`/super-client/${sc.name}/`)
-            );
+            const isActive =
+              !collapsed &&
+              (pathname === `/super-client/${sc.name}` || !!pathname?.startsWith(`/super-client/${sc.name}/`));
             const isHovered = hoveredSc === sc.name;
 
             return (
@@ -458,7 +457,9 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           confirmLabel="Delete"
           busy={deletingSc}
           onConfirm={handleDeleteSuperClient}
-          onCancel={() => { if (!deletingSc) setConfirmSc(null); }}
+          onCancel={() => {
+            if (!deletingSc) setConfirmSc(null);
+          }}
         />
       )}
       {confirmNs && (
@@ -468,7 +469,9 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           confirmLabel="Delete"
           busy={deleting}
           onConfirm={handleDeleteConfirmed}
-          onCancel={() => { if (!deleting) setConfirmNs(null); }}
+          onCancel={() => {
+            if (!deleting) setConfirmNs(null);
+          }}
         />
       )}
     </>
