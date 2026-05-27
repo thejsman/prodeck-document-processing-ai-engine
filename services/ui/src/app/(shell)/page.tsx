@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { LayoutGrid, Menu } from 'lucide-react';
-import { CreateNamespaceModal } from '@/components/shell/CreateNamespaceModal';
+import { CreateSuperClientModal } from '@/components/shell/CreateSuperClientModal';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
 import { useMobileNav } from '@/lib/mobile-nav-store';
@@ -105,7 +105,9 @@ export default function WelcomePage() {
         </button>
       </div>
 
-      {showCreate && <CreateNamespaceModal onClose={() => setShowCreate(false)} />}
+      {showCreate && (
+        <CreateSuperClientModal onClose={() => setShowCreate(false)} onCreated={() => {}} />
+      )}
     </div>
   );
 }
