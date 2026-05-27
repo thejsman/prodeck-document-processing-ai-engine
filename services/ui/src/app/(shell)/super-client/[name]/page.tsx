@@ -31,6 +31,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { MicrositeV2, buildHtml } from "@/components/MicrositeV2";
 import type { LayoutAST } from "@/types/presentation";
 import { generationStore, type Generation } from "@/lib/generation-store";
+import { uploadStore, type UploadEntry } from "@/lib/upload-store";
+// UploadEntry is used inside UploadMessageCard only
 import {
   getSuperClient,
   streamSuperClientChat,
@@ -61,6 +63,7 @@ interface Message {
   content: string;
   streaming?: boolean;
   generationId?: string;
+  uploadId?: string;
 }
 
 function genId() {
@@ -242,6 +245,181 @@ function ArtifactCard({
   );
 }
 
+// UploadMessageCard — upload progress card rendered in the chat thread (user side).
+// Subscribes directly to uploadStore for XHR progress, and reads live doc status
+// from `docs` (polled by the right panel) to mirror the exact same states.
+function UploadMessageCard({
+  uploadId,
+  docs,
+}: {
+  uploadId: string;
+  docs: SuperClientFile[];
+}) {
+  const [entry, setEntry] = useState<UploadEntry | undefined>(
+    () => uploadStore.get(uploadId),
+  );
+  useEffect(
+    () => uploadStore.subscribe((all) => setEntry(all.find((u) => u.id === uploadId))),
+    [uploadId],
+  );
+  if (!entry) return null;
+
+  const isUploading = entry.status === "uploading";
+  const isFailed = entry.status === "failed";
+
+  // Once the XHR is done, mirror the server-side doc status from the right panel
+  const doc = !isUploading ? docs.find((d) => d.fileName === entry.fileName) : undefined;
+  const docStatus = doc?.status;
+
+  return (
+    <div
+      style={{
+        background: "var(--panel)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "10px 14px",
+        minWidth: 220,
+        maxWidth: 300,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      {/* File name row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          minWidth: 0,
+        }}
+      >
+        <FileText
+          size={15}
+          strokeWidth={1.5}
+          style={{ flexShrink: 0, color: "var(--muted)" }}
+        />
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--foreground)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+          }}
+        >
+          {entry.fileName}
+        </span>
+      </div>
+
+      {/* Progress / status — mirrors right panel exactly */}
+      {isUploading && (
+        <>
+          <div
+            style={{
+              height: 3,
+              borderRadius: 99,
+              background: "var(--border)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${entry.pct}%`,
+                background: "var(--primary)",
+                borderRadius: 99,
+                transition: "width 0.2s ease",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <Icon
+              icon={Loader}
+              size="sm"
+              style={{ animation: "spin 1s linear infinite", width: 10, height: 10 }}
+            />
+            {entry.pct}% · Uploading…
+          </span>
+        </>
+      )}
+
+      {/* XHR done — show server-side extraction status */}
+      {!isUploading && !isFailed && (!doc || docStatus === "processing") && (
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--primary)",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <Icon
+            icon={Loader}
+            size="sm"
+            style={{ animation: "spin 1s linear infinite", width: 10, height: 10 }}
+          />
+          Processing…
+        </span>
+      )}
+
+      {!isUploading && !isFailed && docStatus === "extracted" && (
+        <span
+          style={{
+            fontSize: 11,
+            color: "#16a34a",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <CheckCircle size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
+          Indexed
+        </span>
+      )}
+
+      {!isUploading && !isFailed && docStatus === "failed" && (
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--destructive, #ef4444)",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          ✕ Extraction failed
+        </span>
+      )}
+
+      {isFailed && (
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--destructive, #ef4444)",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          ✕ {entry.error ?? "Upload failed"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function SuperClientPage() {
   const { name } = useParams<{ name: string }>();
   const { apiKey } = useAuth();
@@ -277,7 +455,9 @@ export default function SuperClientPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerFileInputRef = useRef<HTMLInputElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
 
   const [proposals, setProposals] = useState<SuperClientProposal[]>([]);
   const [viewingProposal, setViewingProposal] = useState<{
@@ -419,7 +599,15 @@ export default function SuperClientPage() {
           content: "",
           generationId: gen.id,
         }));
-        setMessages([...historyMsgs, ...genMsgs]);
+        // Re-inject upload cards for any active/recent uploads for this client
+        const activeUploads = uploadStore.forClient(name);
+        const uploadMsgs: Message[] = activeUploads.map((u) => ({
+          id: `upload-msg-${u.id}`,
+          role: "user",
+          content: "",
+          uploadId: u.id,
+        }));
+        setMessages([...historyMsgs, ...uploadMsgs, ...genMsgs]);
         setMemoryKey((k) => k + 1);
       })
       .catch((err: Error) => setError(err.message))
@@ -513,6 +701,40 @@ export default function SuperClientPage() {
     } finally {
       setUploading(false);
       setUploadPct(0);
+    }
+  }
+
+  // Upload a document from the chat composer — shows a progress card in the chat thread
+  async function handleFileUploadFromComposer(file: File) {
+    if (!name) return;
+    const uploadId = genId();
+    uploadStore.start({ id: uploadId, clientSlug: name, fileName: file.name });
+    setMessages((prev) => [
+      ...prev,
+      { id: `upload-msg-${uploadId}`, role: "user", content: "", uploadId },
+    ]);
+    scrollToBottom();
+    try {
+      const added = await uploadSuperClientDocument(
+        apiKey,
+        name,
+        file,
+        (pct) => uploadStore.progress(uploadId, pct),
+      );
+      // Pass the server-assigned filename so the card can match against docs[]
+      uploadStore.done(uploadId, added[0]?.fileName);
+      setDocs((prev) => {
+        const next = [...prev];
+        for (const f of added) {
+          const idx = next.findIndex((d) => d.fileName === f.fileName);
+          if (idx !== -1) next[idx] = f;
+          else next.push(f);
+        }
+        return next;
+      });
+    } catch (err) {
+      uploadStore.fail(uploadId, (err as Error).message ?? "Upload failed");
+      console.error("Composer upload failed", err);
     }
   }
 
@@ -1419,6 +1641,16 @@ export default function SuperClientPage() {
                   const hasArtifact = !!msg.generationId;
 
                   if (msg.role === "user") {
+                    if (msg.uploadId) {
+                      return (
+                        <div
+                          key={msg.id}
+                          className="chat-v2-message chat-v2-message--user"
+                        >
+                          <UploadMessageCard uploadId={msg.uploadId} docs={docs} />
+                        </div>
+                      );
+                    }
                     return (
                       <div
                         key={msg.id}
@@ -1915,6 +2147,93 @@ export default function SuperClientPage() {
                 <div
                   style={{ display: "flex", alignItems: "flex-end", flex: 1 }}
                 >
+                  {/* Attach (+) button — left side, chat/proposal mode only */}
+                  {!viewingMicrosite && (
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <button
+                        onClick={() => setAttachMenuOpen((v) => !v)}
+                        title="Attach"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--muted)",
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "6px 8px",
+                          borderRadius: 8,
+                          marginBottom: 2,
+                          opacity: 0.65,
+                          transition: "opacity 0.15s",
+                        }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.opacity = attachMenuOpen ? "1" : "0.65";
+                        }}
+                      >
+                        <Plus size={18} strokeWidth={1.75} />
+                      </button>
+                      {attachMenuOpen && (
+                        <>
+                          {/* Backdrop to close on outside click */}
+                          <div
+                            style={{
+                              position: "fixed",
+                              inset: 0,
+                              zIndex: 9998,
+                            }}
+                            onClick={() => setAttachMenuOpen(false)}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              bottom: "calc(100% + 6px)",
+                              left: 0,
+                              zIndex: 9999,
+                              background: "var(--panel)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 10,
+                              padding: "4px",
+                              minWidth: 172,
+                              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                            }}
+                          >
+                            <button
+                              onClick={() => {
+                                setAttachMenuOpen(false);
+                                composerFileInputRef.current?.click();
+                              }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 9,
+                                width: "100%",
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                padding: "8px 10px",
+                                borderRadius: 7,
+                                fontSize: 13,
+                                color: "var(--foreground)",
+                                textAlign: "left",
+                              }}
+                              onMouseEnter={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = "var(--panel-soft)";
+                              }}
+                              onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = "none";
+                              }}
+                            >
+                              <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: "var(--muted)" }} />
+                              Upload document
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {viewingMicrosite && micrositeEditBanner ? (
                     <span
                       onClick={
@@ -2050,6 +2369,20 @@ export default function SuperClientPage() {
                     />
                   </button>
                 </div>
+                {/* Hidden file input for composer attach */}
+                <input
+                  ref={composerFileInputRef}
+                  type="file"
+                  accept=".pdf,.txt,.md"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      void handleFileUploadFromComposer(f);
+                      e.target.value = "";
+                    }
+                  }}
+                />
               </div>
             )}
           </div>
