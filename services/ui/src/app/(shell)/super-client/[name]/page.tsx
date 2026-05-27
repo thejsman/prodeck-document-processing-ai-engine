@@ -971,9 +971,13 @@ export default function SuperClientPage() {
     const oldSections = parseMarkdownSections(oldMd);
     const newSections = parseMarkdownSections(newMd);
     const oldMap = new Map(oldSections.map((s) => [s.heading, s.body]));
+    const newMap = new Map(newSections.map((s) => [s.heading, s.body]));
     const changed = new Set<string>();
     for (const s of newSections) {
       if (oldMap.get(s.heading) !== s.body) changed.add(s.heading);
+    }
+    for (const s of oldSections) {
+      if (s.heading && !newMap.has(s.heading)) changed.add(s.heading);
     }
     return changed;
   }

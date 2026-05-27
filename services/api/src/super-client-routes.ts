@@ -680,9 +680,11 @@ Return ONLY valid JSON (null for fields not found):
             `  [full replacement body — do NOT include the heading line inside the tag]`,
             `  </section-update>`,
             `  Outside the tags write a brief 1-sentence confirmation only.`,
+            `  NOTE: Tier 2 can only REPLACE section content — it cannot remove an entire section heading. To remove a section entirely, use Tier 3.`,
             ``,
-            `TIER 3 — FULL REWRITE (add new sections, restructure, change the whole proposal):`,
-            `  Use the full <proposal title="...">...</proposal> tag.`,
+            `TIER 3 — FULL REWRITE (add new sections, remove a section entirely, restructure, or change the whole proposal):`,
+            `  Use the full <proposal title="...">...</proposal> tag containing the complete new markdown.`,
+            `  When REMOVING a section, simply omit that section's heading and body from the new proposal.`,
             ``,
             `NEVER mix formats in one response. Default to Tier 1 for any single-string substitution.`,
           );
