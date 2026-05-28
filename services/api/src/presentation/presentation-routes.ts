@@ -1826,6 +1826,7 @@ ${layoutSummary}`;
       urlReferenceDesign?: Record<string, unknown> | null;
       urlLayout?: Record<string, unknown> | null;
       urlImages?: string[];
+      motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive';
     } | undefined;
 
     // Load markdown from body or saved file
@@ -1975,6 +1976,7 @@ ${layoutSummary}`;
           ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
           ...(body?.urlLayout ? { urlLayout: body.urlLayout } : {}),
           ...(body?.urlImages?.length ? { urlImages: body.urlImages } : {}),
+          ...(body?.motionLevel ? { motionLevelOverride: body.motionLevel } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
             send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });
@@ -2291,6 +2293,7 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       designPrompt?: string;     // design text instructions from user
       referenceImage?: { base64: string; mediaType: string }; // screenshot for vision
       coldStart?: boolean;       // bypass proposal — generate content from scratch
+      motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive'; // explicit motion override
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2331,6 +2334,9 @@ When asked to create a website or microsite:
 - Use your full frontend skills: CSS custom properties, smooth scroll, parallax, scroll-driven animations, glassmorphism, gradients, blur effects, micro-interactions
 - Choose fonts, colors, and layouts that feel intentional and high-end
 - Write clean, semantic HTML5 with all CSS and JS embedded inline
+- For scroll-driven text reveals, animate each word or character individually using GSAP ScrollTrigger or IntersectionObserver
+- For sticky card stacking effects, use position:sticky with GSAP ScrollTrigger scale transforms
+- CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
 
 ${imageInstructions}`;
@@ -2422,8 +2428,20 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
       const parts: string[] = [];
       if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
+      if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${body.designPrompt.trim()}`);
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
+      // Motion level hint — tells Claude what animation approach to use
+      const motionHint = body?.motionLevel === 'none'
+        ? 'MOTION: Generate a fully static site — no CSS animations, no JS animations, no transitions whatsoever.'
+        : body?.motionLevel === 'minimal'
+        ? 'MOTION: Use only subtle CSS fade-in transitions on page load. No scroll animations.'
+        : body?.motionLevel === 'cinematic'
+        ? 'MOTION: Add high-end scroll-driven animations via GSAP loaded from CDN. Include: parallax background layers, 3D card tilt on hover (CSS perspective + JS), staggered fade-up on scroll, animated number counters. Add GSAP + ScrollTrigger scripts in <head> from https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/'
+        : body?.motionLevel === 'immersive'
+        ? 'MOTION: Maximum cinematic motion. Load GSAP + ScrollTrigger from jsdelivr CDN. Include: deep parallax scrub on backgrounds, canvas particle system in hero section, split-text headline reveals (animate each word), 3D perspective card tilts, staggered section entrances, smooth magnetic cursor effect on CTAs. Use requestAnimationFrame for all continuous animations.'
+        : null;
+      if (motionHint) parts.push(motionHint);
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 

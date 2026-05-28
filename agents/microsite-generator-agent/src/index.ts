@@ -137,6 +137,18 @@ function classifyIndustry(clientIndustry: string): IndustryClass {
   return 'SERVICES'; // safe default for unknown industries
 }
 
+type MotionLevel = 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive';
+
+function extractMotionLevel(prompt: string): MotionLevel {
+  const p = prompt.toLowerCase();
+  if (/no\s*(motion|animation|parallax|effect)|static\s*(site|page|only)|zero\s*anim|minimalist\s*(clean|simple)|no\s*movement/i.test(p)) return 'none';
+  if (/\bminimali(st|stic)\b|\bsubtle\s*anim|\bclean\s+design|\bsimple\b/i.test(p)) return 'minimal';
+  if (/motionsites?|immersive|ultra[- ]?realistic\s*motion|full\s*cinematic|next[- ]?level\s*motion/i.test(p)) return 'immersive';
+  if (/parallax|cinematic|luxury|high[- ]end|premium|award[- ]?winning|smooth\s*scroll|3d\s*(card|transform|effect)/i.test(p)) return 'cinematic';
+  if (/\banimate|\banimation|\bmotion\b|\btransition|\bdynamic\b/i.test(p)) return 'standard';
+  return 'standard';
+}
+
 const INDUSTRY_STRIPPED_SECTIONS: Record<IndustryClass, SectionType[]> = {
   TECHNICAL:  [],
   SERVICES:   ['techstack', 'testing'],
@@ -1419,6 +1431,7 @@ export function buildSectionPrompt(
   proposalMarkdown?: string,
   referenceDesign?: ReferenceDesign | null,
   rawItemCount = 0,
+  motionLevel: MotionLevel = 'standard',
 ): string {
   const refBlock = referenceDesign ? formatReferenceDesignBlock(referenceDesign) : '';
   const toneGuide = TONE_GUIDE[tone] ?? TONE_GUIDE.authoritative;
@@ -1443,7 +1456,30 @@ export function buildSectionPrompt(
     : '';
 
   const ctaRule = ' CTA LABEL RULE (non-negotiable): ctaPrimary and ctaSecondary must be human-readable action phrases (e.g. "Schedule a Meeting", "Get Started Today"). NEVER use a section type name (hero, nextsteps, whyus), an anchor (#hero, #section-1), "undefined", "null", an empty string, or any unresolved template variable as a button label. If no valid label can be determined, set the field to "" to hide the button.';
-  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity}${ctaRule} CREATIVE ANGLE FOR THIS GENERATION: ${angle} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+  const motionDirective = motionLevel === 'none'
+    ? ' MOTION: Do NOT add any data-motion attributes to generated HTML.'
+    : motionLevel === 'minimal'
+    ? ' MOTION: You may add data-motion="fade-up" only on the main headline (h1/h2). No other data-motion attributes.'
+    : motionLevel === 'standard'
+    ? ' MOTION: Add data-motion="fade-up" on headlines. Add data-motion="stagger" on any card/grid parent element.'
+    : motionLevel === 'cinematic'
+    ? ` MOTION DATA ATTRIBUTES — add these to generated HTML elements (NO inline JavaScript, attributes only):
+• Hero section background div/image wrapper: data-motion="parallax" data-motion-speed="0.35"
+• Section headline (h1/h2): data-motion="text-reveal"
+• Card/feature grid parent: data-motion="stagger"
+• Any numeric stat/metric span: data-motion="counter"
+• Split-layout image: data-motion="tilt"
+• Any element sliding in from below: data-motion="fade-up" data-motion-delay="100"`
+    : /* immersive */ ` MOTION DATA ATTRIBUTES — add these to generated HTML elements (NO inline JavaScript, attributes only):
+• Hero section background div/image wrapper: data-motion="parallax" data-motion-speed="0.4"
+• All section background layers: data-motion="parallax" data-motion-speed="0.25"
+• Section headline (h1/h2): data-motion="text-reveal"
+• Card/feature grid parent: data-motion="stagger"
+• Any numeric stat/metric span: data-motion="counter"
+• Split-layout image: data-motion="tilt"
+• Any element sliding in: data-motion="fade-up" data-motion-delay="100"
+• Scale-in reveal elements: data-motion="scale-in"`;
+  const system = `${refBlock}${instructionPrefix}${overridePrefix}You are a senior UX copywriter for B2B proposal microsites. Write with precision and confidence. No cliches. ${FORBIDDEN} ${FORBIDDEN_OPENERS} TONE: ${toneGuide}.${brandCtx}${pluginCtx}${generationNote}${contentFidelity}${ctaRule}${motionDirective} CREATIVE ANGLE FOR THIS GENERATION: ${angle} Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 
   const effectiveBody = rawBody?.trim() || '';
   // Always pass the full proposal — never truncate. The section source content is primary;
@@ -2964,6 +3000,9 @@ export class MicrositeGeneratorAgent implements Agent {
       : '';
     const customInstructions = (rawInstructions || '') + pdfConstraints;
     if (pdfFriendly) console.log('[microsite-agent] PDF FRIENDLY MODE — constraints injected into customInstructions');
+    const motionLevel: MotionLevel = (meta.motionLevelOverride as MotionLevel | undefined)
+      ?? extractMotionLevel(customInstructions);
+    console.log('[microsite-agent] motionLevel detected:', motionLevel);
     const fullDesignPrompt = (meta.fullDesignPrompt as string | undefined) ?? '';
     const isFullOverride = fullDesignPrompt.trim().length > 3;
     if (isFullOverride) {
@@ -3655,7 +3694,7 @@ export class MicrositeGeneratorAgent implements Agent {
               const pass2SectionInstruction = pass2SectionInstructions[s.type] ?? undefined;
               const prompt = isFullOverride
                 ? buildOverrideSectionPrompt(s.type, s.heading, s.rawBody ?? '', briefStr, fullDesignPrompt, brandName, s.aiGenerated ?? false, proposalMarkdown)
-                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, finalReferenceDesign, s.rawItemCount);
+                : buildSectionPrompt(s.type, s.heading, s.rawBody, briefStr, tone, brandName, metaPlugin, s.aiGenerated, sectionInstructions, effectiveCharacter, layoutPatterns, s.originalIdx, preassigned[s.originalIdx], sectionRules, pass2GlobalInstruction, pass2SectionInstruction, proposalMarkdown, finalReferenceDesign, s.rawItemCount, motionLevel);
               try {
                 const timeoutMs = 90_000;
                 const runSection = () => withRateLimitRetry(() => Promise.race([
@@ -3780,6 +3819,7 @@ export class MicrositeGeneratorAgent implements Agent {
             scrollEffects: planConstraints.scrollEffects
               ?? (designSystemResult?.rawTokens?.behavior as Record<string, unknown> | undefined)?.scrollEffects as 'none' | 'fade-in' | 'slide-up' | undefined
               ?? 'none',
+            motionLevel,
           },
           sections: sectionResults.map((sr, i) => {
             let imageQuery = ((sr.content as Record<string, unknown>).imageQuery as string | undefined) ?? '';
