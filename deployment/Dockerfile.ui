@@ -29,8 +29,11 @@ RUN mkdir -p /app/services/ui/public
 # API_URL must be set at build time — Next.js bakes rewrites into the build output.
 # NEXT_STANDALONE=1 enables output: 'standalone' so the runtime stage can copy
 # the self-contained server bundle (required by the COPY steps below).
+# NEXT_PUBLIC_* vars are also baked at build time — pass via --build-arg.
+ARG NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN=
 ENV API_URL=http://api:3000
 ENV NEXT_STANDALONE=1
+ENV NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN=$NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN
 RUN pnpm build
 
 # ── Stage 2: runtime ─────────────────────────────────────────────

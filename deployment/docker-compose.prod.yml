@@ -60,8 +60,18 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.ui
+      args:
+        # NEXT_PUBLIC_* vars are baked into the client bundle at build time.
+        # Reuse DOMAIN (already set for nginx/SSL) so no extra var is needed.
+        NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN: ${DOMAIN:-}
     environment:
       - API_URL=http://api:3000
+      # Microsite publishing — DOMAIN is the same root domain used by nginx/SSL.
+      - MICROSITE_ROOT_DOMAIN=${DOMAIN:-}
+      - MICROSITE_S3_BUCKET=${MICROSITE_S3_BUCKET:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
     depends_on:
       api:
         condition: service_healthy
