@@ -2343,6 +2343,15 @@ export async function revertSuperClientMicrosite(
   return res.json() as Promise<{ html: string }>;
 }
 
+export async function patchSuperClientMicrositeHtml(apiKey: string, name: string, id: string, customHtml: string): Promise<void> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/html`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customHtml }),
+  });
+  if (!res.ok) throw new Error(`patchSuperClientMicrositeHtml failed: ${res.status}`);
+}
+
 export async function listSuperClientProposals(apiKey: string, name: string): Promise<SuperClientProposal[]> {
   const res = await fetch(`/api/super-clients/${name}/proposals`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`listSuperClientProposals failed: ${res.status}`);

@@ -17,6 +17,8 @@ const nextConfig = {
   // ECONNRESET before the Python subprocess finishes.
   experimental: {
     proxyTimeout: 600_000, // 10 minutes
+    // Microsite HTML + embedded base64 logos can exceed the default 10 MB proxy limit
+    middlewareClientMaxBodySize: 52_428_800, // 50 MB
   },
   async rewrites() {
     // Use `fallback` so Next.js Route Handlers (e.g. generate-stream SSE proxy)
