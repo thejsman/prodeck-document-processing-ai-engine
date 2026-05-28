@@ -41,7 +41,7 @@ export interface SectionDiff {
 // ---------------------------------------------------------------------------
 
 const VALID_TRANSITIONS: Record<ProposalStatus, ProposalStatus[]> = {
-  draft: ['under_review'],
+  draft: ['under_review', 'approved'],
   under_review: ['approved', 'draft'],
   approved: ['finalized', 'under_review'],
   finalized: [],

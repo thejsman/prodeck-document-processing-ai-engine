@@ -63,6 +63,7 @@ export interface CollectionStatus {
   proposalReady: boolean;
   hasBranding: boolean;
   summary: string;
+  documentCount: number;
   nextQuestions: IndustryField[];
   brandingKit: BrandingKit | null;
   industryContext: IndustryContext | null;

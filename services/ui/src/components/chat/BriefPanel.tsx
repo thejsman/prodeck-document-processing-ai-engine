@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, Pencil, Trash2, X } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
-import { useBrief } from '@/hooks/useBrief';
+import { useBriefContext } from '@/lib/brief-context';
 import { BriefField } from './BriefField';
 import type { RequirementKey, RequirementField, KnowledgeEntry } from '@/lib/api';
 
@@ -70,7 +70,7 @@ export function BriefPanel({ namespace, apiKey, open, onOpenChange, onAskField }
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
-  const { context, updateField, confirm, updateKnowledge, deleteKnowledge } = useBrief(namespace, apiKey);
+  const { context, updateField, confirm, updateKnowledge, deleteKnowledge } = useBriefContext();
 
   const fields = context?.requirements?.fields ?? {};
 

@@ -7,17 +7,18 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
   fetchProposals,
-  fetchPresentations,
+  fetchAllMicrositeHistory,
   fetchKnowledgeFiles,
   deleteKnowledgeFile,
   deleteProposal,
   deleteMicrositeHistoryFromServer,
   listDesignSkillsApi,
   type IngestionFile,
-  type Presentation,
+  type MicrositeHistoryServerEntry,
   type ProposalFile,
   type DesignSkillSummaryApi,
 } from '@/lib/api';
+import type { LayoutAST } from '@/types/presentation';
 import { Icon } from '@/components/ui/Icon';
 import { useNamespacePanelStore } from '@/lib/namespace-panel-store';
 import { useExecutionStore } from '@/core/execution/execution-store';
@@ -99,7 +100,7 @@ const newestFirst = (files: IngestionFile[]) =>
 
 interface Props {
   namespace: string;
-  onMicrositeClick?: (m: Presentation) => void;
+  onMicrositeClick?: (info: { entryId: string; namespace: string; proposalId: string; displayName: string }) => void;
   fileRefreshTick?: number;
   onHasContent?: (hasContent: boolean) => void;
 }
@@ -108,10 +109,12 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   const { apiKey } = useAuth();
   const router = useRouter();
 
-  // Read from persisted store — survives page reloads
+  // Read from persisted store — survives page reloads (proposals only)
   const panelData = useNamespacePanelStore((s: { byNamespace: Record<string, { proposals: import('@/lib/api').ProposalFile[]; microsites: import('@/lib/api').Presentation[] }> }) => s.byNamespace[namespace]);
   const setProposals = useNamespacePanelStore((s: { setProposals: (ns: string, p: import('@/lib/api').ProposalFile[]) => void }) => s.setProposals);
-  const setMicrosites = useNamespacePanelStore((s: { setMicrosites: (ns: string, m: import('@/lib/api').Presentation[]) => void }) => s.setMicrosites);
+
+  // Microsite history entries — fetched fresh from server (not stored in panel store)
+  const [micrositeEntries, setMicrositeEntries] = useState<MicrositeHistoryServerEntry[]>([]);
 
   const proposals = [...(panelData?.proposals ?? [])]
     .sort((a, b) => {
@@ -131,30 +134,17 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     return map;
   }, [proposals]);
 
-  const microsites = useMemo<(Presentation & { _clientName?: string })[]>(() => {
-    return [...(panelData?.microsites ?? [])]
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  }, [panelData?.microsites]);
-
-  // Resolve display name then assign version numbers per client group.
-  // microsites is sorted newest-first; v1 = oldest, vN = newest.
-  const micrositesWithMeta = useMemo(() => {
-    const resolved = microsites.map(m => {
-      const { name: parsedName } = parseMicrositeInfo(m.proposalId);
-      const _m = m as Presentation & { _clientName?: string };
-      const displayName = _m._clientName || proposalClientMap.get(m.proposalId) || (parsedName !== namespace ? parsedName : '') || 'Untitled';
-      return { m, displayName };
-    });
-    const nameCount = new Map<string, number>();
-    for (const { displayName } of resolved) nameCount.set(displayName, (nameCount.get(displayName) ?? 0) + 1);
-    const seen = new Map<string, number>();
-    return resolved.map(({ m, displayName }) => {
-      const total = nameCount.get(displayName) ?? 1;
-      const idx = seen.get(displayName) ?? 0;
-      seen.set(displayName, idx + 1);
-      return { m, displayName, version: total - idx };
-    });
-  }, [microsites, proposalClientMap, namespace]);
+  // Microsites sorted newest-first, each entry has its server-assigned version
+  const micrositesWithMeta = useMemo(() =>
+    [...micrositeEntries]
+      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+      .map(entry => ({
+        entry,
+        displayName: (entry.ast as LayoutAST)?.brand?.companyName || 'Untitled',
+        version: entry.version ?? 1,
+        isPro: (entry.ast as LayoutAST)?.generationMode !== 'classic',
+      })),
+  [micrositeEntries]);
 
   // Ingested files stay local — no cross-session caching needed
   const [files, setFiles] = useState<IngestionFile[]>([]);
@@ -172,7 +162,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   // This prevents the panel from returning null on the first render after a namespace
   // switch before the fetch effects have had a chance to set loadingProposals/Microsites.
   const effectiveLoadingProposals = loadingProposals || panelData?.proposals === undefined;
-  const effectiveLoadingMicrosites = loadingMicrosites || panelData?.microsites === undefined;
+  const effectiveLoadingMicrosites = loadingMicrosites;
 
   // File hover / menu state — mirrors NamespacesSection pattern
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
@@ -276,8 +266,8 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     if (!confirmMicrosite) return;
     setDeletingMicrosite(true);
     try {
-      await deleteMicrositeHistoryFromServer(apiKey, namespace);
-      setMicrosites(namespace, (panelData?.microsites ?? []).filter(m => m.proposalId !== confirmMicrosite.proposalId));
+      await deleteMicrositeHistoryFromServer(apiKey, namespace, confirmMicrosite.id);
+      setMicrositeEntries(prev => prev.filter(e => e.id !== confirmMicrosite.id));
     } catch { /* ignore */ } finally {
       setDeletingMicrosite(false);
       setConfirmMicrosite(null);
@@ -301,15 +291,16 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, apiKey]);
 
-  useEffect(() => {
+  const loadMicrositeEntries = useCallback(() => {
     if (!namespace || !apiKey) return;
-    if (!panelData?.microsites) setLoadingMicrosites(true);
-    fetchPresentations(apiKey, namespace)
-      .then(ms => setMicrosites(namespace, ms))
+    setLoadingMicrosites(true);
+    fetchAllMicrositeHistory(apiKey)
+      .then(all => setMicrositeEntries(all.filter(e => e.namespace === namespace)))
       .catch(() => {})
       .finally(() => setLoadingMicrosites(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, apiKey]);
+
+  useEffect(() => { loadMicrositeEntries(); }, [loadMicrositeEntries]);
 
   useEffect(() => {
     if (!apiKey) return;
@@ -378,14 +369,12 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     }
 
     if (justCompleted.some(e => e.type === 'microsite')) {
-      fetchPresentations(apiKey, namespace)
-        .then(ms => setMicrosites(namespace, ms))
-        .catch(() => {});
+      loadMicrositeEntries();
     }
-  }, [allExecutions, namespace, apiKey, setProposals, setMicrosites]);
+  }, [allExecutions, namespace, apiKey, setProposals, loadMicrositeEntries]);
 
   const allLoaded = !effectiveLoadingProposals && !effectiveLoadingMicrosites && !loadingFiles && !loadingMemory;
-  const hasContent = proposals.length > 0 || microsites.length > 0 || files.length > 0 || !!namespace;
+  const hasContent = proposals.length > 0 || micrositeEntries.length > 0 || files.length > 0 || !!namespace;
 
   useEffect(() => {
     if (allLoaded) onHasContent?.(hasContent);
@@ -416,22 +405,24 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
 
         {/* ── Microsites ── */}
         <Section label="Microsites" loading={effectiveLoadingMicrosites}>
-          {microsites.length === 0 ? (
+          {micrositeEntries.length === 0 ? (
             <div style={{ padding: '2px 8px 4px 12px' }}>
               <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No microsites yet</span>
             </div>
           ) : (
-            micrositesWithMeta.map(({ m, displayName, version }) => {
-              const itemId = m.proposalId;
+            micrositesWithMeta.map(({ entry, displayName, version, isPro }) => {
+              const itemId = entry.id;
+              const ast = entry.ast as LayoutAST;
+              const pid = ast?.proposalId || namespace;
               const isHov = hoveredMicrosite === itemId;
               return (
                 <div
                   key={itemId}
                   className="sidebar-link"
-                  onClick={() => onMicrositeClick?.(m)}
+                  onClick={() => onMicrositeClick?.({ entryId: entry.id, namespace, proposalId: pid, displayName })}
                   onMouseEnter={() => setHoveredMicrosite(itemId)}
                   onMouseLeave={() => setHoveredMicrosite(null)}
-                  style={{ cursor: onMicrositeClick ? 'pointer' : 'default', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
+                  style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
                 >
                   <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
                     {displayName}
@@ -449,7 +440,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
                       if (!btn) return;
                       const rect = btn.getBoundingClientRect();
                       setMicrositeMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-                      setMenuMicrosite({ id: itemId, proposalId: m.proposalId });
+                      setMenuMicrosite({ id: itemId, proposalId: entry.id });
                     }}
                     style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHov || menuMicrosite?.id === itemId ? 1 : 0, pointerEvents: isHov || menuMicrosite?.id === itemId ? 'auto' : 'none', transition: 'opacity 0.15s' }}
                   >
@@ -493,11 +484,9 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
                     {statusLabel(p.status)}
                   </span>
                 )}
-                {p.version != null && (
-                  <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                    v{p.version}
-                  </span>
-                )}
+                <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                  v{p.version ?? 1}
+                </span>
                 <button
                   ref={el => { proposalMenuBtnRefs.current[p.fileName] = el; }}
                   className="btn btn-sm"
@@ -745,7 +734,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
           onClick={() => {
             const ms = menuMicrosite;
             setMenuMicrosite(null);
-            const meta = micrositesWithMeta.find(x => x.m.proposalId === ms.id);
+            const meta = micrositesWithMeta.find(x => x.entry.id === ms.id);
             setConfirmMicrosite({ ...ms, displayName: meta?.displayName ?? ms.proposalId });
           }}
         >

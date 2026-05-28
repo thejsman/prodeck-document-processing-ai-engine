@@ -567,7 +567,7 @@ export interface LayoutAST {
   /** Hover micro-interaction tier for cards, stats, testimonials */
   hoverStyle?: 'none' | 'subtle' | 'lift' | 'glow' | 'tilt';
   /** Which generation mode produced this microsite */
-  generationMode?: 'pro' | 'classic';
+  generationMode?: 'pro' | 'classic' | 'v2';
 }
 
 // ── Icon hint type ───────────────────────────────────────────────────────────

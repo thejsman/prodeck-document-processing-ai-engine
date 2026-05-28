@@ -36,8 +36,10 @@ import {
 import type { PluginMeta } from '@/types/presentation';
 import { Microsite as MicrositeClassic } from './microsite/Microsite';
 import { MicrositePro } from './MicrositePro';
+import { MicrositeV2 } from './MicrositeV2';
 import { MicrositeEditor } from './microsite/editor/MicrositeEditor';
 import { MicrositeHistory } from './microsite/MicrositeHistory';
+import { GenerateV2Modal } from './microsite/GenerateV2Modal';
 import { ThemeModal } from './microsite/ThemeModal';
 import { ThemeFullPreview } from './microsite/ThemeFullPreview';
 import { ThemePreviewCard } from './microsite/ThemePreviewCard';
@@ -505,27 +507,7 @@ export function PresentationPage() {
     layoutASTRef.current = layoutAST;
   }, [layoutAST]);
 
-  // Auto-save AST to disk (debounced) whenever it changes after initial generation.
-  // This ensures section deletions/edits survive page refresh without requiring
-  // the user to open the full editor and click Export.
   const abortCtrlRef = useRef<AbortController | null>(null);
-  const astSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSavedAstRef = useRef<string>('');
-  useEffect(() => {
-    if (!layoutAST || !apiKey || !selectedNamespace) return;
-    const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
-    const serialized = JSON.stringify(layoutAST);
-    if (serialized === lastSavedAstRef.current) return; // no change
-    if (astSaveTimerRef.current) clearTimeout(astSaveTimerRef.current);
-    astSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST);
-        lastSavedAstRef.current = serialized;
-      } catch {
-        /* best-effort — don't show error for background save */
-      }
-    }, 1000);
-  }, [layoutAST, apiKey, selectedNamespace, selectedProposal]);
   const [loadingAST, setLoadingAST] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   // Stores last generated markdown — used as input on regeneration instead of original proposal
@@ -537,6 +519,8 @@ export function PresentationPage() {
     return !!_snap?.lockedFromProposal;
   });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showModePicker, setShowModePicker] = useState(false);
+  const [showV2Modal, setShowV2Modal] = useState(false);
   const { addEntry, deleteEntry } = useMicrositeHistory(selectedNamespace, apiKey);
   // Count is reported via onCountChange from MicrositeHistory after server fetch
   const [totalHistoryCount, setTotalHistoryCount] = useState(0);
@@ -620,7 +604,7 @@ export function PresentationPage() {
           const recovered = ast as LayoutAST;
           setLayoutAST(recovered);
           if (!currentHistoryIdRef.current) {
-            const saved = addEntry(recovered);
+            const saved = await addEntry(recovered);
             currentHistoryIdRef.current = saved.id;
           }
           setProgress((p) =>
@@ -736,7 +720,7 @@ export function PresentationPage() {
   }, [selectedNamespace, lockedFromProposal]);
 
   useEffect(() => {
-    if (step !== 'upload' || !apiKey || !selectedNamespace || lockedFromProposal) return;
+    if (!apiKey || !selectedNamespace || lockedFromProposal) return;
     setProposalsLoading(true);
     fetchProposals(apiKey)
       .then((all) =>
@@ -757,7 +741,7 @@ export function PresentationPage() {
       )
       .catch((e) => setProposalsError((e as Error).message))
       .finally(() => setProposalsLoading(false));
-  }, [step, apiKey, selectedNamespace, lockedFromProposal]);
+  }, [apiKey, selectedNamespace, lockedFromProposal]);
 
   // Auto-load proposal content when arriving locked from the proposal flow
   useEffect(() => {
@@ -769,6 +753,17 @@ export function PresentationPage() {
       .finally(() => setLoadingContent(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lockedFromProposal, apiKey, selectedProposal?.fileName]);
+
+  // Auto-select most recent proposal and load its content when namespace proposals are fetched
+  useEffect(() => {
+    if (!apiKey || !proposals.length || selectedProposal || mdContent || lockedFromProposal) return;
+    const latest = proposals[0];
+    setSelectedProposal(latest);
+    fetchProposalContent(apiKey, latest.fileName)
+      .then((doc) => setMdContent(doc.content))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposals]);
 
   const selectProposal = useCallback(
     async (p: ProposalFile) => {
@@ -1199,11 +1194,10 @@ export function PresentationPage() {
                 };
               }
               setLayoutAST(ast);
-              const saved = addEntry(ast);
-              currentHistoryIdRef.current = saved.id;
-              // Persist to server immediately so history Edit works without requiring
-              // the user to click Edit from the preview first.
-              saveMicrositeAst(apiKey, selectedNamespace, proposalId, ast).catch(() => {});
+              // Set a truthy placeholder immediately so the finally block won't fire
+              // a second addEntry while this async save is still in-flight.
+              currentHistoryIdRef.current = 'saving';
+              addEntry(ast).then((saved) => { currentHistoryIdRef.current = saved.id; }).catch(() => { currentHistoryIdRef.current = null; });
               setGeneratedMarkdown(sourceMarkdown);
             }
             setStep('preview');
@@ -1271,7 +1265,7 @@ export function PresentationPage() {
         if (userCancelledRef.current) {
           // User cancelled — discard any partial entry already saved during streaming
           if (currentHistoryIdRef.current) {
-            deleteEntry(currentHistoryIdRef.current);
+            deleteEntry(currentHistoryIdRef.current, '');
             currentHistoryIdRef.current = null;
           }
         } else {
@@ -1280,7 +1274,7 @@ export function PresentationPage() {
           const latestAST = layoutASTRef.current;
           if (latestAST?.sections?.length) {
             if (!currentHistoryIdRef.current) {
-              const saved = addEntry(latestAST);
+              const saved = await addEntry(latestAST);
               currentHistoryIdRef.current = saved.id;
             }
             setStep('preview');
@@ -1374,10 +1368,10 @@ export function PresentationPage() {
           namespace={selectedNamespace}
           proposalId={selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace}
           onClose={() => setShowEditor(false)}
-          onExport={(editedAst) => {
+          onExport={async (editedAst) => {
             setLayoutAST(editedAst);
             // Create a separate copy in history — original entry is preserved
-            const saved = addEntry(editedAst);
+            const saved = await addEntry(editedAst);
             currentHistoryIdRef.current = saved.id;
             setShowEditor(false);
           }}
@@ -1385,7 +1379,11 @@ export function PresentationPage() {
       );
     }
     {
-      const MicrositeComponent = layoutAST.generationMode === 'pro' ? MicrositePro : MicrositeClassic;
+      const MicrositeComponent = layoutAST.generationMode === 'v2'
+        ? MicrositeV2
+        : layoutAST.generationMode === 'pro'
+          ? MicrositePro
+          : MicrositeClassic;
       const pid = layoutAST.proposalId ?? selectedProposal?.fileName.replace(/\.md$/, '') ?? selectedNamespace;
       return (
         <MicrositeComponent
@@ -1410,14 +1408,16 @@ export function PresentationPage() {
             generating
               ? undefined
               : () => {
-                  saveMicrositeAst(apiKey, selectedNamespace, pid, layoutAST).catch(() => {});
+                  const entryParam = currentHistoryIdRef.current
+                    ? `?entryId=${encodeURIComponent(currentHistoryIdRef.current)}`
+                    : '';
                   if (layoutAST.generationMode === 'pro') {
                     router.push(
-                      `/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`,
+                      `/microsite-editor-pro/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}${entryParam}`,
                     );
                   } else {
                     router.push(
-                      `/microsite-editor/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}`,
+                      `/microsite-editor/${encodeURIComponent(selectedNamespace)}/${encodeURIComponent(pid)}${entryParam}`,
                     );
                   }
                 }
@@ -1448,43 +1448,13 @@ export function PresentationPage() {
           <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginRight: 'auto' }}>
             Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ''}
           </span>
-          <button
-            onClick={() =>
-              (() => {
-                clearSnapshot();
-                setStep('upload');
-                setShowGenerateModal(true);
-              })()
-            }
-            style={{
-              height: 30,
-              padding: '0 14px',
-              background: 'var(--primary)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 'var(--radius)',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            + Generate Microsite
-          </button>
         </div>
         <div style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
 
         {/* History — always visible */}
         <MicrositeHistory
           onCountChange={setTotalHistoryCount}
-          onGenerateNew={() =>
-            (() => {
-              clearSnapshot();
-              setStep('upload');
-              setShowGenerateModal(true);
-            })()
-          }
+          onGenerateNew={() => setShowModePicker(true)}
         />
       </div>
 
@@ -4555,6 +4525,148 @@ export function PresentationPage() {
             setIsThemeModalOpen(false);
           }}
           onClose={() => setPreviewTheme(null)}
+        />
+      )}
+
+      {/* Mode picker — shown when + Generate Microsite is clicked */}
+      {showModePicker && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 250,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={() => setShowModePicker(false)}
+        >
+          <div
+            style={{
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius)',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.25)',
+              width: '100%',
+              maxWidth: 540,
+              padding: 28,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+              Generate Microsite
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+              Choose a generation mode
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {/* Classic */}
+              <button
+                onClick={() => {
+                  setShowModePicker(false);
+                  clearSnapshot();
+                  setStep('upload');
+                  setShowGenerateModal(true);
+                }}
+                style={{
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius)',
+                  padding: '18px 16px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  transition: 'border-color 0.15s',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--primary)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)'; }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Classic</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  Full pipeline with design-skill, brand setup, plugin themes, and reference screenshots.
+                </div>
+              </button>
+
+              {/* New (Experimental) */}
+              {(() => {
+                const hasContent = !!(generatedMarkdown ?? mdContent).trim();
+                return (
+                  <button
+                    onClick={() => {
+                      if (!hasContent) return;
+                      setShowModePicker(false);
+                      setShowV2Modal(true);
+                    }}
+                    disabled={!hasContent}
+                    style={{
+                      background: 'var(--color-bg)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius)',
+                      padding: '18px 16px',
+                      cursor: hasContent ? 'pointer' : 'not-allowed',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      opacity: hasContent ? 1 : 0.5,
+                      transition: 'border-color 0.15s',
+                    }}
+                    onMouseEnter={(e) => { if (hasContent) (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--primary)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--color-border)'; }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>New</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, background: 'var(--primary)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>
+                        EXPERIMENTAL
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      {hasContent
+                        ? 'Direct LLM pipeline from proposal markdown only. No design-skill preprocessing — faster and leaner.'
+                        : 'Select a proposal first — this mode reads proposal markdown directly.'}
+                    </div>
+                  </button>
+                );
+              })()}
+            </div>
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <button
+                onClick={() => setShowModePicker(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V2 generation modal */}
+      {showV2Modal && (
+        <GenerateV2Modal
+          apiKey={apiKey}
+          namespace={selectedNamespace}
+          proposalId={(selectedProposal ?? proposals[0])?.fileName.replace(/\.md$/, '') ?? selectedNamespace}
+          proposalName={(selectedProposal ?? proposals[0])?.client || (selectedProposal ?? proposals[0])?.fileName || selectedNamespace}
+          proposalMarkdown={generatedMarkdown ?? mdContent}
+          onComplete={(ast) => {
+            ast.generationMode = 'v2';
+            setLayoutAST(ast);
+            setStep('preview');
+            addEntry(ast).catch(() => {});
+          }}
+          onClose={() => setShowV2Modal(false)}
         />
       )}
     </div>

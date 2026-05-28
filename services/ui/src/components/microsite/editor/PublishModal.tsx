@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, ArrowDown, Check } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '../../../lib/auth-context';
 import { publishMicrosite } from '../../../lib/api';
 import type { LayoutAST } from '../../../types/presentation';
+import { PublishSubdomainSection } from './PublishSubdomainSection';
 
 interface Props {
   ast: LayoutAST;
@@ -21,8 +22,20 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
   const [fileSize, setFileSize] = useState(0);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
-  const previewUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/microsite-view/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}`;
+  const rootDomain = process.env.NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN ?? 'yourdomain.com';
+  const modeParam = ast.generationMode ? `?mode=${ast.generationMode}` : '';
+  const previewUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/microsite-view/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}${modeParam}`;
+
+  useEffect(() => {
+    if (!publishing) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') e.stopPropagation();
+    }
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [publishing]);
 
   async function handleDownload() {
     setStatus('loading');
@@ -71,7 +84,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
         justifyContent: 'center',
         padding: 24,
       }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={e => { if (e.target === e.currentTarget && !publishing) onClose(); }}
     >
       <div
         style={{
@@ -91,7 +104,15 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--subtle)', padding: 4 }}
+            disabled={publishing}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: publishing ? 'not-allowed' : 'pointer',
+              color: 'var(--subtle)',
+              padding: 4,
+              opacity: publishing ? 0.4 : 1,
+            }}
           ><Icon icon={X} size="md" /></button>
         </div>
 
@@ -127,6 +148,14 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
               {status === 'loading' ? 'Exporting…' : <><Icon icon={ArrowDown} size="sm" /> {status === 'done' ? 'Download again' : 'Download'}</>}
             </button>
           </div>
+
+          {/* Publish to live URL */}
+          <PublishSubdomainSection
+            ast={ast}
+            namespace={namespace}
+            rootDomain={rootDomain}
+            onPublishingChange={setPublishing}
+          />
 
           {/* Copy preview URL */}
           <div

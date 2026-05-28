@@ -5,14 +5,17 @@ import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useNamespace } from '@/lib/namespace-context';
 import { useAuth } from '@/lib/auth-context';
-import { deleteNamespace, renameNamespace } from '@/lib/api';
+import { deleteNamespace, renameNamespace, listSuperClients, deleteSuperClient, type SuperClientMeta } from '@/lib/api';
 import { CreateNamespaceModal } from './CreateNamespaceModal';
-import { Pencil, Trash2, PlusCircle, ChevronDown, MoreHorizontal, X } from 'lucide-react';
+import { CreateSuperClientModal } from './CreateSuperClientModal';
+import { Pencil, Trash2, PlusCircle, ChevronDown, MoreHorizontal, X, Sparkles } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { toast } from 'sonner';
 
 interface Props {
   onMobileClose: () => void;
+  collapsed?: boolean;
 }
 
 interface MenuPos {
@@ -20,7 +23,7 @@ interface MenuPos {
   right: number;
 }
 
-export function NamespacesSection({ onMobileClose }: Props) {
+export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
   const { namespaces, namespace: activeNamespace, setNamespace, refresh } = useNamespace();
   const { apiKey } = useAuth();
   const [showModal, setShowModal] = useState(false);
@@ -45,6 +48,44 @@ export function NamespacesSection({ onMobileClose }: Props) {
   // confirm delete dialog
   const [confirmNs, setConfirmNs] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // super clients
+  const [superClients, setSuperClients] = useState<SuperClientMeta[]>([]);
+  const [showSuperModal, setShowSuperModal] = useState(false);
+  const [expandedSuper, setExpandedSuper] = useState(true);
+  const [superLabelHovered, setSuperLabelHovered] = useState(false);
+  const [hoveredSc, setHoveredSc] = useState<string | null>(null);
+  const [confirmSc, setConfirmSc] = useState<string | null>(null);
+  const [deletingSc, setDeletingSc] = useState(false);
+
+  const loadSuperClients = useCallback(async () => {
+    try {
+      const list = await listSuperClients(apiKey);
+      setSuperClients(list);
+    } catch {
+      /* non-fatal */
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    void loadSuperClients();
+  }, [loadSuperClients]);
+
+  const handleDeleteSuperClient = async () => {
+    if (!confirmSc) return;
+    setDeletingSc(true);
+    try {
+      await deleteSuperClient(apiKey, confirmSc);
+      await loadSuperClients();
+      toast.success(`Deleted "${confirmSc}"`);
+      if (pathname?.startsWith(`/super-client/${confirmSc}`)) router.push('/');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setDeletingSc(false);
+      setConfirmSc(null);
+    }
+  };
 
   // open menu: calculate position from the ⋯ button's bounding rect
   const openMenu = useCallback((ns: string) => {
@@ -183,14 +224,12 @@ export function NamespacesSection({ onMobileClose }: Props) {
 
   return (
     <>
-      <div className="sidebar-group">
-        {/* New Namespace button */}
+      {/* <div className="sidebar-group">
         <div className="sidebar-link" onClick={() => setShowModal(true)} style={{ cursor: 'pointer' }}>
           <Icon icon={PlusCircle} size="md" className="sidebar-icon" />
-          <span className="sidebar-label">New Client</span>
+          <span className="sidebar-label">Create Client</span>
         </div>
 
-        {/* Namespaces section label — collapses/expands list */}
         <div
           className="sidebar-link"
           onClick={() => setExpanded((v) => !v)}
@@ -213,7 +252,6 @@ export function NamespacesSection({ onMobileClose }: Props) {
           />
         </div>
 
-        {/* Namespace list */}
         {expanded &&
           namespaces.map((ns) => {
             const isActive = ns === activeNamespace && !!pathname?.startsWith('/chat');
@@ -282,7 +320,6 @@ export function NamespacesSection({ onMobileClose }: Props) {
                   </button>
                 )}
 
-                {/* ⋯ menu toggle — only shown on hover or when menu is open */}
                 {!isRenaming && (
                   <button
                     ref={(el) => {
@@ -314,135 +351,129 @@ export function NamespacesSection({ onMobileClose }: Props) {
               </div>
             );
           })}
-      </div>
+      </div> */}
 
-      {dropdown}
+      {/* Super Clients section */}
+      <div className="sidebar-group">
+        <div className="sidebar-link" onClick={() => setShowSuperModal(true)} style={{ cursor: 'pointer' }}>
+          <Icon icon={Sparkles} size="md" className="sidebar-icon" />
+          <span className="sidebar-label">New Client</span>
+        </div>
 
-      {showModal && <CreateNamespaceModal onClose={() => setShowModal(false)} />}
-
-      {/* Confirm delete dialog */}
-      {confirmNs &&
-        createPortal(
-          <div
+        <div
+          className="sidebar-link"
+          onClick={() => setExpandedSuper((v) => !v)}
+          onMouseEnter={() => setSuperLabelHovered(true)}
+          onMouseLeave={() => setSuperLabelHovered(false)}
+          style={{ cursor: 'pointer' }}
+        >
+          <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>
+            Clients
+          </span>
+          <Icon
+            icon={ChevronDown}
+            size="sm"
             style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 20000,
-              background: 'rgba(0,0,0,0.55)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 24,
+              flexShrink: 0,
+              opacity: superLabelHovered ? 0.5 : 0,
+              transform: expandedSuper ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'opacity 0.15s, transform 0.15s ease',
             }}
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget && !deleting) setConfirmNs(null);
-            }}
-          >
-            <div
-              style={{
-                background: 'var(--panel)',
-                border: '1px solid var(--border)',
-                borderRadius: 12,
-                width: '100%',
-                maxWidth: 420,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
-                overflow: 'hidden',
-              }}
-            >
-              <div style={{ padding: '20px 24px 0' }}>
-                <div
+          />
+        </div>
+
+        {expandedSuper &&
+          superClients.map((sc) => {
+            const isActive =
+              !collapsed &&
+              (pathname === `/super-client/${sc.name}` || !!pathname?.startsWith(`/super-client/${sc.name}/`));
+            const isHovered = hoveredSc === sc.name;
+
+            return (
+              <div
+                key={sc.name}
+                style={{ position: 'relative' }}
+                onMouseEnter={() => setHoveredSc(sc.name)}
+                onMouseLeave={() => setHoveredSc(null)}
+              >
+                <button
+                  className={`sidebar-link${isActive ? ' sidebar-link--active' : ''}`}
+                  onClick={() => {
+                    onMobileClose();
+                    router.push(`/super-client/${sc.name}`);
+                  }}
                   style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: 16,
+                    width: '100%',
+                    textAlign: 'left',
+                    paddingRight: isHovered ? 36 : 12,
+                    transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease',
                   }}
                 >
-                  <p
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 600,
-                      color: 'var(--text)',
-                      margin: 0,
-                      lineHeight: 1.5,
-                      letterSpacing: '0em',
-                    }}
-                  >
-                    Delete namespace
-                  </p>
-                  <button
-                    onClick={() => {
-                      if (!deleting) setConfirmNs(null);
-                    }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: 'var(--muted)',
-                      padding: 2,
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Icon icon={X} size="md" />
-                  </button>
-                </div>
-              </div>
-              <div style={{ height: 1, background: 'var(--border)' }} />
-              <div style={{ padding: 24 }}>
-                <p
+                  <span className="sidebar-label">{sc.displayName}</span>
+                </button>
+
+                <button
+                  className="btn btn-sm"
+                  title="Delete"
                   style={{
-                    fontSize: 14,
-                    color: 'var(--text)',
-                    marginBottom: 20,
-                    lineHeight: 1.5,
-                    letterSpacing: '0em',
+                    position: 'absolute',
+                    right: 6,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    padding: '1px 5px',
+                    fontSize: 13,
+                    border: 'none',
+                    lineHeight: 1,
+                    opacity: isHovered ? 1 : 0,
+                    pointerEvents: isHovered ? 'auto' : 'none',
+                    transition: 'opacity 0.15s',
+                    color: 'var(--danger)',
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmSc(sc.name);
                   }}
                 >
-                  Permanently delete <strong>"{confirmNs}"</strong>? All ingested files, proposals, and microsites in
-                  this namespace will be removed and cannot be recovered.
-                </p>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button
-                    onClick={() => setConfirmNs(null)}
-                    disabled={deleting}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: 'var(--panel-soft)',
-                      color: 'var(--text)',
-                      fontSize: 14,
-                      cursor: deleting ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteConfirmed}
-                    disabled={deleting}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      border: 'none',
-                      background: 'var(--danger)',
-                      color: '#fff',
-                      fontSize: 14,
-                      fontWeight: 400,
-                      cursor: deleting ? 'not-allowed' : 'pointer',
-                      opacity: deleting ? 0.7 : 1,
-                      lineHeight: 1.5,
-                      letterSpacing: '0em',
-                    }}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete'}
-                  </button>
-                </div>
+                  <Icon icon={Trash2} size="sm" />
+                </button>
               </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+            );
+          })}
+      </div>
+      {dropdown}
+      {showModal && <CreateNamespaceModal onClose={() => setShowModal(false)} />}
+      {showSuperModal && (
+        <CreateSuperClientModal
+          onClose={() => setShowSuperModal(false)}
+          onCreated={() => {
+            void loadSuperClients();
+          }}
+        />
+      )}
+      {confirmSc && (
+        <ConfirmDialog
+          title="Delete super client"
+          message={`Permanently delete "${confirmSc}" and all its chat history, documents, proposals, and microsites?`}
+          confirmLabel="Delete"
+          busy={deletingSc}
+          onConfirm={handleDeleteSuperClient}
+          onCancel={() => {
+            if (!deletingSc) setConfirmSc(null);
+          }}
+        />
+      )}
+      {confirmNs && (
+        <ConfirmDialog
+          title="Delete client"
+          message={`Permanently delete "${confirmNs}"? All ingested files, proposals, and microsites will be removed and cannot be recovered.`}
+          confirmLabel="Delete"
+          busy={deleting}
+          onConfirm={handleDeleteConfirmed}
+          onCancel={() => {
+            if (!deleting) setConfirmNs(null);
+          }}
+        />
+      )}
     </>
   );
 }

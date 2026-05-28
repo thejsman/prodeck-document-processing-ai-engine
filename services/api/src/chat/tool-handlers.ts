@@ -202,9 +202,12 @@ export async function handleGenerateProposal(
   const clientIndustry = ((params.clientIndustry as string | undefined) ?? 'General').trim();
   const projectType = ((params.projectType as string | undefined) ?? '').trim();
   const industry = clientIndustry; // processor payload field name kept for compatibility
-  const template = ((params.template as string | undefined) ?? 'default').trim();
-  const skillSlug = ((params.skill as string | undefined) ?? '').trim();
   const { workdir, namespace, policyConfig, generateFn } = ctx;
+  // When the caller requests the generic "default" template, scope it to the
+  // current namespace so different namespaces don't share the same cached file.
+  const rawTemplate = ((params.template as string | undefined) ?? 'default').trim();
+  const template = rawTemplate === 'default' ? `default-${namespace}` : rawTemplate;
+  const skillSlug = ((params.skill as string | undefined) ?? '').trim();
 
   // Load skill context if specified
   let skillTone: string | null = null;
@@ -540,10 +543,21 @@ export async function handleGenerateMicrosite(
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => htmlWorker()));
   }
 
-  // Persist completed AST (with customHtml on every section)
-  const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');
-  await mkdir(path.dirname(astPath), { recursive: true });
-  await writeFile(astPath, JSON.stringify(ast, null, 2), 'utf-8');
+  // Persist completed AST as a new versioned entry — append-only, never overwrites
+  const nsDir = path.join(workdir, 'assets', 'presentations', namespace);
+  await mkdir(nsDir, { recursive: true });
+  let existingFiles: string[] = [];
+  try { existingFiles = await readdir(nsDir); } catch { /* new namespace */ }
+  const existingCount = existingFiles.filter(f => f.startsWith('microsite_pro_') && f.endsWith('.json')).length;
+  const timestamp = Date.now();
+  const chatEntry = {
+    id: `microsite:pro:${timestamp}`,
+    type: 'pro',
+    version: existingCount + 1,
+    createdAt: new Date().toISOString(),
+    data: { ...ast, generationMode: 'pro' },
+  };
+  await writeFile(path.join(nsDir, `microsite_pro_${timestamp}.json`), JSON.stringify(chatEntry, null, 2), 'utf-8');
 
   return {
     success: true,
@@ -714,12 +728,25 @@ export async function handleSearchDocuments(
   const query = ((params.query as string | undefined) ?? '').trim();
   const { workdir, namespace, vectorStoreConfig } = ctx;
 
-  const result = await queryKnowledgeBase({
-    question: query,
-    storageDir: path.join(workdir, 'namespaces', namespace),
-    namespace,
-    ...(vectorStoreConfig ? { vectorStoreConfig } : {}),
-  });
+  let result: Awaited<ReturnType<typeof queryKnowledgeBase>>;
+  try {
+    result = await queryKnowledgeBase({
+      question: query,
+      storageDir: path.join(workdir, 'namespaces', namespace),
+      namespace,
+      ...(vectorStoreConfig ? { vectorStoreConfig } : {}),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('no valid chunks') || msg.includes('no documents') || msg.includes('index') || msg.includes('not found')) {
+      return {
+        success: true,
+        message: "There are no documents in the knowledge base yet. Upload some files first and I'll be able to summarize or search them for you.",
+        data: { query, answer: null },
+      };
+    }
+    throw err;
+  }
 
   return {
     success: true,

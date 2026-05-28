@@ -102,6 +102,7 @@ export interface ProcessMessageParams {
   message: string;
   namespace: string;
   chatSessionId: string;
+  apiKeyHash: string;
   /** Called when a named execution phase begins (e.g. "Analyzing RFP"). */
   onPhase?: (phase: string) => void;
   /** Called with each streamed token chunk. */
@@ -351,7 +352,7 @@ export class ChatOrchestrator {
   }
 
   private async _processMessageInner(params: ProcessMessageParams): Promise<OrchestratorResult> {
-    const { message, namespace, chatSessionId, onPhase = () => {}, onChunk = () => {}, onSection } = params;
+    const { message, namespace, chatSessionId, apiKeyHash, onPhase = () => {}, onChunk = () => {}, onSection } = params;
 
     // ── Load or create workflow instance ─────────────────────────
     let instance = await loadActiveInstance(this.workdir, namespace, chatSessionId);
@@ -373,7 +374,7 @@ export class ChatOrchestrator {
 
       // Second pass: LLM-based classification when rule-based matching fails
       if (!intent && !skipWorkflow) {
-        const history = await loadHistory(this.workdir, namespace, chatSessionId);
+        const history = await loadHistory(this.workdir, namespace, apiKeyHash, chatSessionId);
         const recentMessages = (history?.messages ?? [])
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .slice(-6);
@@ -391,7 +392,7 @@ export class ChatOrchestrator {
         // many documents rather than chunks most similar to the literal phrase.
         try {
           const answer = await answerFromKnowledge(this.workdir, namespace, message, llmGenerateFn);
-          void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
+          void appendChatTurn(this.workdir, namespace, apiKeyHash, chatSessionId, message, answer);
           return { message: answer };
         } catch {
           return {
@@ -434,6 +435,7 @@ export class ChatOrchestrator {
     const conversationContext = await buildLLMContext(
       this.workdir,
       namespace,
+      apiKeyHash,
       chatSessionId,
       instance.state,
       instance.context.proposalRequirements as Record<string, string>,
@@ -463,7 +465,7 @@ export class ChatOrchestrator {
           instance.context as Record<string, unknown>,
         );
         const answer = await answerFromKnowledge(this.workdir, namespace, message, llmGenerateFn, interruptContext);
-        void appendChatTurn(this.workdir, namespace, chatSessionId, message, answer);
+        void appendChatTurn(this.workdir, namespace, apiKeyHash, chatSessionId, message, answer);
         return { message: answer };
       } catch {
         // If knowledge base query fails, fall through to normal workflow dispatch
@@ -635,6 +637,7 @@ export class ChatOrchestrator {
       void appendChatTurn(
         this.workdir,
         namespace,
+        apiKeyHash,
         chatSessionId,
         message,
         lastResult.message,

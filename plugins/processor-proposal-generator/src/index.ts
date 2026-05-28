@@ -28,6 +28,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExecutionContext } from '@ai-engine/runtime';
+import { QdrantVectorStoreProvider } from '@ai-engine/runtime';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,6 +162,50 @@ export function spawnProposalGenerator(
 }
 
 // ---------------------------------------------------------------------------
+// RAG retrieval
+// ---------------------------------------------------------------------------
+
+async function retrieveRagContext(
+  workdir: string,
+  namespace: string,
+  client: string,
+  industry: string,
+): Promise<RetrievedChunk[] | null> {
+  if (process.env['VECTOR_STORE'] !== 'qdrant') return null;
+  try {
+    const url = process.env['QDRANT_URL'] ?? 'http://localhost:6333';
+    const apiKey = process.env['QDRANT_API_KEY'];
+    const provider = new QdrantVectorStoreProvider(workdir, url, apiKey);
+    const queries = [
+      `${client} project overview scope objectives requirements`,
+      `proposed solution approach methodology implementation plan`,
+      `pricing cost budget commercials risk compliance regulatory`,
+      `${industry} technology infrastructure team capabilities`,
+    ];
+    const results = await Promise.allSettled(
+      queries.map((q) =>
+        provider.search({ namespace, queryEmbedding: [], topK: 8, filter: { query: q } })
+      )
+    );
+    const seen = new Set<string>();
+    const chunks: RetrievedChunk[] = [];
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      for (const hit of r.value) {
+        const key = hit.text?.trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        chunks.push({ text: hit.text, score: hit.score, document: hit.metadata?.['fileName'] as string | undefined });
+      }
+    }
+    chunks.sort((a, b) => b.score - a.score);
+    return chunks.slice(0, 30);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Plugin export
 // ---------------------------------------------------------------------------
 
@@ -233,6 +278,13 @@ const processor = {
     }
     context.logger.info(`Output directory: ${outputDir}`);
 
+    const retrievedContext = namespace
+      ? await retrieveRagContext(workdir, namespace, client, industry)
+      : null;
+    if (retrievedContext) {
+      context.logger.info(`RAG: retrieved ${retrievedContext.length} chunks from Qdrant`);
+    }
+
     const document = await spawnProposalGenerator({
       workdir,
       outputDir,
@@ -245,6 +297,7 @@ const processor = {
       pricing,
       tone,
       memory,
+      retrievedContext,
     });
 
     const meta = document.metadata as Record<string, unknown>;

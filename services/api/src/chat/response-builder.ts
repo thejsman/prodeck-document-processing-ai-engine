@@ -32,6 +32,9 @@ export interface ChatResponse {
   toolsCalled: ToolName[];
   /** Set when the pipeline halted at Stage 4.5 waiting for user confirmation. */
   confirmationRequest?: ConfirmationRequest;
+  /** Structured questions for QuestionsBlock rendering. When present, `text` contains
+   *  only the intro sentence — the numbered list is omitted. */
+  questions?: Array<{ field: string; question: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,19 +140,12 @@ export function buildNotReadyResponse(
     }
   }
 
-  if (requiredMissing.length > 0) {
-    lines.push("I need a few details before I can proceed:");
-    lines.push('');
-    requiredMissing.forEach((f: MissingField, i: number) => {
-      lines.push(`${i + 1}. ${f.question}`);
-    });
-  }
-
   return {
-    text: lines.join('\n'),
+    text: requiredMissing.length > 0 ? '' : lines.join('\n'),
     actionCards: [],
     requirementsUpdated,
     toolsCalled: [],
+    questions: requiredMissing.map((f: MissingField) => ({ field: f.field, question: f.question })),
   };
 }
 
@@ -193,27 +189,9 @@ export function buildConfirmationResponse(
     lines.push('Reply **"yes"** to confirm and continue, or correct anything above.');
 
   } else if (request.kind === 'confirm_template') {
-    const pct = Math.round(request.confidence * 100);
-    lines.push(
-      `I recommend the **${request.templateName}** template for this proposal (${pct}% match).`,
-      '',
-      request.reasoning,
-      '',
-      `**Sections included (${request.sections.length}):**`,
-    );
-    request.sections.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
-    lines.push('');
-    lines.push('Reply **"yes"** to use this template, or ask me to suggest alternatives.');
-
+    // Text intentionally empty — rendered by the composer template card on the frontend
   } else if (request.kind === 'approve_generated_template') {
-    lines.push(
-      `I didn't find a strong template match, so I drafted one tailored for your project:`,
-      '',
-      `**${request.templateName}** — ${request.sections.length} sections:`,
-    );
-    request.sections.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
-    lines.push('');
-    lines.push('Reply **"approve"** to use this template, or tell me what to change.');
+    // Text intentionally empty — rendered by the composer template card on the frontend
 
     actionCards.push({
       type: 'view_template',

@@ -43,6 +43,7 @@ import os
 import re
 import tempfile
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import yaml
@@ -508,45 +509,47 @@ def generate_proposal(
         and pricing.get("ratePerWeek") is not None
     )
 
-    # ── Generate sections (deterministic order from template) ─
-    section_texts = []
+    # ── Generate sections (parallel LLM calls, deterministic order preserved) ─
+    section_texts = [None] * len(sections)
     retried_sections = []
+    context_text = rag_context if use_rag else raw_context
 
-    for section_def in sections:
-        # Deterministic pricing replaces the LLM-generated pricing section.
-        if (
-            has_deterministic_pricing
-            and section_def["title"] == PRICING_SECTION_TITLE
-        ):
-            section_md = compute_pricing_section(
+    def _generate_one(idx, section_def):
+        if has_deterministic_pricing and section_def["title"] == PRICING_SECTION_TITLE:
+            return idx, compute_pricing_section(
                 team_size=int(pricing["teamSize"]),
                 duration_weeks=int(pricing["durationWeeks"]),
                 rate_per_week=float(pricing["ratePerWeek"]),
                 client=client,
                 industry=industry,
             )
-            section_texts.append(section_md)
-            continue
-
-        # Build context for this section.
-        context_text = rag_context if use_rag else raw_context
-
-        # Generate with retry.
         try:
-            section_md = generate_section(
+            md = generate_section(
                 section_def, client, industry, context_text, provider,
                 tone=tone, memory=memory,
             )
+            return idx, md
         except RuntimeError:
-            # Record the failure but continue with remaining sections.
-            retried_sections.append(section_def["title"])
-            section_md = (
+            md = (
                 f"## {section_def['title']}\n\n"
                 f"*[Generation failed after {1 + MAX_SECTION_RETRIES} attempt(s). "
                 f"Please complete this section manually.]*"
             )
+            return idx, md, section_def["title"]
 
-        section_texts.append(section_md)
+    with ThreadPoolExecutor(max_workers=len(sections)) as executor:
+        futures = {
+            executor.submit(_generate_one, idx, section_def): idx
+            for idx, section_def in enumerate(sections)
+        }
+        for future in as_completed(futures):
+            result = future.result()
+            if len(result) == 3:
+                idx, md, failed_title = result
+                retried_sections.append(failed_title)
+            else:
+                idx, md = result
+            section_texts[idx] = md
 
     # ── Resolve output path with versioning ───────────────────
     output_path, version = resolve_output_path(output_dir, client, overwrite)
