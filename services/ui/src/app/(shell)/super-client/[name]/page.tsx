@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   Plus,
   Pencil,
+  Link2 as LinkIcon,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { Icon } from '@/components/ui/Icon';
@@ -50,6 +51,7 @@ import {
   deleteSuperClientMicrosite,
   editSuperClientMicrosite,
   revertSuperClientMicrosite,
+  patchSuperClientMicrositeHtml,
   generateMicrositeV2Stream,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
@@ -465,6 +467,10 @@ export default function SuperClientPage() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editingLogo, setEditingLogo] = useState<{ base64: string; mediaType: string } | null>(null);
+  const [editingLogoUrl, setEditingLogoUrl] = useState('');
+  const [showEditingLogoUrlInput, setShowEditingLogoUrlInput] = useState(false);
+  const editingLogoInputRef = useRef<HTMLInputElement | null>(null);
   const [hoveredMicrositeId, setHoveredMicrositeId] = useState<string | null>(null);
   const [hoveredProposalId, setHoveredProposalId] = useState<string | null>(null);
   const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
@@ -506,8 +512,15 @@ export default function SuperClientPage() {
     base64: string;
     mediaType: string;
   } | null>(null);
+  const [composerLogo, setComposerLogo] = useState<{
+    base64: string;
+    mediaType: string;
+  } | null>(null);
+  const [composerLogoUrl, setComposerLogoUrl] = useState('');
+  const [showLogoUrlInput, setShowLogoUrlInput] = useState(false);
   const [composerMessage, setComposerMessage] = useState('');
   const composerImageInputRef = useRef<HTMLInputElement | null>(null);
+  const composerLogoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [toastMsg, setToastMsg] = useState<{
     text: string;
@@ -853,7 +866,11 @@ export default function SuperClientPage() {
   }
 
   async function handleMicrositeEdit() {
-    if (!viewingMicrosite || !micrositeEditInput.trim() || micrositeEditing) return;
+    const hasText = micrositeEditInput.trim().length > 0;
+    const activeLogo: { base64: string; mediaType: string } | { url: string } | null =
+      editingLogo ?? (editingLogoUrl.trim() ? { url: editingLogoUrl.trim() } : null);
+    if (!viewingMicrosite || (!hasText && !activeLogo) || micrositeEditing) return;
+
     const instruction = micrositeEditInput.trim();
     setMicrositeEditing(true);
     setMicrositeEditBanner('');
@@ -861,15 +878,36 @@ export default function SuperClientPage() {
     setCanRedo(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     try {
-      const { html, summary } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction);
+      let finalHtml: string;
+
+      if (hasText && activeLogo) {
+        // Text edit first, then inject logo via deterministic server bypass
+        await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction);
+        const logoSrc = 'url' in activeLogo ? activeLogo.url : `data:${activeLogo.mediaType};base64,${activeLogo.base64}`;
+        const { html } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, `__LOGO_INJECT__:${logoSrc}`);
+        finalHtml = html;
+      } else if (hasText) {
+        // Text edit only
+        const { html } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction);
+        finalHtml = html;
+      } else {
+        // Logo-only: deterministic server-side injection, no LLM
+        const logoSrc = 'url' in activeLogo! ? activeLogo!.url : `data:${(activeLogo as { base64: string; mediaType: string }).mediaType};base64,${(activeLogo as { base64: string; mediaType: string }).base64}`;
+        const { html } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, `__LOGO_INJECT__:${logoSrc}`);
+        finalHtml = html;
+      }
+
       setMicrositeEditInput('');
+      setEditingLogo(null);
+      setEditingLogoUrl('');
+      setShowEditingLogoUrlInput(false);
       setViewingMicrosite((prev) =>
         prev
           ? {
               ...prev,
               ast: {
                 ...prev.ast,
-                sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)],
+                sections: [{ ...(prev.ast.sections[0] as object), customHtml: finalHtml } as unknown as typeof prev.ast.sections[0], ...prev.ast.sections.slice(1)],
               },
               renderKey: `${prev.id}-${Date.now()}`,
             }
@@ -1029,6 +1067,9 @@ export default function SuperClientPage() {
     setMicrositeEditBanner('');
     setCanUndo(false);
     setCanRedo(false);
+    setEditingLogo(null);
+    setEditingLogoUrl('');
+    setShowEditingLogoUrlInput(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
   }
 
@@ -1037,7 +1078,62 @@ export default function SuperClientPage() {
     setComposerProposal(null);
     setComposerInstructions('');
     setComposerImage(null);
+    setComposerLogo(null);
+    setComposerLogoUrl('');
+    setShowLogoUrlInput(false);
     setComposerMessage('');
+  }
+
+  function compressLogoFile(file: File, onDone: (base64: string, mediaType: string) => void) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const MAX_H = 200;
+        const scale = img.naturalHeight > MAX_H ? MAX_H / img.naturalHeight : 1;
+        const w = Math.round(img.naturalWidth * scale);
+        const h = Math.round(img.naturalHeight * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { onDone(dataUrl.split(',')[1], file.type); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL('image/png', 0.85);
+        onDone(compressed.split(',')[1], 'image/png');
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleComposerLogoUpload(file: File) {
+    compressLogoFile(file, (base64, mediaType) => {
+      setComposerLogo({ base64, mediaType: mediaType as 'image/png' });
+    });
+  }
+
+  function injectLogoIntoHtml(html: string, logo: { base64: string; mediaType: string } | { url: string }): string {
+    // Remove ALL previously injected logo divs (any attribute order) and their companion scripts
+    let stripped = html
+      .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
+      .replace(/<script[^>]*>\s*\/\*\s*__logo-inject__/gi, (m) => {
+        // find and remove the whole script block that starts with this marker
+        return m; // placeholder; handled by full-block regex below
+      });
+    // Remove the full companion script block by its unique marker comment
+    stripped = stripped.replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+
+    const src = 'url' in logo ? logo.url : `data:${logo.mediaType};base64,${logo.base64}`;
+    const logoHtml = `<div id="__brand-logo__" style="position:fixed;top:16px;left:20px;z-index:2147483647;pointer-events:none;"><img src="${src}" style="height:44px;width:auto;object-fit:contain;display:block;" alt="" /></div>`;
+    // Hide provider attribution in both footer ("PREPARED BY") and header brand/logo element
+    const hideProviderScript = `<script>/*__logo-inject__*/(function(){function h(){var els=document.querySelectorAll('*');for(var i=0;i<els.length;i++){var t=(els[i].children.length===0?els[i].textContent||'':'');if(/prepared\\s*by/i.test(t)){var p=els[i].parentElement;(p&&p!==document.body?p:els[i]).style.display='none';}}var hdr=document.querySelector('header,nav,[class*="header"],[class*="navbar"]');if(hdr){var brand=hdr.querySelector('[class*="logo"],[class*="brand"],[class*="navbar-brand"]');if(brand){brand.style.visibility='hidden';}else{var first=hdr.firstElementChild;if(first&&first.id!=='__brand-logo__'){first.style.visibility='hidden';}}}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',h);}else{h();}})()</script>`;
+    const injection = logoHtml + hideProviderScript;
+    if (/<body[^>]*>/i.test(stripped)) {
+      return stripped.replace(/(<body[^>]*>)/i, `$1${injection}`);
+    }
+    return injection + stripped;
   }
 
   async function handleComposerSelectProposal(p: SuperClientProposal) {
@@ -1073,6 +1169,8 @@ export default function SuperClientPage() {
     const proposalMarkdown = composerProposal.markdown;
     const proposalInstructions = composerInstructions || undefined;
     const proposalImage = composerImage ?? undefined;
+    const proposalLogo: { base64: string; mediaType: string } | { url: string } | undefined =
+      composerLogo ?? (composerLogoUrl.trim() ? { url: composerLogoUrl.trim() } : undefined);
     const proposalId = composerProposal.proposal.fileName.replace(/\.md$/, '');
 
     // Start in the module store (survives navigation)
@@ -1113,7 +1211,18 @@ export default function SuperClientPage() {
             generationStore.addStep(msGenId, `${evt.heading}`);
           }
           if (evt.type === 'complete' && evt.ast) {
-            const ast = evt.ast as LayoutAST;
+            let ast = evt.ast as LayoutAST;
+            // Inject logo into customHtml if provided
+            if (proposalLogo && ast.sections?.[0]) {
+              const section = ast.sections[0] as unknown as { customHtml?: string };
+              if (section.customHtml) {
+                const patched = { ...(ast.sections[0] as object), customHtml: injectLogoIntoHtml(section.customHtml, proposalLogo) };
+                ast = {
+                  ...ast,
+                  sections: [patched as unknown as typeof ast.sections[0], ...ast.sections.slice(1)],
+                };
+              }
+            }
             // Open panel immediately with the stream AST — don't block on save
             const tempId = `preview-${msGenId}`;
             setViewingMicrosite({
@@ -1776,24 +1885,104 @@ export default function SuperClientPage() {
                     marginTop: 8,
                   }}
                 >
-                  <button
-                    onClick={() => composerImageInputRef.current?.click()}
-                    style={{
-                      background: 'none',
-                      border: '1px solid var(--border)',
-                      borderRadius: 6,
-                      padding: '5px 10px',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                      color: composerImage ? 'var(--primary)' : 'var(--muted)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 5,
-                    }}
-                  >
-                    <ImagePlus size={12} />
-                    {composerImage ? 'Image attached ✓' : 'Reference image'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => composerImageInputRef.current?.click()}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: '5px 10px',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        color: composerImage ? 'var(--primary)' : 'var(--muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      <ImagePlus size={12} />
+                      {composerImage ? 'Image attached ✓' : 'Reference image'}
+                    </button>
+                    <button
+                      onClick={() => composerLogoInputRef.current?.click()}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: '5px 10px',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        color: composerLogo ? 'var(--primary)' : 'var(--muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      <ImagePlus size={12} />
+                      {composerLogo ? 'Logo attached ✓' : 'Choose logo'}
+                    </button>
+                    {!composerLogo && (
+                      showLogoUrlInput ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input
+                            autoFocus
+                            type="url"
+                            value={composerLogoUrl}
+                            onChange={(e) => setComposerLogoUrl(e.target.value)}
+                            placeholder="Paste logo URL…"
+                            style={{
+                              fontSize: 12,
+                              padding: '4px 8px',
+                              borderRadius: 6,
+                              border: '1px solid var(--border)',
+                              background: 'var(--panel)',
+                              color: 'var(--text)',
+                              outline: 'none',
+                              width: 180,
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') setShowLogoUrlInput(false);
+                              if (e.key === 'Escape') { setComposerLogoUrl(''); setShowLogoUrlInput(false); }
+                            }}
+                          />
+                          {composerLogoUrl.trim() && (
+                            <button
+                              onClick={() => setShowLogoUrlInput(false)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: 11, padding: '4px 6px' }}
+                            >
+                              ✓
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setComposerLogoUrl(''); setShowLogoUrlInput(false); }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}
+                          >
+                            <X size={11} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowLogoUrlInput(true)}
+                          style={{
+                            background: 'none',
+                            border: '1px solid var(--border)',
+                            borderRadius: 6,
+                            padding: '5px 10px',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            color: composerLogoUrl.trim() ? 'var(--primary)' : 'var(--muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                          }}
+                        >
+                          <LinkIcon size={12} />
+                          {composerLogoUrl.trim() ? 'Logo URL set ✓' : 'Logo URL'}
+                        </button>
+                      )
+                    )}
+                  </div>
                   <input
                     ref={composerImageInputRef}
                     type="file"
@@ -1802,6 +1991,17 @@ export default function SuperClientPage() {
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) handleComposerImageUpload(f);
+                    }}
+                  />
+                  <input
+                    ref={composerLogoInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleComposerLogoUpload(f);
+                      e.target.value = '';
                     }}
                   />
                   <button
@@ -1897,15 +2097,10 @@ export default function SuperClientPage() {
                     </div>
                   </div>
                 )}
-                {/* Microsite chip */}
+                {/* Microsite chip + logo buttons inline */}
                 {viewingMicrosite && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '2px 4px 6px 6px',
-                    }}
-                  >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px 6px 6px', flexWrap: 'wrap' }}>
+                    {/* Chip */}
                     <div
                       style={{
                         display: 'inline-flex',
@@ -1918,50 +2113,89 @@ export default function SuperClientPage() {
                         fontSize: 11,
                         color: 'var(--primary)',
                         fontWeight: 500,
-                        maxWidth: '100%',
-                        overflow: 'hidden',
+                        flexShrink: 0,
                       }}
                     >
                       <Globe size={10} style={{ flexShrink: 0 }} />
-                      <span
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>
                         Editing:{' '}
-                        {(
-                          lastMicrositeRef.current?.ast.meta as {
-                            title?: string;
-                          }
-                        )?.title ?? 'Microsite'}
+                        {(lastMicrositeRef.current?.ast.meta as { title?: string })?.title ?? 'Microsite'}
                       </span>
                       <button
                         onClick={dismissMicrosite}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: 'var(--primary)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '2px 3px',
-                          borderRadius: 10,
-                          opacity: 0.7,
-                          flexShrink: 0,
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity = '1';
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity = '0.7';
-                        }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', display: 'flex', alignItems: 'center', padding: '2px 3px', borderRadius: 10, opacity: 0.7, flexShrink: 0 }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
                         title="Close microsite"
                       >
                         <X size={10} />
                       </button>
                     </div>
+                    {/* Update logo button */}
+                    <button
+                      onClick={() => editingLogoInputRef.current?.click()}
+                      style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: editingLogo ? 'var(--primary)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+                    >
+                      <ImagePlus size={11} />
+                      {editingLogo ? 'Logo attached ✓' : 'Update logo'}
+                    </button>
+                    <input
+                      ref={editingLogoInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        compressLogoFile(f, (base64, mediaType) => {
+                          setEditingLogo({ base64, mediaType: mediaType as 'image/png' });
+                          setEditingLogoUrl('');
+                        });
+                        e.target.value = '';
+                      }}
+                    />
+                    {/* Logo URL */}
+                    {!editingLogo && (
+                      showEditingLogoUrlInput ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input
+                            autoFocus
+                            type="url"
+                            value={editingLogoUrl}
+                            onChange={(e) => setEditingLogoUrl(e.target.value)}
+                            placeholder="Paste logo URL…"
+                            style={{ fontSize: 11, padding: '3px 7px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', outline: 'none', width: 160 }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') setShowEditingLogoUrlInput(false);
+                              if (e.key === 'Escape') { setEditingLogoUrl(''); setShowEditingLogoUrlInput(false); }
+                            }}
+                          />
+                          {editingLogoUrl.trim() && (
+                            <button onClick={() => setShowEditingLogoUrlInput(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: 11, padding: '3px 5px' }}>✓</button>
+                          )}
+                          <button onClick={() => { setEditingLogoUrl(''); setShowEditingLogoUrlInput(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}>
+                            <X size={11} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowEditingLogoUrlInput(true)}
+                          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: editingLogoUrl.trim() ? 'var(--primary)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+                        >
+                          <LinkIcon size={11} />
+                          {editingLogoUrl.trim() ? 'Logo URL set ✓' : 'Logo URL'}
+                        </button>
+                      )
+                    )}
+                    {(editingLogo || editingLogoUrl.trim()) && !showEditingLogoUrlInput && (
+                      <button
+                        onClick={() => { setEditingLogo(null); setEditingLogoUrl(''); setShowEditingLogoUrlInput(false); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}
+                        title="Remove logo"
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
                   </div>
                 )}
                 {/* Microsite edit result banner */}
@@ -2109,7 +2343,7 @@ export default function SuperClientPage() {
                     onClick={() => (viewingMicrosite ? void handleMicrositeEdit() : void sendMessage())}
                     disabled={
                       viewingMicrosite
-                        ? micrositeEditing || (!micrositeEditInput.trim() && !micrositeEditBanner)
+                        ? micrositeEditing || (!micrositeEditInput.trim() && !editingLogo && !editingLogoUrl.trim())
                         : streaming || !input.trim()
                     }
                   >

@@ -1139,6 +1139,24 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
       return reply.send({ html: updatedHtml, summary });
     }
+    // ── Deterministic logo injection (bypasses LLM entirely) ─────────────────
+    const logoInjectMatch = instruction.match(/^__LOGO_INJECT__:([\s\S]+)$/);
+    if (logoInjectMatch) {
+      const logoSrc = logoInjectMatch[1].trim();
+      const logoDiv = `<div id="__brand-logo__" style="position:fixed;top:16px;left:20px;z-index:2147483647;pointer-events:none;"><img src="${logoSrc}" style="height:44px;width:auto;object-fit:contain;display:block;" alt="" /></div>`;
+      const hideScript = `<script>/*__logo-inject__*/(function(){function h(){var els=document.querySelectorAll('*');for(var i=0;i<els.length;i++){var t=(els[i].children.length===0?els[i].textContent||'':'');if(/prepared\\s*by/i.test(t)){var p=els[i].parentElement;(p&&p!==document.body?p:els[i]).style.display='none';}}var hdr=document.querySelector('header,nav,[class*="header"],[class*="navbar"]');if(hdr){var brand=hdr.querySelector('[class*="logo"],[class*="brand"],[class*="navbar-brand"]');if(brand){brand.style.visibility='hidden';}else{var first=hdr.firstElementChild;if(first&&first.id!=='__brand-logo__'){first.style.visibility='hidden';}}}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',h);}else{h();}})()</script>`;
+      const injection = logoDiv + hideScript;
+      // Remove any existing logo injection (div + companion script)
+      let updatedHtml = html
+        .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+      updatedHtml = /<body[^>]*>/i.test(updatedHtml)
+        ? updatedHtml.replace(/(<body[^>]*>)/i, `$1${injection}`)
+        : injection + updatedHtml;
+      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      return reply.send({ html: updatedHtml, summary: 'Logo updated' });
+    }
     // ──────────────────────────────────────────────────────────────────────────
 
     // ── Section extraction helpers ────────────────────────────────────────────
@@ -1623,6 +1641,30 @@ ${sectionHtml}`;
     await writeFile(filePath, JSON.stringify(revertedAst, null, 2));
 
     return reply.send({ html: previousHtml });
+  });
+
+  // PATCH /super-clients/:name/microsites/:id/html  — directly overwrite customHtml (no LLM)
+  app.patch('/super-clients/:name/microsites/:id/html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const { customHtml } = (req.body ?? {}) as { customHtml?: string };
+    if (typeof customHtml !== 'string' || !customHtml.trim()) return reply.code(400).send({ error: 'Missing customHtml' });
+
+    const dir = path.join(superClientsRoot, name);
+    const filePath = path.join(dir, 'microsites', `${id}.json`);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) return reply.code(400).send({ error: 'Invalid id' });
+
+    let ast: Record<string, unknown>;
+    try { ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>; }
+    catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+
+    const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+    const prevHtml = (sections?.[0]?.customHtml as string | undefined) ?? '';
+    const updatedAst = { ...ast, sections: [{ ...(sections?.[0] ?? {}), customHtml, previousHtml: prevHtml }, ...((sections ?? []).slice(1))] };
+    await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+    return reply.send({ ok: true });
   });
 
   // PATCH /super-clients/:name/context  — update context.md manually
