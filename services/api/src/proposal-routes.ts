@@ -167,7 +167,11 @@ export function registerProposalRoutes(
       const memory = body.memory ?? null;
 
       const outputDir = proposalDir(namespace);
-      await mkdir(outputDir, { recursive: true });
+      const nsDir = path.join(workdir, 'namespaces', namespace);
+      await Promise.all([
+        mkdir(outputDir, { recursive: true }),
+        mkdir(path.join(nsDir, 'uploads'), { recursive: true }),
+      ]);
 
       // Determine expected output file path for finalized / lock checks
       const safeName = client

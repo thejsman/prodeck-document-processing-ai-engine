@@ -303,14 +303,16 @@ export function ProposalPage() {
     return parseProposalSections(currentDocument.content, retried).sections.length;
   }, [currentDocument]);
 
-  // Exclude proposals from namespaces that no longer exist
+  // Exclude proposals from namespaces that no longer exist.
+  // Super-client proposals (sc- prefix) are always shown — they live under
+  // super-clients/, not namespaces/, so they never appear in the namespaces list.
   const knownProposals = useMemo(
     () =>
       namespaces.length === 0
         ? allProposals
         : allProposals.filter((p) => {
             const ns = nsFromFileName(p.fileName);
-            return !ns || namespaces.includes(ns);
+            return !ns || ns.startsWith('sc-') || namespaces.includes(ns);
           }),
     [allProposals, namespaces],
   );
