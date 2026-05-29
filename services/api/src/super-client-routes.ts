@@ -1834,17 +1834,33 @@ Strict rules:
 
     function parseJsonPatches(rawText: string): { patches: Array<{ find: string; replace: string }>; summary: string } | null {
       const start = rawText.indexOf('{');
-      const end = rawText.lastIndexOf('}');
-      if (start === -1 || end === -1) return null;
+      if (start === -1) return null;
+      // Use brace-depth tracking to find the END of the first complete JSON object.
+      // lastIndexOf('}') would include any LLM reasoning text appended after the JSON.
+      let depth = 0, end = -1, inString = false, escaped = false;
+      for (let i = start; i < rawText.length; i++) {
+        const c = rawText[i];
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\' && inString) { escaped = true; continue; }
+        if (c === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) return null;
       try {
         const slice = rawText.slice(start, end + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+          .replace(/("(?:[^"\\]|\\.)*")/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
         const parsed = JSON.parse(slice) as { patches?: Array<{ find: string; replace: string }>; summary?: string };
         return { patches: parsed.patches ?? [], summary: parsed.summary ?? 'Applied edit' };
       } catch { return null; }
     }
 
     function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
+      // Reject JSON responses — LLM "find" values contain HTML tags that would be
+      // extracted as fake blocks and written as garbage into the microsite.
+      const trimmed = rawText.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) return null;
       const stripped = extractHtmlFromResponse(rawText);
       for (const tag of ['section', 'header', 'nav', 'div']) {
         const startIdx = stripped.search(new RegExp(`<${tag}[\\s>]`, 'i'));

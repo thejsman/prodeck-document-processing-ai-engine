@@ -48,12 +48,31 @@ const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
 [class*="cursor-"],[id*="cursor"],[class*="custom-cursor"]{display:none!important}
 </style>`;
 
+// Intercept hash-anchor clicks so they scroll within the srcDoc iframe instead of
+// navigating away (clicking nav links like href="#section" would blank a srcDoc iframe
+// because it has no real base URL).
+const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;var href=a.getAttribute('href');if(href==='#')return;e.preventDefault();var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+
 export function normalizeMicrositeHtml(html: string): string {
   if (!html) return html;
-  if (html.includes('__preview-cursor-reset')) return html;
-  const headClose = html.indexOf('</head>');
-  if (headClose !== -1) return html.slice(0, headClose) + CURSOR_RESET_CSS + html.slice(headClose);
-  return CURSOR_RESET_CSS + html;
+  // Both injections use idempotent guards so re-calling is safe.
+  let out = html;
+  if (!out.includes('__preview-cursor-reset')) {
+    const headClose = out.indexOf('</head>');
+    out = headClose !== -1
+      ? out.slice(0, headClose) + CURSOR_RESET_CSS + out.slice(headClose)
+      : CURSOR_RESET_CSS + out;
+  }
+  if (!out.includes('__nav-anchor-fix')) {
+    const bodyOpen = out.search(/<body[^>]*>/i);
+    if (bodyOpen !== -1) {
+      const tagEnd = out.indexOf('>', bodyOpen) + 1;
+      out = out.slice(0, tagEnd) + NAV_FIX_SCRIPT + out.slice(tagEnd);
+    } else {
+      out = NAV_FIX_SCRIPT + out;
+    }
+  }
+  return out;
 }
 
 // ── Bridge script (injected into the srcdoc iframe in edit mode) ────────────
