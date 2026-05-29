@@ -31,6 +31,7 @@ import remarkGfm from 'remark-gfm';
 import { GenerateV2Modal } from '@/components/microsite/GenerateV2Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MicrositeV2, buildHtml } from '@/components/MicrositeV2';
+import { PublishModal } from '@/components/microsite/editor/PublishModal';
 import type { LayoutAST } from '@/types/presentation';
 import { generationStore, type Generation } from '@/lib/generation-store';
 import { uploadStore, type UploadEntry } from '@/lib/upload-store';
@@ -493,6 +494,7 @@ export default function SuperClientPage() {
   const [menuDocPos, setMenuDocPos] = useState({ top: 0, right: 0 });
   const [confirmDeleteDoc, setConfirmDeleteDoc] = useState<string | null>(null);
   const [confirmDeleteMicrosite, setConfirmDeleteMicrosite] = useState<string | null>(null);
+  const [showPublishMicrosite, setShowPublishMicrosite] = useState(false);
   const [confirmDeleteProposal, setConfirmDeleteProposal] = useState<string | null>(null);
   const msMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const propMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -2488,6 +2490,23 @@ export default function SuperClientPage() {
                     <ExternalLink size={12} /> Full screen
                   </button>
                   <button
+                    onClick={() => setShowPublishMicrosite(true)}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <Globe size={12} /> Publish
+                  </button>
+                  <button
                     onClick={dismissMicrosite}
                     style={{
                       background: 'none',
@@ -3682,6 +3701,16 @@ export default function SuperClientPage() {
             }
           }}
           onClose={() => setMicrositeModal(null)}
+        />
+      )}
+
+      {/* Microsite publish modal */}
+      {showPublishMicrosite && lastMicrositeRef.current && (
+        <PublishModal
+          ast={lastMicrositeRef.current.ast}
+          namespace={name}
+          proposalId={viewingMicrosite?.id ?? lastMicrositeRef.current.id}
+          onClose={() => setShowPublishMicrosite(false)}
         />
       )}
 
