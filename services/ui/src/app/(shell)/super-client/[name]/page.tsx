@@ -32,6 +32,13 @@ import { GenerateV2Modal } from '@/components/microsite/GenerateV2Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MicrositeV2, buildHtml } from '@/components/MicrositeV2';
 import type { LayoutAST } from '@/types/presentation';
+import { SelectionOverlay } from '@/components/microsite/smart-editor/SelectionOverlay';
+import {
+  type BridgeMessage,
+  injectBridgeScript,
+  normalizeMicrositeHtml,
+  buildInstruction,
+} from '@/lib/microsite-bridge';
 import { generationStore, type Generation } from '@/lib/generation-store';
 import { uploadStore, type UploadEntry } from '@/lib/upload-store';
 // UploadEntry is used inside UploadMessageCard only
@@ -467,6 +474,9 @@ export default function SuperClientPage() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editModeActive, setEditModeActive] = useState(false);
+  const [hoveredElement, setHoveredElement] = useState<BridgeMessage | null>(null);
+  const [selectedElement, setSelectedElement] = useState<BridgeMessage | null>(null);
   const [editingLogo, setEditingLogo] = useState<{ base64: string; mediaType: string } | null>(null);
   const [editingLogoUrl, setEditingLogoUrl] = useState('');
   const [showEditingLogoUrlInput, setShowEditingLogoUrlInput] = useState(false);
@@ -679,6 +689,19 @@ export default function SuperClientPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [canUndo, canRedo]);
 
+  useEffect(() => {
+    if (!editModeActive) return;
+    function onMessage(e: MessageEvent) {
+      const msg = e.data as BridgeMessage;
+      if (!msg || msg.source !== 'microsite-bridge') return;
+      if (msg.type === 'hover') setHoveredElement(msg);
+      else if (msg.type === 'select') setSelectedElement(msg);
+      else if (msg.type === 'leave') setHoveredElement(null);
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [editModeActive]);
+
   async function handleFileUpload(file: File) {
     if (uploading || !name) return;
     setUploading(true);
@@ -871,7 +894,28 @@ export default function SuperClientPage() {
       editingLogo ?? (editingLogoUrl.trim() ? { url: editingLogoUrl.trim() } : null);
     if (!viewingMicrosite || (!hasText && !activeLogo) || micrositeEditing) return;
 
-    const instruction = micrositeEditInput.trim();
+    let instruction = buildInstruction(selectedElement, micrositeEditInput.trim());
+    // URL-based deterministic bypass: detect image or video URL in the instruction
+    const _urlMatch = micrositeEditInput.trim().match(/https?:\/\/\S+/);
+    if (_urlMatch) {
+      const url = _urlMatch[0];
+      const isVideo = /youtube\.com|youtu\.be|vimeo\.com/i.test(url);
+      const isLogoIntent = /\blogo\b/i.test(micrositeEditInput);
+
+      if (!isVideo) {
+        if (selectedElement?.path) {
+          // Element selected → always use element-scoped injection
+          instruction = `__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}`;
+        } else if (isLogoIntent) {
+          // "replace logo with [url]" without element selected → targeted logo replacement
+          instruction = `__LOGO_REPLACE__:${url}`;
+        } else {
+          // Generic image URL, no element → global replacement
+          instruction = `__IMAGE_INJECT__:${url}`;
+        }
+      }
+      // Video URL: server's Vimeo/YouTube detection fires on any matching URL.
+    }
     setMicrositeEditing(true);
     setMicrositeEditBanner('');
     setCanUndo(false);
@@ -901,6 +945,8 @@ export default function SuperClientPage() {
       setEditingLogo(null);
       setEditingLogoUrl('');
       setShowEditingLogoUrlInput(false);
+      setSelectedElement(null);
+      setHoveredElement(null);
       setViewingMicrosite((prev) =>
         prev
           ? {
@@ -1071,6 +1117,9 @@ export default function SuperClientPage() {
     setEditingLogoUrl('');
     setShowEditingLogoUrlInput(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setEditModeActive(false);
+    setSelectedElement(null);
+    setHoveredElement(null);
   }
 
   function resetComposer() {
@@ -2097,8 +2146,47 @@ export default function SuperClientPage() {
                     </div>
                   </div>
                 )}
+                {/* Selection chip — replaces the chips row when an element is targeted */}
+                {viewingMicrosite && editModeActive && selectedElement && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px 6px 6px' }}>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        padding: '3px 4px 3px 8px',
+                        borderRadius: 20,
+                        background: 'color-mix(in srgb, var(--primary) 10%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--primary) 25%, transparent)',
+                        fontSize: 11,
+                        color: 'var(--primary)',
+                        fontWeight: 500,
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Pencil size={10} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {selectedElement.sectionType ? `${selectedElement.sectionType} › ` : ''}
+                        {selectedElement.label}
+                        {selectedElement.text
+                          ? ` — "${selectedElement.text.slice(0, 60)}${selectedElement.text.length > 60 ? '…' : ''}"`
+                          : ''}
+                      </span>
+                      <button
+                        onClick={() => setSelectedElement(null)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', display: 'flex', alignItems: 'center', padding: '2px 3px', borderRadius: 10, opacity: 0.7, flexShrink: 0 }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
+                        title="Clear selection"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {/* Microsite chip + logo buttons inline */}
-                {viewingMicrosite && (
+                {viewingMicrosite && !(editModeActive && selectedElement) && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px 6px 6px', flexWrap: 'wrap' }}>
                     {/* Chip */}
                     <div
@@ -2324,11 +2412,17 @@ export default function SuperClientPage() {
                         : handleKeyDown
                     }
                     placeholder={
-                      viewingMicrosite
-                        ? 'Edit this microsite…'
-                        : viewingProposal
-                          ? 'Ask to edit or refine this proposal…'
-                          : `Ask about ${meta.displayName}…`
+                      viewingMicrosite && editModeActive && selectedElement
+                        ? selectedElement.tag === 'img'
+                          ? `Paste image URL, or describe change…`
+                          : `Edit ${selectedElement.label}…`
+                        : viewingMicrosite
+                          ? editModeActive
+                            ? 'Click any element to target it, then describe your edit…'
+                            : 'Edit this microsite…'
+                          : viewingProposal
+                            ? 'Ask to edit or refine this proposal…'
+                            : `Ask about ${meta.displayName}…`
                     }
                     disabled={viewingMicrosite ? micrositeEditing : false}
                     rows={1}
@@ -2444,12 +2538,48 @@ export default function SuperClientPage() {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
                   }}
                 >
-                  <Globe size={14} style={{ color: 'var(--primary)' }} />
+                  <Globe size={14} style={{ color: 'var(--primary)', flexShrink: 0 }} />
                   {(lastMicrositeRef.current!.ast.meta as { title?: string })?.title ?? 'Microsite'}
                 </p>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  <button
+                    onClick={() => {
+                      const next = !editModeActive;
+                      setEditModeActive(next);
+                      if (!next) {
+                        setSelectedElement(null);
+                        setHoveredElement(null);
+                      }
+                      // Force iframe remount so bridge script is injected/removed
+                      setViewingMicrosite((prev) =>
+                        prev ? { ...prev, renderKey: `${prev.id}-${Date.now()}` } : null,
+                      );
+                    }}
+                    title={editModeActive ? 'Exit smart edit mode' : 'Smart edit — click any element to target it'}
+                    style={{
+                      background: editModeActive ? 'var(--primary)' : 'none',
+                      border: `1px solid ${editModeActive ? 'var(--primary)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      color: editModeActive ? '#fff' : 'var(--muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                    }}
+                  >
+                    <Pencil size={12} />
+                    Edit
+                  </button>
                   <button
                     onClick={() => void handleMicrositeRevert()}
                     disabled={micrositeEditing || !canUndo}
@@ -2534,13 +2664,16 @@ export default function SuperClientPage() {
               >
                 <iframe
                   key={lastMicrositeRef.current!.renderKey}
-                  srcDoc={
-                    (
-                      lastMicrositeRef.current!.ast.sections?.[0] as {
-                        customHtml?: string;
-                      }
-                    )?.customHtml ?? ''
-                  }
+                  srcDoc={(() => {
+                    const raw =
+                      (
+                        lastMicrositeRef.current!.ast.sections?.[0] as {
+                          customHtml?: string;
+                        }
+                      )?.customHtml ?? '';
+                    const normalized = normalizeMicrositeHtml(raw);
+                    return editModeActive ? injectBridgeScript(normalized) : normalized;
+                  })()}
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -2553,6 +2686,15 @@ export default function SuperClientPage() {
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                 />
+                {/* Figma-style selection overlay — only in smart edit mode */}
+                {editModeActive && (
+                  <SelectionOverlay
+                    hovered={hoveredElement}
+                    selected={selectedElement}
+                    isProcessing={micrositeEditing}
+                    onClearSelected={() => setSelectedElement(null)}
+                  />
+                )}
                 {/* Overlay blocks iframe from swallowing mouse events during resize */}
                 {micrositeDragging && (
                   <div
