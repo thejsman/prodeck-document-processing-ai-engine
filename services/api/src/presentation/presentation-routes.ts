@@ -3443,6 +3443,43 @@ Common token names and their roles:
     }
   });
 
+  // GET /presentations/:namespace/:proposalId/publish-meta
+  // Returns the last published subdomain/url for a microsite, or null if never published.
+  // Public — no auth required (same policy as /microsite route).
+  app.get('/presentations/:namespace/:proposalId/publish-meta', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const superClientMetaPath = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.publish.json`);
+    const standardMetaPath = path.join(workdir, 'assets', 'presentations', namespace, `${proposalId}.publish.json`);
+    for (const metaPath of [superClientMetaPath, standardMetaPath]) {
+      try {
+        const raw = await readFile(metaPath, 'utf-8');
+        return reply.send(JSON.parse(raw));
+      } catch { /* try next */ }
+    }
+    return reply.send(null);
+  });
+
+  // POST /presentations/:namespace/:proposalId/publish-meta
+  // Saves the published subdomain/url after a successful S3 publish.
+  app.post('/presentations/:namespace/:proposalId/publish-meta', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+    const body = req.body as { subdomain: string; url: string; publishedAt: string };
+    // Prefer super-client directory if microsite exists there
+    const superClientMicrosite = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.json`);
+    let metaDir: string;
+    try {
+      await readFile(superClientMicrosite, 'utf-8');
+      metaDir = path.join(workdir, 'super-clients', namespace, 'microsites');
+    } catch {
+      metaDir = path.join(workdir, 'assets', 'presentations', namespace);
+    }
+    await mkdir(metaDir, { recursive: true });
+    await writeFile(path.join(metaDir, `${proposalId}.publish.json`), JSON.stringify(body, null, 2), 'utf-8');
+    return reply.send({ ok: true });
+  });
+
   // POST /presentations/:namespace/:proposalId/export-pptx
   // Export the microsite AST as a PowerPoint (.pptx) file download.
   // Body: { ast?: Record<string, unknown> }

@@ -155,6 +155,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose, showPreviewU
           <PublishSubdomainSection
             ast={ast}
             namespace={namespace}
+            proposalId={proposalId}
             rootDomain={rootDomain}
             onPublishingChange={setPublishing}
           />

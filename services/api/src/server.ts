@@ -99,7 +99,7 @@ export async function createServer(opts: ServerOptions) {
     // Exported HTML files — ephemeral, browser-downloaded via plain <a> tag (no auth headers)
     if (req.method === 'GET' && req.url.startsWith('/exports/')) return;
     // Read-only microsite view routes — public so clients can preview without an API key
-    if (req.method === 'GET' && /\/presentations\/[^/]+\/[^/]+\/(microsite|site-html)(\?.*)?$/.test(req.url)) return;
+    if (req.method === 'GET' && /\/presentations\/[^/]+\/[^/]+\/(microsite|site-html|publish-meta)(\?.*)?$/.test(req.url)) return;
     await authHook(req, reply);
   });
 

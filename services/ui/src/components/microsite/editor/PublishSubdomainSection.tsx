@@ -7,19 +7,31 @@ import type { LayoutAST } from '@/types/presentation';
 import { sanitizeSubdomainInput } from '@/lib/subdomainValidation';
 import { useSubdomainCheck } from '@/hooks/useSubdomainCheck';
 import { usePublishMicrosite } from '@/hooks/usePublishMicrosite';
+import { fetchPublishMeta } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 
 interface Props {
   ast: LayoutAST;
   namespace: string;
+  proposalId: string;
   rootDomain: string;
   onPublishingChange?: (publishing: boolean) => void;
 }
 
-export function PublishSubdomainSection({ ast, namespace, rootDomain, onPublishingChange }: Props) {
+export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain, onPublishingChange }: Props) {
+  const { apiKey } = useAuth();
   const [subdomain, setSubdomain] = useState('');
   const [copied, setCopied] = useState(false);
   const check = useSubdomainCheck(subdomain);
   const publish = usePublishMicrosite();
+
+  // On mount, fetch previously published URL from server so any browser/user sees it
+  useEffect(() => {
+    fetchPublishMeta(namespace, proposalId)
+      .then(meta => { if (meta) publish.restoreFromMeta(meta); })
+      .catch(() => { /* non-fatal */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [namespace, proposalId]);
 
   useEffect(() => {
     onPublishingChange?.(publish.status === 'publishing');
@@ -32,7 +44,7 @@ export function PublishSubdomainSection({ ast, namespace, rootDomain, onPublishi
 
   async function handlePublish() {
     if (!canPublish) return;
-    await publish.publish(namespace, ast, subdomain);
+    await publish.publish(namespace, ast, subdomain, proposalId, apiKey);
   }
 
   async function handleCopy() {
