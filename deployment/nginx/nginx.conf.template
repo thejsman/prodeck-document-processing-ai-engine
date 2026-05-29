@@ -36,10 +36,10 @@ http {
         }
     }
 
-    # ── HTTPS: proxy to UI ───────────────────────────────────────
+    # ── HTTPS: proxy to UI (apex + all subdomains) ──────────────
     server {
         listen 443 ssl;
-        server_name ${DOMAIN};
+        server_name ${DOMAIN} *.${DOMAIN};
 
         ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
