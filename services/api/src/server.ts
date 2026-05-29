@@ -96,6 +96,10 @@ export async function createServer(opts: ServerOptions) {
     if (req.url === '/health') return;
     // Locally saved presentation images are public (no expiry, no secrets)
     if (req.url.startsWith('/presentation-images/')) return;
+    // Exported HTML files — ephemeral, browser-downloaded via plain <a> tag (no auth headers)
+    if (req.method === 'GET' && req.url.startsWith('/exports/')) return;
+    // Read-only microsite view routes — public so clients can preview without an API key
+    if (req.method === 'GET' && /\/presentations\/[^/]+\/[^/]+\/(microsite|site-html)(\?.*)?$/.test(req.url)) return;
     await authHook(req, reply);
   });
 

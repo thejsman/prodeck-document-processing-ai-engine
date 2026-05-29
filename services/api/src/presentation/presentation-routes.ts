@@ -2672,8 +2672,6 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
   // Serve the directly-generated HTML file (text/html).
   app.get('/presentations/:namespace/:proposalId/site-html', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string; proposalId: string };
-    const auth = getAuth(req);
-    if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
     try {
@@ -2998,10 +2996,8 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
   // ?entryId=microsite:pro:1716023445123 — loads that exact entry.
   // ?mode=pro|classic — fallback: loads the most recent entry of that type.
   app.get('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const { mode, entryId } = req.query as { mode?: string; entryId?: string };
-    const auth = getAuth(req);
-    if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const base = path.join(workdir, 'assets', 'presentations', namespace);
 
@@ -3016,6 +3012,14 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
         return reply.send({ ast: null, savedAt: null });
       }
     }
+
+    // Super-client lookup — microsite stored under super-clients/{namespace}/microsites/{proposalId}.json
+    const superClientPath = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.json`);
+    try {
+      const raw = await readFile(superClientPath, 'utf-8');
+      const ast = JSON.parse(raw);
+      return reply.send({ ast, savedAt: null });
+    } catch { /* not a super-client microsite — fall through to standard presentations */ }
 
     // Fallback: most recent versioned file for the given mode
     const type = mode === 'classic' ? 'classic' : 'pro';
@@ -3405,10 +3409,24 @@ Common token names and their roles:
     }
 
     try {
-      // Embed all images as base64 data URIs so the exported HTML is fully
-      // self-contained — no external requests, no localhost dependencies.
-      const astWithImages = await embedImagesAsBase64(ast, workdir, namespace);
-      const html = renderMicrositeToHtml(astWithImages as Parameters<typeof renderMicrositeToHtml>[0]);
+      let html: string;
+
+      // v2 microsites store a complete HTML document in sections[0].customHtml —
+      // the React renderer wraps it in another document, so extract it directly.
+      const isV2 = ast.generationMode === 'v2';
+      if (isV2) {
+        const sections = ast.sections as Array<{ customHtml?: string }> | undefined;
+        html = sections?.[0]?.customHtml ?? '';
+        if (!html) {
+          return reply.code(422).send({ error: 'v2 microsite has no HTML content to export' });
+        }
+      } else {
+        // Embed all images as base64 data URIs so the exported HTML is fully
+        // self-contained — no external requests, no localhost dependencies.
+        const astWithImages = await embedImagesAsBase64(ast, workdir, namespace);
+        html = renderMicrositeToHtml(astWithImages as Parameters<typeof renderMicrositeToHtml>[0]);
+      }
+
       const exportsDir = path.join(workdir, 'exports', namespace);
       await mkdir(exportsDir, { recursive: true });
       const fileName = `${proposalId}.html`;
