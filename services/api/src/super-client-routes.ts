@@ -1159,6 +1159,29 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
     // ──────────────────────────────────────────────────────────────────────────
 
+    // ── Deterministic logo removal — only fires when the injected brand logo is present ──
+    const isLogoRemoval = html.includes('__brand-logo__')
+      && /\b(?:remove|delete|hide|clear)\s+(?:the\s+)?(?:brand\s+)?logo\b|\blogo\s+(?:remove|delete|hide|clear)\b/i.test(instruction);
+    if (isLogoRemoval) {
+      const updatedHtml = html
+        .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      return reply.send({ html: updatedHtml, summary: 'Logo removed' });
+    }
+
+    // ── Deterministic header/navbar removal — only fires when target is the nav/header itself ──
+    const isNavRemoval = /\b(?:remove|delete)\s+(?:the\s+)?(?:header|nav(?:bar)?|toolbar)\b/i.test(instruction)
+      && /<(?:header|nav)\b/i.test(html);
+    if (isNavRemoval) {
+      const updatedHtml = html.replace(/<(?:header|nav)\b[^>]*>[\s\S]*?<\/(?:header|nav)>/gi, '');
+      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      return reply.send({ html: updatedHtml, summary: 'Header/navbar removed' });
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     // ── Section extraction helpers ────────────────────────────────────────────
     type SectionSlice = { before: string; section: string; after: string; tag: string };
 
@@ -1272,8 +1295,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const LARGE_HTML = 15000;
     const isLarge = html.length > LARGE_HTML;
 
-    // "regenerate/rewrite/rebuild/redesign" → skip patches, go straight to section rewrite
-    const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
+    // Structural edits: add/remove/move/hide any UI element — patches can't handle these (multi-line HTML)
+    const isStructuralEdit =
+      /\b(?:remove|delete|hide|show|add|insert|move|shift|relocate|reposition|place|clear)\b.{0,60}\b(?:logo|brand|icon|button|link|image|video|text|heading|title|nav(?:bar)?|header|footer|toolbar|hero|banner|section|block|menu|cta|card|row|column|element|border|badge|div)\b/i.test(instruction)
+      || /\b(?:logo|brand|icon|button|link|image|video|heading|nav(?:bar)?|header|footer|toolbar|hero|banner|section|block|menu|cta|card|element)\b.{0,60}\b(?:remove|delete|hide|move|shift|relocate|reposition)\b/i.test(instruction);
+
+    // "regenerate/rewrite/rebuild/redesign" OR any structural operation → skip patches, go straight to section rewrite
+    const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction)
+      || isStructuralEdit;
 
     // For logo/header/nav instructions on large HTML, prefer to extract the header block
     const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
@@ -1311,7 +1340,9 @@ Edit type examples (all supported):
 - Images        : "replace hero image with X", "add logo", "change background image"
 - Layout/spacing: "add more padding", "make two columns", "center the text"
 - Style         : "make it more modern", "add a gradient background", "remove border"
-- Regeneration  : "regenerate this section", "rewrite with dark theme"`;
+- Regeneration  : "regenerate this section", "rewrite with dark theme"
+- Deletion      : "remove the logo from the nav", "delete the CTA button" → MUST use OPTION 2 (full section rewrite), not patches
+- Move/Shift    : "move logo to the right", "shift button below heading" → MUST use OPTION 2 (full section rewrite), not patches`;
 
     let combinedPrompt: string;
 
@@ -1333,7 +1364,7 @@ Patch rules:
 - For INLINE STYLES: patch the specific style property string
 - Use 1–8 patches; use multiple patches for the same change across multiple places
 
-OPTION 2 — full section rewrite (use for: add/remove elements, major layout change, section restructure):
+OPTION 2 — full section rewrite (REQUIRED for: removing/deleting any element, moving/shifting elements, adding new elements, major layout change, restructure):
 Output ONLY the complete replacement HTML block — start with the opening tag, end with closing tag. No preamble, no code fences.
 
 CSS DESIGN TOKENS (patch these variables for color/font/spacing changes):
@@ -1343,7 +1374,22 @@ SECTION HTML (copy "find" strings EXACTLY from this text):
 ${sectionCtx.section}
 
 EDIT INSTRUCTION: ${instruction}`;
+    } else if (!isLarge && isRegenIntent) {
+      // Small HTML, structural edit — skip format selection, just rewrite the full document
+      combinedPrompt = `You are editing an HTML microsite. Apply the instruction and return the complete modified HTML document.
+
+Rules:
+- Output ONLY valid HTML — no preamble, no explanation, no markdown fences.
+- Apply exactly what the instruction says (remove/add/move/change elements as requested).
+- Preserve all content, styles, and structure NOT mentioned in the instruction.
+- Start your response with <!DOCTYPE html> or the first HTML tag present in the original.
+
+INSTRUCTION: ${instruction}
+
+CURRENT HTML:
+${html}`;
     } else if (!isLarge) {
+      // Small HTML, content edit — surgical patches preferred, full rewrite as fallback
       combinedPrompt = `You are an HTML microsite editor. Apply the edit instruction with minimal, surgical changes.
 ${EDIT_TYPE_HINT}
 
@@ -1353,7 +1399,7 @@ Respond with ONLY a JSON object (no preamble, start with {, end with }):
 Patch rules:
 - Copy "find" strings EXACTLY from the HTML below — character-for-character
 - Include enough surrounding context to make each "find" unique in the document
-- NEVER put newlines inside "find" or "replace" — single-line strings only
+- Avoid newlines inside "find" or "replace" strings — use single-line strings where possible
 - For COLORS: patch CSS variable → find "--color-bg: #fff", replace "--color-bg: #1a1a2e"
 - For FONTS: patch font variable or font-family in style attribute
 - For TEXT: patch the exact visible text with surrounding markup for uniqueness
@@ -1361,7 +1407,7 @@ Patch rules:
 - For STYLES: patch specific inline style property strings
 - Use 1–8 patches
 
-OPTION 2 — full HTML rewrite (for: adding/removing entire sections, major structural redesign, complete regeneration):
+OPTION 2 — full HTML rewrite (use when patches are insufficient):
 Output the sentinel line then a complete valid HTML document:
 REWRITE
 <!DOCTYPE html>
@@ -1433,29 +1479,68 @@ ${html}`;
         }
       }
     } else {
-      // Small HTML: try patches, then REWRITE sentinel
-      const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
-      if (rewriteMatch) {
-        const candidate = rewriteMatch[1].trim()
+      // Small HTML
+      if (isRegenIntent) {
+        // Structural edit path — LLM returned the full modified HTML directly
+        const candidate = raw.trim()
           .replace(/^```(?:html)?\r?\n?/, '')
           .replace(/\r?\n?```\s*$/, '')
           .trim();
-        if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
-          return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
+        if (candidate.includes('<') && candidate.length > 100) {
+          updatedHtml = candidate;
+          summary = 'Applied structural edit';
+        } else {
+          return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
         }
-        updatedHtml = candidate;
-        summary = 'Full rewrite applied';
       } else {
-        const parsed = parseJsonPatches(raw);
-        if (!parsed) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
-        const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
-        if (applied === 0) {
-          return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+        // Content edit: try patches, then REWRITE sentinel, then full-rewrite fallback
+        const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
+        if (rewriteMatch) {
+          const candidate = rewriteMatch[1].trim()
+            .replace(/^```(?:html)?\r?\n?/, '')
+            .replace(/\r?\n?```\s*$/, '')
+            .trim();
+          if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
+            return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
+          }
+          updatedHtml = candidate;
+          summary = 'Full rewrite applied';
+        } else {
+          const parsed = parseJsonPatches(raw);
+          if (!parsed || parsed.patches.length === 0) {
+            // LLM didn't produce patches — try extracting raw HTML from response
+            const candidate = raw.trim().replace(/^```(?:html)?\r?\n?/, '').replace(/\r?\n?```\s*$/, '').trim();
+            if (candidate.includes('</html>') || candidate.includes('</body>')) {
+              updatedHtml = candidate;
+              summary = 'Applied edit';
+            } else {
+              return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+            }
+          } else {
+            const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
+            if (applied === 0) {
+              // Patches missed — fall back to a simple full-rewrite instead of erroring
+              try {
+                const fallbackPrompt = `Apply this instruction to the HTML and return the complete modified HTML document. Output HTML only, no explanation.\n\nINSTRUCTION: ${instruction}\n\nCURRENT HTML:\n${html}`;
+                const fallbackRaw = await llmGenerateFn(fallbackPrompt);
+                const fallbackHtml = fallbackRaw.trim().replace(/^```(?:html)?\r?\n?/, '').replace(/\r?\n?```\s*$/, '').trim();
+                if (fallbackHtml.includes('<') && fallbackHtml.length > 100) {
+                  updatedHtml = fallbackHtml;
+                  summary = 'Applied edit';
+                } else {
+                  return reply.code(502).send({ error: 'Edit could not be applied — try being more specific.' });
+                }
+              } catch {
+                return reply.code(502).send({ error: 'Edit could not be applied — try being more specific.' });
+              }
+            } else {
+              updatedHtml = patched;
+              summary = parsed.summary;
+              changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+              if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+            }
+          }
         }
-        updatedHtml = patched;
-        summary = parsed.summary;
-        changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
-        if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
       }
     }
 
