@@ -1097,61 +1097,140 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
+    // Shared context flags used by both video removal and video injection below
+    const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
+    const isElementEditCtx = instruction.startsWith('__ELEMENT_EDIT__:');
+
     // ── Deterministic video-background removal ────────────────────────────────
-    // Video iframes capture all mouse events so users cannot click-select them.
-    // We detect the intent from text instead and remove deterministically.
+    // Match only against the user-typed part of the instruction (after last ||)
+    // to avoid false positives from outerHtml content in __ELEMENT_EDIT__ payloads.
     const isRemoveVideoIntent =
-      /\b(?:remove|delete|clear|hide)\b[\s\S]{0,40}\b(?:video|background[\s-]video|video[\s-]background)\b/i.test(instruction) ||
-      /\b(?:video|background[\s-]video|video[\s-]background)\b[\s\S]{0,40}\b(?:remove|delete|clear|hide)\b/i.test(instruction);
+      /\b(?:remove|delete|clear|hide)\b[\s\S]{0,40}\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b/i.test(userPart) ||
+      /\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b[\s\S]{0,40}\b(?:remove|delete|clear|hide)\b/i.test(userPart);
     if (isRemoveVideoIntent) {
-      // Remove all Vimeo/YouTube background iframes
-      const withoutVideo = html.replace(
-        /<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*(?:\/>|><\/iframe>)/gi,
-        '',
-      );
+      // Remove ALL iframe types — Vimeo, YouTube, and any other video embed
+      // [\s\S]*? handles both same-line and multi-line iframes
+      function removeVideoIframes(src: string): string {
+        // Remove Vimeo/YouTube iframes (any format)
+        let out = src.replace(
+          /<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[\s\S]*?<\/iframe>/gi, '',
+        );
+        // Also remove self-closing variant
+        out = out.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*\/>/gi, '');
+        // Also remove any generic video-player iframe (poster frame, etc.) that's position:absolute
+        out = out.replace(
+          /<iframe\b[^>]*style="[^"]*position\s*:\s*absolute[^"]*"[^>]*(?:allow="autoplay|pointer-events:none)[^>]*[\s\S]*?<\/iframe>/gi, '',
+        );
+        return out;
+      }
+
+      // If element was selected, scope removal to its parent section for safety
+      const elementEditForRemoval = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|/s);
+      if (elementEditForRemoval) {
+        const cssPath = elementEditForRemoval[1].trim();
+        const elBounds = cssPath ? findByPath(html, cssPath) : null;
+        const sectionBounds = extractAllTopLevelSections(html);
+        const parentSec = elBounds
+          ? sectionBounds.find(s => s.start <= elBounds.start && elBounds.end <= s.end)
+          : null;
+        if (parentSec) {
+          const sectionHtml = html.slice(parentSec.start, parentSec.end);
+          const cleaned = removeVideoIframes(sectionHtml);
+          if (cleaned !== sectionHtml) {
+            const updatedHtml = html.slice(0, parentSec.start) + cleaned + html.slice(parentSec.end);
+            return saveValidatedEdit(updatedHtml, 'Video background removed');
+          }
+        }
+      }
+
+      // If user had an element selected, don't fall back to global removal —
+      // that would remove the wrong section's video. Return a scoped error.
+      if (isElementEditCtx) {
+        return reply.code(422).send({ error: 'No video found in the selected section to remove' });
+      }
+      // No element context — apply globally across the whole microsite
+      const withoutVideo = removeVideoIframes(html);
       if (withoutVideo !== html) {
         return saveValidatedEdit(withoutVideo, 'Video background removed');
       }
-      // If no iframe found, fall through and let LLM handle it
+      return reply.code(422).send({
+        error: 'No video iframe found in this microsite to remove',
+      });
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Deterministic video-background injection (bypasses LLM entirely) ──────
     const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
     const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
-    if (vimeoIdMatch ?? youtubeIdMatch) {
+    // When the user has an element selected (__ELEMENT_EDIT__) and is NOT explicitly asking
+    // for a background video, let the __ELEMENT_EDIT__ handler deal with the URL so the video
+    // is placed where the user intended (below, beside, inside the section) rather than always
+    // being injected as a fullscreen background in the first <section>.
+    const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
+    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent)) {
       const isVimeo = !!vimeoIdMatch;
       const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
       const src = isVimeo
         ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
         : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
       // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
-      const iframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
+      const videoIframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
 
-      // Remove any existing video iframes in hero
+      // Remove any existing video iframes
       let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
 
-      // Strip background-image from hero photo/background elements so video shows through
+      // Strip background-image from photo/background elements so video shows through
       updatedHtml = updatedHtml.replace(
         /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
         '$1',
       );
 
-      // Inject iframe as first child of the first <section>, add position:relative;overflow:hidden
-      updatedHtml = updatedHtml.replace(/<section\b([^>]*)>/i, (_full, attrs: string) => {
+      // Helper: patch a <section> opening tag to add position:relative;overflow:hidden
+      // then prepend the video iframe as its first child.
+      function injectVideoIntoSection(src: string, secStart: number): string {
+        const tagOpenEnd = src.indexOf('>', secStart);
+        if (tagOpenEnd === -1) return src;
+        const rawAttrs = src.slice(secStart + '<section'.length, tagOpenEnd);
         const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-        const styleMatch = styleRx.exec(attrs);
+        const styleMatch = styleRx.exec(rawAttrs);
+        let patchedAttrs: string;
         if (styleMatch) {
           const cleaned = styleMatch[1]
             .replace(/\bposition\s*:[^;]+;?\s*/g, '')
             .replace(/\boverflow\s*:[^;]+;?\s*/g, '')
             .trim().replace(/;$/, '');
-          attrs = attrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
+          patchedAttrs = rawAttrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
         } else {
-          attrs = `${attrs} style="position:relative;overflow:hidden"`;
+          patchedAttrs = `${rawAttrs} style="position:relative;overflow:hidden"`;
         }
-        return `<section${attrs}>\n  ${iframe}`;
-      });
+        return src.slice(0, secStart) +
+          `<section${patchedAttrs}>\n  ${videoIframe}` +
+          src.slice(tagOpenEnd + 1);
+      }
+
+      // When the user selected a specific element, inject into its parent section.
+      // Otherwise fall back to the first <section>.
+      const elementEditForVideo = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|[\s\S]*?\|\|[\s\S]+$/s);
+      let injected = false;
+      if (elementEditForVideo) {
+        const cssPath = elementEditForVideo[1].trim();
+        const elBounds = cssPath ? findByPath(updatedHtml, cssPath) : null;
+        if (elBounds) {
+          const sections = extractAllTopLevelSections(updatedHtml);
+          const parentSec = sections.find(s => s.start <= elBounds.start && elBounds.end <= s.end);
+          if (parentSec) {
+            updatedHtml = injectVideoIntoSection(updatedHtml, parentSec.start);
+            injected = true;
+          }
+        }
+      }
+      if (!injected) {
+        // Default: inject into the first <section>
+        const firstSecIdx = updatedHtml.search(/<section\b/i);
+        if (firstSecIdx !== -1) {
+          updatedHtml = injectVideoIntoSection(updatedHtml, firstSecIdx);
+        }
+      }
 
       const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
       return saveValidatedEdit(updatedHtml, summary);
@@ -1282,30 +1361,54 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __IMAGE_INJECT_SCOPED__:[cssPath]||[imageUrl]
     // Tries to replace background-image / img src / data-bg within that element.
     // Falls back to the element's parent section if the element itself has no image.
-    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|(https?:\/\/.+)$/s);
+    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|([\s\S]*))?$/s);
     if (scopedImageMatch) {
-      const cssPath = scopedImageMatch[1].trim();
-      const newUrl  = scopedImageMatch[2].trim();
+      const cssPath   = scopedImageMatch[1].trim();
+      const newUrl    = scopedImageMatch[2].trim();
+      const hintHtml  = (scopedImageMatch[3] ?? '').trim();
 
       function injectImageInto(target: string): string {
+        // 1. CSS background-image (any URL format)
         let out = target.replace(
-          /\bbackground-image\s*:\s*url\(\s*['"]?(https?:\/\/[^'")\s]+)['"]?\s*\)/gi,
+          /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
           () => `background-image: url('${newUrl}')`,
         );
         if (out !== target) return out;
+        // 2. <img src="..."> — matches ANY existing src value (relative, data:, https://, etc.)
         out = target.replace(
-          /(<img\b[^>]+\bsrc=["'])(https?:\/\/[^'"]+)(["'])/i,
+          /(<img\b[^>]*\bsrc=["'])([^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
         if (out !== target) return out;
-        out = target.replace(/\bdata-bg=["'](https?:\/\/[^'"]+)["']/gi, () => `data-bg="${newUrl}"`);
+        // 3. data-bg lazy-load attribute
+        out = target.replace(/\bdata-bg=["'][^'"]*["']/gi, () => `data-bg="${newUrl}"`);
         return out;
+      }
+
+      // Also directly patch src attribute on a void element (img/source/input type=image)
+      // when findByPath locates it — handles elements with relative or data: src values.
+      function patchSrcOnElement(target: string): string {
+        return target.replace(
+          /(\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
       }
 
       const bounds = findByPath(html, cssPath);
       if (bounds) {
         const elementHtml = html.slice(bounds.start, bounds.end);
-        const modifiedEl  = injectImageInto(elementHtml);
+        const elTag = elementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        const VOID_TAGS = new Set(['img','source','input','video','audio']);
+
+        // For void/media elements, always replace src directly — don't fall through
+        if (VOID_TAGS.has(elTag)) {
+          const patched = patchSrcOnElement(elementHtml);
+          if (patched !== elementHtml) {
+            return saveValidatedEdit(html.slice(0, bounds.start) + patched + html.slice(bounds.end), 'Image updated');
+          }
+        }
+
+        const modifiedEl = injectImageInto(elementHtml);
         if (modifiedEl !== elementHtml) {
           const updatedHtml = html.slice(0, bounds.start) + modifiedEl + html.slice(bounds.end);
           return saveValidatedEdit(updatedHtml, 'Image updated');
@@ -1322,10 +1425,27 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           }
         }
       }
-      // Final fallback: global replacement (same as __IMAGE_INJECT__)
-      const globalReplaced = injectImageInto(html);
-      if (globalReplaced !== html) return saveValidatedEdit(globalReplaced, 'Image updated');
-      return reply.code(422).send({ error: 'No image found in or near the selected element — try selecting the image or background directly' });
+      // findByPath failed — try content-based match using the hintHtml snippet
+      if (hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const hintTagEnd = html.indexOf('>', hintStart);
+          if (hintTagEnd !== -1) {
+            const opening = html.slice(hintStart, hintTagEnd + 1);
+            const patched = patchSrcOnElement(opening);
+            if (patched !== opening) {
+              const updatedHtml = html.slice(0, hintStart) + patched + html.slice(hintTagEnd + 1);
+              return saveValidatedEdit(updatedHtml, 'Image updated');
+            }
+            const modifiedEl = injectImageInto(opening);
+            if (modifiedEl !== opening) {
+              const updatedHtml = html.slice(0, hintStart) + modifiedEl + html.slice(hintTagEnd + 1);
+              return saveValidatedEdit(updatedHtml, 'Image updated');
+            }
+          }
+        }
+      }
+      return reply.code(422).send({ error: 'Could not locate the selected image in the document — try clicking the image again to re-select it' });
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1692,6 +1812,42 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const breadcrumb = parentSecIdx !== -1
         ? `Located in section ${parentSecIdx + 1} of ${sectionBounds.length}`
         : 'Located outside named sections';
+
+      // ── Deterministic background-image injection for element edits ──────────
+      // When the instruction contains an image URL AND "background" intent,
+      // patch the CSS directly instead of sending to LLM (LLM adds <img> tags
+      // instead of setting background-image, which looks like a logo overlay).
+      const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
+      const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
+        /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
+      if (bgUrlMatch && isBgImageIntent) {
+        const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
+        // Apply background-image to the first matching element (section, div, header, etc.)
+        const tagEnd = storedElementHtml.indexOf('>');
+        if (tagEnd !== -1) {
+          const openTag = storedElementHtml.slice(0, tagEnd);
+          const rest    = storedElementHtml.slice(tagEnd);
+          const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+          const sm = styleRx.exec(openTag);
+          let patchedTag: string;
+          if (sm) {
+            const existing = sm[1]
+              .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-size\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-position\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-repeat\s*:[^;]+;?\s*/g, '')
+              .trim().replace(/;$/, '');
+            const extra = `background-image:url('${rawUrl}');background-size:cover;background-position:center;background-repeat:no-repeat`;
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${extra}"`);
+          } else {
+            patchedTag = `${openTag} style="background-image:url('${rawUrl}');background-size:cover;background-position:center;background-repeat:no-repeat"`;
+          }
+          const patched = patchedTag + rest;
+          const updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          return saveValidatedEdit(updatedHtml, 'Background image applied');
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       // ── Detect element type for specialised prompt guidance ──────────────
       const elTag = storedElementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';

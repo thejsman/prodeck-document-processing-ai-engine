@@ -903,9 +903,19 @@ export default function SuperClientPage() {
       const isLogoIntent = /\blogo\b/i.test(micrositeEditInput);
 
       if (!isVideo) {
-        if (selectedElement?.path) {
-          // Element selected → always use element-scoped injection
-          instruction = `__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}`;
+        const isBgIntent      = /\b(?:background|bg)\b/i.test(micrositeEditInput);
+        const isReplaceIntent = /\b(?:replace|swap|change|update|use this as|set as)\b/i.test(micrositeEditInput);
+        const selectedTag     = selectedElement?.tag?.toLowerCase() ?? '';
+
+        if (selectedElement?.path && isBgIntent && selectedTag !== 'img') {
+          // "add image in background" on a section/div → server's background-image CSS bypass.
+        } else if (selectedElement?.path && (selectedTag === 'img' || isReplaceIntent)) {
+          // Explicit replacement OR <img> selected → scoped src/attr replacement.
+          const hintSnippet = selectedElement.outerHtml?.slice(0, 300) ?? '';
+          instruction = `__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hintSnippet}`;
+        } else if (selectedElement?.path) {
+          // All other element+URL combos (add below, insert right, add inside, etc.)
+          // → let __ELEMENT_EDIT__ flow to LLM for structural insertion.
         } else if (isLogoIntent) {
           // "replace logo with [url]" without element selected → targeted logo replacement
           instruction = `__LOGO_REPLACE__:${url}`;

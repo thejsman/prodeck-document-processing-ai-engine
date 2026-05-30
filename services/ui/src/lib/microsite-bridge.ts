@@ -18,12 +18,16 @@ export interface BridgeMessage {
 
 const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|clear)\b/i;
 
+// These prompts mention removing CONTENT inside an element (video, image, text, etc.)
+// rather than the element itself — don't route them to __REMOVE_BY_PATH__.
+const CONTENT_REMOVAL_RE = /\b(video|vimeo|youtube|iframe|background[\s-]video|video[\s-]background|image|logo|text|icon|button|link|badge|overlay)\b/i;
+
 export function buildInstruction(selected: BridgeMessage | null, userText: string): string {
   if (!selected) return userText;
 
-  // Removal → deterministic path. Use CSS path when available (position-based,
-  // immune to browser attribute normalization). Fall back to outerHtml snippet.
-  if (REMOVAL_RE.test(userText)) {
+  // Removal → deterministic path, BUT only when the user means "remove this element",
+  // not "remove something inside it" (e.g. "remove video from background" = content edit).
+  if (REMOVAL_RE.test(userText) && !CONTENT_REMOVAL_RE.test(userText)) {
     if (selected.path) {
       return `__REMOVE_BY_PATH__:${selected.path}`;
     }
@@ -298,9 +302,22 @@ window.addEventListener('resize', function () {
 
 export const BRIDGE_SCRIPT = `<script>${BRIDGE_SCRIPT_BODY}<\/script>`;
 
+// In edit mode, iframes swallow all pointer events so the bridge never sees
+// hover/click on them. Disable pointer-events on iframes so mouse events fall
+// through to the parent document — making iframes selectable and deletable.
+const IFRAME_EDIT_STYLE = `<style id="__microsite-iframe-edit">iframe{pointer-events:none!important;outline:2px dashed rgba(99,102,241,0.5);outline-offset:2px;}</style>`;
+
 export function injectBridgeScript(html: string): string {
   if (html.includes('microsite-bridge')) return html;
-  const idx = html.lastIndexOf('</body>');
-  if (idx !== -1) return html.slice(0, idx) + BRIDGE_SCRIPT + html.slice(idx);
-  return html + BRIDGE_SCRIPT;
+  // Inject iframe edit style into <head> so it applies before first paint
+  let out = html;
+  if (!out.includes('__microsite-iframe-edit')) {
+    const headClose = out.indexOf('</head>');
+    out = headClose !== -1
+      ? out.slice(0, headClose) + IFRAME_EDIT_STYLE + out.slice(headClose)
+      : IFRAME_EDIT_STYLE + out;
+  }
+  const idx = out.lastIndexOf('</body>');
+  if (idx !== -1) return out.slice(0, idx) + BRIDGE_SCRIPT + out.slice(idx);
+  return out + BRIDGE_SCRIPT;
 }
