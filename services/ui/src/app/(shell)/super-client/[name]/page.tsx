@@ -475,6 +475,26 @@ export default function SuperClientPage() {
   const [canRedo, setCanRedo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editModeActive, setEditModeActive] = useState(false);
+  // Double-buffer: two stacked iframes. Edits load into the invisible background
+  // slot; when it signals ready the slots swap instantly — no white flash.
+  const iframeARef = useRef<HTMLIFrameElement>(null);
+  const iframeBRef = useRef<HTMLIFrameElement>(null);
+  const activeSlotRef = useRef<'A' | 'B'>('A');
+  const swapPendingRef = useRef(false);
+  const swapSafetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [iframeSrcDocA, setIframeSrcDocA] = useState('');
+  const [iframeSrcDocB, setIframeSrcDocB] = useState('');
+  const [activeSlot, setActiveSlot] = useState<'A' | 'B'>('A');
+  // Helpers that always operate on the current active/background slot.
+  const getActiveIframe = () => activeSlotRef.current === 'A' ? iframeARef.current : iframeBRef.current;
+  const setActiveSrcDoc = (srcDoc: string) => {
+    if (activeSlotRef.current === 'A') setIframeSrcDocA(srcDoc);
+    else setIframeSrcDocB(srcDoc);
+  };
+  const setBackSrcDoc = (srcDoc: string) => {
+    if (activeSlotRef.current === 'A') setIframeSrcDocB(srcDoc);
+    else setIframeSrcDocA(srcDoc);
+  };
   const [hoveredElement, setHoveredElement] = useState<BridgeMessage | null>(null);
   const [selectedElement, setSelectedElement] = useState<BridgeMessage | null>(null);
   const [editingLogo, setEditingLogo] = useState<{ base64: string; mediaType: string } | null>(null);
@@ -702,6 +722,21 @@ export default function SuperClientPage() {
     return () => window.removeEventListener('message', onMessage);
   }, [editModeActive]);
 
+  // Background iframe signals when it has loaded and set scroll — swap slots instantly.
+  useEffect(() => {
+    function onSwapReady(e: MessageEvent) {
+      if (e.data?.source !== 'microsite-swap-ready' || !swapPendingRef.current) return;
+      if (swapSafetyTimerRef.current) { clearTimeout(swapSafetyTimerRef.current); swapSafetyTimerRef.current = null; }
+      swapPendingRef.current = false;
+      const next: 'A' | 'B' = activeSlotRef.current === 'A' ? 'B' : 'A';
+      activeSlotRef.current = next;
+      setActiveSlot(next);
+    }
+    window.addEventListener('message', onSwapReady);
+    return () => window.removeEventListener('message', onSwapReady);
+  }, []);
+
+
   async function handleFileUpload(file: File) {
     if (uploading || !name) return;
     setUploading(true);
@@ -856,11 +891,10 @@ export default function SuperClientPage() {
     if (!name) return;
     try {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
-      setViewingMicrosite({
-        id: m.id,
-        ast,
-        renderKey: `${m.id}-${Date.now()}`,
-      });
+      const html = (ast.sections?.[0] as { customHtml?: string })?.customHtml ?? '';
+      const rk = `${m.id}-${Date.now()}`;
+      setActiveSrcDoc(computeSrcDoc(html));
+      setViewingMicrosite({ id: m.id, ast, renderKey: rk });
       if (viewingProposal) {
         setViewingProposal(null);
         setChangedSections(new Set());
@@ -886,6 +920,37 @@ export default function SuperClientPage() {
     } catch (err) {
       console.error('Delete microsite failed', err);
     }
+  }
+
+  function computeSrcDoc(html: string, forEditMode = editModeActive): string {
+    const normalized = normalizeMicrositeHtml(html);
+    return forEditMode ? injectBridgeScript(normalized) : normalized;
+  }
+
+  // Load edited HTML into the BACKGROUND iframe slot.
+  // The injected script: sets scroll before first paint (scroll-behavior:auto = instant),
+  // sends microsite-swap-ready after the first rAF so the parent swaps slots only
+  // once the background iframe is fully painted at the correct position.
+  function applyEditHtml(html: string) {
+    const y = Math.round(getActiveIframe()?.contentWindow?.scrollY ?? 0);
+    let srcDoc = computeSrcDoc(html);
+    const script = `<script id="__scroll-restore">(function(){var y=${y};function r(){if(y>0){document.documentElement.style.scrollBehavior='auto';document.body&&(document.body.style.scrollBehavior='auto');window.scrollTo(0,y);}}r();requestAnimationFrame(function(){window.parent.postMessage({source:'microsite-swap-ready'},'*');if(y>0){var n=0;function t(){r();if(++n<5)setTimeout(t,80);}setTimeout(t,30);}});})();<\/script>`;
+    const bodyClose = srcDoc.lastIndexOf('</body>');
+    srcDoc = bodyClose !== -1
+      ? srcDoc.slice(0, bodyClose) + script + srcDoc.slice(bodyClose)
+      : srcDoc + script;
+    // Mark swap pending; cancel any previous safety timer
+    swapPendingRef.current = true;
+    if (swapSafetyTimerRef.current) clearTimeout(swapSafetyTimerRef.current);
+    swapSafetyTimerRef.current = setTimeout(() => {
+      swapSafetyTimerRef.current = null;
+      if (!swapPendingRef.current) return;
+      swapPendingRef.current = false;
+      const next: 'A' | 'B' = activeSlotRef.current === 'A' ? 'B' : 'A';
+      activeSlotRef.current = next;
+      setActiveSlot(next);
+    }, 2000);
+    setBackSrcDoc(srcDoc);
   }
 
   async function handleMicrositeEdit() {
@@ -957,6 +1022,8 @@ export default function SuperClientPage() {
       setShowEditingLogoUrlInput(false);
       setSelectedElement(null);
       setHoveredElement(null);
+      // Write new HTML directly into the iframe (no reload → scroll preserved)
+      applyEditHtml(finalHtml);
       setViewingMicrosite((prev) =>
         prev
           ? {
@@ -965,7 +1032,7 @@ export default function SuperClientPage() {
                 ...prev.ast,
                 sections: [{ ...(prev.ast.sections[0] as object), customHtml: finalHtml } as unknown as typeof prev.ast.sections[0], ...prev.ast.sections.slice(1)],
               },
-              renderKey: `${prev.id}-${Date.now()}`,
+              renderKey: prev.renderKey,
             }
           : null,
       );
@@ -993,6 +1060,7 @@ export default function SuperClientPage() {
     setMicrositeEditBanner('');
     try {
       const { html } = await revertSuperClientMicrosite(apiKey, name, viewingMicrosite.id);
+      applyEditHtml(html);
       setViewingMicrosite((prev) =>
         prev
           ? {
@@ -1001,7 +1069,7 @@ export default function SuperClientPage() {
                 ...prev.ast,
                 sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)],
               },
-              renderKey: `${prev.id}-${Date.now()}`,
+              renderKey: prev.renderKey,
             }
           : null,
       );
@@ -1020,6 +1088,7 @@ export default function SuperClientPage() {
     setMicrositeEditBanner('');
     try {
       const { html } = await revertSuperClientMicrosite(apiKey, name, viewingMicrosite.id);
+      applyEditHtml(html);
       setViewingMicrosite((prev) =>
         prev
           ? {
@@ -1028,7 +1097,7 @@ export default function SuperClientPage() {
                 ...prev.ast,
                 sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)],
               },
-              renderKey: `${prev.id}-${Date.now()}`,
+              renderKey: prev.renderKey,
             }
           : null,
       );
@@ -1284,6 +1353,8 @@ export default function SuperClientPage() {
             }
             // Open panel immediately with the stream AST — don't block on save
             const tempId = `preview-${msGenId}`;
+            const genHtml = (ast.sections?.[0] as { customHtml?: string })?.customHtml ?? '';
+            setActiveSrcDoc(computeSrcDoc(genHtml, false));
             setViewingMicrosite({
               id: tempId,
               ast,
@@ -1299,15 +1370,11 @@ export default function SuperClientPage() {
                 const saved = await saveSuperClientMicrosite(apiKey, name, ast, proposalTitle);
                 generationStore.complete(msGenId, { micrositeId: saved.id, ast }, saved.title);
                 // Swap temp ID for the real saved ID
-                setViewingMicrosite((prev) =>
-                  prev?.id === tempId
-                    ? {
-                        id: saved.id,
-                        ast,
-                        renderKey: `${saved.id}-${Date.now()}`,
-                      }
-                    : prev,
-                );
+                setViewingMicrosite((prev) => {
+                  if (prev?.id !== tempId) return prev;
+                  // renderKey change triggers remount; srcDoc stays the same (no scroll reset)
+                  return { id: saved.id, ast, renderKey: `${saved.id}-${Date.now()}` };
+                });
                 // Optimistic update so the artifacts tab is populated immediately
                 setMicrosites((prev) => {
                   if (prev.some((m) => m.id === saved.id)) return prev;
@@ -2568,9 +2635,12 @@ export default function SuperClientPage() {
                         setHoveredElement(null);
                       }
                       // Force iframe remount so bridge script is injected/removed
-                      setViewingMicrosite((prev) =>
-                        prev ? { ...prev, renderKey: `${prev.id}-${Date.now()}` } : null,
-                      );
+                      setViewingMicrosite((prev) => {
+                        if (!prev) return null;
+                        const html = (prev.ast.sections?.[0] as { customHtml?: string })?.customHtml ?? '';
+                        setActiveSrcDoc(computeSrcDoc(html, next));
+                        return { ...prev, renderKey: `${prev.id}-${Date.now()}` };
+                      });
                     }}
                     title={editModeActive ? 'Exit smart edit mode' : 'Smart edit — click any element to target it'}
                     style={{
@@ -2672,26 +2742,28 @@ export default function SuperClientPage() {
                   position: 'relative',
                 }}
               >
+                {/* Slot A */}
                 <iframe
-                  key={lastMicrositeRef.current!.renderKey}
-                  srcDoc={(() => {
-                    const raw =
-                      (
-                        lastMicrositeRef.current!.ast.sections?.[0] as {
-                          customHtml?: string;
-                        }
-                      )?.customHtml ?? '';
-                    const normalized = normalizeMicrositeHtml(raw);
-                    return editModeActive ? injectBridgeScript(normalized) : normalized;
-                  })()}
+                  ref={iframeARef}
+                  srcDoc={iframeSrcDocA}
                   style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    border: 'none',
-                    colorScheme: 'light',
+                    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                    border: 'none', colorScheme: 'light',
+                    opacity: activeSlot === 'A' ? 1 : 0,
+                    pointerEvents: activeSlot === 'A' ? 'auto' : 'none',
+                  }}
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+                  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                />
+                {/* Slot B — background loading slot */}
+                <iframe
+                  ref={iframeBRef}
+                  srcDoc={iframeSrcDocB}
+                  style={{
+                    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                    border: 'none', colorScheme: 'light',
+                    opacity: activeSlot === 'B' ? 1 : 0,
+                    pointerEvents: activeSlot === 'B' ? 'auto' : 'none',
                   }}
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"

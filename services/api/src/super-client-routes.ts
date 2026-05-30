@@ -1849,6 +1849,35 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
       // ─────────────────────────────────────────────────────────────────────────
 
+      // ── Deterministic background-color patch ─────────────────────────────
+      // LLMs confuse hex values like #32a852 with CSS ID selectors and return
+      // the element unchanged. Patch inline style directly when a color value
+      // and "background" intent are detected.
+      const isBgColorIntent = /\b(?:background[\s-]?color|bg[\s-]?color|background)\b/i.test(editInstruction)
+        && !/https?:\/\//.test(editInstruction);
+      const colorValueMatch = editInstruction.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/i);
+      if (isBgColorIntent && colorValueMatch) {
+        const colorValue = colorValueMatch[1];
+        const tagEnd = storedElementHtml.indexOf('>');
+        if (tagEnd !== -1) {
+          const openTag = storedElementHtml.slice(0, tagEnd);
+          const rest    = storedElementHtml.slice(tagEnd);
+          const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+          const sm = styleRx.exec(openTag);
+          let patchedTag: string;
+          if (sm) {
+            const existing = sm[1].replace(/\bbackground-color\s*:[^;]+;?\s*/g, '').trim().replace(/;$/, '');
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue}"`);
+          } else {
+            patchedTag = `${openTag} style="background-color:${colorValue}"`;
+          }
+          const patched     = patchedTag + rest;
+          const updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          return saveValidatedEdit(updatedHtml, `Background color set to ${colorValue}`);
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       // ── Detect element type for specialised prompt guidance ──────────────
       const elTag = storedElementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
       const isImgEl = elTag === 'img';
