@@ -12,6 +12,7 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { QdrantVectorStoreProvider } from '@ai-engine/runtime';
 import { createConsoleReporter } from '../output/console-reporter.js';
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,50 @@ function parseArgs(args: readonly string[]): GenerateProposalArgs {
 }
 
 // ---------------------------------------------------------------------------
+// RAG retrieval
+// ---------------------------------------------------------------------------
+
+async function retrieveRagContext(
+  workdir: string,
+  namespace: string,
+  client: string,
+  industry: string,
+): Promise<Array<{ text: string; score: number; document?: string }> | null> {
+  if (process.env['VECTOR_STORE'] !== 'qdrant') return null;
+  try {
+    const url = process.env['QDRANT_URL'] ?? 'http://localhost:6333';
+    const apiKey = process.env['QDRANT_API_KEY'];
+    const provider = new QdrantVectorStoreProvider(workdir, url, apiKey);
+    const queries = [
+      `${client} project overview scope objectives requirements`,
+      `proposed solution approach methodology implementation plan`,
+      `pricing cost budget commercials risk compliance regulatory`,
+      `${industry} technology infrastructure team capabilities`,
+    ];
+    const results = await Promise.allSettled(
+      queries.map((q) =>
+        provider.search({ namespace, queryEmbedding: [], topK: 8, filter: { query: q } })
+      )
+    );
+    const seen = new Set<string>();
+    const chunks: Array<{ text: string; score: number; document?: string }> = [];
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      for (const hit of r.value) {
+        const key = hit.text?.trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        chunks.push({ text: hit.text, score: hit.score, document: hit.metadata?.['fileName'] as string | undefined });
+      }
+    }
+    chunks.sort((a, b) => b.score - a.score);
+    return chunks.slice(0, 30);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Python spawn
 // ---------------------------------------------------------------------------
 
@@ -245,6 +290,13 @@ export async function generateProposal(
     );
   }
 
+  const retrievedContext = parsed.namespace
+    ? await retrieveRagContext(workdir, parsed.namespace, parsed.client, parsed.industry)
+    : null;
+  if (retrievedContext) {
+    logger.info(`RAG:        ${retrievedContext.length} chunks retrieved from Qdrant`);
+  }
+
   logger.info('Generating proposal sections...');
 
   const { stdout } = await spawnProcessor({
@@ -257,6 +309,7 @@ export async function generateProposal(
     templateDir: parsed.templateDir ? path.resolve(parsed.templateDir) : null,
     overwrite: parsed.overwrite,
     pricing,
+    retrievedContext,
   });
 
   const output = JSON.parse(stdout) as {

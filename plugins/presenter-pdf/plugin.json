@@ -1,0 +1,7 @@
+{
+  "name": "presenter-pdf",
+  "displayName": "PDF Presenter",
+  "type": "presenter",
+  "apiVersion": "0.1",
+  "entry": "dist/index.js"
+}

@@ -33,7 +33,14 @@ import {
   chatSessionBus,
   type ChatSessionEvent,
 } from './chat/chat-session-bus.js';
-import { loadHistory, clearHistory, appendUploadMessage } from './chat/chat-history.service.js';
+import {
+  loadHistory,
+  clearHistory,
+  appendUploadMessage,
+  listSessions,
+  latestSession,
+  hashApiKey,
+} from './chat/chat-history.service.js';
 import { scanNamespace } from './namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions, type TemplateInsight } from './namespace/insight-rules.js';
 import { recommendTemplate } from './templates/template-recommendation.service.js';
@@ -84,6 +91,7 @@ export function registerChatRoutes(
     const namespace = body.namespace.trim();
     const chatSessionId = body.chatSessionId.trim();
     const stream = body.stream === true;
+    const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: { apiKey: string } }).auth.apiKey);
 
     if (stream) {
       // ── Streaming SSE response ──────────────────────────────────
@@ -99,6 +107,7 @@ export function registerChatRoutes(
           message,
           namespace,
           chatSessionId,
+          apiKeyHash,
           workdir,
           generateFn: llmGenerateFn,
           policyConfig,
@@ -122,6 +131,11 @@ export function registerChatRoutes(
             if (response.confirmationRequest) {
               reply.raw.write(
                 `event: confirmation_request\ndata: ${JSON.stringify(response.confirmationRequest)}\n\n`,
+              );
+            }
+            if (response.questions && response.questions.length > 0) {
+              reply.raw.write(
+                `event: questions_request\ndata: ${JSON.stringify(response.questions)}\n\n`,
               );
             }
             reply.raw.write(
@@ -157,6 +171,7 @@ export function registerChatRoutes(
         message,
         namespace,
         chatSessionId,
+        apiKeyHash,
         workdir,
         generateFn: llmGenerateFn,
         policyConfig,
@@ -230,7 +245,8 @@ export function registerChatRoutes(
         return reply.code(400).send({ error: 'Missing namespace query param' });
       }
 
-      const history = await loadHistory(workdir, namespace.trim(), chatSessionId.trim());
+      const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: { apiKey: string } }).auth.apiKey);
+      const history = await loadHistory(workdir, namespace.trim(), apiKeyHash, chatSessionId.trim());
       return reply.send({ messages: history?.messages ?? [] });
     },
   );
@@ -257,7 +273,8 @@ export function registerChatRoutes(
       if (!id?.trim()) return reply.code(400).send({ error: 'Missing id' });
       if (!Array.isArray(fileNames)) return reply.code(400).send({ error: 'fileNames must be an array' });
 
-      await appendUploadMessage(workdir, namespace.trim(), chatSessionId.trim(), {
+      const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: { apiKey: string } }).auth.apiKey);
+      await appendUploadMessage(workdir, namespace.trim(), apiKeyHash, chatSessionId.trim(), {
         id,
         displayName: displayName ?? '',
         fileSize: fileSize ?? 0,
@@ -285,8 +302,51 @@ export function registerChatRoutes(
         return reply.code(400).send({ error: 'Missing namespace query param' });
       }
 
-      await clearHistory(workdir, namespace.trim(), chatSessionId.trim());
+      const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: { apiKey: string } }).auth.apiKey);
+      await clearHistory(workdir, namespace.trim(), apiKeyHash, chatSessionId.trim());
       return reply.code(204).send();
+    },
+  );
+
+  // ── GET /chat/sessions ────────────────────────────────────────────
+  //
+  // Returns all sessions for the current API key + namespace, sorted by
+  // most recently updated first.
+  // Query param: namespace (required)
+  //
+  app.get(
+    '/chat/sessions',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace } = req.query as { namespace?: string };
+
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing namespace query param' });
+      }
+
+      const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: { apiKey: string } }).auth.apiKey);
+      const sessions = await listSessions(workdir, namespace.trim(), apiKeyHash);
+      return reply.send({ sessions });
+    },
+  );
+
+  // ── GET /chat/session/latest ──────────────────────────────────────
+  //
+  // Returns the chatSessionId of the most recently updated session for the
+  // current API key + namespace. Returns { sessionId: null } when none exists.
+  // Query param: namespace (required)
+  //
+  app.get(
+    '/chat/session/latest',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { namespace } = req.query as { namespace?: string };
+
+      if (!namespace?.trim()) {
+        return reply.code(400).send({ error: 'Missing namespace query param' });
+      }
+
+      const apiKeyHash = hashApiKey((req as FastifyRequest & { auth: { apiKey: string } }).auth.apiKey);
+      const sessionId = await latestSession(workdir, namespace.trim(), apiKeyHash);
+      return reply.send({ sessionId });
     },
   );
 

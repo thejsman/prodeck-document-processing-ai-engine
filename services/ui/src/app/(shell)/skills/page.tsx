@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   listSkills,
   getSkillDetail,
@@ -53,6 +53,7 @@ function slugify(name: string): string {
 export default function SkillsPage() {
   const { apiKey } = useAuth();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // ── Skills list ─────────────────────────────────────────────────
   const [skills, setSkills] = useState<SkillSummaryApi[]>([]);
@@ -370,7 +371,7 @@ export default function SkillsPage() {
   const hasDetail = detail !== null && selectedSlug !== null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', paddingTop: 12 }}>
 
       {/* ── Topbar ── */}
       <div style={{
@@ -615,13 +616,25 @@ export default function SkillsPage() {
                         </p>
                       )}
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void handleDeleteSkill(skill.slug); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: '2px 4px', flexShrink: 0 }}
-                      title="Delete skill"
-                    >
-                      ✕
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/chat?skill=${encodeURIComponent(skill.slug)}&skillName=${encodeURIComponent(skill.displayName)}`);
+                        }}
+                        style={{ background: 'var(--primary-soft)', border: 'none', cursor: 'pointer', color: 'var(--primary)', fontSize: 11, fontWeight: 600, padding: '3px 7px', borderRadius: 4, flexShrink: 0 }}
+                        title="Generate proposal using this skill"
+                      >
+                        Generate
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void handleDeleteSkill(skill.slug); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, padding: '2px 4px', flexShrink: 0 }}
+                        title="Delete skill"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

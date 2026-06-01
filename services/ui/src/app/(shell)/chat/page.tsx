@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import {
   ArrowUp,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useAuth } from '@/lib/auth-context';
 import { useNamespace } from '@/lib/namespace-context';
 import { useMobileNav } from '@/lib/mobile-nav-store';
@@ -27,17 +29,19 @@ import { useSSE, type ProposalSection, type ConfirmationRequest } from '@/lib/us
 import { ChatUploadDrawer } from '@/components/ChatUploadDrawer';
 import { ChatFileUpload } from '@/components/chat/ChatFileUpload';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
-import { NamespacePanel, parseMicrositeInfo } from '@/components/chat/NamespacePanel';
+import { parseMicrositeInfo } from '@/components/chat/NamespacePanel';
 import { ProposalSectionBlock } from '@/components/chat/ProposalSectionBlock';
 import { ConfirmationBlock } from '@/components/chat/ConfirmationBlock';
 import { ExecutionTracePanel } from '@/components/chat/ExecutionTracePanel';
 import { ProposalProgressBar } from '@/components/chat/ProposalProgressBar';
+import { useProposalGenerationStore } from '@/core/proposal-generation-store';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
 import { ProposalForm } from '@/components/ProposalForm';
-import { fetchMicrositeContent, fetchKnowledgeFiles, postUploadMessage, type ProposalDocument, type Presentation } from '@/lib/api';
+import { fetchMicrositeContent, fetchKnowledgeFiles, postUploadMessage, listSkills, type ProposalDocument, type Presentation, type SkillSummaryApi } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
+import { MicrositePro } from '@/components/microsite/MicrositePro';
 import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useExecutionStore } from '@/core/execution/execution-store';
@@ -45,6 +49,7 @@ import { startExecutionTransport } from '@/core/execution/execution-transport';
 import { BriefPanel } from '@/components/chat/BriefPanel';
 import { ExtractionConfirmationCard } from '@/components/chat/ExtractionConfirmationCard';
 import { useBrief } from '@/hooks/useBrief';
+import { BriefContext } from '@/lib/brief-context';
 import type { RequirementKey, DocumentClassification } from '@/lib/api';
 import { useExtractionCardStore } from '@/core/extraction/extraction-card-store';
 import {
@@ -54,7 +59,7 @@ import {
   fetchPendingExtractions,
 } from '@/lib/api';
 import { useIngestionProgressStore } from '@/core/execution/ingestion-progress-store';
-import { CollectionPanel } from '@/components/collection/CollectionPanel';
+import { ClientPanel } from '@/components/chat/ClientPanel';
 import { useCollectionStatus } from '@/lib/use-collection-status';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -68,6 +73,8 @@ interface Message {
   metadata?: { proposalArtifactId?: string; proposalNamespace?: string };
   /** Populated when the pipeline halted at Stage 4.5 for user confirmation. */
   confirmation?: ConfirmationRequest;
+  /** Structured questions for QuestionsBlock rendering. */
+  questionsRequest?: Array<{ field: string; question: string }>;
   /** Present when role === 'extraction_card'. */
   extractionCardId?: string;
   /** Populated for inline file upload progress entries. */
@@ -117,20 +124,71 @@ async function trySystemQuery(q: string, apiKey: string, namespace: string): Pro
 
 // ── Session helpers ─────────────────────────────────────────────
 
-function getOrCreateSessionId(namespace: string): string {
-  const key = `chat-session-id-${namespace}`;
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
+function localSessionKey(namespace: string): string {
+  return `chat-session-id-${namespace}`;
+}
+
+/**
+ * Resolves the session ID for a namespace using a server-first strategy:
+ *   1. Check localStorage cache (fast path, avoids round-trip on repeat visits)
+ *   2. Fetch GET /api/chat/session/latest?namespace=X from the server
+ *      — if a session exists for this API key + namespace, use it and refresh cache
+ *      — if not, generate a new UUID and cache it locally
+ *
+ * This ensures the same user on any device always resumes their latest session
+ * while different users sharing a namespace remain fully isolated (scoped by API key).
+ */
+async function resolveSessionId(namespace: string, apiKey: string): Promise<string> {
+  const cacheKey = localSessionKey(namespace);
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(
+      `/api/chat/session/latest?namespace=${encodeURIComponent(namespace)}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { sessionId: string | null };
+      if (data.sessionId) {
+        localStorage.setItem(cacheKey, data.sessionId);
+        return data.sessionId;
+      }
+    }
+  } catch {
+    // Fall through to generate a new ID
+  }
+
   const id = crypto.randomUUID();
-  localStorage.setItem(key, id);
+  localStorage.setItem(cacheKey, id);
   return id;
 }
 
+
+function TypewriterLabel({ text, className }: { text: string; className?: string }) {
+  const [displayed, setDisplayed] = useState('');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setDisplayed('');
+    if (!text) return;
+    let i = 0;
+    timerRef.current = setInterval(() => {
+      i++;
+      setDisplayed(text.slice(0, i));
+      if (i >= text.length) { clearInterval(timerRef.current!); timerRef.current = null; }
+    }, 28);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [text]);
+  return <em className={className}>{displayed}</em>;
+}
 
 export default function ChatPage() {
   const { apiKey } = useAuth();
   const { namespace } = useNamespace();
   const { openMobileNav } = useMobileNav();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const brief = useBrief(namespace || 'default', apiKey);
   const { status: collectionStatus, loading: collectionLoading } = useCollectionStatus();
@@ -138,6 +196,16 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
+  const [activeQuestion, setActiveQuestion] = useState<{ field: string; question: string } | null>(null);
+  const [composerConfirmation, setComposerConfirmation] = useState<ConfirmationRequest | null>(null);
+  const [availableSkills, setAvailableSkills] = useState<SkillSummaryApi[]>([]);
+  const [skillPickerRequest, setSkillPickerRequest] = useState<{ pendingMessage: string } | null>(null);
+  const [activeSkillSlug, setActiveSkillSlug] = useState<string | null>(null);
+  const [ingestChipDismissed, setIngestChipDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem(`ingest-chip-dismissed-${namespace}`) === '1';
+  });
+  const [nudgeReady, setNudgeReady] = useState(false);
   const [fileRefreshTick, setFileRefreshTick] = useState(0);
 
   // ── Extraction card store integration ───────────────────────────
@@ -173,8 +241,6 @@ export default function ChatPage() {
   }, [extractionCards]);
 
   const [traceOpen, setTraceOpen] = useState(false);
-  const [panelVisible, setPanelVisible] = useState(true);
-  const [panelHasContent, setPanelHasContent] = useState(true);
   const [insights, setInsights] = useState<string[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
@@ -191,11 +257,16 @@ export default function ChatPage() {
   const briefTier1Count = (['clientName', 'clientIndustry', 'projectType'] as RequirementKey[]).filter(
     (k) => briefFields[k]?.value,
   ).length;
+
+  const pendingGeneration = useProposalGenerationStore((s) => s.pending);
+  const startPendingGeneration = useProposalGenerationStore((s) => s.start);
+  const finishPendingGeneration = useProposalGenerationStore((s) => s.finish);
+  const clearPendingGeneration = useProposalGenerationStore((s) => s.clear);
   const briefColor = briefTier1Count === 3 ? 'var(--success)' : briefTier1Count > 0 ? 'var(--warning)' : 'var(--muted)';
   const [isGeneratingFromModal, setIsGeneratingFromModal] = useState(false);
   const [generatedDoc, setGeneratedDoc] = useState<ProposalDocument | null>(null);
 
-  const [viewMicrosite, setViewMicrosite] = useState<Presentation | null>(null);
+  const [viewMicrosite, setViewMicrosite] = useState<{ entryId: string; namespace: string; proposalId: string; displayName: string } | null>(null);
   const [viewMicrositeAST, setViewMicrositeAST] = useState<LayoutAST | null>(null);
   const [viewMicrositeLoading, setViewMicrositeLoading] = useState(false);
   const [editingMicrosite, setEditingMicrosite] = useState(false);
@@ -229,9 +300,129 @@ export default function ChatPage() {
     toolEvents,
     doneActions,
     confirmationRequest,
+    questionsRequest,
     startStream,
     reset,
   } = useSSE(apiKey, '/api/chat/message');
+
+  // ── Fetch available skills for skill picker ──────────────────────────────
+  useEffect(() => {
+    if (!apiKey) return;
+    listSkills(apiKey).then(setAvailableSkills).catch(() => {});
+  }, [apiKey]);
+
+  // ── Skill-from-URL: auto-submit when navigated from /skills with ?skill= ──
+  const skillFromUrl = searchParams.get('skill');
+  const skillNameFromUrl = searchParams.get('skillName');
+  const skillAutoSubmittedRef = useRef(false);
+  useEffect(() => {
+    if (!skillFromUrl || skillAutoSubmittedRef.current || !apiKey) return;
+    skillAutoSubmittedRef.current = true;
+    const msg = `Generate a proposal using the "${skillNameFromUrl || skillFromUrl}" proposal skill`;
+    const ns = namespace || 'default';
+    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }]);
+    startStream({ message: msg, namespace: ns, chatSessionId: undefined });
+    // Strip skill params from URL so refresh doesn't re-submit
+    router.replace('/chat');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey, startStream]);
+
+  // Track last known phase so the status bubble never goes blank mid-transition.
+  // Cleared when a new stream starts (in handleSend) so it doesn't bleed across messages.
+  const lastPhaseRef = useRef('');
+  if (isStreaming && phase) lastPhaseRef.current = phase;
+  const statusPhase = phase || lastPhaseRef.current || 'Thinking';
+
+  // Hold the status bubble for 200ms after streaming ends to bridge the gap
+  // between "dots disappear" and "content renders" (React batching timing).
+  const [showStatusHold, setShowStatusHold] = useState(false);
+  useEffect(() => {
+    if (isStreaming) {
+      setShowStatusHold(true);
+      return;
+    }
+    const t = setTimeout(() => setShowStatusHold(false), 200);
+    return () => clearTimeout(t);
+  }, [isStreaming]);
+
+  // Typewriter effect for status phase — reveals characters one by one on each change.
+  const [displayedPhase, setDisplayedPhase] = useState('');
+  const phaseTypewriterRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (phaseTypewriterRef.current) clearInterval(phaseTypewriterRef.current);
+    if (!statusPhase) { setDisplayedPhase(''); return; }
+    setDisplayedPhase('');
+    let i = 0;
+    phaseTypewriterRef.current = setInterval(() => {
+      i++;
+      setDisplayedPhase(statusPhase.slice(0, i));
+      if (i >= statusPhase.length) {
+        clearInterval(phaseTypewriterRef.current!);
+        phaseTypewriterRef.current = null;
+      }
+    }, 28);
+    return () => { if (phaseTypewriterRef.current) clearInterval(phaseTypewriterRef.current); };
+  }, [statusPhase]);
+
+  useEffect(() => {
+    setNudgeReady(false);
+    const t = setTimeout(() => setNudgeReady(true), 2500);
+    return () => clearTimeout(t);
+  }, [namespace]);
+
+  const showIngestNudge = nudgeReady && !ingestChipDismissed && collectionStatus !== null && (collectionStatus.documentCount ?? 0) === 0;
+
+  // Auto-open panel when namespace is set — reveal it as data flows in
+  useEffect(() => {
+    if (!namespace) return;
+    const t = setTimeout(() => setCollectionPanelOpen(true), 1200);
+    return () => clearTimeout(t);
+  }, [namespace]);
+
+  // Auto-open when brief data appears
+  useEffect(() => {
+    if (collectionStatus && collectionStatus.baseCompleteness > 0) {
+      setCollectionPanelOpen(true);
+    }
+  }, [collectionStatus?.baseCompleteness]);
+
+  // Auto-open when a proposal or microsite completes
+  const allExecutions = useExecutionStore((s) => s.executions);
+  useEffect(() => {
+    const hasCompleted = Object.values(allExecutions).some(
+      (e) => (e.type === 'proposal' || e.type === 'microsite') && e.status === 'completed',
+    );
+    if (hasCompleted) setCollectionPanelOpen(true);
+  }, [allExecutions]);
+
+  // Snapshot the last active composer content so it stays visible during the exit animation.
+  const composerOpen = !!(activeQuestion || composerConfirmation || skillPickerRequest || showIngestNudge);
+  const composerSnapshotRef = useRef<{
+    activeQuestion: typeof activeQuestion;
+    composerConfirmation: typeof composerConfirmation;
+    skillPickerRequest: typeof skillPickerRequest;
+  }>({ activeQuestion: null, composerConfirmation: null, skillPickerRequest: null });
+  if (composerOpen) {
+    composerSnapshotRef.current = { activeQuestion, composerConfirmation, skillPickerRequest };
+  }
+  const renderQuestion = composerOpen ? activeQuestion : composerSnapshotRef.current.activeQuestion;
+  const renderConfirmation = composerOpen ? composerConfirmation : composerSnapshotRef.current.composerConfirmation;
+  const renderSkillPicker = composerOpen ? skillPickerRequest : composerSnapshotRef.current.skillPickerRequest;
+
+  // When the pipeline returns structured questions, surface the first one in the composer
+  useEffect(() => {
+    if (!isStreaming && questionsRequest && questionsRequest.length > 0) {
+      setActiveQuestion(questionsRequest[0]);
+    }
+  }, [isStreaming, questionsRequest]);
+
+  // Promote template/generated-template confirmations into the composer card
+  useEffect(() => {
+    if (!isStreaming && confirmationRequest &&
+      (confirmationRequest.kind === 'confirm_template' || confirmationRequest.kind === 'approve_generated_template')) {
+      setComposerConfirmation(confirmationRequest);
+    }
+  }, [isStreaming, confirmationRequest]);
 
   const addExecution = useExecutionStore((s) => s.addExecution);
   const updateExecution = useExecutionStore((s) => s.updateExecution);
@@ -324,7 +515,7 @@ export default function ChatPage() {
     if (!viewMicrosite || !apiKey) return;
     setViewMicrositeAST(null);
     setViewMicrositeLoading(true);
-    fetchMicrositeContent(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId)
+    fetchMicrositeContent(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId, undefined, viewMicrosite.entryId)
       .then(({ ast }) => setViewMicrositeAST(ast as LayoutAST))
       .catch(() => {})
       .finally(() => setViewMicrositeLoading(false));
@@ -333,8 +524,6 @@ export default function ChatPage() {
   // Load persisted chat history and initial insights on mount (or namespace change)
   useEffect(() => {
     const ns = namespace || 'default';
-    const sessionId = getOrCreateSessionId(ns);
-    chatSessionIdRef.current = sessionId;
 
     // Cancel any in-flight generation execution from the previous namespace
     if (chatExecIdRef.current !== null) {
@@ -347,92 +536,101 @@ export default function ChatPage() {
     skipNextScrollRef.current = true;
     setMessages([]);
     setInsights([]);
+    setIngestChipDismissed(localStorage.getItem(`ingest-chip-dismissed-${ns}`) === '1');
+    setNudgeReady(false);
+    setActiveQuestion(null);
+    setComposerConfirmation(null);
     setGeneratedDoc(null);
     reset();
     setDisplayed('');
     revealedLenRef.current = 0;
 
-    fetch(`/api/chat/session/${sessionId}/history?namespace=${encodeURIComponent(ns)}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    })
-      .then((res) => (res.ok ? res.json() : { messages: [] }))
-      .then(
-        (data: {
-          messages: Array<{
-            id: string;
-            role: 'user' | 'assistant' | 'upload';
-            content: string;
-            timestamp?: string;
-            metadata?: { proposalArtifactId?: string; displayName?: string; fileSize?: number; fileNames?: string[] };
-          }>;
-        }) => {
-          // Map server history → Message objects. Upload cards are stored server-side
-          // with role='upload'; reconstruct them in chronological order alongside chat messages.
-          const messages: Message[] = data.messages.map((m) => {
-            if (m.role !== 'upload') return m as Message;
-            return {
-              id: m.id,
-              role: 'upload' as const,
-              content: '',
-              uploadData: {
-                fileName: m.metadata?.displayName ?? '',
-                fileSize: m.metadata?.fileSize ?? 0,
-                progress: 0,
-                status: 'processing' as const,
-                stage: 'Queued',
-              },
-            };
-          });
+    void (async () => {
+      const sessionId = await resolveSessionId(ns, apiKey);
+      chatSessionIdRef.current = sessionId;
 
-          skipNextScrollRef.current = true;
-          setMessages(messages);
-
-          // Resume polling for upload messages newer than 24 h — older ones are terminal.
-          const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-          const recentUploads = data.messages.filter(
-            (m) => m.role === 'upload' && new Date(m.timestamp ?? 0).getTime() > oneDayAgo,
-          );
-          for (const m of recentUploads) {
-            const fileNames = m.metadata?.fileNames ?? [];
-            if (fileNames.length > 0) setActiveUploadPoll({ msgId: m.id, fileNames });
-          }
-        },
-      )
-      .catch(() => {
-        /* history unavailable — start fresh */
-      });
-
-    // Page-load recovery: restore pending extraction cards from previous session
-    fetchPendingExtractions(apiKey, ns)
-      .then(({ pending }) => {
-        useExtractionCardStore.getState().loadRecoveryCards(
-          pending.map((p) => ({
-            cardId: p.cardId,
-            namespace: ns,
-            fileName: p.fileName ?? p.documentId,
-            classification: p.classification ?? 'client_source',
-            extractedFields: Object.entries(p.fields ?? {}).map(([key, field]) => ({
-              key: key as RequirementKey,
-              value: field?.value,
-              confidence: field?.confidence ?? 0,
-              conflict: p.conflicts?.find((c) => c.key === key),
-            })),
-            knowledgeEntryCount: p.knowledgeEntries?.length ?? 0,
-            highConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) >= 0.8).length,
-            lowConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) < 0.8).length,
-            notFoundFields: [],
-            expiresAt: p.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-            cardState: 'pending' as const,
-            addedAt: Date.now(),
-          })),
-        );
+      fetch(`/api/chat/session/${sessionId}/history?namespace=${encodeURIComponent(ns)}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
       })
-      .catch(() => {
-        /* pending extractions unavailable */
-      });
+        .then((res) => (res.ok ? res.json() : { messages: [] }))
+        .then(
+          (data: {
+            messages: Array<{
+              id: string;
+              role: 'user' | 'assistant' | 'upload';
+              content: string;
+              timestamp?: string;
+              metadata?: { proposalArtifactId?: string; displayName?: string; fileSize?: number; fileNames?: string[] };
+            }>;
+          }) => {
+            // Map server history → Message objects. Upload cards are stored server-side
+            // with role='upload'; reconstruct them in chronological order alongside chat messages.
+            const messages: Message[] = data.messages.map((m) => {
+              if (m.role !== 'upload') return m as Message;
+              return {
+                id: m.id,
+                role: 'upload' as const,
+                content: '',
+                uploadData: {
+                  fileName: m.metadata?.displayName ?? '',
+                  fileSize: m.metadata?.fileSize ?? 0,
+                  progress: 0,
+                  status: 'processing' as const,
+                  stage: 'Queued',
+                },
+              };
+            });
 
-    fetchInsights(ns);
-    setTimeout(() => textareaRef.current?.focus(), 0);
+            skipNextScrollRef.current = true;
+            setMessages(messages);
+
+            // Resume polling for upload messages newer than 24 h — older ones are terminal.
+            const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+            const recentUploads = data.messages.filter(
+              (m) => m.role === 'upload' && new Date(m.timestamp ?? 0).getTime() > oneDayAgo,
+            );
+            for (const m of recentUploads) {
+              const fileNames = m.metadata?.fileNames ?? [];
+              if (fileNames.length > 0) setActiveUploadPoll({ msgId: m.id, fileNames });
+            }
+          },
+        )
+        .catch(() => {
+          /* history unavailable — start fresh */
+        });
+
+      // Page-load recovery: restore pending extraction cards from previous session
+      fetchPendingExtractions(apiKey, ns)
+        .then(({ pending }) => {
+          useExtractionCardStore.getState().loadRecoveryCards(
+            pending.map((p) => ({
+              cardId: p.cardId,
+              namespace: ns,
+              fileName: p.fileName ?? p.documentId,
+              classification: p.classification ?? 'client_source',
+              extractedFields: Object.entries(p.fields ?? {}).map(([key, field]) => ({
+                key: key as RequirementKey,
+                value: field?.value,
+                confidence: field?.confidence ?? 0,
+                conflict: p.conflicts?.find((c) => c.key === key),
+              })),
+              knowledgeEntryCount: p.knowledgeEntries?.length ?? 0,
+              highConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) >= 0.8).length,
+              lowConfidenceCount: Object.values(p.fields ?? {}).filter((f) => (f?.confidence ?? 0) < 0.8).length,
+              notFoundFields: [],
+              expiresAt: p.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              cardState: 'pending' as const,
+              addedAt: Date.now(),
+            })),
+          );
+        })
+        .catch(() => {
+          /* pending extractions unavailable */
+        });
+
+      fetchInsights(ns);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    })();
   }, [namespace, apiKey, fetchInsights, reset, removeExecution]);
 
   // Refresh insights and restore focus after each query completes (isStreaming: true → false).
@@ -569,12 +767,33 @@ export default function ChatPage() {
     }
   }
 
+  const submitWithSkill = useCallback((pendingMessage: string, skillSlug: string | null) => {
+    const msg = skillSlug
+      ? `Generate a proposal using the "${skillSlug}" proposal skill`
+      : pendingMessage;
+    const ns = namespace || 'default';
+    setSkillPickerRequest(null);
+    setActiveSkillSlug(skillSlug);
+    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }]);
+    startStream({ message: msg, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
+  }, [namespace, startStream]);
+
   const submit = useCallback(() => {
     const q = input.trim();
     if (!q || isStreaming) return;
 
+    // If the user intends to generate a proposal and skills are available, show skill picker
+    const isGenerateProposal = /\bgenerate\b.*\bproposal\b|\bproposal\b.*\bgenerate\b/i.test(q);
+    const wantsSkillExplicitly = /\bskill\b/i.test(q);
+    if (isGenerateProposal && !wantsSkillExplicitly && availableSkills.length > 0) {
+      setInput('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      setSkillPickerRequest({ pendingMessage: q });
+      return;
+    }
+
     // Commit any in-progress streaming response to history
-    if (chunks || sections.length > 0 || confirmationRequest) {
+    if (chunks || sections.length > 0 || confirmationRequest || questionsRequest) {
       setMessages((prev) => [
         ...prev,
         {
@@ -583,6 +802,7 @@ export default function ChatPage() {
           content: chunks,
           sections: sections.length > 0 ? [...sections] : undefined,
           confirmation: confirmationRequest ?? undefined,
+          questionsRequest: questionsRequest ?? undefined,
         },
       ]);
       // Cancel any in-flight generation execution from the previous stream
@@ -593,6 +813,10 @@ export default function ChatPage() {
       reset();
     }
 
+    setActiveQuestion(null);
+    setComposerConfirmation(null);
+    setSkillPickerRequest(null);
+    setActiveSkillSlug(null);
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: q }]);
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -613,6 +837,8 @@ export default function ChatPage() {
     chunks,
     sections,
     confirmationRequest,
+    questionsRequest,
+    availableSkills,
     namespace,
     apiKey,
     reset,
@@ -825,7 +1051,7 @@ export default function ChatPage() {
     (msg: string) => {
       if (isStreaming) return;
       // Commit current stream to history first
-      if (chunks || confirmationRequest) {
+      if (chunks || confirmationRequest || questionsRequest) {
         setMessages((prev) => [
           ...prev,
           {
@@ -833,22 +1059,30 @@ export default function ChatPage() {
             role: 'assistant',
             content: chunks,
             confirmation: confirmationRequest ?? undefined,
+            questionsRequest: questionsRequest ?? undefined,
           },
         ]);
         reset();
       }
+      setActiveQuestion(null);
+      setComposerConfirmation(null);
+      lastPhaseRef.current = '';
+      lastLoggedPhaseRef.current = '';
+      setProposalLog([]);
+      setRevealedCount(0);
+      clearPendingGeneration();
       setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }]);
       const ns = namespace || 'default';
       startStream({ message: msg, namespace: ns, chatSessionId: chatSessionIdRef.current ?? undefined });
     },
-    [isStreaming, chunks, confirmationRequest, namespace, startStream, reset],
+    [isStreaming, chunks, confirmationRequest, questionsRequest, namespace, startStream, reset, clearPendingGeneration],
   );
 
   function handleClear() {
     // Rotate to a new session ID so the fresh chat has clean history
     const ns = namespace || 'default';
     const newId = crypto.randomUUID();
-    localStorage.setItem(`chat-session-id-${ns}`, newId);
+    localStorage.setItem(localSessionKey(ns), newId);
     chatSessionIdRef.current = newId;
     // Cancel any in-flight generation execution
     if (chatExecIdRef.current !== null) {
@@ -867,7 +1101,8 @@ export default function ChatPage() {
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
-  const hasContent = messages.length > 0 || !!chunks || sections.length > 0 || !!generatedDoc || isGeneratingFromModal;
+  const hasPendingGenerationHere = pendingGeneration?.status === 'generating' && pendingGeneration.namespace === (namespace || 'default');
+  const hasContent = messages.length > 0 || !!chunks || sections.length > 0 || !!generatedDoc || isGeneratingFromModal || hasPendingGenerationHere;
 
   // Derive proposal URL from generated document metadata (same logic as ProposalPage.currentFileName + NamespacePanel href)
   const generatedProposalHref = (() => {
@@ -889,17 +1124,77 @@ export default function ChatPage() {
       : `/proposal?artifact=${encodeURIComponent(fileName)}&from=chat`;
   })();
 
+  // Resolve display name for the active skill slug
+  const activeSkillName = activeSkillSlug
+    ? (availableSkills.find((s) => s.slug === activeSkillSlug)?.displayName ?? activeSkillSlug)
+    : null;
+
+  // Parse numeric version from a proposal filename or namespaced artifact id.
+  // Returns 1 for the first proposal (no _v suffix), N for subsequent ones.
+  const parseProposalVersion = (filenameOrPath: string | undefined): number => {
+    if (!filenameOrPath) return 1;
+    const bare = filenameOrPath.includes('::') ? filenameOrPath.split('::').slice(1).join('::') : filenameOrPath;
+    const fileName = bare.replace(/\\/g, '/').split('/').pop() ?? bare;
+    const match = fileName.match(/_proposal(?:_v(\d+))?\.md$/);
+    return match?.[1] ? parseInt(match[1], 10) : 1;
+  };
+
   // True once any proposal-specific signal arrives during a stream.
   // Used to switch from thinking dots → progress bar without overlap.
   const isProposalStream = sections.length > 0 || toolEvents.length > 0 || hadPhaseRef.current;
 
+  // Accumulate proposal generation phases as text lines — each phase types in as a new line.
+  const [proposalLog, setProposalLog] = useState<string[]>([]);
+  const lastLoggedPhaseRef = useRef('');
+  useEffect(() => {
+    if (isProposalStream && phase && phase !== lastLoggedPhaseRef.current) {
+      lastLoggedPhaseRef.current = phase;
+      setProposalLog((prev) => [...prev, phase]);
+    }
+    if (!isStreaming && !isProposalStream) {
+      lastLoggedPhaseRef.current = '';
+    }
+  }, [isProposalStream, isStreaming, phase]);
+
+  // Progressive section reveal — sections arrive all at once from the backend,
+  // so we expose them one-by-one at 350ms intervals to simulate streaming.
+  const [revealedCount, setRevealedCount] = useState(0);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (sections.length > revealedCount) {
+      revealTimerRef.current = setTimeout(() => setRevealedCount((c) => c + 1), 350);
+      return () => { if (revealTimerRef.current) clearTimeout(revealTimerRef.current); };
+    }
+  }, [sections.length, revealedCount]);
+  const revealedSections = sections.slice(0, revealedCount);
+  const isRevealing = revealedCount < sections.length;
+
+  // Sync proposal generation state to the store so the card persists across navigation.
+  const generationClientName = (briefFields.clientName?.value as string) || namespace || 'New Proposal';
+  useEffect(() => {
+    if (isStreaming && generationTool === 'generate_proposal') {
+      startPendingGeneration(generationClientName, namespace || 'default');
+    }
+  }, [isStreaming, generationTool, generationClientName, namespace, startPendingGeneration]);
+
+  useEffect(() => {
+    if (!isStreaming && !isRevealing && sections.length > 0) {
+      finishPendingGeneration();
+    }
+  }, [isStreaming, isRevealing, sections.length, finishPendingGeneration]);
+
   if (viewMicrosite) {
-    const { name } = parseMicrositeInfo(viewMicrosite.proposalId);
     const dismiss = () => {
       setViewMicrosite(null);
       setViewMicrositeAST(null);
       setEditingMicrosite(false);
     };
+    const isPro = viewMicrositeAST?.generationMode !== 'classic';
+    const entryParam = `?entryId=${encodeURIComponent(viewMicrosite.entryId)}`;
+    const editorPath = isPro
+      ? `/microsite-editor-pro/${encodeURIComponent(viewMicrosite.namespace)}/${encodeURIComponent(viewMicrosite.proposalId)}${entryParam}`
+      : `/microsite-editor/${encodeURIComponent(viewMicrosite.namespace)}/${encodeURIComponent(viewMicrosite.proposalId)}${entryParam}`;
+    const MicrositeComponent = isPro ? MicrositePro : Microsite;
 
     if (editingMicrosite && viewMicrositeAST) {
       return (
@@ -921,7 +1216,7 @@ export default function ChatPage() {
         <div className="chat-v2-center">
           <header className={`chat-v2-header${msHeaderScrolled ? ' chat-v2-header--scrolled' : ''}`}>
             <div className="chat-v2-header-left">
-              <span className="chat-v2-ns">{name}</span>
+              <span className="chat-v2-ns">{viewMicrosite.displayName}</span>
             </div>
             <div className="chat-v2-header-right">
               {viewMicrositeAST && (
@@ -935,7 +1230,7 @@ export default function ChatPage() {
                   </button>
                   <button
                     className="chat-v2-clear-btn"
-                    onClick={() => setEditingMicrosite(true)}
+                    onClick={() => router.push(editorPath)}
                     aria-label="Edit microsite"
                   >
                     <Icon icon={Pencil} size="md" />
@@ -950,21 +1245,12 @@ export default function ChatPage() {
           <div style={{ flex: 1, overflow: 'auto' }}>
             <div ref={msSentinelRef} style={{ height: 0, flexShrink: 0 }} />
             {viewMicrositeLoading && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '100%',
-                  color: 'var(--muted)',
-                  fontSize: 14,
-                }}
-              >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
                 Loading…
               </div>
             )}
             {!viewMicrositeLoading && viewMicrositeAST && (
-              <Microsite
+              <MicrositeComponent
                 ref={micrositeRef}
                 ast={viewMicrositeAST}
                 mode="embedded"
@@ -979,6 +1265,7 @@ export default function ChatPage() {
   }
 
   return (
+    <BriefContext.Provider value={brief}>
     <div className="chat-v2">
       <style>{`
         @keyframes composer-ask-pulse {
@@ -1002,29 +1289,6 @@ export default function ChatPage() {
             <span className="chat-v2-ns">{namespace || 'default'}</span>
           </div>
           <div className="chat-v2-header-right">
-            <button
-              onClick={() => setBriefModalOpen(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                height: 30,
-                padding: '0 10px',
-                borderRadius: 6,
-                background: 'var(--panel-soft)',
-                border: '1px solid var(--border)',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 500,
-                color: 'var(--text)',
-                flexShrink: 0,
-              }}
-              title="Open Brief"
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: briefColor, flexShrink: 0 }} />
-              Brief
-              <span style={{ fontSize: 11, color: briefColor, fontWeight: 600 }}>{briefTier1Count}/3</span>
-            </button>
             {/* <button
               className={`chat-v2-panel-toggle${traceOpen ? ' active' : ''}`}
               onClick={() => setTraceOpen((v) => !v)}
@@ -1033,22 +1297,13 @@ export default function ChatPage() {
               ⚡
             </button> */}
             <ThemeToggle />
-            {panelHasContent && (
-              <button
-                className={`chat-v2-panel-toggle${panelVisible ? ' active' : ''}`}
-                onClick={() => setPanelVisible((v) => !v)}
-                title={panelVisible ? 'Hide panel' : 'Show panel'}
-              >
-                <Icon icon={panelVisible ? PanelRightClose : PanelRightOpen} size="sm" />
-              </button>
-            )}
             {namespace && (
               <button
                 className={`chat-v2-panel-toggle${collectionPanelOpen ? ' active' : ''}`}
                 onClick={() => setCollectionPanelOpen((v) => !v)}
-                title={collectionPanelOpen ? 'Hide collection progress' : 'Show collection progress'}
+                title={collectionPanelOpen ? 'Hide panel' : 'Show panel'}
               >
-                <Icon icon={Database} size="sm" />
+                <Icon icon={collectionPanelOpen ? PanelRightClose : PanelRightOpen} size="sm" />
               </button>
             )}
           </div>
@@ -1152,62 +1407,37 @@ export default function ChatPage() {
                                 const artifactNs =
                                   (m.metadata?.proposalNamespace as string | undefined) || namespace || 'default';
                                 const historyHref = `/proposal?artifact=${encodeURIComponent(artifactId)}&namespace=${encodeURIComponent(artifactNs)}&from=chat`;
+                                const historyVersion = parseProposalVersion(artifactId);
                                 return (
-                                  <div style={{ maxWidth: '33.33%' }}>
-                                    <span
-                                      style={{
-                                        display: 'block',
-                                        fontSize: 12,
-                                        color: 'var(--muted)',
-                                        marginBottom: 8,
-                                        fontWeight: 400,
-                                      }}
-                                    >
+                                  <div>
+                                    <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>
                                       Proposal generated
                                     </span>
-                                    <div
-                                      className="proposal-card"
-                                      style={{ background: 'var(--panel)', cursor: 'default' }}
-                                    >
-                                      <div className="proposal-card-header">
-                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                          <span className="proposal-card-name">{historyClient}</span>
-                                        </div>
-                                        <span
-                                          style={{
-                                            flexShrink: 0,
-                                            background: 'var(--primary-soft)',
-                                            color: 'var(--primary)',
-                                            borderRadius: 100,
-                                            fontSize: 10,
-                                            fontWeight: 600,
-                                            padding: '2px 8px',
-                                            letterSpacing: '0.06em',
-                                            lineHeight: 1.4,
-                                          }}
-                                        >
-                                          v1
-                                        </span>
+                                  <div className="proposal-card" style={{ width: 240 }}>
+                                    <div className="proposal-card-header">
+                                      <div style={{ minWidth: 0, flex: 1 }}>
+                                        <span className="proposal-card-name">{historyClient}</span>
                                       </div>
-                                      <div className="proposal-card-footer">
-                                        <div className="proposal-card-meta">
-                                          <span className="proposal-card-ns">{namespace || 'default'}</span>
-                                          <span className="badge--draft" style={{ fontSize: 10 }}>
-                                            DRAFT
-                                          </span>
-                                        </div>
-                                        <Link href={historyHref} className="proposal-card-view-btn">
-                                          View →
-                                        </Link>
-                                      </div>
+                                      <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                                        v{historyVersion}
+                                      </span>
                                     </div>
+                                    <div className="proposal-card-footer">
+                                      <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
+                                        {namespace || 'default'}
+                                      </span>
+                                      <Link href={historyHref} className="chat-v2-clear-btn" style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                                        View
+                                      </Link>
+                                    </div>
+                                  </div>
                                   </div>
                                 );
                               }
                               return (
                                 <>
                                   <div className="prose">
-                                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                                   </div>
                                   {m.confirmation && (
                                     <ConfirmationBlock
@@ -1258,69 +1488,41 @@ export default function ChatPage() {
                         hour: '2-digit',
                         minute: '2-digit',
                       });
+                      const genDocVersion = parseProposalVersion(
+                        generatedProposalHref
+                          ? (new URLSearchParams(generatedProposalHref.split('?')[1] ?? '').get('artifact') ?? '')
+                          : ''
+                      );
                       return (
                         <div
                           className="chat-v2-message chat-v2-message--assistant"
                           style={{ '--msg-i': messages.length } as React.CSSProperties}
                         >
                           <div className="chat-v2-avatar">AI</div>
-                          <div
-                            className="chat-v2-bubble"
-                            style={{
-                              padding: '12px 14px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 10,
-                              maxWidth: '33.33%',
-                            }}
-                          >
-                            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>
+                          <div className="chat-v2-bubble" style={{ padding: 0, background: 'none', border: 'none', boxShadow: 'none' }}>
+                            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>
                               Proposal generated
                             </span>
-                            <div
-                              className="proposal-card"
-                              style={{ background: 'var(--panel)', margin: 0, cursor: 'default' }}
-                            >
+                            <div className="proposal-card" style={{ width: 240 }}>
                               <div className="proposal-card-header">
                                 <div style={{ minWidth: 0, flex: 1 }}>
                                   <span className="proposal-card-name">{clientName}</span>
-                                  <span
-                                    style={{
-                                      display: 'block',
-                                      fontSize: 12,
-                                      color: 'var(--muted)',
-                                      marginTop: 3,
-                                      lineHeight: 1.4,
-                                    }}
-                                  >
-                                    {dateLabel}
-                                  </span>
+                                  {dateLabel && (
+                                    <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
+                                      {dateLabel}
+                                    </span>
+                                  )}
                                 </div>
-                                <span
-                                  style={{
-                                    flexShrink: 0,
-                                    background: 'var(--primary-soft)',
-                                    color: 'var(--primary)',
-                                    borderRadius: 100,
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    padding: '2px 8px',
-                                    letterSpacing: '0.06em',
-                                    lineHeight: 1.4,
-                                  }}
-                                >
-                                  v1
+                                <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                                  v{genDocVersion}
                                 </span>
                               </div>
                               <div className="proposal-card-footer">
-                                <div className="proposal-card-meta">
-                                  <span className="proposal-card-ns">{namespace || 'default'}</span>
-                                  <span className="badge--draft" style={{ fontSize: 10 }}>
-                                    DRAFT
-                                  </span>
-                                </div>
-                                <Link href={generatedProposalHref ?? '/proposal'} className="proposal-card-view-btn">
-                                  View →
+                                <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
+                                  {namespace || 'default'}
+                                </span>
+                                <Link href={generatedProposalHref ?? '/proposal'} className="chat-v2-clear-btn" style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                                  View
                                 </Link>
                               </div>
                             </div>
@@ -1330,45 +1532,68 @@ export default function ChatPage() {
                     })()}
 
                   {/* ── Proposal generation: progress bar + sections + done card ── */}
-                  {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool))) && (
+                  {(isProposalStream || (!isStreaming && (sections.length > 0 || hadGenerationTool)) || hasPendingGenerationHere) && (
                     <div
                       className="chat-v2-message chat-v2-message--assistant"
                       style={{ '--msg-i': messages.length } as React.CSSProperties}
                     >
                       <div className="chat-v2-avatar">AI</div>
                       <div className="chat-v2-bubble chat-v2-bubble--sections">
-                        {/* Progress bar — always shown while streaming */}
-                        {isStreaming && (
-                          <ProposalProgressBar
-                            phase={phase}
-                            toolEvents={toolEvents}
-                            sectionCount={sections.length}
-                            isStreaming={isStreaming}
-                          />
+                        {/* Generating card — shown while streaming or when returning to page mid-generation */}
+                        {(isStreaming && sections.length === 0) || (!isProposalStream && !isRevealing && hasPendingGenerationHere) ? (() => {
+                          const clientName = pendingGeneration?.client || (briefFields.clientName?.value as string) || namespace || 'New Proposal';
+                          const phaseLabel = phase
+                            ? phase.replace(/^Running:\s*(generate_?proposal|generate proposal)\s*$/i, 'Generating proposal')
+                                   .replace(/^Running:\s*/i, '')
+                                   .replace(/_/g, ' ')
+                            : 'Generating proposal…';
+                          return (
+                            <div className="proposal-card proposal-card--generating" style={{ maxWidth: 260 }}>
+                              <div className="proposal-card-header">
+                                <span className="proposal-card-name">{clientName}</span>
+                                <span className="proposal-card-gen-dots">
+                                  <span /><span /><span />
+                                </span>
+                              </div>
+                              {activeSkillName && (
+                                <div className="proposal-card-skill-label">
+                                  <span>Using skill</span>
+                                  <strong>{activeSkillName}</strong>
+                                </div>
+                              )}
+                              <div className="proposal-card-footer">
+                                <div className="proposal-card-meta">
+                                  <span className="proposal-card-ns">{namespace || 'default'}</span>
+                                  <span style={{ color: 'var(--border)' }}>·</span>
+                                  <span className="proposal-card-date" style={{ color: 'var(--primary)', fontWeight: 500 }}>
+                                    {phaseLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })() : null}
+
+                        {/* Inline streaming prose — sections revealed progressively */}
+                        {(isRevealing || (!isStreaming && sections.length > 0 && isRevealing)) && (
+                          <div className="proposal-inline-stream">
+                            {revealedSections.map((s, i) => {
+                              const isLast = i === revealedSections.length - 1;
+                              return (
+                                <div key={s.section} className="proposal-inline-section">
+                                  <p className="proposal-inline-heading">{s.section}</p>
+                                  <div className="proposal-inline-body">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{s.content}</ReactMarkdown>
+                                    {isLast && <span className="chat-cursor" />}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
 
-                        {/* In-progress — V2 path: tool event detected but no sections stream */}
-                        {isStreaming && generationTool !== null && sections.length === 0 && (
-                          <span
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              color: 'var(--muted)',
-                              fontSize: 16,
-                            }}
-                          >
-                            <span className="ppb-dots">
-                              <span />
-                              <span />
-                              <span />
-                            </span>
-                            {generationTool === 'generate_microsite' ? 'Generating microsite' : 'Generating proposal'}
-                          </span>
-                        )}
-
-                        {/* Section blocks — V1 path streams sections one by one */}
-                        {sections.length > 0 && (
+                        {/* Section blocks — shown once all sections are revealed */}
+                        {!isStreaming && !isRevealing && sections.length > 0 && (
                           <div className="proposal-sections-wrap">
                             {sections.map((s) => (
                               <ProposalSectionBlock
@@ -1380,44 +1605,11 @@ export default function ChatPage() {
                                 apiKey={apiKey}
                               />
                             ))}
-                            {/* After sections: in-progress card if type known, skeleton otherwise */}
-                            {isStreaming &&
-                              (generationTool !== null ? (
-                                <span
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    color: 'var(--muted)',
-                                    fontSize: 16,
-                                    marginTop: 8,
-                                  }}
-                                >
-                                  <span className="ppb-dots">
-                                    <span />
-                                    <span />
-                                    <span />
-                                  </span>
-                                  {generationTool === 'generate_microsite'
-                                    ? 'Generating microsite'
-                                    : 'Generating proposal'}
-                                </span>
-                              ) : (
-                                <div className="psb psb--skeleton">
-                                  <div className="psb-header">
-                                    <div className="psb-skeleton-title" />
-                                  </div>
-                                  <div className="psb-skeleton-lines">
-                                    <div className="psb-skeleton-line" />
-                                    <div className="psb-skeleton-line psb-skeleton-line--short" />
-                                  </div>
-                                </div>
-                              ))}
                           </div>
                         )}
 
                         {/* Completion card */}
-                        {!isStreaming &&
+                        {!isStreaming && !isRevealing &&
                           (sections.length > 0 || hadGenerationTool) &&
                           (() => {
                             if (doneActions?.openMicrositeUrl) {
@@ -1450,6 +1642,11 @@ export default function ChatPage() {
                               : fallbackArtifact
                                 ? `/proposal?artifact=${encodeURIComponent(fallbackArtifact)}&namespace=${encodeURIComponent(namespace || 'default')}&from=chat`
                                 : `/proposal?from=chat`;
+                            const completionVersion = parseProposalVersion(
+                              doneActions?.openProposalUrl
+                                ? (new URLSearchParams(doneActions.openProposalUrl.split('?')[1] ?? '').get('artifact') ?? fallbackArtifact)
+                                : fallbackArtifact
+                            );
                             const dateLabel = new Date().toLocaleDateString('en-US', {
                               month: 'short',
                               day: 'numeric',
@@ -1457,62 +1654,36 @@ export default function ChatPage() {
                               minute: '2-digit',
                             });
                             return (
-                              <div style={{ marginTop: 12, maxWidth: '33.33%' }}>
-                                <span
-                                  style={{
-                                    display: 'block',
-                                    fontSize: 12,
-                                    color: 'var(--muted)',
-                                    marginBottom: 8,
-                                    fontWeight: 400,
-                                  }}
-                                >
+                              <div style={{ marginTop: 12 }}>
+                                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 400 }}>
                                   Proposal generated
                                 </span>
-                                <div
-                                  className="proposal-card"
-                                  style={{ background: 'var(--panel-soft)', cursor: 'default' }}
-                                >
+                                <div className="proposal-card" style={{ width: 240 }}>
                                   <div className="proposal-card-header">
                                     <div style={{ minWidth: 0, flex: 1 }}>
                                       <span className="proposal-card-name">{clientName}</span>
-                                      <span
-                                        style={{
-                                          display: 'block',
-                                          fontSize: 12,
-                                          color: 'var(--muted)',
-                                          marginTop: 3,
-                                          lineHeight: 1.4,
-                                        }}
-                                      >
-                                        {dateLabel}
-                                      </span>
+                                      {dateLabel && (
+                                        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
+                                          {dateLabel}
+                                        </span>
+                                      )}
                                     </div>
-                                    <span
-                                      style={{
-                                        flexShrink: 0,
-                                        background: 'var(--primary-soft)',
-                                        color: 'var(--primary)',
-                                        borderRadius: 100,
-                                        fontSize: 10,
-                                        fontWeight: 600,
-                                        padding: '2px 8px',
-                                        letterSpacing: '0.06em',
-                                        lineHeight: 1.4,
-                                      }}
-                                    >
-                                      v1
+                                    <span style={{ flexShrink: 0, alignSelf: 'flex-start', display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
+                                      v{completionVersion}
                                     </span>
                                   </div>
-                                  <div className="proposal-card-footer">
-                                    <div className="proposal-card-meta">
-                                      <span className="proposal-card-ns">{namespace || 'default'}</span>
-                                      <span className="badge--draft" style={{ fontSize: 10 }}>
-                                        DRAFT
-                                      </span>
+                                  {activeSkillName && (
+                                    <div className="proposal-card-skill-label">
+                                      <span>Generated using</span>
+                                      <strong>{activeSkillName}</strong>
                                     </div>
-                                    <Link href={proposalHref} className="proposal-card-view-btn">
-                                      View →
+                                  )}
+                                  <div className="proposal-card-footer">
+                                    <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
+                                      {namespace || 'default'}
+                                    </span>
+                                    <Link href={proposalHref} className="chat-v2-clear-btn" style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                                      View
                                     </Link>
                                   </div>
                                 </div>
@@ -1523,14 +1694,13 @@ export default function ChatPage() {
                     </div>
                   )}
 
-                  {/* ── Thinking dots — non-proposal streams waiting for first chunk ── */}
-                  {isStreaming && !chunks && !isProposalStream && (
+                  {/* ── Status label — non-proposal streams waiting for first chunk ── */}
+                  {(isStreaming || showStatusHold) && !chunks && !isProposalStream && (
                     <div className="chat-v2-message chat-v2-message--assistant">
                       <div className="chat-v2-avatar">AI</div>
                       <div className="chat-v2-bubble chat-v2-bubble--thinking">
-                        <span className="chat-thinking-dot" />
-                        <span className="chat-thinking-dot" />
-                        <span className="chat-thinking-dot" />
+                        <span className="status-glyph" aria-hidden="true" />
+                        <em className="chat-status-text">{displayedPhase}</em>
                       </div>
                     </div>
                   )}
@@ -1550,7 +1720,7 @@ export default function ChatPage() {
                           </>
                         ) : (
                           <div className="prose">
-                            <ReactMarkdown>{displayed}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayed}</ReactMarkdown>
                           </div>
                         )}
                         {!isStreaming && (doneActions?.openTemplatesUrl ?? doneActions?.viewTemplatesUrl) && (
@@ -1585,11 +1755,6 @@ export default function ChatPage() {
                     </div>
                   )}
 
-                  {/* Phase label while plain text tokens are already streaming */}
-                  {isStreaming && chunks && sections.length === 0 && phase && (
-                    <div className="chat-phase-strip">{phase}…</div>
-                  )}
-
                   {error && <div className="chat-v2-error">{error}</div>}
                 </>
               ) : null}
@@ -1612,8 +1777,168 @@ export default function ChatPage() {
             )}
 
             {/* Input composer */}
-            <div className="chat-v2-composer-wrap">
-              <div className={`chat-v2-composer${composerPulse ? ' chat-v2-composer--pulse' : ''}`}>
+            <div className={`chat-v2-composer-wrap${composerOpen ? ' chat-v2-composer-wrap--question' : ''}`}>
+              {/* Animated collapse/expand — always in DOM, transitions open/closed */}
+              <div className={`composer-context-wrap${composerOpen ? ' composer-context-wrap--open' : ''}`}>
+                <div className="composer-context-inner">
+                  {renderConfirmation?.kind === 'confirm_template' && (
+                    <div className="composer-question-context">
+                      <div className="composer-template-context-header">
+                        <p className="composer-question-heading" style={{ margin: 0 }}>Template Recommendation</p>
+                        <button type="button" className="composer-question-dismiss"
+                          onClick={() => setComposerConfirmation(null)} aria-label="Dismiss">
+                          <Icon icon={X} size="sm" />
+                        </button>
+                      </div>
+                      <div className="composer-template-card">
+                        <div className="composer-template-title-row">
+                          <span className="composer-template-name">{renderConfirmation.templateName}</span>
+                          <span className="composer-template-badge">{Math.round(renderConfirmation.confidence * 100)}% match</span>
+                        </div>
+                        <p className="composer-template-reasoning">{renderConfirmation.reasoning}</p>
+                        <ul className="composer-template-section-list">
+                          {renderConfirmation.sections.map((s) => (
+                            <li key={s}>{s}</li>
+                          ))}
+                        </ul>
+                        <div className="composer-template-actions">
+                          <button type="button" className="composer-template-btn composer-template-btn--primary"
+                            onClick={() => sendConfirmation('yes')}>
+                            Use this template
+                          </button>
+                          <button type="button" className="composer-template-btn"
+                            onClick={() => sendConfirmation('suggest alternatives')}>
+                            Suggest alternatives
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {renderConfirmation?.kind === 'approve_generated_template' && (
+                    <div className="composer-question-context">
+                      <div className="composer-template-context-header">
+                        <p className="composer-question-heading" style={{ margin: 0 }}>Suggested Template</p>
+                        <button type="button" className="composer-question-dismiss"
+                          onClick={() => setComposerConfirmation(null)} aria-label="Dismiss">
+                          <Icon icon={X} size="sm" />
+                        </button>
+                      </div>
+                      <p className="composer-template-subtitle">
+                        Based on your brief, here's a proposal structure — approve to start building.
+                      </p>
+                      <div className="composer-template-card">
+                        <div className="composer-template-title-row">
+                          <span className="composer-template-name">{renderConfirmation.templateName}</span>
+                          <span className="composer-template-badge">{renderConfirmation.sections.length} sections</span>
+                        </div>
+                        <ul className="composer-template-section-list">
+                          {renderConfirmation.sections.map((s) => (
+                            <li key={s}>{s}</li>
+                          ))}
+                        </ul>
+                        <div className="composer-template-actions">
+                          <button type="button" className="composer-template-btn composer-template-btn--primary"
+                            onClick={() => sendConfirmation('approve')}>
+                            Approve &amp; build
+                          </button>
+                          <a href={renderConfirmation.viewLink} target="_blank" rel="noreferrer"
+                            className="composer-template-btn">
+                            Preview draft ↗
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {renderSkillPicker && (
+                    <div className="composer-question-context composer-skill-picker">
+                      <div className="composer-template-context-header">
+                        <p className="composer-question-heading" style={{ margin: 0 }}>Generate Proposal</p>
+                        <button type="button" className="composer-question-dismiss"
+                          onClick={() => setSkillPickerRequest(null)} aria-label="Dismiss">
+                          <Icon icon={X} size="sm" />
+                        </button>
+                      </div>
+                      <div className="composer-skill-strips">
+                        <p className="composer-skill-section-label">Apply a proposal skill</p>
+                        {availableSkills.map((skill) => (
+                          <button
+                            key={skill.slug}
+                            type="button"
+                            className="composer-skill-strip"
+                            onClick={() => submitWithSkill(renderSkillPicker.pendingMessage, skill.slug)}
+                          >
+                            <span className="composer-skill-strip-dot" />
+                            <span className="composer-skill-strip-name">{skill.displayName}</span>
+                            <span className="composer-skill-strip-arrow">→</span>
+                          </button>
+                        ))}
+                        <div className="composer-skill-divider" />
+                        <button
+                          type="button"
+                          className="composer-skill-strip composer-skill-strip--plain"
+                          onClick={() => submitWithSkill(renderSkillPicker.pendingMessage, null)}
+                        >
+                          <span className="composer-skill-strip-name">Generate without a skill</span>
+                          <span className="composer-skill-strip-arrow">→</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {showIngestNudge && !activeQuestion && !composerConfirmation && !skillPickerRequest && (
+                    <div className="composer-question-context">
+                      <div className="composer-question-card">
+                        <span className="composer-question-content">
+                          <span className="composer-question-text">Ingest client documents to generate a proposal</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="composer-question-dismiss"
+                          onClick={() => {
+                            setIngestChipDismissed(true);
+                            localStorage.setItem(`ingest-chip-dismissed-${namespace}`, '1');
+                          }}
+                          aria-label="Dismiss"
+                        >
+                          <Icon icon={X} size="sm" />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="composer-skill-strip"
+                        onClick={() => setShowUpload(true)}
+                      >
+                        <span className="composer-skill-strip-name">Upload documents</span>
+                        <span className="composer-skill-strip-arrow">→</span>
+                      </button>
+                    </div>
+                  )}
+                  {renderQuestion && (() => {
+                    const aqMatch = renderQuestion.question.match(/^(.*?)\s*\(e\.g\.,(.+)\)$/s);
+                    const aqMain = aqMatch ? aqMatch[1].trim() : renderQuestion.question;
+                    const aqHint = aqMatch ? `e.g.,${aqMatch[2]}` : '';
+                    return (
+                      <div className="composer-question-context">
+                        <p className="composer-question-heading">Before we begin</p>
+                        <div className="composer-question-card">
+                          <span className="composer-question-content">
+                            <span className="composer-question-text">{aqMain}</span>
+                            {aqHint && <span className="composer-question-hint">{aqHint}</span>}
+                          </span>
+                          <button
+                            type="button"
+                            className="composer-question-dismiss"
+                            onClick={() => setActiveQuestion(null)}
+                            aria-label="Dismiss question"
+                          >
+                            <Icon icon={X} size="sm" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div className={`chat-v2-composer${composerPulse ? ' chat-v2-composer--pulse' : ''}${composerOpen ? ' chat-v2-composer--question' : ''}`}>
                 <div ref={menuRef} style={{ position: 'relative' }}>
                   <button
                     type="button"
@@ -1727,7 +2052,7 @@ export default function ChatPage() {
                   ref={textareaRef}
                   className="chat-v2-input"
                   rows={1}
-                  placeholder="Ask AI to generate proposal, ingest documents, or analyse knowledge…"
+                  placeholder={activeQuestion ? 'Type your answer…' : composerConfirmation ? 'Or type a response…' : 'Ask AI to generate proposal, ingest documents, or analyse knowledge…'}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
@@ -1748,36 +2073,18 @@ export default function ChatPage() {
       </div>
 
       {/* Mobile backdrop — tap outside to close whichever panel is open */}
-      {((panelVisible && panelHasContent) || (collectionPanelOpen && !!namespace)) && (
+      {(collectionPanelOpen && !!namespace) && (
         <div
           className="chat-panel-backdrop"
-          onClick={() => { setPanelVisible(false); setCollectionPanelOpen(false); }}
+          onClick={() => setCollectionPanelOpen(false)}
         />
       )}
 
-      {/* ── Right panel: full height, not under header ── */}
-      <div
-        className="chat-side-panel"
-        style={{
-          width: panelVisible && panelHasContent ? 256 : 0,
-          flexShrink: 0,
-          overflow: 'hidden',
-          transition: 'width 0.22s ease',
-        }}
-      >
-        <NamespacePanel
-          namespace={namespace}
-          onMicrositeClick={setViewMicrosite}
-          fileRefreshTick={fileRefreshTick}
-          onHasContent={setPanelHasContent}
-        />
-      </div>
-
-      {/* ── Collection progress panel ── */}
+      {/* ── Unified client panel (tabs: Brief / Proposals / Microsites / Files / Memory) ── */}
       <div
         className="chat-collection-panel"
         style={{
-          width: collectionPanelOpen && !!namespace ? 304 : 0,
+          width: collectionPanelOpen && !!namespace ? 320 : 0,
           flexShrink: 0,
           overflow: 'hidden',
           transition: 'width 0.22s ease',
@@ -1785,24 +2092,21 @@ export default function ChatPage() {
         }}
       >
         {collectionPanelOpen && !!namespace && (
-          <div style={{ width: 304, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div
-              style={{
-                padding: '12px 16px',
-                borderBottom: '1px solid var(--border)',
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                flexShrink: 0,
+          <div style={{ width: 320, height: '100%', overflow: 'hidden' }}>
+            <ClientPanel
+              namespace={namespace}
+              collectionStatus={collectionStatus}
+              fileRefreshTick={fileRefreshTick}
+              onMicrositeClick={(info) => setViewMicrosite(info)}
+              onAskField={(question) => {
+                setTimeout(() => {
+                  textareaRef.current?.focus();
+                  setComposerPulse(true);
+                  setTimeout(() => setComposerPulse(false), 700);
+                  setTypeTarget(question);
+                }, 60);
               }}
-            >
-              Collection Progress
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              <CollectionPanel status={collectionStatus} loading={collectionLoading} />
-            </div>
+            />
           </div>
         )}
       </div>
@@ -2086,5 +2390,6 @@ export default function ChatPage() {
         </div>
       )}
     </div>
+    </BriefContext.Provider>
   );
 }

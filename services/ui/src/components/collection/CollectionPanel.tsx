@@ -65,17 +65,6 @@ export function CollectionPanel({ status, loading }: Props) {
 
   return (
     <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Completeness meter */}
-      <CompletenessSection status={status} />
-
-      {/* Base fields */}
-      <FieldsSection
-        title="Core fields"
-        filled={status.baseFieldsFilled}
-        missing={status.baseFieldsMissing}
-        labels={BASE_LABELS}
-      />
-
       {/* Industry section */}
       {status.industryDetected && (
         <IndustrySection status={status} />

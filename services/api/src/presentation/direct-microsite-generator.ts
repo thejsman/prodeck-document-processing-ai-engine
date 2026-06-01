@@ -62,6 +62,8 @@ CORE RULES:
 DESIGN RULES:
 - Use Google Fonts — pick distinctive fonts appropriate for the industry (never Inter, Roboto, Arial, Space Grotesk)
 - Use CSS custom properties (--color-*, --font-*, etc.) on :root for all colours and spacing
+- CRITICAL: Your :root block MUST define ALL of the following variable names exactly — never hardcode these values in selectors, always reference the variable:
+  --color-bg (page background), --color-surface (card/section background), --color-text (body text), --color-heading (heading text), --color-accent (primary brand color), --font-heading (heading font-family with fallback), --font-body (body font-family with fallback), --radius (border-radius for cards/buttons)
 - Sticky nav with smooth scroll to each section; highlight active section on scroll
 - Scroll-reveal animations using IntersectionObserver (vanilla JS, no external libraries)
 - All sections must have: eyebrow label + headline + body paragraph + visual element (cards / list / table / timeline)

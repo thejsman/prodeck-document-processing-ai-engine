@@ -358,6 +358,7 @@ export class ClientMemoryService {
     content: string,
     category: ClientKnowledgeEntry['category'],
     confidence = 1.0,
+    sourceDocument?: string,
   ): Promise<ClientKnowledgeEntry> {
     const memory = await this.get(clientSlug);
     if (!memory) throw new Error(`Client "${clientSlug}" not found`);
@@ -369,6 +370,7 @@ export class ClientMemoryService {
       category,
       confidence,
       sourceEngagements: [],
+      ...(sourceDocument ? { sourceDocument } : {}),
       firstSeenAt: now,
       lastConfirmedAt: now,
     };
@@ -376,6 +378,24 @@ export class ClientMemoryService {
     memory.version += 1;
     await this.save(clientSlug, memory);
     return entry;
+  }
+
+  async removeKnowledgeByDocument(
+    clientSlug: string,
+    fileName: string,
+  ): Promise<number> {
+    const memory = await this.get(clientSlug);
+    if (!memory) return 0;
+    const before = memory.knowledge.length;
+    memory.knowledge = memory.knowledge.filter(
+      (k) => k.sourceDocument !== fileName,
+    );
+    const removed = before - memory.knowledge.length;
+    if (removed > 0) {
+      memory.version += 1;
+      await this.save(clientSlug, memory);
+    }
+    return removed;
   }
 
   async updateKnowledge(
@@ -448,6 +468,40 @@ export class ClientMemoryService {
     memory.stakeholders = memory.stakeholders.filter((s) => s.id !== stakeholderId);
     memory.version += 1;
     await this.save(clientSlug, memory);
+  }
+
+  async upsertStakeholder(
+    clientSlug: string,
+    stakeholder: Omit<StakeholderRecord, 'id' | 'sourceEngagements' | 'lastSeenAt'>,
+  ): Promise<StakeholderRecord> {
+    const memory = await this.get(clientSlug);
+    if (!memory) throw new Error(`Client "${clientSlug}" not found`);
+
+    const now = new Date().toISOString();
+    const existing = memory.stakeholders.find(
+      (s) => s.name.toLowerCase() === stakeholder.name.toLowerCase(),
+    );
+
+    if (existing) {
+      existing.role = stakeholder.role;
+      if (stakeholder.email) existing.email = stakeholder.email;
+      if (stakeholder.notes) existing.notes = stakeholder.notes;
+      existing.lastSeenAt = now;
+      memory.version += 1;
+      await this.save(clientSlug, memory);
+      return existing;
+    }
+
+    const record: StakeholderRecord = {
+      id: crypto.randomUUID(),
+      ...stakeholder,
+      sourceEngagements: [],
+      lastSeenAt: now,
+    };
+    memory.stakeholders.push(record);
+    memory.version += 1;
+    await this.save(clientSlug, memory);
+    return record;
   }
 }
 

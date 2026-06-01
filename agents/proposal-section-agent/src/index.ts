@@ -40,9 +40,11 @@ interface RewriterResult {
   type?: string;
 }
 
+const PYTHON_BIN = process.env['PYTHON'] ?? 'python3';
+
 function spawnSectionRewriter(payload: RewriterPayload): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn('python3', [SCRIPT_PATH], {
+    const child = spawn(PYTHON_BIN, [SCRIPT_PATH], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

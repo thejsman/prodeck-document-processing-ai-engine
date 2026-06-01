@@ -568,13 +568,14 @@ export function buildInterruptContext(
 export async function buildLLMContext(
   workdir: string,
   namespace: string,
+  apiKeyHash: string,
   chatSessionId: string,
   workflowState: string,
   proposalRequirements: Record<string, string>,
   generateFn?: GenerateFn,
   interruptDetected = false,
 ): Promise<LLMContext> {
-  const history = await loadHistory(workdir, namespace, chatSessionId);
+  const history = await loadHistory(workdir, namespace, apiKeyHash, chatSessionId);
   const messages = history?.messages ?? [];
 
   // Step 1 — conversation window

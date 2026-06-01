@@ -75,6 +75,7 @@ export async function clientDataRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({
         ...status,
         summary,
+        documentCount: (context?.sources ?? []).length,
         nextQuestions: nextQuestions.map(f => ({
           key: f.key,
           label: f.label,
