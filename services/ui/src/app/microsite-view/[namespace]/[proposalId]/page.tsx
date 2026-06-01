@@ -180,7 +180,9 @@ export default function MicrositeViewPage() {
   ) : null;
 
   // ── Toolbar (view toggle + generate fast button) ───────────────────────────
-  const toolbar = (
+  // Hidden entirely for v2 microsites — no actions apply.
+  const isV2 = ast?.generationMode === 'v2';
+  const toolbar = isV2 ? null : (
     <div style={{
       position: 'fixed', top: 12, right: 16, zIndex: 99999,
       display: 'flex', alignItems: 'center', gap: 6,
