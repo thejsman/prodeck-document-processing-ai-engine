@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { motion, useInView, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Pencil, RefreshCw } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { createPortal } from 'react-dom';
-import type { LayoutAST, PluginTokens } from '../../types/presentation';
+import type { LayoutAST, MotionLevel, PluginTokens } from '../../types/presentation';
+import { MotionRuntime } from './motion/MotionRuntime';
 import { getPlugin, resolveTokens } from '../../lib/presentation/pluginRegistry';
 import { MicrositeNav } from './MicrositeNav';
 import { HeroSection } from './sections/HeroSection';
@@ -39,7 +41,7 @@ import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
 import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
-import { MicrositeEffectsContext } from './shared/MicrositeEffectsContext';
+import { MicrositeEffectsContext, useMotionLevel } from './shared/MicrositeEffectsContext';
 import { AstSectionDivider } from './shared/AstSectionDivider';
 import { DecorationLayer } from './shared/DecorationLayer';
 import { Footer } from './shared/Footer';
@@ -114,59 +116,46 @@ function AnimatedSection({
   isStreaming?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const motionLevel = useMotionLevel();
 
   // Freeze isStreaming at mount — parent re-renders change the prop to false after hero arrives
   const wasStreamingRef = useRef(isStreaming ?? false);
   const wasStreaming = wasStreamingRef.current;
 
-  const [visible, setVisible] = useState(wasStreaming ? true : index === 0);
-
-  useEffect(() => {
-    // During streaming: sections appear instantly — the auto-scroll provides the
-    // natural reveal effect without jarring slide/fade animations (ChatGPT/Claude style).
-    if (wasStreaming) return;
-    if (index === 0) return;
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          obs.unobserve(el);
-        }
-      },
-      { threshold: 0.08 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — all refs captured at mount
+  const isInView = useInView(ref, { once: true, margin: '-8% 0px' });
 
   const effect = behavior?.motion !== 'instant' ? (behavior?.scrollEffects ?? 'none') : 'none';
-  const delay = Math.min(index * 0.04, 0.24);
+  const delay = Math.min(index * 0.04, 0.2);
 
-  const spring = 'cubic-bezier(0.34, 1.15, 0.64, 1)';
+  // During streaming or no-animation: plain div, no Framer involvement
+  if (wasStreaming || motionLevel === 'none' || effect === 'none') {
+    return (
+      <div
+        ref={ref}
+        id={id}
+        data-section-id={id}
+        style={{ containerType: 'inline-size' }}
+      >
+        {children}
+      </div>
+    );
+  }
 
-  // Streaming sections: no inline animation styles at all — prevents any flicker
-  // and lets the typewriter + auto-scroll do the visual storytelling.
-  const animStyle: React.CSSProperties =
-    wasStreaming || (effect === 'none' && !wasStreaming)
-      ? {}
-      : {
-          opacity: visible ? 1 : 0,
-          transform: visible ? 'none' : 'translateY(16px)',
-          transition: visible ? `opacity 0.52s ${spring} ${delay}s, transform 0.52s ${spring} ${delay}s` : 'none',
-        };
+  const duration = (motionLevel === 'cinematic' || motionLevel === 'immersive') ? 0.85 : 0.6;
+  const yOffset = motionLevel === 'minimal' ? 10 : 26;
 
   return (
-    <div
+    <motion.div
       ref={ref}
       id={id}
       data-section-id={id}
-      style={{ ...animStyle, containerType: 'inline-size' }}
+      style={{ containerType: 'inline-size' }}
+      initial={{ opacity: 0, y: yOffset }}
+      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: yOffset }}
+      transition={{ duration, ease: [0.22, 1, 0.36, 1], delay }}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }
 
@@ -1038,13 +1027,57 @@ export const Microsite = React.forwardRef<MicrositeHandle, Props>(function Micro
         .map((f) => `<link rel="stylesheet" href="${f.url}">`)
         .join('\n');
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
+      const downloadMotionLevel = ast.behavior?.motionLevel ?? 'standard';
+      const gsapScripts = (downloadMotionLevel === 'cinematic' || downloadMotionLevel === 'immersive')
+        ? `\n<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<script>
+(function(){
+  if(typeof gsap==='undefined')return;
+  gsap.registerPlugin(ScrollTrigger);
+  function parseCounter(t){var m=t.trim().match(/^([^0-9\\-]*)(-?[\\d,]+\\.?\\d*)(.*)\$/);return m?{p:m[1],n:parseFloat(m[2].replace(/,/g,'')),s:m[3]}:{p:'',n:0,s:''};}
+  function initMotion(){
+    document.querySelectorAll('[data-motion="fade-up"]').forEach(function(el){
+      var d=parseInt(el.dataset.motionDelay||'0',10)/1000;
+      gsap.from(el,{opacity:0,y:32,duration:0.7,ease:'power2.out',delay:d,scrollTrigger:{trigger:el,start:'top 87%',toggleActions:'play none none none'}});
+    });
+    document.querySelectorAll('[data-motion="scale-in"]').forEach(function(el){
+      gsap.from(el,{scale:0.88,opacity:0,duration:0.7,ease:'power2.out',scrollTrigger:{trigger:el,start:'top 87%',toggleActions:'play none none none'}});
+    });
+    document.querySelectorAll('[data-motion="stagger"]').forEach(function(el){
+      var ch=Array.from(el.children);if(!ch.length)return;
+      gsap.from(ch,{opacity:0,y:24,stagger:0.1,duration:0.6,ease:'power2.out',scrollTrigger:{trigger:el,start:'top 85%',toggleActions:'play none none none'}});
+    });
+    document.querySelectorAll('[data-motion="counter"]').forEach(function(el){
+      var r=parseCounter(el.textContent||'');if(!r.n)return;
+      var obj={val:0};
+      gsap.to(obj,{val:r.n,duration:1.8,ease:'power2.out',onUpdate:function(){el.textContent=r.p+Math.round(obj.val).toLocaleString()+r.s;},scrollTrigger:{trigger:el,start:'top 87%',toggleActions:'play none none none',once:true}});
+    });
+    document.querySelectorAll('[data-motion="parallax"]').forEach(function(el){
+      var sp=parseFloat(el.dataset.motionSpeed||'0.35');
+      gsap.to(el,{yPercent:-20*sp*10,ease:'none',scrollTrigger:{trigger:el.closest('section')||el,scrub:true,start:'top bottom',end:'bottom top'}});
+    });
+    document.querySelectorAll('[data-motion="tilt"]').forEach(function(el){
+      el.style.willChange='transform';el.style.transformStyle='preserve-3d';
+      el.addEventListener('pointermove',function(e){
+        var r=el.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-0.5,y=(e.clientY-r.top)/r.height-0.5;
+        gsap.to(el,{rotateY:x*16,rotateX:-y*16,transformPerspective:800,ease:'power1.out',duration:0.4});
+      });
+      el.addEventListener('pointerleave',function(){gsap.to(el,{rotateY:0,rotateX:0,duration:0.6,ease:'elastic.out(1,0.5)'});});
+    });
+    ScrollTrigger.refresh();
+  }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',initMotion);}else{initMotion();}
+})();
+</script>`
+        : '';
       const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
-${fontLinks}
+${fontLinks}${gsapScripts}
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:${tokens.bg};color:${tokens.text};overflow-x:hidden}
@@ -1141,8 +1174,9 @@ ${el.innerHTML}
     () => ({
       hoverStyle: (ast.hoverStyle ?? 'lift') as 'none' | 'subtle' | 'lift' | 'glow' | 'tilt',
       sectionAnimations: ast.sectionAnimations ?? {},
+      motionLevel: (ast.behavior?.motionLevel ?? 'standard') as MotionLevel,
     }),
-    [ast.hoverStyle, ast.sectionAnimations],
+    [ast.hoverStyle, ast.sectionAnimations, ast.behavior?.motionLevel],
   );
 
   // In embedded mode the caller supplies its own scroll container — use a plain div.
@@ -1336,6 +1370,7 @@ ${el.innerHTML}
 
           {/* SectionStreamingContext=true disables Reveal slide animations inside sections during generation */}
           <SectionStreamingContext.Provider value={!!generating}>
+            <AnimatePresence mode="popLayout">
             {visibleSections.map((section, i) => (
               <React.Fragment key={section.id}>
                 <div
@@ -1400,6 +1435,7 @@ ${el.innerHTML}
                 {editCtx && <AddSectionButton afterIndex={i} />}
               </React.Fragment>
             ))}
+            </AnimatePresence>
             {generating &&
               mounted &&
               createPortal(
@@ -1454,6 +1490,13 @@ ${el.innerHTML}
                 document.body,
               )}
           </SectionStreamingContext.Provider>
+
+          <MotionRuntime
+            motionLevel={(ast.behavior?.motionLevel ?? 'standard') as MotionLevel}
+            containerRef={contentRef}
+            scrollContainerId={isEmbedded ? EMBEDDED_SCROLL_CONTAINER_ID : SCROLL_CONTAINER_ID}
+            disabled={!!generating}
+          />
 
           <Footer
             tokens={tokens}

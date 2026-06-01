@@ -1,3 +1,6 @@
+// ── Motion level ──────────────────────────────────────────────────────────────
+export type MotionLevel = 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive';
+
 // ── Section types ─────────────────────────────────────────────────────────────
 
 export type SectionType =
@@ -552,6 +555,7 @@ export interface LayoutAST {
     motion?: 'instant' | 'deliberate' | 'expressive';
     parallax?: boolean;
     scrollEffects?: 'none' | 'fade-in' | 'slide-up';
+    motionLevel?: MotionLevel;
   };
   /** Per-section animation overrides keyed by section.id */
   sectionAnimations?: Record<string, 'fadeUp' | 'slideLeft' | 'scale' | 'staggerWave' | 'counterRollup' | 'none'>;

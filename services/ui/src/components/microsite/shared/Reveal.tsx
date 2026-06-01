@@ -1,6 +1,7 @@
 'use client';
 
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext } from 'react';
+import { motion } from 'motion/react';
 import { SectionStreamingContext } from '../TypewriterSection';
 
 type RevealVariant = 'fadeUp' | 'fadeIn' | 'scale' | 'slideLeft' | 'slideRight' | 'staggerWave' | 'blurUp';
@@ -13,73 +14,51 @@ interface RevealProps {
   variant?: RevealVariant;
 }
 
-const HIDDEN: Record<RevealVariant, React.CSSProperties> = {
-  fadeUp:      { opacity: 0, transform: 'translateY(28px)' },
-  fadeIn:      { opacity: 0, transform: 'none' },
-  scale:       { opacity: 0, transform: 'scale(0.94)' },
-  slideLeft:   { opacity: 0, transform: 'translateX(-28px)' },
-  slideRight:  { opacity: 0, transform: 'translateX(28px)' },
-  staggerWave: { opacity: 0, transform: 'translateY(20px) scale(0.96)' },
-  blurUp:      { opacity: 0, transform: 'translateY(18px)', filter: 'blur(6px)' },
+type MotionTarget = Record<string, number | string>;
+
+const HIDDEN: Record<RevealVariant, MotionTarget> = {
+  fadeUp:      { opacity: 0, y: 24 },
+  fadeIn:      { opacity: 0 },
+  scale:       { opacity: 0, scale: 0.94 },
+  slideLeft:   { opacity: 0, x: -28 },
+  slideRight:  { opacity: 0, x: 28 },
+  staggerWave: { opacity: 0, y: 20, scale: 0.96 },
+  blurUp:      { opacity: 0, y: 18, filter: 'blur(6px)' },
 };
 
-const VISIBLE: Record<RevealVariant, React.CSSProperties> = {
-  fadeUp:      { opacity: 1, transform: 'translateY(0)' },
-  fadeIn:      { opacity: 1, transform: 'none' },
-  scale:       { opacity: 1, transform: 'scale(1)' },
-  slideLeft:   { opacity: 1, transform: 'translateX(0)' },
-  slideRight:  { opacity: 1, transform: 'translateX(0)' },
-  staggerWave: { opacity: 1, transform: 'translateY(0) scale(1)' },
-  blurUp:      { opacity: 1, transform: 'translateY(0)', filter: 'blur(0px)' },
+const VISIBLE: Record<RevealVariant, MotionTarget> = {
+  fadeUp:      { opacity: 1, y: 0 },
+  fadeIn:      { opacity: 1 },
+  scale:       { opacity: 1, scale: 1 },
+  slideLeft:   { opacity: 1, x: 0 },
+  slideRight:  { opacity: 1, x: 0 },
+  staggerWave: { opacity: 1, y: 0, scale: 1 },
+  blurUp:      { opacity: 1, y: 0, filter: 'blur(0px)' },
 };
 
 export function Reveal({ children, delay = 0, style, className, variant = 'fadeUp' }: RevealProps) {
-  // During streaming generation, skip ALL reveal animations — sections appear instantly
-  // as the page auto-scrolls to them. This prevents the slideUp flash on newly-arrived sections.
   const isStreaming = useContext(SectionStreamingContext);
 
-  const ref = useRef<HTMLDivElement>(null);
-  // wasStreamingAtMount: frozen at mount so that sections that arrive during streaming
-  // are permanently animation-free even after generating stops.
-  const wasStreamingAtMount = useRef(isStreaming);
-  const [visible, setVisible] = useState(!wasStreamingAtMount.current ? false : true);
-
-  useEffect(() => {
-    // Skip observer entirely if streaming was active when this mounted
-    if (wasStreamingAtMount.current) return;
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setVisible(true); observer.disconnect(); } },
-      { threshold: 0.1 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — wasStreamingAtMount is frozen
-
-  // During streaming: return children with NO inline opacity/transform styles at all.
-  // This is the only bulletproof approach — zero risk of animation styles leaking through.
-  if (isStreaming || wasStreamingAtMount.current) {
+  // During streaming: no animation — sections appear instantly as auto-scroll reveals them
+  if (isStreaming) {
     return (
-      <div ref={ref} data-reveal="1" className={className} style={style}>
+      <div data-reveal="1" className={className} style={style}>
         {children}
       </div>
     );
   }
 
-  const state = visible ? VISIBLE[variant] : HIDDEN[variant];
-  const filterTransition = variant === 'blurUp' ? `, filter 0.7s cubic-bezier(0.22,1,0.36,1) ${delay}ms` : '';
-  const transition = `opacity 0.7s cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 0.7s cubic-bezier(0.22,1,0.36,1) ${delay}ms${filterTransition}`;
-
   return (
-    <div
-      ref={ref}
+    <motion.div
       data-reveal="1"
       className={className}
-      style={{ ...style, ...state, transition }}
+      style={style}
+      initial={HIDDEN[variant]}
+      whileInView={VISIBLE[variant]}
+      viewport={{ once: true, margin: '-10% 0px' }}
+      transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1], delay: delay / 1000 }}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }

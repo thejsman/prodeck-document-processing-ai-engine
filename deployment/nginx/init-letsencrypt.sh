@@ -52,17 +52,21 @@ docker run --rm \
   -v "${PROJECT_NAME}_letsencrypt_certs:/etc/letsencrypt" \
   alpine sh -c "rm -rf /etc/letsencrypt/live/${DOMAIN} /etc/letsencrypt/archive/${DOMAIN} /etc/letsencrypt/renewal/${DOMAIN}.conf"
 
-# ── Step 5: Run Certbot to get real certificate ──────────────────
-echo "==> Requesting Let's Encrypt certificate for ${DOMAIN}..."
+# ── Step 5: Run Certbot to get real wildcard certificate ─────────
+# Uses DNS-01 via Route 53 — required for *.${DOMAIN} wildcard coverage.
+# The certbot/dns-route53 container reads AWS credentials from env or EC2 instance role.
+# IAM policy needed: route53:ListHostedZones, route53:GetChange,
+#                    route53:ChangeResourceRecordSets on your hosted zone.
+echo "==> Requesting Let's Encrypt wildcard certificate for ${DOMAIN} and *.${DOMAIN}..."
 docker compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}" \
   --profile certbot run --rm certbot \
   certonly \
-  --webroot \
-  --webroot-path /var/www/certbot \
+  --dns-route53 \
   --email "${EMAIL}" \
   --agree-tos \
   --no-eff-email \
-  -d "${DOMAIN}"
+  -d "${DOMAIN}" \
+  -d "*.${DOMAIN}"
 
 # ── Step 6: Reload Nginx with real certificate ────────────────────
 echo "==> Reloading Nginx..."
