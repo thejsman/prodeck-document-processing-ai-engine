@@ -1097,47 +1097,143 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
+    // Shared context flags used by both video removal and video injection below
+    const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
+    const isElementEditCtx = instruction.startsWith('__ELEMENT_EDIT__:');
+
+    // ── Deterministic video-background removal ────────────────────────────────
+    // Match only against the user-typed part of the instruction (after last ||)
+    // to avoid false positives from outerHtml content in __ELEMENT_EDIT__ payloads.
+    const isRemoveVideoIntent =
+      /\b(?:remove|delete|clear|hide)\b[\s\S]{0,40}\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b/i.test(userPart) ||
+      /\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b[\s\S]{0,40}\b(?:remove|delete|clear|hide)\b/i.test(userPart);
+    if (isRemoveVideoIntent) {
+      // Remove ALL iframe types — Vimeo, YouTube, and any other video embed
+      // [\s\S]*? handles both same-line and multi-line iframes
+      function removeVideoIframes(src: string): string {
+        // Remove Vimeo/YouTube iframes (any format)
+        let out = src.replace(
+          /<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[\s\S]*?<\/iframe>/gi, '',
+        );
+        // Also remove self-closing variant
+        out = out.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*\/>/gi, '');
+        // Also remove any generic video-player iframe (poster frame, etc.) that's position:absolute
+        out = out.replace(
+          /<iframe\b[^>]*style="[^"]*position\s*:\s*absolute[^"]*"[^>]*(?:allow="autoplay|pointer-events:none)[^>]*[\s\S]*?<\/iframe>/gi, '',
+        );
+        return out;
+      }
+
+      // If element was selected, scope removal to its parent section for safety
+      const elementEditForRemoval = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|/s);
+      if (elementEditForRemoval) {
+        const cssPath = elementEditForRemoval[1].trim();
+        const elBounds = cssPath ? findByPath(html, cssPath) : null;
+        const sectionBounds = extractAllTopLevelSections(html);
+        const parentSec = elBounds
+          ? sectionBounds.find(s => s.start <= elBounds.start && elBounds.end <= s.end)
+          : null;
+        if (parentSec) {
+          const sectionHtml = html.slice(parentSec.start, parentSec.end);
+          const cleaned = removeVideoIframes(sectionHtml);
+          if (cleaned !== sectionHtml) {
+            const updatedHtml = html.slice(0, parentSec.start) + cleaned + html.slice(parentSec.end);
+            return saveValidatedEdit(updatedHtml, 'Video background removed');
+          }
+        }
+      }
+
+      // If user had an element selected, don't fall back to global removal —
+      // that would remove the wrong section's video. Return a scoped error.
+      if (isElementEditCtx) {
+        return reply.code(422).send({ error: 'No video found in the selected section to remove' });
+      }
+      // No element context — apply globally across the whole microsite
+      const withoutVideo = removeVideoIframes(html);
+      if (withoutVideo !== html) {
+        return saveValidatedEdit(withoutVideo, 'Video background removed');
+      }
+      return reply.code(422).send({
+        error: 'No video iframe found in this microsite to remove',
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Deterministic video-background injection (bypasses LLM entirely) ──────
     const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
     const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
-    if (vimeoIdMatch ?? youtubeIdMatch) {
+    // When the user has an element selected (__ELEMENT_EDIT__) and is NOT explicitly asking
+    // for a background video, let the __ELEMENT_EDIT__ handler deal with the URL so the video
+    // is placed where the user intended (below, beside, inside the section) rather than always
+    // being injected as a fullscreen background in the first <section>.
+    const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
+    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent)) {
       const isVimeo = !!vimeoIdMatch;
       const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
       const src = isVimeo
         ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
         : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
       // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
-      const iframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
+      const videoIframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
 
-      // Remove any existing video iframes in hero
+      // Remove any existing video iframes
       let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
 
-      // Strip background-image from hero photo/background elements so video shows through
+      // Strip background-image from photo/background elements so video shows through
       updatedHtml = updatedHtml.replace(
         /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
         '$1',
       );
 
-      // Inject iframe as first child of the first <section>, add position:relative;overflow:hidden
-      updatedHtml = updatedHtml.replace(/<section\b([^>]*)>/i, (_full, attrs: string) => {
+      // Helper: patch a <section> opening tag to add position:relative;overflow:hidden
+      // then prepend the video iframe as its first child.
+      function injectVideoIntoSection(src: string, secStart: number): string {
+        const tagOpenEnd = src.indexOf('>', secStart);
+        if (tagOpenEnd === -1) return src;
+        const rawAttrs = src.slice(secStart + '<section'.length, tagOpenEnd);
         const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-        const styleMatch = styleRx.exec(attrs);
+        const styleMatch = styleRx.exec(rawAttrs);
+        let patchedAttrs: string;
         if (styleMatch) {
           const cleaned = styleMatch[1]
             .replace(/\bposition\s*:[^;]+;?\s*/g, '')
             .replace(/\boverflow\s*:[^;]+;?\s*/g, '')
             .trim().replace(/;$/, '');
-          attrs = attrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
+          patchedAttrs = rawAttrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
         } else {
-          attrs = `${attrs} style="position:relative;overflow:hidden"`;
+          patchedAttrs = `${rawAttrs} style="position:relative;overflow:hidden"`;
         }
-        return `<section${attrs}>\n  ${iframe}`;
-      });
+        return src.slice(0, secStart) +
+          `<section${patchedAttrs}>\n  ${videoIframe}` +
+          src.slice(tagOpenEnd + 1);
+      }
+
+      // When the user selected a specific element, inject into its parent section.
+      // Otherwise fall back to the first <section>.
+      const elementEditForVideo = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|[\s\S]*?\|\|[\s\S]+$/s);
+      let injected = false;
+      if (elementEditForVideo) {
+        const cssPath = elementEditForVideo[1].trim();
+        const elBounds = cssPath ? findByPath(updatedHtml, cssPath) : null;
+        if (elBounds) {
+          const sections = extractAllTopLevelSections(updatedHtml);
+          const parentSec = sections.find(s => s.start <= elBounds.start && elBounds.end <= s.end);
+          if (parentSec) {
+            updatedHtml = injectVideoIntoSection(updatedHtml, parentSec.start);
+            injected = true;
+          }
+        }
+      }
+      if (!injected) {
+        // Default: inject into the first <section>
+        const firstSecIdx = updatedHtml.search(/<section\b/i);
+        if (firstSecIdx !== -1) {
+          updatedHtml = injectVideoIntoSection(updatedHtml, firstSecIdx);
+        }
+      }
 
       const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
-      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
-      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
-      return reply.send({ html: updatedHtml, summary });
+      return saveValidatedEdit(updatedHtml, summary);
     }
     // ── Deterministic logo injection (bypasses LLM entirely) ─────────────────
     const logoInjectMatch = instruction.match(/^__LOGO_INJECT__:([\s\S]+)$/);
@@ -1153,11 +1249,692 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       updatedHtml = /<body[^>]*>/i.test(updatedHtml)
         ? updatedHtml.replace(/(<body[^>]*>)/i, `$1${injection}`)
         : injection + updatedHtml;
-      const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
-      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
-      return reply.send({ html: updatedHtml, summary: 'Logo updated' });
+      return saveValidatedEdit(updatedHtml, 'Logo updated');
     }
     // ──────────────────────────────────────────────────────────────────────────
+
+    // ── Logo replacement — finds the actual logo <img> and replaces its src ───
+    // More surgical than __LOGO_INJECT__ (which adds a floating overlay).
+    // Tries four strategies: alt*=logo, class*=logo, first img in nav/header, img.logo.
+    const logoReplaceMatch = instruction.match(/^__LOGO_REPLACE__:(https?:\/\/.+)$/);
+    if (logoReplaceMatch) {
+      const newSrc = logoReplaceMatch[1].trim();
+      let updatedHtml = html;
+      let replaced   = false;
+
+      // Helper: replace src in a matched <img> tag regardless of attribute order
+      const swapSrc = (tag: string) => {
+        replaced = true;
+        return tag
+          .replace(/(\bsrc=["'])[^"']+(['"])/i, `$1${newSrc}$2`)
+          .replace(/(\bsrc=)[^\s>]+/i, `$1"${newSrc}"`);
+      };
+
+      // 1. <img alt="...logo..."> — most reliable signal
+      if (!replaced) {
+        updatedHtml = html.replace(
+          /<img\b[^>]*\balt="[^"]*logo[^"]*"[^>]*/gi,
+          (tag) => swapSrc(tag),
+        );
+      }
+
+      // 2. <img class="...logo...">
+      if (!replaced) {
+        updatedHtml = html.replace(
+          /<img\b[^>]*\bclass="[^"]*logo[^"]*"[^>]*/gi,
+          (tag) => swapSrc(tag),
+        );
+      }
+
+      // 3. First <img> inside <nav> or <header>
+      if (!replaced) {
+        updatedHtml = html.replace(
+          /(<(?:nav|header)\b[^>]*>[\s\S]*?)(<img\b[^>]*)/i,
+          (_, before, imgTag) => `${before}${swapSrc(imgTag)}`,
+        );
+      }
+
+      // 4. <img> with src that looks like a logo (contains "logo" in the URL)
+      if (!replaced) {
+        updatedHtml = html.replace(
+          /<img\b[^>]*\bsrc="[^"]*logo[^"]*"[^>]*/gi,
+          (tag) => swapSrc(tag),
+        );
+      }
+
+      if (updatedHtml !== html) {
+        return saveValidatedEdit(updatedHtml, 'Logo replaced');
+      }
+
+      // Fallback: use the existing overlay logo injection
+      // (adds a fixed-position logo div — covers the old logo visually)
+      const logoSrc = newSrc;
+      const logoDiv = `<div id="__brand-logo__" style="position:fixed;top:16px;left:20px;z-index:2147483647;pointer-events:none;"><img src="${logoSrc}" style="height:44px;width:auto;object-fit:contain;display:block;" alt="" /></div>`;
+      const hideScript = `<script>/*__logo-inject__*/(function(){function h(){var els=document.querySelectorAll('*');for(var i=0;i<els.length;i++){var t=(els[i].children.length===0?els[i].textContent||'':'');if(/prepared\\s*by/i.test(t)){var p=els[i].parentElement;(p&&p!==document.body?p:els[i]).style.display='none';}}var hdr=document.querySelector('header,nav,[class*="header"],[class*="navbar"]');if(hdr){var brand=hdr.querySelector('[class*="logo"],[class*="brand"],[class*="navbar-brand"]');if(brand){brand.style.visibility='hidden';}else{var first=hdr.firstElementChild;if(first&&first.id!=='__brand-logo__'){first.style.visibility='hidden';}}}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',h);}else{h();}})()</script>`;
+      let overlayHtml = html
+        .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+      overlayHtml = /<body[^>]*>/i.test(overlayHtml)
+        ? overlayHtml.replace(/(<body[^>]*>)/i, `$1${logoDiv}${hideScript}`)
+        : logoDiv + hideScript + overlayHtml;
+      return saveValidatedEdit(overlayHtml, 'Logo updated');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Deterministic background-image / img-src injection ───────────────────
+    const imageInjectMatch = instruction.match(/^__IMAGE_INJECT__:(https?:\/\/.+)$/);
+    if (imageInjectMatch) {
+      const newUrl = imageInjectMatch[1].trim();
+      let updatedHtml = html;
+
+      // 1. Replace any background-image: url(...) in style attributes and <style> blocks
+      updatedHtml = updatedHtml.replace(
+        /\bbackground-image\s*:\s*url\(\s*['"]?(https?:\/\/[^'")\s]+)['"]?\s*\)/gi,
+        () => `background-image: url('${newUrl}')`,
+      );
+
+      // 2. If unchanged, try data-bg="..." attribute (lazy-load libs)
+      if (updatedHtml === html) {
+        updatedHtml = html.replace(
+          /\bdata-bg=["'](https?:\/\/[^'"]+)["']/gi,
+          () => `data-bg="${newUrl}"`,
+        );
+      }
+
+      // 3. If still unchanged, replace first <img src="..."> in the document
+      if (updatedHtml === html) {
+        updatedHtml = html.replace(
+          /(<img\b[^>]+\bsrc=["'])(https?:\/\/[^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
+      }
+
+      if (updatedHtml !== html) {
+        return saveValidatedEdit(updatedHtml, 'Image updated');
+      }
+      // No match found — fall through to LLM with original instruction text
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Scoped image injection — replaces image in a specific element ─────────
+    // Triggered when user selects an element AND pastes an image URL.
+    // Format: __IMAGE_INJECT_SCOPED__:[cssPath]||[imageUrl]
+    // Tries to replace background-image / img src / data-bg within that element.
+    // Falls back to the element's parent section if the element itself has no image.
+    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|([\s\S]*))?$/s);
+    if (scopedImageMatch) {
+      const cssPath   = scopedImageMatch[1].trim();
+      const newUrl    = scopedImageMatch[2].trim();
+      const hintHtml  = (scopedImageMatch[3] ?? '').trim();
+
+      function injectImageInto(target: string): string {
+        // 1. CSS background-image (any URL format)
+        let out = target.replace(
+          /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
+          () => `background-image: url('${newUrl}')`,
+        );
+        if (out !== target) return out;
+        // 2. <img src="..."> — matches ANY existing src value (relative, data:, https://, etc.)
+        out = target.replace(
+          /(<img\b[^>]*\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
+        if (out !== target) return out;
+        // 3. data-bg lazy-load attribute
+        out = target.replace(/\bdata-bg=["'][^'"]*["']/gi, () => `data-bg="${newUrl}"`);
+        return out;
+      }
+
+      // Also directly patch src attribute on a void element (img/source/input type=image)
+      // when findByPath locates it — handles elements with relative or data: src values.
+      function patchSrcOnElement(target: string): string {
+        return target.replace(
+          /(\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
+      }
+
+      const bounds = findByPath(html, cssPath);
+      if (bounds) {
+        const elementHtml = html.slice(bounds.start, bounds.end);
+        const elTag = elementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        const VOID_TAGS = new Set(['img','source','input','video','audio']);
+
+        // For void/media elements, always replace src directly — don't fall through
+        if (VOID_TAGS.has(elTag)) {
+          const patched = patchSrcOnElement(elementHtml);
+          if (patched !== elementHtml) {
+            return saveValidatedEdit(html.slice(0, bounds.start) + patched + html.slice(bounds.end), 'Image updated');
+          }
+        }
+
+        const modifiedEl = injectImageInto(elementHtml);
+        if (modifiedEl !== elementHtml) {
+          const updatedHtml = html.slice(0, bounds.start) + modifiedEl + html.slice(bounds.end);
+          return saveValidatedEdit(updatedHtml, 'Image updated');
+        }
+        // Element itself has no image — try its parent section
+        const sectionBounds = extractAllTopLevelSections(html);
+        const parentSec = sectionBounds.find(s => s.start <= bounds.start && bounds.end <= s.end);
+        if (parentSec) {
+          const sectionHtml = html.slice(parentSec.start, parentSec.end);
+          const modifiedSec = injectImageInto(sectionHtml);
+          if (modifiedSec !== sectionHtml) {
+            const updatedHtml = html.slice(0, parentSec.start) + modifiedSec + html.slice(parentSec.end);
+            return saveValidatedEdit(updatedHtml, 'Image updated');
+          }
+        }
+      }
+      // findByPath failed — try content-based match using the hintHtml snippet
+      if (hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const hintTagEnd = html.indexOf('>', hintStart);
+          if (hintTagEnd !== -1) {
+            const opening = html.slice(hintStart, hintTagEnd + 1);
+            const patched = patchSrcOnElement(opening);
+            if (patched !== opening) {
+              const updatedHtml = html.slice(0, hintStart) + patched + html.slice(hintTagEnd + 1);
+              return saveValidatedEdit(updatedHtml, 'Image updated');
+            }
+            const modifiedEl = injectImageInto(opening);
+            if (modifiedEl !== opening) {
+              const updatedHtml = html.slice(0, hintStart) + modifiedEl + html.slice(hintTagEnd + 1);
+              return saveValidatedEdit(updatedHtml, 'Image updated');
+            }
+          }
+        }
+      }
+      return reply.code(422).send({ error: 'Could not locate the selected image in the document — try clicking the image again to re-select it' });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Position-based element removal (preferred — uses CSS path) ───────────
+    const removeByPathMatch = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+)$/);
+    if (removeByPathMatch) {
+      const cssPath = removeByPathMatch[1].trim();
+      const bounds  = findByPath(html, cssPath);
+      if (!bounds) {
+        return reply.code(422).send({ error: 'Element not found — click it again to retry' });
+      }
+      const updatedHtml = html.slice(0, bounds.start) + html.slice(bounds.end);
+      if (updatedHtml === html) {
+        return reply.code(422).send({ error: 'Element removal produced no change' });
+      }
+      return saveValidatedEdit(updatedHtml, 'Element removed');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Content-based element removal (fallback when no path available) ───────
+    const removeMatch = instruction.match(/^__REMOVE_ELEMENT__:([\s\S]+)$/);
+    if (removeMatch) {
+      const snippet = removeMatch[1];
+      const openTag = snippet.match(/^<(\w+)/)?.[1] ?? '';
+      let start = locateElement(html, snippet);
+      if (start === -1) {
+        return reply.code(422).send({ error: 'Could not locate that element — click it again and retry' });
+      }
+
+      // HTML void elements — never have a closing tag
+      const VOID_TAGS = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+
+      let updatedHtml = html;
+      if (openTag) {
+        const tagEnd = html.indexOf('>', start);
+        if (tagEnd === -1) {
+          return reply.code(422).send({ error: 'Malformed element — could not find closing > of opening tag' });
+        }
+        const isSelfClose = html[tagEnd - 1] === '/' || VOID_TAGS.has(openTag);
+        if (isSelfClose) {
+          // Void element: remove from start to end of its tag
+          updatedHtml = html.slice(0, start) + html.slice(tagEnd + 1);
+        } else {
+          // Walk depth-aware from right after the opening > to find the close tag
+          const closeTag = `</${openTag}>`;
+          let depth = 1, i = tagEnd + 1;
+          while (i < html.length && depth > 0) {
+            const nextOpen  = html.indexOf(`<${openTag}`, i);
+            const nextClose = html.indexOf(closeTag, i);
+            if (nextClose === -1) break;
+            if (nextOpen !== -1 && nextOpen < nextClose) {
+              depth++; i = nextOpen + openTag.length + 1;
+            } else {
+              depth--; i = nextClose + closeTag.length;
+            }
+          }
+          updatedHtml = html.slice(0, start) + html.slice(i);
+        }
+      } else {
+        updatedHtml = html.replace(snippet, '');
+      }
+
+      if (updatedHtml !== html) {
+        return saveValidatedEdit(updatedHtml, 'Element removed');
+      }
+      return reply.code(422).send({ error: 'Element removal produced no change — try rephrasing' });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── HTML integrity validation ─────────────────────────────────────────────
+    // Run before EVERY write to disk — catches truncation, structure destruction,
+    // CSS token removal, and oversized deletions caused by bad LLM output.
+    function validateHtml(updated: string): { ok: true } | { ok: false; reason: string } {
+      // 1. Must have closing HTML tags — catches truncated LLM responses
+      if (!updated.includes('</body>') && !updated.includes('</html>')) {
+        return { ok: false, reason: 'Result HTML is truncated (missing </body> — edit produced incomplete output)' };
+      }
+
+      // 2. Length guard — result must be at least 35% of the original
+      //    Prevents edits that silently delete most of the microsite
+      if (updated.length < html.length * 0.35) {
+        return { ok: false, reason: 'Edit removed too much content — result is less than 35% of the original size' };
+      }
+
+      // 3. Section structure — must retain at least one <section if original had any
+      const origSections = (html.match(/<section[\s>]/gi) ?? []).length;
+      const newSections  = (updated.match(/<section[\s>]/gi) ?? []).length;
+      if (origSections > 1 && newSections === 0) {
+        return { ok: false, reason: 'All sections were removed — microsite structure was destroyed' };
+      }
+      if (origSections > 2 && newSections < Math.ceil(origSections * 0.4)) {
+        return { ok: false, reason: `Too many sections removed (had ${origSections}, result has ${newSections})` };
+      }
+
+      // 4. CSS design tokens — `:root` block must survive if it existed
+      if (html.includes(':root') && !updated.includes(':root')) {
+        return { ok: false, reason: 'CSS design tokens were removed — microsite styling will break' };
+      }
+
+      // 5. Unclosed <script> tags would break the page
+      const scriptOpens  = (updated.match(/<script\b/gi) ?? []).length;
+      const scriptCloses = (updated.match(/<\/script>/gi) ?? []).length;
+      if (scriptOpens > scriptCloses + 1) {
+        return { ok: false, reason: 'Result contains unclosed <script> tags' };
+      }
+
+      return { ok: true };
+    }
+
+    // Validated write — rejects invalid HTML before touching disk
+    async function saveValidatedEdit(
+      updatedHtml: string,
+      editSummary: string,
+      extras: Record<string, unknown> = {},
+    ): Promise<ReturnType<typeof reply.send>> {
+      const check = validateHtml(updatedHtml);
+      if (!check.ok) {
+        return reply.code(422).send({ error: `Edit validation failed: ${check.reason}` });
+      }
+      const updatedAst = {
+        ...ast,
+        sections: [
+          { ...(sections![0] as object), customHtml: updatedHtml, previousHtml: html },
+          ...((sections ?? []).slice(1)),
+        ],
+      };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      return reply.send({ html: updatedHtml, summary: editSummary, ...extras });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Element-scoped replacement helper ────────────────────────────────────
+    function replaceElement(fullHtml: string, elementHtml: string, replacement: string): string {
+      const key = elementHtml.slice(0, 300);
+      const idx = fullHtml.indexOf(key);
+      if (idx === -1) return fullHtml;
+      return fullHtml.slice(0, idx) + replacement + fullHtml.slice(idx + elementHtml.length);
+    }
+
+    // ── Position-based element finder ─────────────────────────────────────────
+    // Traverses the HTML string using a CSS path with nth-of-type indices.
+    // This is position-based, not content-based, so browser attribute normalization
+    // never causes mismatches. Returns exact { start, end } byte positions.
+    function findByPath(src: string, path: string): { start: number; end: number } | null {
+      const VOID = new Set(['area','base','br','col','embed','hr','img','input',
+                            'link','meta','param','source','track','wbr']);
+      const parts = path.trim().split(/\s*>\s*/);
+      let searchFrom = 0;
+      let searchTo   = src.length;
+
+      for (let i = 0; i < parts.length; i++) {
+        const part   = parts[i].trim();
+        const tag    = part.match(/^(\w+)/)?.[1];
+        if (!tag) return null;
+
+        const idVal  = part.match(/#([\w-]+)/)?.[1] ?? null;
+        const clsVal = part.match(/\.([\w-]+)/)?.[1] ?? null;
+        const nth    = parseInt(part.match(/:nth-of-type\((\d+)\)/)?.[1] ?? '1', 10);
+        const isLast = i === parts.length - 1;
+
+        let count = 0, pos = searchFrom, foundStart = -1, foundEnd = -1;
+
+        while (pos < searchTo) {
+          const ti = src.indexOf(`<${tag}`, pos);
+          if (ti === -1 || ti >= searchTo) break;
+          const te = src.indexOf('>', ti);
+          if (te === -1) break;
+          const opening = src.slice(ti, te + 1);
+
+          const mId  = !idVal  || opening.includes(`id="${idVal}"`);
+          const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
+                                    .split(/\s+/).includes(clsVal);
+
+          if (mId && mCls) {
+            count++;
+            if (count === nth) {
+              foundStart = ti;
+              if (VOID.has(tag) || opening.trimEnd().endsWith('/>')) {
+                foundEnd = te + 1;
+              } else {
+                const close = `</${tag}>`;
+                let depth = 1, j = te + 1;
+                while (j < src.length && depth > 0) {
+                  const nO = src.indexOf(`<${tag}`, j);
+                  const nC = src.indexOf(close, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + tag.length + 1; }
+                  else { depth--; j = nC + close.length; }
+                }
+                foundEnd = j;
+              }
+              break;
+            }
+          }
+          pos = ti + 1;
+        }
+
+        if (foundStart === -1) return null;
+        if (isLast) return { start: foundStart, end: foundEnd };
+
+        // Narrow scope to inside this element for the next path segment
+        const tagEnd = src.indexOf('>', foundStart);
+        searchFrom = tagEnd + 1;
+        searchTo   = foundEnd;
+      }
+
+      return null;
+    }
+
+    // ── Shared multi-strategy element locator ────────────────────────────────
+    // Browsers normalise attribute order and inline styles in outerHTML, so exact
+    // string match often fails. We try five increasingly-fuzzy strategies.
+    function locateElement(src: string, snippet: string): number {
+      const openTag = snippet.match(/^<(\w+)/)?.[1] ?? '';
+
+      // 1. Exact substring (fastest — works when HTML is unmodified)
+      let idx = src.indexOf(snippet.slice(0, 200));
+      if (idx !== -1) return idx;
+
+      // 2. id attribute (globally unique)
+      const idVal = snippet.match(/\bid="([^"]+)"/)?.[1];
+      if (idVal) {
+        idx = src.indexOf(`id="${idVal}"`);
+        if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
+      }
+
+      // 3. src URL for media elements (unique per page)
+      if (['img', 'video', 'source', 'iframe'].includes(openTag)) {
+        const srcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
+        if (srcVal) {
+          idx = src.indexOf(`src="${srcVal}"`);
+          if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
+        }
+      }
+
+      // 4. Most-specific class name — find first <openTag with this exact class token
+      const classStr = snippet.match(/\bclass="([^"]+)"/)?.[1] ?? '';
+      const classes  = classStr.trim().split(/\s+/).filter(Boolean);
+      // Prefer longer (more specific) class names, avoid single-letter / generic ones
+      const bestClass = classes.sort((a, b) => b.length - a.length).find(c => c.length > 2);
+      if (bestClass && openTag) {
+        let pos = 0;
+        while (pos < src.length) {
+          const ti = src.indexOf(`<${openTag}`, pos);
+          if (ti === -1) break;
+          const te = src.indexOf('>', ti);
+          if (te === -1) break;
+          const opening = src.slice(ti, te + 1);
+          const elClasses = (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '').split(/\s+/);
+          if (elClasses.includes(bestClass)) return ti;
+          pos = ti + 1;
+        }
+      }
+
+      // 5. Attribute-set match (order-insensitive, ignores style which browsers reformat)
+      if (openTag) {
+        const extractNonStyle = (tag: string) =>
+          [...tag.matchAll(/\b(?!style\b)(\w[\w-]*)="([^"]*)"/g)]
+            .map(m => `${m[1]}="${m[2]}"`)
+            .sort()
+            .join(' ');
+        const snippetAttrs = extractNonStyle(snippet.slice(0, 300));
+        let pos = 0;
+        while (pos < src.length) {
+          const ti = src.indexOf(`<${openTag}`, pos);
+          if (ti === -1) break;
+          const te = src.indexOf('>', ti);
+          if (te === -1) break;
+          if (extractNonStyle(src.slice(ti, te + 1)) === snippetAttrs) return ti;
+          pos = ti + 1;
+        }
+      }
+
+      return -1;
+    }
+
+    // ── HTML extractor — strips LLM preamble/postamble from any response ──────
+    // LLMs frequently prepend explanation text ("Looking at the element, I will…")
+    // before the code block. This strips everything outside the actual HTML.
+    function extractHtmlFromResponse(raw: string): string {
+      const s = raw.trim();
+
+      // Prefer content inside a ``` fence (even if it's not at the very start)
+      const fenceMatch = s.match(/```(?:html)?\r?\n?([\s\S]+?)\r?\n?```/);
+      if (fenceMatch) return fenceMatch[1].trim();
+
+      // No fence — strip any prose before the first HTML tag
+      const firstTag = s.indexOf('<');
+      if (firstTag === -1) return s; // no HTML at all, return as-is and let validation catch it
+      let result = s.slice(firstTag);
+
+      // Strip any prose after the last closing tag
+      const lastTag = result.lastIndexOf('>');
+      if (lastTag !== -1) result = result.slice(0, lastTag + 1);
+
+      return result.trim();
+    }
+
+    // ── Element-scoped LLM edit ───────────────────────────────────────────────
+    // Three-part format: __ELEMENT_EDIT__:[cssPath]||[hintOuterHtml]||[instruction]
+    //
+    // Uses position-based findByPath() first — never fails due to browser attribute
+    // normalization. Falls back to content-based locateElement() if no path provided.
+    // The LLM receives ONLY the selected element's exact stored HTML, so it cannot
+    // accidentally modify anything outside the clicked element's scope.
+    const elementEditMatch = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|([\s\S]*?)\|\|([\s\S]+)$/s);
+    if (elementEditMatch) {
+      const cssPath         = elementEditMatch[1].trim();
+      const hintHtml        = elementEditMatch[2];
+      const editInstruction = elementEditMatch[3];
+
+      // ── Locate the exact element position in stored HTML ─────────────────
+      let bounds: { start: number; end: number } | null = null;
+
+      // Primary: position-based (CSS path from bridge — immune to attr normalization)
+      if (cssPath) {
+        bounds = findByPath(html, cssPath);
+      }
+
+      // Fallback: content-based (for old messages or if path traversal failed)
+      if (!bounds) {
+        const fbStart = locateElement(html, hintHtml);
+        if (fbStart !== -1) {
+          const fbTag = hintHtml.match(/^<(\w+)/)?.[1] ?? '';
+          const VOID = new Set(['area','base','br','col','embed','hr','img','input',
+                                'link','meta','param','source','track','wbr']);
+          const fbTagEnd = html.indexOf('>', fbStart);
+          if (fbTagEnd !== -1) {
+            const opening = html.slice(fbStart, fbTagEnd + 1);
+            let fbEnd: number;
+            if (VOID.has(fbTag) || opening.trimEnd().endsWith('/>')) {
+              fbEnd = fbTagEnd + 1;
+            } else {
+              const close = `</${fbTag}>`;
+              let depth = 1, j = fbTagEnd + 1;
+              while (j < html.length && depth > 0) {
+                const nO = html.indexOf(`<${fbTag}`, j);
+                const nC = html.indexOf(close, j);
+                if (nC === -1) break;
+                if (nO !== -1 && nO < nC) { depth++; j = nO + fbTag.length + 1; }
+                else { depth--; j = nC + close.length; }
+              }
+              fbEnd = j;
+            }
+            bounds = { start: fbStart, end: fbEnd };
+          }
+        }
+      }
+
+      if (!bounds) {
+        return reply.code(422).send({
+          error: 'Target element not found — click it again to re-select',
+        });
+      }
+
+      // ── Extract the element's EXACT stored HTML ───────────────────────────
+      const storedElementHtml = html.slice(bounds.start, bounds.end);
+
+      // ── Build breadcrumb context (text only, not HTML) ────────────────────
+      const sectionBounds = extractAllTopLevelSections(html);
+      const parentSecIdx  = sectionBounds.findIndex(
+        s => s.start <= bounds!.start && bounds!.end <= s.end,
+      );
+      const breadcrumb = parentSecIdx !== -1
+        ? `Located in section ${parentSecIdx + 1} of ${sectionBounds.length}`
+        : 'Located outside named sections';
+
+      // ── Deterministic background-image injection for element edits ──────────
+      // When the instruction contains an image URL AND "background" intent,
+      // patch the CSS directly instead of sending to LLM (LLM adds <img> tags
+      // instead of setting background-image, which looks like a logo overlay).
+      const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
+      const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
+        /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
+      if (bgUrlMatch && isBgImageIntent) {
+        const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
+        // Apply background-image to the first matching element (section, div, header, etc.)
+        const tagEnd = storedElementHtml.indexOf('>');
+        if (tagEnd !== -1) {
+          const openTag = storedElementHtml.slice(0, tagEnd);
+          const rest    = storedElementHtml.slice(tagEnd);
+          const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+          const sm = styleRx.exec(openTag);
+          let patchedTag: string;
+          if (sm) {
+            const existing = sm[1]
+              .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-size\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-position\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-repeat\s*:[^;]+;?\s*/g, '')
+              .trim().replace(/;$/, '');
+            const extra = `background-image:url('${rawUrl}');background-size:cover;background-position:center;background-repeat:no-repeat`;
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${extra}"`);
+          } else {
+            patchedTag = `${openTag} style="background-image:url('${rawUrl}');background-size:cover;background-position:center;background-repeat:no-repeat"`;
+          }
+          const patched = patchedTag + rest;
+          const updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          return saveValidatedEdit(updatedHtml, 'Background image applied');
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
+      // ── Deterministic background-color patch ─────────────────────────────
+      // LLMs confuse hex values like #32a852 with CSS ID selectors and return
+      // the element unchanged. Patch inline style directly when a color value
+      // and "background" intent are detected.
+      const isBgColorIntent = /\b(?:background[\s-]?color|bg[\s-]?color|background)\b/i.test(editInstruction)
+        && !/https?:\/\//.test(editInstruction);
+      const colorValueMatch = editInstruction.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/i);
+      if (isBgColorIntent && colorValueMatch) {
+        const colorValue = colorValueMatch[1];
+        const tagEnd = storedElementHtml.indexOf('>');
+        if (tagEnd !== -1) {
+          const openTag = storedElementHtml.slice(0, tagEnd);
+          const rest    = storedElementHtml.slice(tagEnd);
+          const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+          const sm = styleRx.exec(openTag);
+          let patchedTag: string;
+          if (sm) {
+            const existing = sm[1].replace(/\bbackground-color\s*:[^;]+;?\s*/g, '').trim().replace(/;$/, '');
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue}"`);
+          } else {
+            patchedTag = `${openTag} style="background-color:${colorValue}"`;
+          }
+          const patched     = patchedTag + rest;
+          const updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          return saveValidatedEdit(updatedHtml, `Background color set to ${colorValue}`);
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
+      // ── Detect element type for specialised prompt guidance ──────────────
+      const elTag = storedElementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+      const isImgEl = elTag === 'img';
+      const currentSrc = isImgEl
+        ? (storedElementHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
+        : '';
+      const currentAlt = isImgEl
+        ? (storedElementHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
+        : '';
+
+      // ── Focused LLM prompt — element only, not full section ──────────────
+      const imageGuidance = isImgEl ? `
+IMAGE-SPECIFIC RULES (this element is an <img>):
+- Current src: ${currentSrc}
+- Current alt: ${currentAlt || '(none)'}
+- If the instruction asks to change/replace/update the image without specifying a URL:
+  • Choose a high-quality Unsplash image that fits the alt text and current URL context
+  • Use format: https://images.unsplash.com/photo-XXXXXXXXXXXXXXX?w=1200&auto=format&fit=crop&q=80
+  • Replace ONLY the src attribute value — keep all other attributes unchanged
+- If the instruction provides a specific URL, use that URL exactly` : '';
+
+      const elementPrompt = `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
+
+ELEMENT PATH: ${cssPath || hintHtml.slice(0, 80)}
+CONTEXT: ${breadcrumb}
+
+ELEMENT TO EDIT:
+${storedElementHtml}
+
+INSTRUCTION: ${editInstruction}
+${imageGuidance}
+Strict rules:
+- Return ONLY this element starting with its opening tag and ending with its closing tag
+- Do NOT include any parent or sibling elements
+- For text changes: update only the specific text node described
+- For style changes: modify inline style properties on this element or its children
+- For image changes: update src or background-image on this element or its children
+- For adding/removing a child: do so while preserving all other children unchanged
+- Never truncate or omit any part of this element`;
+
+      const raw      = await llmGenerateFn(elementPrompt);
+      const modified = extractHtmlFromResponse(raw);
+
+      if (!modified) {
+        return reply.code(502).send({ error: 'LLM returned empty response — try rephrasing' });
+      }
+
+      // ── Exact positional splice — no string matching needed ───────────────
+      const updatedHtml = html.slice(0, bounds.start) + modified + html.slice(bounds.end);
+
+      if (updatedHtml === html) {
+        return reply.code(422).send({ error: 'Edit produced no change — try being more specific' });
+      }
+
+      return saveValidatedEdit(updatedHtml, editInstruction.replace(/^\[[^\]]+\]\s*/, '').slice(0, 80));
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     // ── Section extraction helpers ────────────────────────────────────────────
     type SectionSlice = { before: string; section: string; after: string; tag: string };
@@ -1242,18 +2019,34 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     function parseJsonPatches(rawText: string): { patches: Array<{ find: string; replace: string }>; summary: string } | null {
       const start = rawText.indexOf('{');
-      const end = rawText.lastIndexOf('}');
-      if (start === -1 || end === -1) return null;
+      if (start === -1) return null;
+      // Use brace-depth tracking to find the END of the first complete JSON object.
+      // lastIndexOf('}') would include any LLM reasoning text appended after the JSON.
+      let depth = 0, end = -1, inString = false, escaped = false;
+      for (let i = start; i < rawText.length; i++) {
+        const c = rawText[i];
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\' && inString) { escaped = true; continue; }
+        if (c === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) return null;
       try {
         const slice = rawText.slice(start, end + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/g, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+          .replace(/("(?:[^"\\]|\\.)*")/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
         const parsed = JSON.parse(slice) as { patches?: Array<{ find: string; replace: string }>; summary?: string };
         return { patches: parsed.patches ?? [], summary: parsed.summary ?? 'Applied edit' };
       } catch { return null; }
     }
 
     function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
-      const stripped = rawText.trim().replace(/^```(?:html)?\r?\n?/, '').replace(/\r?\n?```\s*$/, '').trim();
+      // Reject JSON responses — LLM "find" values contain HTML tags that would be
+      // extracted as fake blocks and written as garbage into the microsite.
+      const trimmed = rawText.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) return null;
+      const stripped = extractHtmlFromResponse(rawText);
       for (const tag of ['section', 'header', 'nav', 'div']) {
         const startIdx = stripped.search(new RegExp(`<${tag}[\\s>]`, 'i'));
         if (startIdx === -1) continue;
@@ -1436,10 +2229,7 @@ ${html}`;
       // Small HTML: try patches, then REWRITE sentinel
       const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
       if (rewriteMatch) {
-        const candidate = rewriteMatch[1].trim()
-          .replace(/^```(?:html)?\r?\n?/, '')
-          .replace(/\r?\n?```\s*$/, '')
-          .trim();
+        const candidate = extractHtmlFromResponse(rewriteMatch[1]);
         if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
           return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
         }
@@ -1459,11 +2249,7 @@ ${html}`;
       }
     }
 
-    // Write updated ast back to disk, preserving old HTML for one-level undo
-    const updatedAst = { ...ast, sections: [{ ...sections![0], customHtml: updatedHtml, previousHtml: html }, ...((sections ?? []).slice(1))] };
-    await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
-
-    return reply.send({ html: updatedHtml, summary, changedTexts });
+    return saveValidatedEdit(updatedHtml, summary, { changedTexts });
   });
 
   // GET /super-clients/:name/microsites/:id/sections  — list top-level sections with index + preview
