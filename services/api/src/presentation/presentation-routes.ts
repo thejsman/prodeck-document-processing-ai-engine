@@ -1826,6 +1826,7 @@ ${layoutSummary}`;
       urlReferenceDesign?: Record<string, unknown> | null;
       urlLayout?: Record<string, unknown> | null;
       urlImages?: string[];
+      motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive';
     } | undefined;
 
     // Load markdown from body or saved file
@@ -1975,6 +1976,7 @@ ${layoutSummary}`;
           ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
           ...(body?.urlLayout ? { urlLayout: body.urlLayout } : {}),
           ...(body?.urlImages?.length ? { urlImages: body.urlImages } : {}),
+          ...(body?.motionLevel ? { motionLevelOverride: body.motionLevel } : {}),
           // Plan callback — fires once with the final section list before generation starts
           onPlanReady: (plan: Record<string, unknown>) => {
             send({ type: 'plan', totalSections: plan.totalSections, sectionTypes: plan.sectionTypes, ...(plan.referenceCssVars ? { referenceCssVars: plan.referenceCssVars } : {}) });
@@ -2291,6 +2293,7 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       designPrompt?: string;     // design text instructions from user
       referenceImage?: { base64: string; mediaType: string }; // screenshot for vision
       coldStart?: boolean;       // bypass proposal — generate content from scratch
+      motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive'; // explicit motion override
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2331,6 +2334,9 @@ When asked to create a website or microsite:
 - Use your full frontend skills: CSS custom properties, smooth scroll, parallax, scroll-driven animations, glassmorphism, gradients, blur effects, micro-interactions
 - Choose fonts, colors, and layouts that feel intentional and high-end
 - Write clean, semantic HTML5 with all CSS and JS embedded inline
+- For scroll-driven text reveals, animate each word or character individually using GSAP ScrollTrigger or IntersectionObserver
+- For sticky card stacking effects, use position:sticky with GSAP ScrollTrigger scale transforms
+- CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
 
 ${imageInstructions}`;
@@ -2422,8 +2428,20 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
       const parts: string[] = [];
       if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
+      if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${body.designPrompt.trim()}`);
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
+      // Motion level hint — tells Claude what animation approach to use
+      const motionHint = body?.motionLevel === 'none'
+        ? 'MOTION: Generate a fully static site — no CSS animations, no JS animations, no transitions whatsoever.'
+        : body?.motionLevel === 'minimal'
+        ? 'MOTION: Use only subtle CSS fade-in transitions on page load. No scroll animations.'
+        : body?.motionLevel === 'cinematic'
+        ? 'MOTION: Add high-end scroll-driven animations via GSAP loaded from CDN. Include: parallax background layers, 3D card tilt on hover (CSS perspective + JS), staggered fade-up on scroll, animated number counters. Add GSAP + ScrollTrigger scripts in <head> from https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/'
+        : body?.motionLevel === 'immersive'
+        ? 'MOTION: Maximum cinematic motion. Load GSAP + ScrollTrigger from jsdelivr CDN. Include: deep parallax scrub on backgrounds, canvas particle system in hero section, split-text headline reveals (animate each word), 3D perspective card tilts, staggered section entrances, smooth magnetic cursor effect on CTAs. Use requestAnimationFrame for all continuous animations.'
+        : null;
+      if (motionHint) parts.push(motionHint);
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 
@@ -2672,8 +2690,6 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
   // Serve the directly-generated HTML file (text/html).
   app.get('/presentations/:namespace/:proposalId/site-html', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace } = req.params as { namespace: string; proposalId: string };
-    const auth = getAuth(req);
-    if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
     try {
@@ -2998,10 +3014,8 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
   // ?entryId=microsite:pro:1716023445123 — loads that exact entry.
   // ?mode=pro|classic — fallback: loads the most recent entry of that type.
   app.get('/presentations/:namespace/:proposalId/microsite', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { namespace } = req.params as { namespace: string; proposalId: string };
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const { mode, entryId } = req.query as { mode?: string; entryId?: string };
-    const auth = getAuth(req);
-    if (!checkNamespaceAccess(auth, namespace, reply)) return;
 
     const base = path.join(workdir, 'assets', 'presentations', namespace);
 
@@ -3016,6 +3030,14 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
         return reply.send({ ast: null, savedAt: null });
       }
     }
+
+    // Super-client lookup — microsite stored under super-clients/{namespace}/microsites/{proposalId}.json
+    const superClientPath = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.json`);
+    try {
+      const raw = await readFile(superClientPath, 'utf-8');
+      const ast = JSON.parse(raw);
+      return reply.send({ ast, savedAt: null });
+    } catch { /* not a super-client microsite — fall through to standard presentations */ }
 
     // Fallback: most recent versioned file for the given mode
     const type = mode === 'classic' ? 'classic' : 'pro';
@@ -3405,10 +3427,24 @@ Common token names and their roles:
     }
 
     try {
-      // Embed all images as base64 data URIs so the exported HTML is fully
-      // self-contained — no external requests, no localhost dependencies.
-      const astWithImages = await embedImagesAsBase64(ast, workdir, namespace);
-      const html = renderMicrositeToHtml(astWithImages as Parameters<typeof renderMicrositeToHtml>[0]);
+      let html: string;
+
+      // v2 microsites store a complete HTML document in sections[0].customHtml —
+      // the React renderer wraps it in another document, so extract it directly.
+      const isV2 = ast.generationMode === 'v2';
+      if (isV2) {
+        const sections = ast.sections as Array<{ customHtml?: string }> | undefined;
+        html = sections?.[0]?.customHtml ?? '';
+        if (!html) {
+          return reply.code(422).send({ error: 'v2 microsite has no HTML content to export' });
+        }
+      } else {
+        // Embed all images as base64 data URIs so the exported HTML is fully
+        // self-contained — no external requests, no localhost dependencies.
+        const astWithImages = await embedImagesAsBase64(ast, workdir, namespace);
+        html = renderMicrositeToHtml(astWithImages as Parameters<typeof renderMicrositeToHtml>[0]);
+      }
+
       const exportsDir = path.join(workdir, 'exports', namespace);
       await mkdir(exportsDir, { recursive: true });
       const fileName = `${proposalId}.html`;
@@ -3423,6 +3459,43 @@ Common token names and their roles:
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(500).send({ error: `HTML export failed: ${message}` });
     }
+  });
+
+  // GET /presentations/:namespace/:proposalId/publish-meta
+  // Returns the last published subdomain/url for a microsite, or null if never published.
+  // Public — no auth required (same policy as /microsite route).
+  app.get('/presentations/:namespace/:proposalId/publish-meta', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const superClientMetaPath = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.publish.json`);
+    const standardMetaPath = path.join(workdir, 'assets', 'presentations', namespace, `${proposalId}.publish.json`);
+    for (const metaPath of [superClientMetaPath, standardMetaPath]) {
+      try {
+        const raw = await readFile(metaPath, 'utf-8');
+        return reply.send(JSON.parse(raw));
+      } catch { /* try next */ }
+    }
+    return reply.send(null);
+  });
+
+  // POST /presentations/:namespace/:proposalId/publish-meta
+  // Saves the published subdomain/url after a successful S3 publish.
+  app.post('/presentations/:namespace/:proposalId/publish-meta', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+    const body = req.body as { subdomain: string; url: string; publishedAt: string };
+    // Prefer super-client directory if microsite exists there
+    const superClientMicrosite = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.json`);
+    let metaDir: string;
+    try {
+      await readFile(superClientMicrosite, 'utf-8');
+      metaDir = path.join(workdir, 'super-clients', namespace, 'microsites');
+    } catch {
+      metaDir = path.join(workdir, 'assets', 'presentations', namespace);
+    }
+    await mkdir(metaDir, { recursive: true });
+    await writeFile(path.join(metaDir, `${proposalId}.publish.json`), JSON.stringify(body, null, 2), 'utf-8');
+    return reply.send({ ok: true });
   });
 
   // POST /presentations/:namespace/:proposalId/export-pptx

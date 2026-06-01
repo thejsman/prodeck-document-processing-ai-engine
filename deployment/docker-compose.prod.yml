@@ -99,8 +99,15 @@ services:
     restart: unless-stopped
 
   # ── Certbot (on-demand, not auto-started) ────────────────────────
+  # dns-route53 image supports wildcard certs via DNS-01 challenge.
+  # On EC2 with an IAM instance role attached, leave AWS_ACCESS_KEY_ID/SECRET blank
+  # — the SDK will use instance metadata credentials automatically.
   certbot:
-    image: certbot/certbot:latest
+    image: certbot/dns-route53:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
     volumes:
       - letsencrypt_certs:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot

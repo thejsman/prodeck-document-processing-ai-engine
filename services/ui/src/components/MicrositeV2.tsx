@@ -8,6 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import type { LayoutAST, LayoutSection } from '@/types/presentation';
+import { normalizeMicrositeHtml } from '@/lib/microsite-bridge';
 
 interface Props {
   ast: LayoutAST;
@@ -109,7 +110,7 @@ export function MicrositeV2({ ast, generating, onBack }: Props) {
 function V2IframeSection({ html }: { html: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   useEffect(() => {
-    const blob = new Blob([html], { type: 'text/html' });
+    const blob = new Blob([normalizeMicrositeHtml(html)], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);

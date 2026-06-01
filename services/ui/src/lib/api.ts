@@ -698,6 +698,33 @@ export async function publishMicrosite(
   return handleResponse<{ downloadUrl: string; size: number }>(res);
 }
 
+export async function fetchPublishMeta(
+  namespace: string,
+  proposalId: string,
+): Promise<{ subdomain: string; url: string; publishedAt: string } | null> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
+  );
+  if (!res.ok) return null;
+  return res.json() as Promise<{ subdomain: string; url: string; publishedAt: string } | null>;
+}
+
+export async function savePublishMeta(
+  apiKey: string,
+  namespace: string,
+  proposalId: string,
+  meta: { subdomain: string; url: string; publishedAt: string },
+): Promise<void> {
+  await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(meta),
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Namespace Configuration
 // ---------------------------------------------------------------------------

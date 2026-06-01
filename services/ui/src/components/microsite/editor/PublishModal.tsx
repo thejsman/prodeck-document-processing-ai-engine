@@ -13,9 +13,11 @@ interface Props {
   namespace: string;
   proposalId: string;
   onClose: () => void;
+  /** Hide the local preview URL section (use for super-client microsites whose storage is not accessible via /microsite-view). */
+  showPreviewUrl?: boolean;
 }
 
-export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
+export function PublishModal({ ast, namespace, proposalId, onClose, showPreviewUrl = true }: Props) {
   const { apiKey } = useAuth();
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [downloadUrl, setDownloadUrl] = useState('');
@@ -153,12 +155,13 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
           <PublishSubdomainSection
             ast={ast}
             namespace={namespace}
+            proposalId={proposalId}
             rootDomain={rootDomain}
             onPublishingChange={setPublishing}
           />
 
-          {/* Copy preview URL */}
-          <div
+          {/* Copy preview URL — only shown when /microsite-view can resolve the AST */}
+          {showPreviewUrl && <div
             style={{
               padding: '16px 18px',
               borderRadius: 8,
@@ -195,7 +198,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose }: Props) {
                 boxSizing: 'border-box',
               }}
             />
-          </div>
+          </div>}
 
           {/* Error */}
           {status === 'error' && (

@@ -33,7 +33,7 @@ export default function MicrositeViewPage() {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!apiKey || !namespace || !proposalId) return;
+    if (!namespace || !proposalId) return;
     setLoading(true);
     // When entryId is provided, skip directHtml and load the specific AST entry.
     const tasks = entryId
@@ -51,7 +51,7 @@ export default function MicrositeViewPage() {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [apiKey, namespace, proposalId, entryId, modeParam]);
+  }, [namespace, proposalId, entryId, modeParam, apiKey]);
 
   async function startFastGeneration() {
     if (!apiKey || !namespace || !proposalId || generating) return;
@@ -180,7 +180,9 @@ export default function MicrositeViewPage() {
   ) : null;
 
   // ── Toolbar (view toggle + generate fast button) ───────────────────────────
-  const toolbar = (
+  // Hidden entirely for v2 microsites — no actions apply.
+  const isV2 = ast?.generationMode === 'v2';
+  const toolbar = isV2 ? null : (
     <div style={{
       position: 'fixed', top: 12, right: 16, zIndex: 99999,
       display: 'flex', alignItems: 'center', gap: 6,
@@ -230,6 +232,25 @@ export default function MicrositeViewPage() {
         <iframe
           srcDoc={directHtml}
           sandbox="allow-scripts allow-same-origin"
+          style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
+          title="Generated Microsite"
+        />
+      </>
+    );
+  }
+
+  // v2 microsites (super-client generated) store the full HTML in sections[0].customHtml
+  // Render them the same way the super-client panel does — plain iframe, no component wrapper.
+  if (ast?.generationMode === 'v2') {
+    const html = (ast.sections?.[0] as { customHtml?: string } | undefined)?.customHtml ?? '';
+    return (
+      <>
+        {genOverlay}
+        {toolbar}
+        <iframe
+          srcDoc={html}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
           title="Generated Microsite"
         />

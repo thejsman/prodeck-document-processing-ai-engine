@@ -2,12 +2,14 @@
 
 import { useState, useCallback } from 'react';
 import type { LayoutAST } from '@/types/presentation';
+import { savePublishMeta } from '@/lib/api';
 
 export type PublishStatus = 'idle' | 'publishing' | 'success' | 'error';
 
 export interface UsePublishMicrosite {
-  publish: (namespace: string, ast: LayoutAST, subdomain: string) => Promise<void>;
+  publish: (namespace: string, ast: LayoutAST, subdomain: string, proposalId: string, apiKey: string) => Promise<void>;
   reset: () => void;
+  restoreFromMeta: (meta: { subdomain: string; url: string; publishedAt: string }) => void;
   status: PublishStatus;
   url: string | null;
   subdomain: string | null;
@@ -34,7 +36,7 @@ export function usePublishMicrosite(): UsePublishMicrosite {
   const [error, setError] = useState<string | null>(null);
 
   const publish = useCallback(
-    async (ns: string, ast: LayoutAST, sub: string) => {
+    async (ns: string, ast: LayoutAST, sub: string, proposalId: string, apiKey: string) => {
       setStatus('publishing');
       setError(null);
       try {
@@ -52,6 +54,12 @@ export function usePublishMicrosite(): UsePublishMicrosite {
         setSubdomain(data.subdomain);
         setPublishedAt(data.publishedAt);
         setStatus('success');
+        // Persist so any browser/user can see the previously published URL
+        savePublishMeta(apiKey, ns, proposalId, {
+          subdomain: data.subdomain,
+          url: data.url,
+          publishedAt: data.publishedAt,
+        }).catch(() => { /* non-fatal */ });
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         setStatus('error');
@@ -68,5 +76,12 @@ export function usePublishMicrosite(): UsePublishMicrosite {
     setError(null);
   }, []);
 
-  return { publish, reset, status, url, subdomain, publishedAt, error };
+  const restoreFromMeta = useCallback((meta: { subdomain: string; url: string; publishedAt: string }) => {
+    setUrl(meta.url);
+    setSubdomain(meta.subdomain);
+    setPublishedAt(meta.publishedAt);
+    setStatus('success');
+  }, []);
+
+  return { publish, reset, restoreFromMeta, status, url, subdomain, publishedAt, error };
 }
