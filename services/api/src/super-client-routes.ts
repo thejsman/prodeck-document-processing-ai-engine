@@ -1744,6 +1744,81 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return result.trim();
     }
 
+    // ── Inline style property patch (from InlineEditPanel) ─────────────────────
+    // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]
+    // Deterministic — no LLM. Whitelisted properties only.
+    const stylePatchMatch = instruction.match(/^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+)$/s);
+    if (stylePatchMatch) {
+      const cssPath  = stylePatchMatch[1].trim();
+      const prop     = stylePatchMatch[2].trim().toLowerCase();
+      const rawValue = stylePatchMatch[3].trim();
+
+      const ALLOWED_STYLE_PROPS = new Set([
+        'color', 'background-color', 'font-size', 'font-family',
+        'font-weight', 'font-style', 'opacity', 'border-radius',
+        'text-align', 'letter-spacing', 'line-height',
+      ]);
+      if (!ALLOWED_STYLE_PROPS.has(prop))
+        return reply.code(400).send({ error: `Property "${prop}" is not patchable via __STYLE_PATCH__` });
+
+      const value = rawValue.replace(/[;'"<>]/g, '').trim().slice(0, 120);
+      if (!value) return reply.code(400).send({ error: 'Empty style value' });
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      const tagEnd = elementHtml.indexOf('>');
+      if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
+
+      const openTag = elementHtml.slice(0, tagEnd);
+      const rest    = elementHtml.slice(tagEnd);
+      const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+      const sm = styleRx.exec(openTag);
+      let patchedTag: string;
+      if (sm) {
+        const escaped = prop.replace(/-/g, '\\-');
+        const existing = sm[1]
+          .replace(new RegExp(`\\b${escaped}\\s*:[^;]+;?\\s*`, 'gi'), '')
+          .trim().replace(/;$/, '');
+        patchedTag = openTag.replace(styleRx, `style="${existing ? existing + '; ' : ''}${prop}:${value}"`);
+      } else {
+        patchedTag = `${openTag} style="${prop}:${value}"`;
+      }
+      const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, `${prop} set to ${value}`);
+    }
+
+    // ── Inline text content patch (from InlineEditPanel) ────────────────────
+    // Format: __TEXT_PATCH__:[cssPath]||[newText]
+    // Deterministic — no LLM. Replaces text nodes, preserves child elements.
+    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+)$/s);
+    if (textPatchMatch) {
+      const cssPath = textPatchMatch[1].trim();
+      const newText = textPatchMatch[2].trim().slice(0, 2000);
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml  = html.slice(bounds.start, bounds.end);
+      const openTagMatch = elementHtml.match(/^(<[^>]+>)/);
+      const closeTagMatch = elementHtml.match(/<\/(\w+)>\s*$/);
+      if (!openTagMatch || !closeTagMatch)
+        return reply.code(422).send({ error: 'Element is not a paired tag' });
+
+      const openTag  = openTagMatch[1];
+      const closeTag = `</${closeTagMatch[1]}>`;
+      const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
+      const hasChildren = /<\w/.test(innerHtml);
+
+      const newInner = hasChildren
+        ? newText + innerHtml.replace(/^[^<]+/, '').replace(/>[^<]+</g, '><').replace(/[^>]+$/, '')
+        : newText;
+
+      const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Text updated');
+    }
+
     // ── Element-scoped LLM edit ───────────────────────────────────────────────
     // Three-part format: __ELEMENT_EDIT__:[cssPath]||[hintOuterHtml]||[instruction]
     //
