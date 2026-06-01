@@ -253,8 +253,15 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
     } catch (err) {
       timersRef.current.forEach(clearTimeout);
       if (!mountedRef.current) return;
+      const msg = (err as Error).message ?? 'Something went wrong';
+      // 409 = duplicate name — go back to form with a simple inline error
+      if (msg.includes('409') || /already exists/i.test(msg)) {
+        setPhase('form');
+        setFieldError('A client with this name already exists');
+        return;
+      }
       setSteps((prev) => prev.map((s) => (s.status === 'active' ? { ...s, status: 'error' } : s)));
-      setApiError((err as Error).message ?? 'Something went wrong');
+      setApiError(msg);
       setPhase('error');
     }
   }
