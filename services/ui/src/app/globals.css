@@ -7415,7 +7415,7 @@ body {
   border: none;
   border-radius: 20px;
   padding: 10px 16px;
-  max-width: 280px;
+  max-width: 300px;
   width: fit-content;
   margin-left: auto;
 }
@@ -7467,19 +7467,19 @@ body {
   flex-shrink: 0;
 }
 
-/* Progress bar */
+/* Upload progress bar */
 .chat-file-upload__track {
   background: var(--panel-item);
   border-radius: 99px;
-  height: 4px;
-  margin-top: 10px;
+  height: 3px;
+  margin-top: 8px;
   overflow: hidden;
 }
 
 .chat-file-upload__fill {
   background: var(--primary);
   border-radius: 99px;
-  height: 4px;
+  height: 3px;
   transition: width 0.3s ease;
 }
 
@@ -7487,7 +7487,7 @@ body {
   background: var(--danger);
 }
 
-/* Status label */
+/* Status label (error / uploading fallback) */
 .chat-file-upload__status {
   font-size: 12px;
   color: var(--muted);
@@ -7498,10 +7498,6 @@ body {
   color: var(--danger);
 }
 
-.chat-file-upload__status--done {
-  color: var(--success);
-}
-
 /* Check icon in done pill */
 .chat-file-upload__check-icon {
   color: var(--success);
@@ -7509,30 +7505,91 @@ body {
   margin-left: auto;
 }
 
-/* Processing stage row: spinner + label */
-.chat-file-upload__stage-row {
+/* ── Step list ─────────────────────────────────────────────────── */
+.chat-file-upload__steps {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 5px;
   margin-top: 10px;
 }
 
-.chat-file-upload__spinner {
-  color: var(--primary);
-  flex-shrink: 0;
-  animation: spin 1s linear infinite;
-}
-
-.chat-file-upload__chunk-progress {
+.chat-file-upload__step {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  opacity: 0.45;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.chat-file-upload__step--done {
+  opacity: 0.5;
+  color: var(--muted);
+}
+
+.chat-file-upload__step--active {
+  opacity: 1;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.chat-file-upload__step--pending {
+  opacity: 0.35;
+}
+
+.chat-file-upload__step-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Spinning indicator for the active step */
+.chat-file-upload__step-spinner {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--primary);
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Done step checkmark */
+.chat-file-upload__step-check {
+  color: var(--success);
+  opacity: 0.7;
+}
+
+/* Pending step dot */
+.chat-file-upload__step-dot-pending {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
+/* Percentage label on active step */
+.chat-file-upload__step-pct {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Chunk progress bar (indexing / embedding) ─────────────────── */
+.chat-file-upload__chunk-progress {
+  margin-top: 8px;
 }
 
 .chat-file-upload__chunk-bar {
-  flex: 1;
-  height: 3px;
+  height: 2px;
   background: var(--panel-item);
   border-radius: 2px;
   overflow: hidden;
@@ -7542,13 +7599,8 @@ body {
   height: 100%;
   background: var(--primary);
   border-radius: 2px;
-  transition: width 0.3s ease;
-}
-
-.chat-file-upload__chunk-label {
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
+  transition: width 0.4s ease;
+  opacity: 0.6;
 }
 
 /* ============================================
