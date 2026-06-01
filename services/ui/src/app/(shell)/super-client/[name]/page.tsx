@@ -1116,6 +1116,16 @@ export default function SuperClientPage() {
     await applyMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hint}`, 'Image replaced');
   }
 
+  async function handleBgImagePatch(url: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`, 'Background image updated');
+  }
+
+  async function handleIconReplace(url: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__ICON_REPLACE__:${selectedElement.path}||${url}`, 'Icon replaced');
+  }
+
   async function handleMicrositeRevert() {
     if (!viewingMicrosite || micrositeEditing) return;
     setMicrositeEditing(true);
@@ -2866,6 +2876,8 @@ export default function SuperClientPage() {
                     onStylePatch={handleStylePatch}
                     onTextPatch={handleTextPatch}
                     onImageReplace={handleImageReplace}
+                    onBgImagePatch={handleBgImagePatch}
+                    onIconReplace={handleIconReplace}
                     onClose={() => setSelectedElement(null)}
                   />
                 )}

@@ -9,6 +9,8 @@ interface Props {
   onStylePatch: (prop: string, value: string) => Promise<void>;
   onTextPatch: (newText: string) => Promise<void>;
   onImageReplace: (url: string) => Promise<void>;
+  onBgImagePatch: (url: string) => Promise<void>;
+  onIconReplace: (url: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -16,6 +18,12 @@ interface Props {
 const TEXT_TAGS = new Set(['h1','h2','h3','h4','h5','h6','p','span','a','li','button','label','td','th','caption','figcaption','dt','dd','blockquote']);
 const isTextEl = (tag: string) => TEXT_TAGS.has(tag.toLowerCase());
 const isImgEl  = (tag: string) => tag.toLowerCase() === 'img';
+const isSvgEl  = (tag: string) => tag.toLowerCase() === 'svg';
+const isIconEl = (tag: string, outerHtml: string) => {
+  if (isSvgEl(tag)) return true;
+  const cls = (outerHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '').toLowerCase();
+  return /\b(?:icon|ico|fa-|bi-|ri-|ti-|si-|ph-|material-icon|feather|heroicon|lucide)\b/.test(cls);
+};
 const isLeafEl = (outerHtml: string) => !/<(div|section|article|ul|ol|table|p|h[1-6]|header|footer|nav|main|aside)\b/i.test(
   outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
 );
@@ -78,6 +86,103 @@ const FONT_OPTIONS: Array<{ label: string; stack: string }> = [
   { label: 'Arial',            stack: 'Arial, Helvetica, sans-serif' },
   { label: 'System UI',        stack: 'system-ui, -apple-system, sans-serif' },
 ];
+
+// ── Compress an image File to a base64 data URL (≤200px tall, PNG 85%) ───────
+function compressToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1200;
+        const scale = img.naturalWidth > MAX ? MAX / img.naturalWidth : 1;
+        const w = Math.round(img.naturalWidth * scale);
+        const h = Math.round(img.naturalHeight * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(e.target!.result as string); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/png', 0.85));
+      };
+      img.src = e.target!.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── URL + upload combo input ──────────────────────────────────────────────────
+function ImageInput({ placeholder, value, disabled, onCommit, accept = 'image/*' }: {
+  placeholder: string; value: string; disabled: boolean;
+  onCommit: (url: string) => void; accept?: string;
+}) {
+  const [local, setLocal] = useState(value);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setLocal(value); }, [value]);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const dataUrl = await compressToDataUrl(f);
+    setLocal(dataUrl);
+    onCommit(dataUrl);
+    e.target.value = '';
+  }
+
+  const canCommit = local.startsWith('http') || local.startsWith('data:');
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+      <input
+        type="url" placeholder={placeholder}
+        value={local.startsWith('data:') ? '(local file)' : local}
+        disabled={disabled}
+        onChange={(e) => setLocal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && canCommit) onCommit(local); }}
+        style={{
+          height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4,
+          border: '1px solid rgba(255,255,255,0.12)',
+          background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)',
+          outline: 'none', width: 130, opacity: disabled ? 0.4 : 1,
+        }}
+      />
+      {/* Done — apply the typed/pasted URL */}
+      <button
+        title="Apply"
+        disabled={disabled || !canCommit}
+        onClick={() => { if (canCommit) onCommit(local); }}
+        style={{
+          height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4, flexShrink: 0,
+          border: '1px solid rgba(99,102,241,0.5)',
+          background: canCommit && !disabled ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)',
+          color: canCommit && !disabled ? '#a5b4fc' : 'rgba(255,255,255,0.3)',
+          cursor: disabled || !canCommit ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.4 : 1,
+          whiteSpace: 'nowrap', fontWeight: 600,
+        }}
+      >
+        ✓
+      </button>
+      {/* Local file upload */}
+      <button
+        title="Upload from device"
+        disabled={disabled}
+        onClick={() => fileRef.current?.click()}
+        style={{
+          height: 26, padding: '0 7px', fontSize: 10, borderRadius: 4, flexShrink: 0,
+          border: '1px solid rgba(255,255,255,0.18)',
+          background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)',
+          cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        ↑ Local
+      </button>
+      <input ref={fileRef} type="file" accept={accept} style={{ display: 'none' }} onChange={handleFile} />
+    </div>
+  );
+}
 
 // ── Color swatch — fires via debounced onChange + immediate onBlur ────────────
 // This is more reliable than onBlur-only because hidden input[type=color] blur
@@ -169,20 +274,32 @@ function IconBtn({ active, disabled, onClick, children, title }: {
 const Sep = () => <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />;
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onClose }: Props) {
   const tag    = selected.tag?.toLowerCase() ?? '';
-  const isText = isTextEl(tag);
   const isImg  = isImgEl(tag);
+  const isIcon = isIconEl(tag, selected.outerHtml);
+
+  // Treat element as "text" if it's a known text tag OR if it's any non-void element
+  // whose inner content has no child HTML elements (leaf containing only text).
+  // This covers <div class="scope-card-title">Product Line Pages</div> etc.
+  const hasChildElements = /<\w/.test(
+    selected.outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
+  );
+  const isText = isTextEl(tag) || (!isImg && !isIcon && !hasChildElements);
   const isLeaf = isText && isLeafEl(selected.outerHtml);
 
   const [localFontSize, setLocalFontSize] = useState(16);
   const [localImgUrl,   setLocalImgUrl]   = useState('');
   const [localText,     setLocalText]     = useState('');
+  const [localBgImgUrl, setLocalBgImgUrl] = useState('');
+  const [localIconUrl,  setLocalIconUrl]  = useState('');
 
   useEffect(() => {
     setLocalFontSize(parseFontSize(selected.outerHtml));
     setLocalImgUrl(parseImgSrc(selected.outerHtml));
     setLocalText(selected.text ?? '');
+    setLocalBgImgUrl('');
+    setLocalIconUrl('');
   }, [selected.path, selected.outerHtml, selected.text]);
 
   const dis = micrositeEditing;
@@ -332,22 +449,15 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         </>
       )}
 
-      {/* Image URL — img elements only */}
+      {/* Image URL + local upload — img elements only */}
       {isImg && (
         <>
           <Sep />
-          <input
-            type="url" placeholder="Image URL…"
-            value={localImgUrl} disabled={dis}
-            onChange={(e) => setLocalImgUrl(e.target.value)}
-            onBlur={(e) => { if (e.target.value.startsWith('http')) void onImageReplace(e.target.value); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && localImgUrl.startsWith('http')) void onImageReplace(localImgUrl); }}
-            style={{
-              height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)',
-              outline: 'none', width: 190, flexShrink: 0, opacity: dis ? 0.4 : 1,
-            }}
+          <ImageInput
+            placeholder="Image URL…"
+            value={localImgUrl}
+            disabled={dis}
+            onCommit={(url) => { setLocalImgUrl(url); void onImageReplace(url); }}
           />
         </>
       )}
@@ -368,6 +478,34 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
               background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)',
               outline: 'none', width: 200, flexShrink: 0, opacity: dis ? 0.4 : 1,
             }}
+          />
+        </>
+      )}
+
+      {/* Background image URL + local upload — containers only */}
+      {!isImg && !isText && !isIcon && (
+        <>
+          <Sep />
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>BG IMG</span>
+          <ImageInput
+            placeholder="Image URL…"
+            value={localBgImgUrl}
+            disabled={dis}
+            onCommit={(url) => { setLocalBgImgUrl(url); void onBgImagePatch(url); }}
+          />
+        </>
+      )}
+
+      {/* Icon replacement + local upload — SVG and icon elements */}
+      {isIcon && (
+        <>
+          <Sep />
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>ICON</span>
+          <ImageInput
+            placeholder="Icon / image URL…"
+            value={localIconUrl}
+            disabled={dis}
+            onCommit={(url) => { setLocalIconUrl(url); void onIconReplace(url); }}
           />
         </>
       )}

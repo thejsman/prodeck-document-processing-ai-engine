@@ -1361,7 +1361,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __IMAGE_INJECT_SCOPED__:[cssPath]||[imageUrl]
     // Tries to replace background-image / img src / data-bg within that element.
     // Falls back to the element's parent section if the element itself has no image.
-    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|([\s\S]*))?$/s);
+    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
     if (scopedImageMatch) {
       const cssPath   = scopedImageMatch[1].trim();
       const newUrl    = scopedImageMatch[2].trim();
@@ -1817,6 +1817,65 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
       return saveValidatedEdit(updatedHtml, 'Text updated');
+    }
+
+    // ── Background-image patch (from InlineEditPanel "BG Image" input) ─────────
+    // Format: __BG_IMAGE_PATCH__:[cssPath]||[imageUrl]
+    const bgImagePatchMatch = instruction.match(/^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:).+)$/s);
+    if (bgImagePatchMatch) {
+      const cssPath = bgImagePatchMatch[1].trim();
+      // Allow data: URLs (base64 uploads) — only strip HTML-dangerous chars, not base64 content
+      const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? '' : c);
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      const tagEnd = elementHtml.indexOf('>');
+      if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
+
+      const openTag = elementHtml.slice(0, tagEnd);
+      const rest    = elementHtml.slice(tagEnd);
+      const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+      const sm = styleRx.exec(openTag);
+      const bgVal = `background-image:url('${imgUrl}');background-size:cover;background-position:center`;
+      let patchedTag: string;
+      if (sm) {
+        const existing = sm[1]
+          .replace(/\bbackground-image\s*:[^;]+;?\s*/gi, '')
+          .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
+          .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
+          .trim().replace(/;$/, '');
+        patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
+      } else {
+        patchedTag = `${openTag} style="${bgVal}"`;
+      }
+      const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Background image updated');
+    }
+
+    // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
+    // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
+    // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
+    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:).+)$/s);
+    if (iconReplaceMatch) {
+      const cssPath = iconReplaceMatch[1].trim();
+      const imgUrl  = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      // Preserve width/height/class from the original element where possible
+      const wMatch = elementHtml.match(/\bwidth="([^"]+)"/i) || elementHtml.match(/\bwidth\s*:\s*([^;'"]+)/i);
+      const hMatch = elementHtml.match(/\bheight="([^"]+)"/i) || elementHtml.match(/\bheight\s*:\s*([^;'"]+)/i);
+      const cls   = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const style = elementHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
+      const w = wMatch?.[1] ?? '1em';
+      const h = hMatch?.[1] ?? '1em';
+      const imgTag = `<img src="${imgUrl}" alt="icon"${cls ? ` class="${cls}"` : ''} style="width:${w};height:${h};object-fit:contain;display:inline-block;${style ? style + ';' : ''}" />`;
+      const updatedHtml = html.slice(0, bounds.start) + imgTag + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Icon replaced');
     }
 
     // ── Element-scoped LLM edit ───────────────────────────────────────────────
