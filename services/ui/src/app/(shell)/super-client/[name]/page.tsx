@@ -34,6 +34,7 @@ import { MicrositeV2, buildHtml } from '@/components/MicrositeV2';
 import { PublishModal } from '@/components/microsite/editor/PublishModal';
 import type { LayoutAST } from '@/types/presentation';
 import { SelectionOverlay } from '@/components/microsite/smart-editor/SelectionOverlay';
+import { InlineEditPanel } from '@/components/microsite/smart-editor/InlineEditPanel';
 import {
   type BridgeMessage,
   injectBridgeScript,
@@ -1064,6 +1065,65 @@ export default function SuperClientPage() {
     } finally {
       setMicrositeEditing(false);
     }
+  }
+
+  // ── InlineEditPanel: shared instruction dispatcher ───────────────────────
+  async function applyMicrositeInstruction(instruction: string, banner: string) {
+    if (!viewingMicrosite || micrositeEditing) return;
+    setMicrositeEditing(true);
+    setMicrositeEditBanner('');
+    setCanUndo(false);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    try {
+      const { html: finalHtml } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction);
+      applyEditHtml(finalHtml);
+      setViewingMicrosite((prev) =>
+        prev ? {
+          ...prev,
+          ast: { ...prev.ast, sections: [
+            { ...(prev.ast.sections[0] as object), customHtml: finalHtml } as unknown as typeof prev.ast.sections[0],
+            ...prev.ast.sections.slice(1),
+          ]},
+          renderKey: prev.renderKey,
+        } : null,
+      );
+      setCanUndo(true);
+      setCanRedo(false);
+      setMicrositeEditBanner(banner);
+      undoTimerRef.current = setTimeout(() => { setMicrositeEditBanner(''); setCanUndo(false); }, 30000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Edit failed';
+      setMicrositeEditBanner(`Error: ${msg}`);
+      setTimeout(() => setMicrositeEditBanner(''), 8000);
+    } finally {
+      setMicrositeEditing(false);
+    }
+  }
+
+  async function handleStylePatch(prop: string, value: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__STYLE_PATCH__:${selectedElement.path}||${prop}||${value}`, `${prop} updated`);
+  }
+
+  async function handleTextPatch(newText: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__TEXT_PATCH__:${selectedElement.path}||${newText}`, 'Text updated');
+  }
+
+  async function handleImageReplace(url: string) {
+    if (!selectedElement?.path) return;
+    const hint = selectedElement.outerHtml.slice(0, 300);
+    await applyMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hint}`, 'Image replaced');
+  }
+
+  async function handleBgImagePatch(url: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`, 'Background image updated');
+  }
+
+  async function handleIconReplace(url: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__ICON_REPLACE__:${selectedElement.path}||${url}`, 'Icon replaced');
   }
 
   async function handleMicrositeRevert() {
@@ -2806,6 +2866,19 @@ export default function SuperClientPage() {
                     selected={selectedElement}
                     isProcessing={micrositeEditing}
                     onClearSelected={() => setSelectedElement(null)}
+                  />
+                )}
+                {/* Inline property editor — floats near the selected element */}
+                {editModeActive && selectedElement && (
+                  <InlineEditPanel
+                    selected={selectedElement}
+                    micrositeEditing={micrositeEditing}
+                    onStylePatch={handleStylePatch}
+                    onTextPatch={handleTextPatch}
+                    onImageReplace={handleImageReplace}
+                    onBgImagePatch={handleBgImagePatch}
+                    onIconReplace={handleIconReplace}
+                    onClose={() => setSelectedElement(null)}
                   />
                 )}
                 {/* Overlay blocks iframe from swallowing mouse events during resize */}

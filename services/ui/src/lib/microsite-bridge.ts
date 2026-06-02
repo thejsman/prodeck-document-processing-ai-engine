@@ -14,6 +14,10 @@ export interface BridgeMessage {
   /** Position-based CSS path: "section#hero > div.hero-vignette:nth-of-type(1)"
    *  Only populated on 'select'. Used by server for exact element targeting. */
   path: string;
+  /** Computed (rendered) background-color — only on 'select'. Reflects CSS class colors. */
+  computedBgColor?: string;
+  /** Computed (rendered) text color — only on 'select'. Reflects CSS class colors. */
+  computedColor?: string;
 }
 
 const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|clear)\b/i;
@@ -210,10 +214,17 @@ function sendMsg(msgType, rawEl) {
       : (el.outerHTML || '').slice(0, 400);
   } catch(e) {}
 
-  // CSS path only on 'select' — too expensive to compute on every hover
+  // CSS path + computed styles only on 'select' — too expensive on every hover
   var path = '';
+  var computedBgColor = '';
+  var computedColor   = '';
   if (msgType === 'select') {
     try { path = getCssPath(el); } catch(e) {}
+    try {
+      var cs = window.getComputedStyle(el);
+      computedBgColor = cs.backgroundColor || '';
+      computedColor   = cs.color || '';
+    } catch(e) {}
   }
 
   window.parent.postMessage({
@@ -225,7 +236,9 @@ function sendMsg(msgType, rawEl) {
     sectionType: getSectionType(rawEl),
     rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
     outerHtml: outerHtml,
-    path: path
+    path: path,
+    computedBgColor: computedBgColor,
+    computedColor: computedColor
   }, '*');
 }
 
