@@ -2732,6 +2732,7 @@ export default function SuperClientPage() {
                       pointerEvents: 'none',
                       zIndex: 30,
                       letterSpacing: '0.02em',
+                      display: 'none',
                     }}
                   >
                     {micrositePanelWidth}px
