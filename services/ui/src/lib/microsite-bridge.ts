@@ -310,6 +310,16 @@ window.addEventListener('resize', function () {
   if (selectedEl) sendMsg('select', selectedEl);
 }, false);
 
+// Host can send { source: 'microsite-host', type: 'deselect' } to clear
+// the internal selection and stop the RAF tracking loop.
+window.addEventListener('message', function (e) {
+  if (e.data && e.data.source === 'microsite-host' && e.data.type === 'deselect') {
+    selectedEl = null;
+    lastHoverEl = null;
+    if (trackRaf) { cancelAnimationFrame(trackRaf); trackRaf = null; }
+  }
+}, false);
+
 })();
 `;
 

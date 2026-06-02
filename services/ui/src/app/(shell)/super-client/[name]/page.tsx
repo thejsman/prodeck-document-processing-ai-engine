@@ -503,6 +503,14 @@ export default function SuperClientPage() {
   };
   const [hoveredElement, setHoveredElement] = useState<BridgeMessage | null>(null);
   const [selectedElement, setSelectedElement] = useState<BridgeMessage | null>(null);
+
+  // Tell the iframe bridge to clear its internal selectedEl + cancel RAF loop,
+  // then clear parent state. Prevents the tracking loop from re-opening the panel.
+  const clearBridgeSelection = () => {
+    getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'deselect' }, '*');
+    setSelectedElement(null);
+    setHoveredElement(null);
+  };
   const [editingLogo, setEditingLogo] = useState<{ base64: string; mediaType: string } | null>(null);
   const [editingLogoUrl, setEditingLogoUrl] = useState('');
   const [showEditingLogoUrlInput, setShowEditingLogoUrlInput] = useState(false);
@@ -1054,8 +1062,7 @@ export default function SuperClientPage() {
       setEditingLogo(null);
       setEditingLogoUrl('');
       setShowEditingLogoUrlInput(false);
-      setSelectedElement(null);
-      setHoveredElement(null);
+      clearBridgeSelection();
       // Write new HTML directly into the iframe (no reload → scroll preserved)
       applyEditHtml(finalHtml);
       setViewingMicrosite((prev) =>
@@ -1292,8 +1299,7 @@ export default function SuperClientPage() {
     setShowEditingLogoUrlInput(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setEditModeActive(false);
-    setSelectedElement(null);
-    setHoveredElement(null);
+    clearBridgeSelection();
   }
 
   function resetComposer() {
@@ -2346,7 +2352,7 @@ export default function SuperClientPage() {
                           : ''}
                       </span>
                       <button
-                        onClick={() => setSelectedElement(null)}
+                        onClick={() => clearBridgeSelection()}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', display: 'flex', alignItems: 'center', padding: '2px 3px', borderRadius: 10, opacity: 0.7, flexShrink: 0 }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
@@ -2775,8 +2781,7 @@ export default function SuperClientPage() {
                       const next = !editModeActive;
                       setEditModeActive(next);
                       if (!next) {
-                        setSelectedElement(null);
-                        setHoveredElement(null);
+                        clearBridgeSelection();
                       }
                       // Force iframe remount so bridge script is injected/removed
                       setViewingMicrosite((prev) => {
@@ -2935,10 +2940,10 @@ export default function SuperClientPage() {
                     hovered={hoveredElement}
                     selected={selectedElement}
                     isProcessing={micrositeEditing}
-                    onClearSelected={() => setSelectedElement(null)}
+                    onClearSelected={() => clearBridgeSelection()}
                   />
                 )}
-                {/* Inline property editor — floats near the selected element */}
+                {/* Inline property editor — centered at bottom of iframe area */}
                 {editModeActive && selectedElement && (
                   <InlineEditPanel
                     selected={selectedElement}
@@ -2948,7 +2953,7 @@ export default function SuperClientPage() {
                     onImageReplace={handleImageReplace}
                     onBgImagePatch={handleBgImagePatch}
                     onIconReplace={handleIconReplace}
-                    onClose={() => setSelectedElement(null)}
+                    onClose={() => clearBridgeSelection()}
                   />
                 )}
                 {/* Overlay blocks iframe from swallowing mouse events during resize */}

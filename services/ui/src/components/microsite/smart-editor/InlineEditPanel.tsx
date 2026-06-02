@@ -304,15 +304,10 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
 
   const dis = micrositeEditing;
 
-  // ── Floating position ────────────────────────────────────────────────────
+  // ── Centered, bottom-anchored position ───────────────────────────────────
+  // Horizontally centered in the panel; sits near the bottom of the iframe
+  // area so it stays visible and responsive as the panel is drag-resized.
   const PANEL_H = 48;
-  const GAP     = 10;
-  const { top: elTop, left: elLeft, height: elHeight } = selected.rect;
-  const showAbove = elTop + elHeight + PANEL_H + GAP > 480;
-  const topPos    = showAbove
-    ? Math.max(4, elTop - PANEL_H - GAP)
-    : elTop + elHeight + GAP;
-  const leftPos   = Math.max(8, elLeft);
 
   const label = [selected.tag, selected.sectionType].filter(Boolean).join(' · ');
   const bold   = isBoldEl(selected.outerHtml);
@@ -341,10 +336,12 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
     <div
       style={{
         position: 'absolute',
-        top: topPos,
-        left: leftPos,
+        bottom: 14,
+        left: '50%',
+        transform: 'translateX(-50%)',
         zIndex: 30,
         maxWidth: 'calc(100% - 16px)',
+        width: 'max-content',
         background: 'rgba(14,14,14,0.93)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
