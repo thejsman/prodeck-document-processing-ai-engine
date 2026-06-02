@@ -439,10 +439,29 @@ export default function SuperClientPage() {
   const [fullscreenMicrosite, setFullscreenMicrosite] = useState<LayoutAST | null>(null);
   const [micrositePanelWidth, setMicrositePanelWidth] = useState(640);
   const [micrositeDragging, setMicrositeDragging] = useState(false);
+  const [micrositeDragHover, setMicrositeDragHover] = useState(false);
   const micrositeDragRef = useRef<{
     startX: number;
     startWidth: number;
   } | null>(null);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const MICROSITE_MIN_WIDTH = 500;
+  const CHAT_MIN_WIDTH = 360;
+
+  // Clamp micrositePanelWidth whenever the container resizes (e.g. left nav opens/closes)
+  useEffect(() => {
+    const el = splitContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const containerWidth = splitContainerRef.current?.offsetWidth ?? 0;
+      if (containerWidth === 0) return;
+      const maxWidth = Math.max(MICROSITE_MIN_WIDTH, containerWidth - CHAT_MIN_WIDTH);
+      setMicrositePanelWidth((prev) => Math.min(prev, maxWidth));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cache last-seen content so panels render content during close animation (prevents content flash)
   const lastMicrositeRef = useRef(viewingMicrosite);
@@ -1195,8 +1214,10 @@ export default function SuperClientPage() {
 
     function onMouseMove(ev: MouseEvent) {
       if (!micrositeDragRef.current) return;
+      const containerWidth = splitContainerRef.current?.offsetWidth ?? window.innerWidth;
+      const maxWidth = Math.max(MICROSITE_MIN_WIDTH, containerWidth - CHAT_MIN_WIDTH);
       const delta = micrositeDragRef.current.startX - ev.clientX;
-      const next = Math.max(320, Math.min(1100, micrositeDragRef.current.startWidth + delta));
+      const next = Math.max(MICROSITE_MIN_WIDTH, Math.min(maxWidth, micrositeDragRef.current.startWidth + delta));
       setMicrositePanelWidth(next);
     }
 
@@ -1768,7 +1789,7 @@ export default function SuperClientPage() {
 
   return (
     <>
-      <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      <div ref={splitContainerRef} style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
         {/* Center — chat */}
         <div
           style={{
@@ -2624,7 +2645,8 @@ export default function SuperClientPage() {
         <div
           style={{
             width: viewingMicrosite ? micrositePanelWidth : 0,
-            minWidth: 0,
+            minWidth: viewingMicrosite ? MICROSITE_MIN_WIDTH : 0,
+            maxWidth: viewingMicrosite ? `calc(100% - ${CHAT_MIN_WIDTH}px)` : 0,
             flexShrink: 0,
             overflow: 'hidden',
             borderLeft: viewingMicrosite ? '1px solid var(--border)' : 'none',
@@ -2636,7 +2658,7 @@ export default function SuperClientPage() {
           {lastMicrositeRef.current && (
             <div
               style={{
-                width: micrositePanelWidth,
+                width: '100%',
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
@@ -2646,28 +2668,75 @@ export default function SuperClientPage() {
               {/* Drag handle */}
               <div
                 onMouseDown={handleMicrositeDragStart}
+                onMouseEnter={() => setMicrositeDragHover(true)}
+                onMouseLeave={() => setMicrositeDragHover(false)}
+                title="Drag to resize"
                 style={{
                   position: 'absolute',
                   left: 0,
                   top: 0,
                   bottom: 0,
-                  width: 8,
+                  width: 14,
                   cursor: 'col-resize',
                   zIndex: 20,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  background: micrositeDragging
+                    ? 'color-mix(in srgb, var(--primary) 8%, transparent)'
+                    : micrositeDragHover
+                      ? 'color-mix(in srgb, var(--border) 30%, transparent)'
+                      : 'transparent',
+                  transition: 'background 0.15s',
                 }}
               >
                 <div
                   style={{
-                    width: 3,
-                    height: 36,
-                    borderRadius: 2,
-                    background: micrositeDragging ? 'var(--primary)' : 'var(--border)',
-                    transition: 'background 0.15s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 3,
+                    transition: 'opacity 0.15s, transform 0.15s',
+                    opacity: micrositeDragging || micrositeDragHover ? 1 : 0.4,
+                    transform: micrositeDragging ? 'scaleX(1.2)' : 'scaleX(1)',
                   }}
-                />
+                >
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: micrositeDragging || micrositeDragHover ? 4 : 3,
+                        height: 4,
+                        borderRadius: '50%',
+                        background: micrositeDragging ? 'var(--primary)' : 'var(--muted-foreground, var(--muted))',
+                        transition: 'width 0.15s, background 0.15s',
+                      }}
+                    />
+                  ))}
+                </div>
+                {/* width tooltip during drag */}
+                {micrositeDragging && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: 18,
+                      transform: 'translateY(-50%)',
+                      background: 'var(--primary)',
+                      color: '#fff',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      whiteSpace: 'nowrap',
+                      pointerEvents: 'none',
+                      zIndex: 30,
+                      letterSpacing: '0.02em',
+                    }}
+                  >
+                    {micrositePanelWidth}px
+                  </div>
+                )}
               </div>
               {/* Header */}
               <div
