@@ -288,14 +288,22 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
   const isText = isTextEl(tag) || (!isImg && !isIcon && !hasChildElements);
   const isLeaf = isText && isLeafEl(selected.outerHtml);
 
-  const [localFontSize, setLocalFontSize] = useState(16);
-  const [localImgUrl,   setLocalImgUrl]   = useState('');
-  const [localText,     setLocalText]     = useState('');
-  const [localBgImgUrl, setLocalBgImgUrl] = useState('');
-  const [localIconUrl,  setLocalIconUrl]  = useState('');
+  const [localFontSize,   setLocalFontSize]   = useState(16);
+  const [localFontFamily, setLocalFontFamily] = useState('');
+  const [localImgUrl,     setLocalImgUrl]     = useState('');
+  const [localText,       setLocalText]       = useState('');
+  const [localBgImgUrl,   setLocalBgImgUrl]   = useState('');
+  const [localIconUrl,    setLocalIconUrl]    = useState('');
 
   useEffect(() => {
     setLocalFontSize(parseFontSize(selected.outerHtml));
+    // Resolve applied font back to its option stack so the select value matches exactly
+    const applied = parseFontFamily(selected.outerHtml).toLowerCase();
+    const match = FONT_OPTIONS.find(o => {
+      if (!o.stack) return false;
+      return o.stack.replace(/['"]/g, '').split(',')[0].trim().toLowerCase() === applied;
+    });
+    setLocalFontFamily(match?.stack ?? '');
     setLocalImgUrl(parseImgSrc(selected.outerHtml));
     setLocalText(selected.text ?? '');
     setLocalBgImgUrl('');
@@ -398,11 +406,11 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
 
           {/* Font family */}
           <select
-            value={parseFontFamily(selected.outerHtml)}
+            value={localFontFamily}
             disabled={dis}
             onChange={(e) => {
-              const opt = FONT_OPTIONS.find(o => o.stack.startsWith(e.target.value) || o.label === e.target.value);
-              const stack = opt?.stack || e.target.value;
+              const stack = e.target.value;
+              setLocalFontFamily(stack);
               if (stack) void onStylePatch('font-family', stack);
             }}
             style={{
