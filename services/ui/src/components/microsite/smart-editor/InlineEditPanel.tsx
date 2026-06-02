@@ -2,6 +2,217 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type { BridgeMessage } from '@/lib/microsite-bridge';
+import {
+  Home, Search, Menu, ChevronRight, ChevronLeft, ChevronUp, ChevronDown,
+  ArrowRight, ArrowLeft, ArrowUp, ArrowDown, ExternalLink,
+  User, Users, Lock, Unlock, Shield, Eye, EyeOff, Key, UserCheck,
+  Mail, Phone, MessageCircle, MessageSquare, Send, Bell, AtSign,
+  FileText, Folder, Download, Upload, Share2, Paperclip,
+  Video, Camera, Play, Pause, Music, Headphones, Mic, Volume2,
+  Building, Briefcase, Calendar, Clock, MapPin, Tag, Package,
+  CreditCard, DollarSign, ShoppingCart, Globe, Truck,
+  BarChart2, TrendingUp, TrendingDown, Database, Activity,
+  Pencil, Trash2, Plus, Minus, Check, Copy, RefreshCw, Settings, Sliders, Filter,
+  Star, Heart, Bookmark, Award, Target, Zap, CheckCircle, XCircle,
+  AlertCircle, AlertTriangle, Info, HelpCircle, ThumbsUp,
+  Code, Terminal, Cpu, Smartphone, Monitor, Wifi, Cloud, Server,
+  Sun, Moon, Compass, Rocket, Layers, Grid, Coffee, Flag, Gift,
+  type LucideProps,
+} from 'lucide-react';
+
+// ── Curated Lucide icon list ────────────────────────────────────────────────
+type LucideComp = React.ComponentType<LucideProps>;
+const ICON_LIST: Array<{ name: string; C: LucideComp }> = [
+  // Navigation
+  { name: 'Home',         C: Home },        { name: 'Search',     C: Search },
+  { name: 'Menu',         C: Menu },        { name: 'ChevronRight', C: ChevronRight },
+  { name: 'ChevronLeft',  C: ChevronLeft }, { name: 'ChevronUp',  C: ChevronUp },
+  { name: 'ChevronDown',  C: ChevronDown }, { name: 'ArrowRight', C: ArrowRight },
+  { name: 'ArrowLeft',    C: ArrowLeft },   { name: 'ArrowUp',    C: ArrowUp },
+  { name: 'ArrowDown',    C: ArrowDown },   { name: 'ExternalLink', C: ExternalLink },
+  // User / Auth
+  { name: 'User',         C: User },        { name: 'Users',      C: Users },
+  { name: 'UserCheck',    C: UserCheck },   { name: 'Lock',       C: Lock },
+  { name: 'Unlock',       C: Unlock },      { name: 'Shield',     C: Shield },
+  { name: 'Eye',          C: Eye },         { name: 'EyeOff',     C: EyeOff },
+  { name: 'Key',          C: Key },
+  // Communication
+  { name: 'Mail',         C: Mail },        { name: 'Phone',      C: Phone },
+  { name: 'MessageCircle', C: MessageCircle }, { name: 'MessageSquare', C: MessageSquare },
+  { name: 'Send',         C: Send },        { name: 'Bell',       C: Bell },
+  { name: 'AtSign',       C: AtSign },
+  // Files
+  { name: 'FileText',     C: FileText },    { name: 'Folder',     C: Folder },
+  { name: 'Download',     C: Download },    { name: 'Upload',     C: Upload },
+  { name: 'Share',        C: Share2 },      { name: 'Paperclip',  C: Paperclip },
+  // Media
+  { name: 'Video',        C: Video },       { name: 'Camera',     C: Camera },
+  { name: 'Play',         C: Play },        { name: 'Pause',      C: Pause },
+  { name: 'Music',        C: Music },       { name: 'Headphones', C: Headphones },
+  { name: 'Mic',          C: Mic },         { name: 'Volume',     C: Volume2 },
+  // Business
+  { name: 'Building',     C: Building },    { name: 'Briefcase',  C: Briefcase },
+  { name: 'Calendar',     C: Calendar },    { name: 'Clock',      C: Clock },
+  { name: 'MapPin',       C: MapPin },      { name: 'Tag',        C: Tag },
+  { name: 'Package',      C: Package },     { name: 'CreditCard', C: CreditCard },
+  { name: 'Dollar',       C: DollarSign },  { name: 'Cart',       C: ShoppingCart },
+  { name: 'Globe',        C: Globe },       { name: 'Truck',      C: Truck },
+  // Charts / Data
+  { name: 'BarChart',     C: BarChart2 },   { name: 'TrendingUp', C: TrendingUp },
+  { name: 'TrendingDown', C: TrendingDown },{ name: 'Database',   C: Database },
+  { name: 'Activity',     C: Activity },
+  // Actions
+  { name: 'Pencil',       C: Pencil },      { name: 'Trash',      C: Trash2 },
+  { name: 'Plus',         C: Plus },        { name: 'Minus',      C: Minus },
+  { name: 'Check',        C: Check },       { name: 'Copy',       C: Copy },
+  { name: 'Refresh',      C: RefreshCw },   { name: 'Settings',   C: Settings },
+  { name: 'Sliders',      C: Sliders },     { name: 'Filter',     C: Filter },
+  // Status / Feedback
+  { name: 'Star',         C: Star },        { name: 'Heart',      C: Heart },
+  { name: 'Bookmark',     C: Bookmark },    { name: 'Award',      C: Award },
+  { name: 'Target',       C: Target },      { name: 'Zap',        C: Zap },
+  { name: 'CheckCircle',  C: CheckCircle }, { name: 'XCircle',    C: XCircle },
+  { name: 'AlertCircle',  C: AlertCircle }, { name: 'AlertTriangle', C: AlertTriangle },
+  { name: 'Info',         C: Info },        { name: 'Help',       C: HelpCircle },
+  { name: 'ThumbsUp',     C: ThumbsUp },
+  // Tech
+  { name: 'Code',         C: Code },        { name: 'Terminal',   C: Terminal },
+  { name: 'Cpu',          C: Cpu },         { name: 'Smartphone', C: Smartphone },
+  { name: 'Monitor',      C: Monitor },     { name: 'Wifi',       C: Wifi },
+  { name: 'Cloud',        C: Cloud },       { name: 'Server',     C: Server },
+  // Misc
+  { name: 'Sun',          C: Sun },         { name: 'Moon',       C: Moon },
+  { name: 'Compass',      C: Compass },     { name: 'Rocket',     C: Rocket },
+  { name: 'Layers',       C: Layers },      { name: 'Grid',       C: Grid },
+  { name: 'Coffee',       C: Coffee },      { name: 'Flag',       C: Flag },
+  { name: 'Gift',         C: Gift },
+];
+
+// ── Lucide icon picker popup ────────────────────────────────────────────────
+function LucideIconPicker({ disabled, onSelect, onClose }: {
+  disabled: boolean;
+  onSelect: (svgHtml: string) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const filtered = q.trim()
+    ? ICON_LIST.filter(i => i.name.toLowerCase().includes(q.trim().toLowerCase()))
+    : ICON_LIST;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 'calc(100% + 10px)',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 336,
+        maxWidth: 'calc(100vw - 32px)',
+        background: 'rgba(12,12,12,0.97)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        border: '1px solid rgba(255,255,255,0.14)',
+        borderRadius: 12,
+        boxShadow: '0 -12px 40px rgba(0,0,0,0.65)',
+        padding: '10px 10px 8px',
+        zIndex: 50,
+      }}
+    >
+      {/* Search */}
+      <input
+        type="search"
+        placeholder="Search icons…"
+        value={q}
+        autoFocus
+        onChange={e => setQ(e.target.value)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          height: 28, padding: '0 10px', fontSize: 12, borderRadius: 6,
+          border: '1px solid rgba(255,255,255,0.15)',
+          background: 'rgba(255,255,255,0.07)', color: '#fff',
+          outline: 'none', marginBottom: 8,
+        }}
+      />
+      {/* Icon grid */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(7, 1fr)',
+          gap: 3,
+          maxHeight: 210,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}
+      >
+        {filtered.map(({ name, C }) => (
+          <button
+            key={name}
+            title={name}
+            disabled={disabled}
+            onClick={(e) => {
+              const svg = (e.currentTarget as HTMLButtonElement).querySelector('svg');
+              if (svg) onSelect(svg.outerHTML);
+            }}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: 3,
+              padding: '6px 2px 5px',
+              borderRadius: 6,
+              background: 'transparent',
+              border: '1px solid transparent',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              color: 'rgba(255,255,255,0.75)',
+              opacity: disabled ? 0.4 : 1,
+              transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+            }}
+            onMouseEnter={e => {
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.background = 'rgba(99,102,241,0.2)';
+              b.style.borderColor = 'rgba(99,102,241,0.45)';
+              b.style.color = '#a5b4fc';
+            }}
+            onMouseLeave={e => {
+              const b = e.currentTarget as HTMLButtonElement;
+              b.style.background = 'transparent';
+              b.style.borderColor = 'transparent';
+              b.style.color = 'rgba(255,255,255,0.75)';
+            }}
+          >
+            <C size={17} strokeWidth={1.75} />
+            <span style={{
+              fontSize: 7.5, color: 'rgba(255,255,255,0.3)',
+              whiteSpace: 'nowrap', overflow: 'hidden',
+              textOverflow: 'ellipsis', maxWidth: 40, lineHeight: 1,
+            }}>
+              {name}
+            </span>
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px 0', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
+            No icons found
+          </div>
+        )}
+      </div>
+      {/* Footer */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 7, paddingTop: 7, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
+          {filtered.length} of {ICON_LIST.length} · Lucide
+        </span>
+        <button
+          onClick={onClose}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'rgba(255,255,255,0.4)', fontSize: 11,
+            padding: '2px 6px', borderRadius: 4,
+          }}
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   selected: BridgeMessage;
@@ -11,6 +222,7 @@ interface Props {
   onImageReplace: (url: string) => Promise<void>;
   onBgImagePatch: (url: string) => Promise<void>;
   onIconReplace: (url: string) => Promise<void>;
+  onSvgReplace: (svgMarkup: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -274,7 +486,7 @@ function IconBtn({ active, disabled, onClick, children, title }: {
 const Sep = () => <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />;
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onClose }: Props) {
   const tag    = selected.tag?.toLowerCase() ?? '';
   const isImg  = isImgEl(tag);
   const isIcon = isIconEl(tag, selected.outerHtml);
@@ -310,6 +522,8 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
     setLocalIconUrl('');
   }, [selected.path, selected.outerHtml, selected.text]);
 
+  const [showIconPicker, setShowIconPicker] = useState(false);
+
   const dis = micrositeEditing;
 
   // ── Centered, bottom-anchored position ───────────────────────────────────
@@ -341,6 +555,8 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
   }
 
   return (
+    // Outer wrapper: handles absolute positioning so the icon picker can
+    // use position:absolute bottom:100% to float directly above the toolbar.
     <div
       style={{
         position: 'absolute',
@@ -350,6 +566,25 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         zIndex: 30,
         maxWidth: 'calc(100% - 16px)',
         width: 'max-content',
+        pointerEvents: 'auto',
+        userSelect: 'none',
+      }}
+    >
+      {/* Lucide icon picker — floats above toolbar when toggled */}
+      {isIcon && showIconPicker && (
+        <LucideIconPicker
+          disabled={dis}
+          onSelect={(svgHtml) => {
+            setShowIconPicker(false);
+            void onSvgReplace(svgHtml);
+          }}
+          onClose={() => setShowIconPicker(false)}
+        />
+      )}
+
+    {/* Toolbar */}
+    <div
+      style={{
         background: 'rgba(14,14,14,0.93)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
@@ -363,8 +598,6 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         gap: 8,
         overflowX: 'auto',
         overflowY: 'hidden',
-        pointerEvents: 'auto',
-        userSelect: 'none',
       }}
     >
       {/* Element label */}
@@ -501,13 +734,32 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         </>
       )}
 
-      {/* Icon replacement + local upload — SVG and icon elements */}
+      {/* Icon replacement — SVG/icon elements: picker + URL fallback */}
       {isIcon && (
         <>
           <Sep />
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>ICON</span>
+          {/* Lucide icon chooser toggle */}
+          <button
+            title={showIconPicker ? 'Close icon picker' : 'Browse Lucide icons'}
+            disabled={dis}
+            onClick={() => setShowIconPicker(p => !p)}
+            style={{
+              height: 26, padding: '0 8px', fontSize: 10, fontWeight: 600,
+              borderRadius: 4, flexShrink: 0,
+              border: `1px solid ${showIconPicker ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.18)'}`,
+              background: showIconPicker ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.07)',
+              color: showIconPicker ? '#a5b4fc' : 'rgba(255,255,255,0.7)',
+              cursor: dis ? 'not-allowed' : 'pointer',
+              opacity: dis ? 0.4 : 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ⊞ Browse
+          </button>
+          {/* URL / upload fallback */}
           <ImageInput
-            placeholder="Icon / image URL…"
+            placeholder="Icon URL…"
             value={localIconUrl}
             disabled={dis}
             onCommit={(url) => { setLocalIconUrl(url); void onIconReplace(url); }}
@@ -525,6 +777,7 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
       }}>
         ✕
       </button>
+    </div>
     </div>
   );
 }

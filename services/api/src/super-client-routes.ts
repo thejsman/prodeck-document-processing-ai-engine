@@ -1854,6 +1854,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return saveValidatedEdit(updatedHtml, 'Background image updated');
     }
 
+    // ── Lucide SVG replacement — replaces element with raw SVG markup ─────────
+    // Format: __SVG_REPLACE__:[cssPath]||[svgMarkup]
+    // Used by the Lucide icon picker in InlineEditPanel.
+    const svgReplaceMatch = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+)$/s);
+    if (svgReplaceMatch) {
+      const cssPath   = svgReplaceMatch[1].trim();
+      let   svgMarkup = svgReplaceMatch[2].trim();
+
+      if (!svgMarkup.startsWith('<svg'))
+        return reply.code(400).send({ error: 'Payload must be an SVG element' });
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const originalHtml = html.slice(bounds.start, bounds.end);
+      // Preserve class and inline style from the original element
+      const cls   = originalHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const style = originalHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
+      // Inject class/style into the incoming SVG opening tag
+      svgMarkup = svgMarkup.replace(/^<svg\b/, `<svg${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`);
+      // Remove duplicate class/style injected above if original SVG already had them
+      svgMarkup = svgMarkup.replace(/(<svg[^>]*)\bclass="[^"]*"\s*class="[^"]*"/, '$1');
+
+      const updatedHtml = html.slice(0, bounds.start) + svgMarkup + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Icon replaced');
+    }
+
     // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
     // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
     // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
