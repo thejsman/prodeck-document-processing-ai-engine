@@ -2339,6 +2339,23 @@ When asked to create a website or microsite:
 - CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
 
+FRAMEWORK TRANSLATION RULES — apply these when the prompt references any JS framework:
+- React component → vanilla JS function using document.createElement / innerHTML
+- Framer Motion initial/animate/transition → CSS @keyframes + IntersectionObserver, or GSAP if motion is needed
+- Framer Motion whileHover → CSS :hover with transform / box-shadow
+- Tailwind utility classes → equivalent inline styles or a <style> block with the same values
+- <script type="text/babel"> → standard <script> tag with plain ES6 JS
+- window.X = X component exports → not needed; keep all JS inline in one <script> block
+- CDN links for React, ReactDOM, Babel standalone, or Framer Motion → omit them entirely; use GSAP from jsdelivr if animation is needed
+- BlurText / word-by-word animation → JS that splits text into <span> words and stagger-fades them via IntersectionObserver or GSAP
+- FadingVideo crossfade → vanilla JS using requestAnimationFrame to tween video.style.opacity, with ended + timeupdate listeners for manual looping
+
+NAV INTEGRITY RULE — always enforce this:
+- Every href="#anchor" in the navigation must have a matching id="anchor" on a real page section
+- Scan every nav link you generate; if a nav item points to a section not explicitly defined in the prompt, generate a minimal but styled placeholder section for it — same visual language as the rest of the page, with a heading and 1–2 lines of relevant placeholder copy
+- Never wire multiple nav items to the same section ID just because that section is the closest match
+- After writing all sections, do a final mental check: for each nav href, confirm its target id exists in the HTML
+
 MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every output:
 - Always include <meta name="viewport" content="width=device-width, initial-scale=1"> in <head>
 - Write base styles for 320px–768px first, then layer on desktop enhancements with min-width media queries
@@ -2439,10 +2456,29 @@ Implement as a full-bleed iframe background inside a position:relative container
 The hero section must have position:relative; overflow:hidden. All overlay text sits above with position:relative; z-index:1.`
         : '';
 
+      // Strip framework-specific CDN script tags and export patterns from the prompt so the LLM
+      // isn't confused into attempting React/Babel output instead of vanilla HTML.
+      const sanitizeFrameworkPrompt = (text: string): string => {
+        let out = text;
+        // Remove <script> tags loading React, ReactDOM, Babel, Framer Motion, Vue, Angular
+        out = out.replace(/<script[^>]*(?:unpkg\.com\/react|unpkg\.com\/react-dom|unpkg\.com\/@babel|framer-motion|vue(?:\.global|\.esm)|angular)[^>]*><\/script>/gi, '');
+        // Remove integrity/crossorigin CDN <script> tags for the above (self-closing or paired)
+        out = out.replace(/<script[^>]*(?:react|babel\.min|framer-motion)[^>]*(?:\/>|>[\s\S]*?<\/script>)/gi, '');
+        // Remove window.X = X export lines
+        out = out.replace(/window\.\w+\s*=\s*\w+\s*;?/g, '');
+        // Neutralise <script type="text/babel"> mentions in prose
+        out = out.replace(/<script\s+type=["']text\/babel["']/gi, '<script');
+        // Prepend translation note if any framework keyword was found in the original text
+        if (/react|framer.?motion|babel|jsx|\.createRoot|window\.\w+\s*=/i.test(text)) {
+          out = `NOTE: Translate all React/JSX/Framer Motion patterns to equivalent vanilla HTML, CSS, and JS — do NOT emit any React, Babel, or Framer Motion code.\n\n${out}`;
+        }
+        return out;
+      };
+
       // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
       const parts: string[] = [];
-      if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
-      if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${body.designPrompt.trim()}`);
+      if (body?.userPrompt?.trim()) parts.push(sanitizeFrameworkPrompt(body.userPrompt.trim()));
+      if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${sanitizeFrameworkPrompt(body.designPrompt.trim())}`);
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
       // Motion level hint — tells Claude what animation approach to use
