@@ -1257,25 +1257,58 @@ export default function SuperClientPage() {
   }
 
   function injectLogoIntoHtml(html: string, logo: { base64: string; mediaType: string } | { url: string }): string {
-    // Remove ALL previously injected logo divs (any attribute order) and their companion scripts
-    let stripped = html
+    // Strip any previous logo injection artifacts
+    let out = html
       .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
-      .replace(/<script[^>]*>\s*\/\*\s*__logo-inject__/gi, (m) => {
-        // find and remove the whole script block that starts with this marker
-        return m; // placeholder; handled by full-block regex below
-      });
-    // Remove the full companion script block by its unique marker comment
-    stripped = stripped.replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+      .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
 
     const src = 'url' in logo ? logo.url : `data:${logo.mediaType};base64,${logo.base64}`;
-    const logoHtml = `<div id="__brand-logo__" style="position:fixed;top:16px;left:20px;z-index:2147483647;pointer-events:none;"><img src="${src}" style="height:44px;width:auto;object-fit:contain;display:block;" alt="" /></div>`;
-    // Hide provider attribution in both footer ("PREPARED BY") and header brand/logo element
-    const hideProviderScript = `<script>/*__logo-inject__*/(function(){function h(){var els=document.querySelectorAll('*');for(var i=0;i<els.length;i++){var t=(els[i].children.length===0?els[i].textContent||'':'');if(/prepared\\s*by/i.test(t)){var p=els[i].parentElement;(p&&p!==document.body?p:els[i]).style.display='none';}}var hdr=document.querySelector('header,nav,[class*="header"],[class*="navbar"]');if(hdr){var brand=hdr.querySelector('[class*="logo"],[class*="brand"],[class*="navbar-brand"]');if(brand){brand.style.visibility='hidden';}else{var first=hdr.firstElementChild;if(first&&first.id!=='__brand-logo__'){first.style.visibility='hidden';}}}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',h);}else{h();}})()</script>`;
-    const injection = logoHtml + hideProviderScript;
-    if (/<body[^>]*>/i.test(stripped)) {
-      return stripped.replace(/(<body[^>]*>)/i, `$1${injection}`);
+    const imgTag = `<img src="${src}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
+
+    // Strategy 1 — slot div the LLM was instructed to emit (safest: no img placeholder crash)
+    if (out.includes('id="__site-logo-slot__"')) {
+      // Replace the inner content of the slot div with our img
+      return out.replace(
+        /(<div[^>]*id="__site-logo-slot__"[^>]*>)([\s\S]*?)(<\/div>)/i,
+        `$1${imgTag}$3`,
+      );
     }
-    return injection + stripped;
+
+    // Strategy 2 — any <img> directly inside <nav> or <header>: replace its src
+    const navImgRe = /(<(?:nav|header)\b[^>]*>[\s\S]*?)(<img\b[^>]*>)/i;
+    if (navImgRe.test(out)) {
+      return out.replace(navImgRe, (_, before, imgEl) => {
+        const patched = imgEl.includes('src=')
+          ? imgEl.replace(/\bsrc="[^"]*"/i, `src="${src}"`)
+          : imgEl.replace('<img', `<img src="${src}"`);
+        return before + patched.replace(/\bstyle="[^"]*"/i, `style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"`);
+      });
+    }
+
+    // Strategy 3 — element with logo/brand class inside nav/header: prepend img with flex wrapper
+    const navLogoRe = /(<(?:nav|header)\b[\s\S]*?)(<(?:a|div|span)\b[^>]*class="[^"]*(?:logo|brand|navbar-brand)[^"]*"[^>]*>)/i;
+    if (navLogoRe.test(out)) {
+      return out.replace(navLogoRe, (_, before, logoTag) => {
+        const flexTag = logoTag.includes('style=')
+          ? logoTag.replace(/\bstyle="([^"]*)"/i, (_m: string, s: string) =>
+              `style="${s.replace(/display\s*:[^;]+;?/gi, '').replace(/align-items\s*:[^;]+;?/gi, '').trim()};display:flex;align-items:center;"`)
+          : logoTag.replace('>', ' style="display:flex;align-items:center;">');
+        return `${before}${flexTag}${imgTag}`;
+      });
+    }
+
+    // Strategy 4 — insert as first child of nav/header inside a flex-centered wrapper
+    const navOpenRe = /(<(?:nav|header)\b[^>]*>)/i;
+    if (navOpenRe.test(out)) {
+      const slot = `<div style="display:flex;align-items:center;flex-shrink:0;">${imgTag}</div>`;
+      return out.replace(navOpenRe, `$1${slot}`);
+    }
+
+    // Strategy 5 — fixed overlay fallback, properly centered within a 64px navbar band
+    const overlay = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;">${imgTag}</div>`;
+    return /<body[^>]*>/i.test(out)
+      ? out.replace(/(<body[^>]*>)/i, `$1${overlay}`)
+      : overlay + out;
   }
 
   async function handleComposerSelectProposal(p: SuperClientProposal) {

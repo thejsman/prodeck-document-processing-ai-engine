@@ -55,7 +55,7 @@ const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
 // Intercept hash-anchor clicks so they scroll within the srcDoc iframe instead of
 // navigating away (clicking nav links like href="#section" would blank a srcDoc iframe
 // because it has no real base URL).
-const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;var href=a.getAttribute('href');if(href==='#')return;e.preventDefault();var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
 export function normalizeMicrositeHtml(html: string): string {
   if (!html) return html;
@@ -282,7 +282,15 @@ document.addEventListener('mouseleave', function () {
 }, false);
 
 document.addEventListener('click', function (e) {
-  if (e.target && e.target.tagName && e.target.tagName.toLowerCase() === 'a') e.preventDefault();
+  // Prevent link navigation for any click on or inside an <a> element.
+  // Without this, clicking a child (e.g. an <img> inside a.nav-brand) lets the
+  // anchor's href="#" execute, which blanks the srcdoc iframe.
+  if (e.target) {
+    var tgt = e.target;
+    var isAnchor = tgt.tagName && tgt.tagName.toLowerCase() === 'a';
+    var inAnchor = !isAnchor && tgt.closest && tgt.closest('a');
+    if (isAnchor || inAnchor) e.preventDefault();
+  }
   selectedEl = e.target;
   sendMsg('select', e.target);
   startTracking(e.target);
