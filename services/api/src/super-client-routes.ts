@@ -1809,15 +1809,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         return result;
       }
 
-      // Apply to the selected element first
+      // Apply to the selected element first (clears inline style + CSS class gradient)
       updated = clearBgFromElement(updated, bounds);
 
-      // If nothing changed (e.g. overlay div already had background:none),
-      // also try the PARENT element (one level up in the cssPath).
-      // This handles: user clicks overlay → parent has the background photo.
+      // ALWAYS also try the parent container — the background photo (<img>) is typically
+      // a sibling of an overlay div, living inside the parent (.hero-bg, etc.).
+      // Doing this unconditionally means a single "remove background" prompt clears
+      // both the gradient overlay AND the photo in one shot.
       const parentPath = cssPath.split(/\s*>\s*/).slice(0, -1).join(' > ');
-      if (updated === html && parentPath) {
-        const parentBounds = findByPath(html, parentPath);
+      if (parentPath) {
+        // Re-find parent bounds in the (possibly already modified) `updated` HTML
+        const parentBounds = findByPath(updated, parentPath);
         if (parentBounds) {
           updated = clearBgFromElement(updated, parentBounds);
         }
