@@ -511,6 +511,52 @@ export default function SuperClientPage() {
     setSelectedElement(null);
     setHoveredElement(null);
   };
+
+  // Walk a CSS path ("section#hero > div.foo:nth-of-type(1) > span") inside a
+  // parsed Document to find the matching element. Used only for refreshing
+  // selectedElement state after an LLM edit — best-effort, not safety-critical.
+  function findElByPath(doc: Document, path: string): Element | null {
+    const parts = path.split(/\s*>\s*/);
+    let scope: Element | Document = doc;
+    for (const part of parts) {
+      const tagMatch = part.match(/^(\w[\w-]*)/);
+      if (!tagMatch) return null;
+      const tag = tagMatch[1];
+      const idMatch  = part.match(/#([\w-]+)/);
+      const clsMatch = part.match(/\.([\w-]+)/);
+      const nthMatch = part.match(/:nth-of-type\((\d+)\)/);
+      const nth = nthMatch ? parseInt(nthMatch[1], 10) : 1;
+      const id  = idMatch?.[1];
+      const cls = clsMatch?.[1];
+      const selector = scope instanceof Document ? tag : `:scope > ${tag}`;
+      const candidates: Element[] = Array.from(scope.querySelectorAll(selector)).filter((el): el is Element =>
+        (!id  || (el as Element).id === id) &&
+        (!cls || (el as Element).classList.contains(cls)),
+      );
+      const found: Element | null = candidates[nth - 1] ?? null;
+      if (!found) return null;
+      scope = found;
+    }
+    return scope instanceof Element ? scope : null;
+  }
+
+  // After an LLM edit on a selected element, re-read its outerHtml from the
+  // updated document so the InlineEditPanel shows fresh color/font/text values.
+  // If the element can't be found at the old path, selectedElement is left as-is.
+  function refreshSelectedElementFromHtml(updatedHtml: string) {
+    if (!selectedElement?.path) return;
+    try {
+      const doc = new DOMParser().parseFromString(updatedHtml, 'text/html');
+      const el  = findElByPath(doc, selectedElement.path);
+      if (el) {
+        setSelectedElement({
+          ...selectedElement,
+          outerHtml: el.outerHTML.slice(0, 8192),
+          text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        });
+      }
+    } catch { /* leave selectedElement unchanged on parse error */ }
+  }
   const [editingLogo, setEditingLogo] = useState<{ base64: string; mediaType: string } | null>(null);
   const [editingLogoUrl, setEditingLogoUrl] = useState('');
   const [showEditingLogoUrlInput, setShowEditingLogoUrlInput] = useState(false);
@@ -1062,7 +1108,14 @@ export default function SuperClientPage() {
       setEditingLogo(null);
       setEditingLogoUrl('');
       setShowEditingLogoUrlInput(false);
-      clearBridgeSelection();
+      if (selectedElement) {
+        // An element was targeted: keep it selected so the inline editor stays
+        // active. Refresh outerHtml so the inline editor shows fresh values.
+        refreshSelectedElementFromHtml(finalHtml);
+      } else {
+        // General microsite edit (no element selected) — deselect as before.
+        clearBridgeSelection();
+      }
       // Write new HTML directly into the iframe (no reload → scroll preserved)
       applyEditHtml(finalHtml);
       setViewingMicrosite((prev) =>
@@ -1372,49 +1425,55 @@ export default function SuperClientPage() {
       .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
 
     const src = 'url' in logo ? logo.url : `data:${logo.mediaType};base64,${logo.base64}`;
-    const imgTag = `<img src="${src}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
+    const imgStyle = 'height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;';
 
-    // Strategy 1 — slot div the LLM was instructed to emit (safest: no img placeholder crash)
-    if (out.includes('id="__site-logo-slot__"')) {
-      // Replace the inner content of the slot div with our img
-      return out.replace(
-        /(<div[^>]*id="__site-logo-slot__"[^>]*>)([\s\S]*?)(<\/div>)/i,
-        `$1${imgTag}$3`,
+    // Strategy 1 — replace the __site-logo__ placeholder the LLM was instructed to emit
+    if (out.includes('id="__site-logo__"')) {
+      // Replace the empty src="" with the real URL and ensure the wrapper flex-centers it
+      out = out.replace(
+        /(<img\b[^>]*id="__site-logo__"[^>]*)\bsrc="[^"]*"/i,
+        `$1src="${src}"`,
       );
+      // Also ensure the parent wrapper has align-items:center
+      return out;
     }
 
-    // Strategy 2 — any <img> directly inside <nav> or <header>: replace its src
+    // Strategy 2 — find any <img> directly inside a <nav> or <header> and replace its src
     const navImgRe = /(<(?:nav|header)\b[^>]*>[\s\S]*?)(<img\b[^>]*>)/i;
     if (navImgRe.test(out)) {
-      return out.replace(navImgRe, (_, before, imgEl) => {
-        const patched = imgEl.includes('src=')
-          ? imgEl.replace(/\bsrc="[^"]*"/i, `src="${src}"`)
-          : imgEl.replace('<img', `<img src="${src}"`);
-        return before + patched.replace(/\bstyle="[^"]*"/i, `style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"`);
+      return out.replace(navImgRe, (_, before, imgTag) => {
+        const patched = imgTag
+          .replace(/\bsrc="[^"]*"/i, `src="${src}"`)
+          .replace(/\bstyle="[^"]*"/i, `style="${imgStyle}"`) ;
+        const finalImg = patched.includes('src=') ? patched : patched.replace('<img', `<img src="${src}"`);
+        return before + finalImg;
       });
     }
 
-    // Strategy 3 — element with logo/brand class inside nav/header: prepend img with flex wrapper
+    // Strategy 3 — find an element with a logo/brand class inside nav/header and inject img
     const navLogoRe = /(<(?:nav|header)\b[\s\S]*?)(<(?:a|div|span)\b[^>]*class="[^"]*(?:logo|brand|navbar-brand)[^"]*"[^>]*>)/i;
     if (navLogoRe.test(out)) {
-      return out.replace(navLogoRe, (_, before, logoTag) => {
-        const flexTag = logoTag.includes('style=')
-          ? logoTag.replace(/\bstyle="([^"]*)"/i, (_m: string, s: string) =>
-              `style="${s.replace(/display\s*:[^;]+;?/gi, '').replace(/align-items\s*:[^;]+;?/gi, '').trim()};display:flex;align-items:center;"`)
-          : logoTag.replace('>', ' style="display:flex;align-items:center;">');
-        return `${before}${flexTag}${imgTag}`;
+      return out.replace(navLogoRe, (_, before, logoOpenTag) => {
+        // Add flex centering to the logo container and prepend the img
+        const flexTag = logoOpenTag.includes('style=')
+          ? logoOpenTag.replace(/\bstyle="([^"]*)"/i, (_m: string, s: string) => {
+              const cleaned = s.replace(/display\s*:[^;]+;?/gi, '').replace(/align-items\s*:[^;]+;?/gi, '');
+              return `style="${cleaned.trim()};display:flex;align-items:center;"`;
+            })
+          : logoOpenTag.replace('>', ' style="display:flex;align-items:center;">');
+        return `${before}${flexTag}<img src="${src}" alt="logo" style="${imgStyle}">`;
       });
     }
 
-    // Strategy 4 — insert as first child of nav/header inside a flex-centered wrapper
+    // Strategy 4 — inject into the very first child of the nav/header
     const navOpenRe = /(<(?:nav|header)\b[^>]*>)/i;
     if (navOpenRe.test(out)) {
-      const slot = `<div style="display:flex;align-items:center;flex-shrink:0;">${imgTag}</div>`;
+      const slot = `<div style="display:flex;align-items:center;flex-shrink:0;"><img src="${src}" alt="logo" style="${imgStyle}"></div>`;
       return out.replace(navOpenRe, `$1${slot}`);
     }
 
-    // Strategy 5 — fixed overlay fallback, properly centered within a 64px navbar band
-    const overlay = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;">${imgTag}</div>`;
+    // Strategy 5 — fallback: fixed overlay that is vertically centered within a 64px navbar band
+    const overlay = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;"><img src="${src}" alt="logo" style="${imgStyle}"></div>`;
     return /<body[^>]*>/i.test(out)
       ? out.replace(/(<body[^>]*>)/i, `$1${overlay}`)
       : overlay + out;

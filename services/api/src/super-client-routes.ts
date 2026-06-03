@@ -1744,6 +1744,92 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return result.trim();
     }
 
+    // ── Comprehensive background removal ─────────────────────────────────────────
+    // Format: __REMOVE_BACKGROUND__:[cssPath]
+    // Removes background from both the element AND its parent container so that
+    // overlay divs (no own background) also clear the parent's background photo.
+    const removeBgMatch = instruction.match(/^__REMOVE_BACKGROUND__:([\s\S]+)$/);
+    if (removeBgMatch) {
+      const cssPath = removeBgMatch[1].trim();
+      const bounds  = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Element not found — click it again to re-select' });
+
+      let updated = html;
+
+      // Helper: clear background from an element at given bounds in `src`
+      function clearBgFromElement(src: string, b: { start: number; end: number }): string {
+        const elHtml  = src.slice(b.start, b.end);
+        const tagEnd  = elHtml.indexOf('>');
+        if (tagEnd === -1) return src;
+
+        const openTag = elHtml.slice(0, tagEnd);
+        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+        const sm      = styleRx.exec(openTag);
+        let patchedOpen: string;
+        if (sm) {
+          // Remove all background-* declarations from existing inline style
+          const stripped = sm[1]
+            .replace(/\bbackground(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin|-blend-mode)?\s*:[^;]+;?\s*/gi, '')
+            .trim().replace(/;$/, '');
+          patchedOpen = openTag.replace(styleRx,
+            `style="${stripped ? stripped + ';' : ''}background:none;background-image:none"`);
+        } else {
+          patchedOpen = `${openTag} style="background:none;background-image:none"`;
+        }
+
+        // Remove background rules from <style> block for this element's class
+        const classMatch = elHtml.match(/\bclass="([^"]+)"/i);
+        let result = src.slice(0, b.start) + patchedOpen + elHtml.slice(tagEnd) + src.slice(b.end);
+        if (classMatch) {
+          const firstCls = classMatch[1].trim().split(/\s+/).find(c => c.length > 1);
+          if (firstCls) {
+            const clsRe = new RegExp(
+              `(\\.${firstCls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(?:,[^{]*)?\\{[^}]*)background(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin)?\\s*:[^;]+;?\\s*`,
+              'gi',
+            );
+            result = result.replace(clsRe, '$1');
+          }
+        }
+
+        // Also hide any <img> that is a DIRECT child of this element (background photo pattern)
+        // by setting display:none on it
+        const inner = result.slice(b.start, b.start + 3000);
+        const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
+        result = result.replace(imgRe, (match, open, attrs, close) => {
+          if (!inner.includes((open + attrs).slice(0, 60))) return match;
+          // Already display:none — skip
+          if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
+          const styleM = attrs.match(/\bstyle="([^"]*)"/i);
+          if (styleM) {
+            return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
+          }
+          return `${open}${attrs} style="display:none"${close}`;
+        });
+
+        return result;
+      }
+
+      // Apply to the selected element first
+      updated = clearBgFromElement(updated, bounds);
+
+      // If nothing changed (e.g. overlay div already had background:none),
+      // also try the PARENT element (one level up in the cssPath).
+      // This handles: user clicks overlay → parent has the background photo.
+      const parentPath = cssPath.split(/\s*>\s*/).slice(0, -1).join(' > ');
+      if (updated === html && parentPath) {
+        const parentBounds = findByPath(html, parentPath);
+        if (parentBounds) {
+          updated = clearBgFromElement(updated, parentBounds);
+        }
+      }
+
+      if (updated === html) {
+        return reply.code(422).send({ error: 'No background found on this element or its parent' });
+      }
+      return saveValidatedEdit(updated, 'Background removed');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Inline style property patch (from InlineEditPanel) ─────────────────────
     // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]
     // Deterministic — no LLM. Whitelisted properties only.
@@ -1754,9 +1840,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const rawValue = stylePatchMatch[3].trim();
 
       const ALLOWED_STYLE_PROPS = new Set([
-        'color', 'background-color', 'font-size', 'font-family',
-        'font-weight', 'font-style', 'opacity', 'border-radius',
-        'text-align', 'letter-spacing', 'line-height',
+        'color', 'background-color', 'background-image', 'background',
+        'font-size', 'font-family', 'font-weight', 'font-style',
+        'opacity', 'border-radius', 'text-align', 'letter-spacing', 'line-height',
       ]);
       if (!ALLOWED_STYLE_PROPS.has(prop))
         return reply.code(400).send({ error: `Property "${prop}" is not patchable via __STYLE_PATCH__` });

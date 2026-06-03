@@ -2353,15 +2353,13 @@ MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every outp
 - Images: always width:100%; height:auto, or object-fit:cover inside a container with explicit height
 - Avoid hover-only states for essential interactions — every interactive element must also respond to touch/click
 
-NAVBAR LOGO REQUIREMENTS — apply to every microsite without exception:
-- Every microsite must include a sticky navbar at the top of the page
-- The navbar must use display:flex and align-items:center so all items are vertically centered
-- The FIRST child inside the navbar must be a logo slot div with EXACTLY this structure (copy verbatim):
-  <div id="__site-logo-slot__" style="display:flex;align-items:center;flex-shrink:0;gap:8px;">COMPANY_NAME</div>
-  Replace COMPANY_NAME with the actual company name text from the proposal.
-- The id="__site-logo-slot__" attribute is mandatory — the system replaces the slot's content with the real client logo image after generation.
-- Do NOT put an <img> tag inside the slot — text only. The system handles the image injection.
-- The navbar height must be at least 64px so the logo has room vertically.
+NAVBAR LOGO REQUIREMENTS — non-negotiable in every microsite:
+- Every microsite must have a sticky or fixed navbar at the top
+- The navbar must use display:flex;align-items:center so all children are vertically centered
+- The navbar left side must contain exactly this logo element as the first child inside the navbar: <img id="__site-logo__" src="" alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">
+- Wrap the logo in a flex container that is the first child of the nav: <div style="display:flex;align-items:center;flex-shrink:0;"><img id="__site-logo__" src="" alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"></div>
+- The src is intentionally empty — it will be replaced with the real logo URL by the system. Do not invent a src value.
+- The navbar height must be at least 60px so the logo has room to breathe vertically
 
 ${imageInstructions}`;
 

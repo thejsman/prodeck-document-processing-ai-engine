@@ -29,6 +29,16 @@ const CONTENT_REMOVAL_RE = /\b(video|vimeo|youtube|iframe|background[\s-]video|v
 export function buildInstruction(selected: BridgeMessage | null, userText: string): string {
   if (!selected) return userText;
 
+  // Background removal: "remove background image", "clear background", "remove bg" etc.
+  // Checked BEFORE CONTENT_REMOVAL_RE because "image" would otherwise block the removal route.
+  // Uses __REMOVE_BACKGROUND__ which strips both inline style and CSS class rule in the <style> block.
+  const isBgRemoval = REMOVAL_RE.test(userText)
+    && /\b(?:background|bg)\b/i.test(userText)
+    && !/\b(?:video|vimeo|youtube|iframe)\b/i.test(userText);
+  if (isBgRemoval && selected.path) {
+    return `__REMOVE_BACKGROUND__:${selected.path}`;
+  }
+
   // Removal → deterministic path, BUT only when the user means "remove this element",
   // not "remove something inside it" (e.g. "remove video from background" = content edit).
   if (REMOVAL_RE.test(userText) && !CONTENT_REMOVAL_RE.test(userText)) {
@@ -336,7 +346,15 @@ export const BRIDGE_SCRIPT = `<script>${BRIDGE_SCRIPT_BODY}<\/script>`;
 // In edit mode, iframes swallow all pointer events so the bridge never sees
 // hover/click on them. Disable pointer-events on iframes so mouse events fall
 // through to the parent document — making iframes selectable and deletable.
-const IFRAME_EDIT_STYLE = `<style id="__microsite-iframe-edit">iframe{pointer-events:none!important;outline:2px dashed rgba(99,102,241,0.5);outline-offset:2px;}</style>`;
+// In edit mode, make fixed-position navbars/headers sticky instead of fixed.
+// Class-based position:fixed (e.g. #navbar { position:fixed }) is NOT covered by
+// normalizeMicrositeHtml's inline-style selector, so fixed navbars keep their
+// z-index stacking and intercept clicks intended for hero/section elements below.
+// Forcing sticky keeps them visually at the top without creating an overlay.
+const IFRAME_EDIT_STYLE = `<style id="__microsite-iframe-edit">
+iframe{pointer-events:none!important;outline:2px dashed rgba(99,102,241,0.5);outline-offset:2px;}
+nav,header,[class*="navbar"],[class*="nav-bar"],[class*="site-header"],[class*="top-bar"],[id*="navbar"],[id*="nav-bar"],[id*="header"]{position:sticky!important;top:0!important;}
+</style>`;
 
 export function injectBridgeScript(html: string): string {
   if (html.includes('microsite-bridge')) return html;
