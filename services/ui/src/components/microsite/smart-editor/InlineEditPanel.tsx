@@ -223,6 +223,8 @@ interface Props {
   onBgImagePatch: (url: string) => Promise<void>;
   onIconReplace: (url: string) => Promise<void>;
   onSvgReplace: (svgMarkup: string) => Promise<void>;
+  onLogoReplace: (url: string) => Promise<void>;
+  onRemoveSection: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -486,7 +488,7 @@ function IconBtn({ active, disabled, onClick, children, title }: {
 const Sep = () => <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />;
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onClose }: Props) {
   const tag    = selected.tag?.toLowerCase() ?? '';
   const isImg  = isImgEl(tag);
   const isIcon = isIconEl(tag, selected.outerHtml);
@@ -769,11 +771,38 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
 
       <div style={{ flexShrink: 0, width: 4 }} />
 
+      {/* Remove — deletes the selected element; disabled while an edit is in progress */}
+      {selected.path && (
+        <>
+          <Sep />
+          <button
+            onClick={() => void onRemoveSection()}
+            disabled={dis}
+            title="Remove selected element"
+            style={{
+              height: 26, padding: '0 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+              border: '1px solid rgba(239,68,68,0.45)',
+              background: dis ? 'rgba(255,255,255,0.04)' : 'rgba(239,68,68,0.12)',
+              color: dis ? 'rgba(255,255,255,0.25)' : 'rgba(239,68,68,0.9)',
+              cursor: dis ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+              opacity: dis ? 0.4 : 1, whiteSpace: 'nowrap',
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+            </svg>
+            Remove
+          </button>
+        </>
+      )}
+
       {/* Close */}
       <button onClick={onClose} title="Deselect" style={{
         background: 'none', border: 'none', cursor: 'pointer',
         color: 'rgba(255,255,255,0.35)', fontSize: 13, lineHeight: 1,
         display: 'flex', alignItems: 'center', padding: 3, borderRadius: 4, flexShrink: 0,
+        marginLeft: 4,
       }}>
         ✕
       </button>

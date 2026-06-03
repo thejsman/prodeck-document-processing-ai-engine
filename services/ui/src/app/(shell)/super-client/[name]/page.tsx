@@ -1142,6 +1142,23 @@ export default function SuperClientPage() {
     await applyMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hint}`, 'Image replaced');
   }
 
+  async function handleLogoReplace(url: string) {
+    if (selectedElement?.path) {
+      await applyMicrositeInstruction(`__LOGO_SWAP__:${selectedElement.path}||${url}`, 'Logo updated');
+    } else {
+      await applyMicrositeInstruction(`__LOGO_INJECT__:${url}`, 'Logo updated');
+    }
+  }
+
+  async function handleRemoveSection() {
+    if (!selectedElement?.path) return;
+    // Remove the exactly selected element (its own CSS path).
+    // If the user selected the section header itself, the section is removed.
+    // If they selected a child element, only that child is removed.
+    await applyMicrositeInstruction(`__REMOVE_BY_PATH__:${selectedElement.path}`, 'Removed');
+    clearBridgeSelection();
+  }
+
   async function handleBgImagePatch(url: string) {
     if (!selectedElement?.path) return;
     await applyMicrositeInstruction(`__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`, 'Background image updated');
@@ -2959,6 +2976,8 @@ export default function SuperClientPage() {
                     onBgImagePatch={handleBgImagePatch}
                     onIconReplace={handleIconReplace}
                     onSvgReplace={handleSvgReplace}
+                    onLogoReplace={handleLogoReplace}
+                    onRemoveSection={handleRemoveSection}
                     onClose={() => clearBridgeSelection()}
                   />
                 )}
