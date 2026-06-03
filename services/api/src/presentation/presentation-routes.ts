@@ -2353,6 +2353,16 @@ MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every outp
 - Images: always width:100%; height:auto, or object-fit:cover inside a container with explicit height
 - Avoid hover-only states for essential interactions — every interactive element must also respond to touch/click
 
+NAVBAR LOGO REQUIREMENTS — apply to every microsite without exception:
+- Every microsite must include a sticky navbar at the top of the page
+- The navbar must use display:flex and align-items:center so all items are vertically centered
+- The FIRST child inside the navbar must be a logo slot div with EXACTLY this structure (copy verbatim):
+  <div id="__site-logo-slot__" style="display:flex;align-items:center;flex-shrink:0;gap:8px;">COMPANY_NAME</div>
+  Replace COMPANY_NAME with the actual company name text from the proposal.
+- The id="__site-logo-slot__" attribute is mandatory — the system replaces the slot's content with the real client logo image after generation.
+- Do NOT put an <img> tag inside the slot — text only. The system handles the image injection.
+- The navbar height must be at least 64px so the logo has room vertically.
+
 ${imageInstructions}`;
 
     const resolveImagePlaceholders = async (html: string): Promise<string> => {
