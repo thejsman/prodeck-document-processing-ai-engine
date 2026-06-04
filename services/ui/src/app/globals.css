@@ -7713,6 +7713,57 @@ body {
    has no background of its own. z-index:200 sits above shell content (z-index:0) and the
    mobile sidebar drawer (z-index:100) but below modals/toasts.
    Desktop: no position:fixed applied — panels continue to push .chat-v2-main as before. */
+/* sc-viewer-panel — microsite + proposal slide-in panels.
+   Outer: flex child that controls layout space (width 0↔target, no animation).
+   Inner (.sc-viewer-panel-inner): slides right→left via transform for the visual effect.
+   Together: chat snaps to new width instantly; panel content slides in smoothly. */
+.sc-viewer-panel {
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.sc-viewer-panel-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sc-viewer-panel--open .sc-viewer-panel-inner {
+  transform: translateX(0);
+}
+
+/* Mobile: outer becomes fixed full-screen overlay; inner transform is not needed */
+@media (max-width: 768px) {
+  .sc-viewer-panel {
+    position: fixed !important;
+    top: 0;
+    right: 0;
+    height: 100% !important;
+    width: 100% !important;
+    min-width: unset !important;
+    max-width: unset !important;
+    z-index: 200;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+    border-left: 1px solid var(--border);
+    transform: translateX(100%);
+    transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .sc-viewer-panel--open {
+    transform: translateX(0);
+  }
+  .sc-viewer-panel-inner {
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+.sc-panel-backdrop {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .chat-side-panel,
   .chat-collection-panel {
@@ -7724,6 +7775,14 @@ body {
     background: var(--panel);
     border-left: 1px solid var(--border);
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+  }
+
+  .sc-panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0, 0, 0, 0.4);
   }
 }
 

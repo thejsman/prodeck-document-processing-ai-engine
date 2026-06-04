@@ -774,6 +774,7 @@ export interface AgentRunResult {
 export type StreamEvent =
   | { type: 'start'; message: string }
   | { type: 'progress'; message: string }
+  | { type: 'html_chunk'; chunk: string }
   | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
@@ -2227,6 +2228,39 @@ export async function getSuperClient(apiKey: string, name: string): Promise<Supe
   const res = await fetch(`/api/super-clients/${name}`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`getSuperClient failed: ${res.status}`);
   return res.json() as Promise<SuperClientDetail>;
+}
+
+export interface SuperClientGenerationEntry {
+  id: string;
+  clientSlug: string;
+  type: 'proposal' | 'microsite';
+  phase: 'generating' | 'complete' | 'error';
+  title: string;
+  steps: string[];
+  charCount?: number;
+  error?: string;
+  result?: { fileName?: string; micrositeId?: string };
+}
+
+export async function getSuperClientGenerations(apiKey: string, name: string): Promise<SuperClientGenerationEntry[]> {
+  const res = await fetch(`/api/super-clients/${name}/generations`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) return [];
+  return res.json() as Promise<SuperClientGenerationEntry[]>;
+}
+
+export async function upsertSuperClientGeneration(apiKey: string, name: string, gen: SuperClientGenerationEntry): Promise<void> {
+  await fetch(`/api/super-clients/${name}/generations/${gen.id}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(gen),
+  });
+}
+
+export async function deleteSuperClientGeneration(apiKey: string, name: string, id: string): Promise<void> {
+  await fetch(`/api/super-clients/${name}/generations/${id}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
 }
 
 export async function deleteSuperClient(apiKey: string, name: string): Promise<void> {

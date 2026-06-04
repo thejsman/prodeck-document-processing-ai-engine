@@ -48,6 +48,31 @@ interface ScMicrosite {
   version: number;
 }
 
+interface GenerationEntry {
+  id: string;
+  clientSlug: string;
+  type: 'proposal' | 'microsite';
+  phase: 'generating' | 'complete' | 'error';
+  title: string;
+  steps: string[];
+  charCount?: number;
+  error?: string;
+  result?: { fileName?: string; micrositeId?: string };
+}
+
+async function readGenerations(dir: string): Promise<GenerationEntry[]> {
+  try {
+    const raw = await readFile(path.join(dir, 'generations.json'), 'utf-8');
+    return JSON.parse(raw) as GenerationEntry[];
+  } catch {
+    return [];
+  }
+}
+
+async function writeGenerations(dir: string, gens: GenerationEntry[]): Promise<void> {
+  await writeFile(path.join(dir, 'generations.json'), JSON.stringify(gens, null, 2));
+}
+
 async function readMeta(dir: string): Promise<SuperClientMeta> {
   const raw = await readFile(path.join(dir, 'meta.json'), 'utf-8');
   return JSON.parse(raw) as SuperClientMeta;
@@ -1068,6 +1093,51 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const remaining = (await readMicrosites(dir)).filter((m) => m.id !== id);
     await writeMicrosites(dir, remaining);
     return reply.send({ ok: true });
+  });
+
+  // GET /super-clients/:name/generations
+  app.get('/super-clients/:name/generations', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const dir = path.join(superClientsRoot, name);
+    try {
+      await readMeta(dir); // 404 guard
+      return reply.send(await readGenerations(dir));
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
+  // PUT /super-clients/:name/generations/:id — upsert one generation entry
+  app.put('/super-clients/:name/generations/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    const body = req.body as GenerationEntry | undefined;
+    if (!body || body.id !== id) return reply.code(400).send({ error: 'Body must include matching id' });
+    try {
+      await readMeta(dir); // 404 guard
+      const existing = await readGenerations(dir);
+      const updated = [...existing.filter((g) => g.id !== id), body];
+      await writeGenerations(dir, updated);
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
+  // DELETE /super-clients/:name/generations/:id
+  app.delete('/super-clients/:name/generations/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try {
+      await readMeta(dir); // 404 guard
+      const existing = await readGenerations(dir);
+      await writeGenerations(dir, existing.filter((g) => g.id !== id));
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
   });
 
   // POST /super-clients/:name/microsites/:id/edit  — LLM patch edit on microsite HTML

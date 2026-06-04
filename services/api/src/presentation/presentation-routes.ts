@@ -2386,6 +2386,7 @@ ${imageInstructions}`;
     const callLLMStream = async (
       messages: { role: string; content: unknown }[],
       maxTokens = 16000,
+      onChunk?: (chunk: string) => void,
     ): Promise<string> => {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -2417,7 +2418,9 @@ ${imageInstructions}`;
           try {
             const evt = JSON.parse(raw) as { type?: string; delta?: { type?: string; text?: string } };
             if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-              text += evt.delta.text ?? '';
+              const chunk = evt.delta.text ?? '';
+              text += chunk;
+              if (chunk && onChunk) onChunk(chunk);
             }
           } catch { /* skip malformed */ }
         }
@@ -2475,7 +2478,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
               { type: 'text', text: prompt },
             ] }]
           : [{ role: 'user', content: prompt }];
-        raw = await callLLMStream(messages, 32000);
+        raw = await callLLMStream(messages, 32000, (chunk) => { send({ type: 'html_chunk', chunk }); });
       } finally {
         clearInterval(hbTimer);
       }

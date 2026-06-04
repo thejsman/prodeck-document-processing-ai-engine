@@ -46,6 +46,9 @@ import { uploadStore, type UploadEntry } from '@/lib/upload-store';
 // UploadEntry is used inside UploadMessageCard only
 import {
   getSuperClient,
+  getSuperClientGenerations,
+  upsertSuperClientGeneration,
+  deleteSuperClientGeneration,
   enrichSuperClientUrl,
   streamSuperClientChat,
   listSuperClientDocuments,
@@ -98,6 +101,9 @@ function ArtifactCard({
   const isMicrosite = gen.type === 'microsite';
   const isGenerating = gen.phase === 'generating';
   const isComplete = gen.phase === 'complete';
+  // Progress 0–92% while generating (charCount-driven), snaps to 100 on complete.
+  // Assumes a typical microsite is ~32k HTML chars.
+  const progressPct = isComplete ? 100 : Math.min(((gen.charCount ?? 0) / 32000) * 100, 92);
   return (
     <div
       style={{
@@ -170,6 +176,27 @@ function ArtifactCard({
           {isComplete && <CheckCircle size={13} style={{ color: '#22c55e' }} />}
         </div>
       </div>
+      {/* Progress bar — microsite only while generating */}
+      {isGenerating && isMicrosite && (
+        <div style={{ padding: '0 12px 6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ flex: 1, height: 3, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  borderRadius: 2,
+                  background: 'var(--primary)',
+                  width: `${progressPct}%`,
+                  transition: 'width 0.8s ease',
+                }}
+              />
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+              {Math.round(progressPct)}%
+            </span>
+          </div>
+        </div>
+      )}
       {/* Steps */}
       {gen.steps.length > 0 && (
         <div
@@ -183,23 +210,24 @@ function ArtifactCard({
         >
           {gen.steps.slice(-4).map((step, i, arr) => {
             const isLast = i === arr.length - 1;
+            const isActive = isLast && isGenerating;
             return (
               <div
                 key={i}
                 style={{
                   fontSize: 11,
-                  color: isLast && isGenerating ? 'var(--text)' : 'var(--muted)',
+                  color: isActive ? 'var(--text)' : 'var(--muted)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 5,
                 }}
               >
-                {isLast && isGenerating ? (
+                {isActive ? (
                   <span className="status-glyph" style={{ width: 6, height: 6, flexShrink: 0 }} />
                 ) : (
                   <span style={{ color: '#22c55e', fontSize: 9, flexShrink: 0 }}>✓</span>
                 )}
-                {step}
+                <span style={{ flex: 1 }}>{step}</span>
               </div>
             );
           })}
@@ -605,17 +633,21 @@ export default function SuperClientPage() {
   useEffect(() => {
     if (!name) return;
     setLoading(true);
-    getSuperClient(apiKey, name)
-      .then(({ meta: m, contextMd: ctx, history }) => {
+    Promise.all([
+      getSuperClient(apiKey, name),
+      getSuperClientGenerations(apiKey, name),
+    ])
+      .then(([{ meta: m, contextMd: ctx, history }, serverGens]) => {
         setMeta(m);
         setContextMd(ctx);
+        // Hydrate store with server-persisted generations before building messages
+        generationStore.hydrateFromServer(serverGens);
         const historyMsgs: Message[] = history.map((h: SuperClientHistoryEntry) => ({
           id: genId(),
           role: h.role,
           content: h.content,
         }));
         // Re-inject capsule messages for any active/complete generations for this client
-        // (handles the case where the user navigated away and back during generation)
         const activeGens = generationStore.forClient(name);
         const genMsgs: Message[] = activeGens.map((gen) => ({
           id: `gen-msg-${gen.id}`,
@@ -637,6 +669,52 @@ export default function SuperClientPage() {
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
   }, [name, apiKey]);
+
+  // Sync generation store mutations → server for cross-browser / cross-machine persistence.
+  // terminal states (complete/error) are written immediately; generating state is debounced 3s.
+  useEffect(() => {
+    if (!name) return;
+    const syncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const prevIds = new Set<string>();
+
+    const unsub = generationStore.subscribe((gens) => {
+      const clientGens = gens.filter((g) => g.clientSlug === name);
+      const currentIds = new Set(clientGens.map((g) => g.id));
+
+      // Detect dismissed generations and remove from server
+      for (const prevId of prevIds) {
+        if (!currentIds.has(prevId)) {
+          void deleteSuperClientGeneration(apiKey, name, prevId);
+        }
+      }
+      prevIds.clear();
+      currentIds.forEach((id) => prevIds.add(id));
+
+      for (const gen of clientGens) {
+        const existing = syncTimers.get(gen.id);
+        if (existing) clearTimeout(existing);
+
+        // Strip abort (non-serialisable) before sending to server
+        const { abort: _abort, ...entry } = gen;
+        if (gen.phase === 'complete' || gen.phase === 'error') {
+          void upsertSuperClientGeneration(apiKey, name, entry);
+          syncTimers.delete(gen.id);
+        } else {
+          // Debounce generating-state writes — charCount updates fire frequently
+          const timer = setTimeout(() => {
+            void upsertSuperClientGeneration(apiKey, name, entry);
+            syncTimers.delete(gen.id);
+          }, 3000);
+          syncTimers.set(gen.id, timer);
+        }
+      }
+    });
+
+    return () => {
+      unsub();
+      syncTimers.forEach((t) => clearTimeout(t));
+    };
+  }, [apiKey, name]);
 
   useEffect(() => {
     scrollToBottom();
@@ -1418,12 +1496,17 @@ export default function SuperClientPage() {
     resetComposer();
 
     try {
+      let partialCharCount = 0;
       await generateMicrositeV2Stream(apiKey, name, proposalId, {
         proposalMarkdown,
         userPrompt: proposalInstructions,
         referenceImage: proposalImage,
         signal: msAbort.signal,
         onEvent: (evt) => {
+          if (evt.type === 'html_chunk') {
+            partialCharCount += evt.chunk.length;
+            generationStore.updateChars(msGenId, partialCharCount);
+          }
           if (evt.type === 'progress' && evt.message) {
             generationStore.addStep(msGenId, evt.message);
           }
@@ -1809,10 +1892,17 @@ export default function SuperClientPage() {
               <ThemeToggle />
               <button
                 className="chat-v2-panel-toggle"
-                onClick={() => setRightPanelOpen((v) => !v)}
-                title={rightPanelOpen ? 'Hide panel' : 'Show panel'}
+                onClick={() => {
+                  if (viewingMicrosite) dismissMicrosite();
+                  else if (viewingProposal) dismissProposal();
+                  else setRightPanelOpen((v) => !v);
+                }}
+                title={viewingMicrosite || viewingProposal ? 'Close panel' : rightPanelOpen ? 'Hide panel' : 'Show panel'}
               >
-                <Icon icon={rightPanelOpen ? ChevronRight : ChevronLeft} size="sm" />
+                <Icon
+                  icon={viewingMicrosite || viewingProposal ? ChevronRight : rightPanelOpen ? ChevronRight : ChevronLeft}
+                  size="sm"
+                />
               </button>
             </div>
           </header>
@@ -2643,25 +2733,20 @@ export default function SuperClientPage() {
 
         {/* Microsite slide-in panel */}
         <div
+          className={`sc-viewer-panel${viewingMicrosite ? ' sc-viewer-panel--open' : ''}`}
           style={{
             width: viewingMicrosite ? micrositePanelWidth : 0,
             minWidth: viewingMicrosite ? MICROSITE_MIN_WIDTH : 0,
-            maxWidth: viewingMicrosite ? `calc(100% - ${CHAT_MIN_WIDTH}px)` : 0,
-            flexShrink: 0,
-            overflow: 'hidden',
+            maxWidth: `calc(100% - ${CHAT_MIN_WIDTH}px)`,
             borderLeft: viewingMicrosite ? '1px solid var(--border)' : 'none',
-            transition: micrositeDragging ? 'none' : 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
-            display: 'flex',
-            flexDirection: 'column',
+            flexShrink: 0,
           }}
         >
           {lastMicrositeRef.current && (
             <div
+              className="sc-viewer-panel-inner"
               style={{
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
+                width: micrositePanelWidth,
                 position: 'relative',
               }}
             >
@@ -2968,25 +3053,18 @@ export default function SuperClientPage() {
 
         {/* Proposal slide-in panel */}
         <div
+          className={`sc-viewer-panel${viewingProposal ? ' sc-viewer-panel--open' : ''}`}
           style={{
             width: viewingProposal ? 560 : 0,
-            minWidth: 0,
-            flexShrink: 0,
-            overflow: 'hidden',
             borderLeft: viewingProposal ? '1px solid var(--border)' : 'none',
-            transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
-            display: 'flex',
-            flexDirection: 'column',
-            background: 'var(--panel)',
+            flexShrink: 0,
           }}
         >
           {lastProposalRef.current && (
             <div
+              className="sc-viewer-panel-inner"
               style={{
                 width: 560,
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
               }}
             >
               <div
@@ -3068,8 +3146,17 @@ export default function SuperClientPage() {
           )}
         </div>
 
+        {/* Backdrop — mobile only, closes the right panel on tap outside */}
+        {rightPanelOpen && (
+          <div
+            className="sc-panel-backdrop"
+            onClick={() => setRightPanelOpen(false)}
+          />
+        )}
+
         {/* Right panel — client info */}
         <div
+          className="chat-side-panel"
           style={{
             width: viewingProposal || viewingMicrosite || !rightPanelOpen ? 0 : 320,
             minWidth: 0,

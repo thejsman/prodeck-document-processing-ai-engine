@@ -11,6 +11,7 @@ export interface Generation {
   phase: GenerationPhase;
   title: string;
   steps: string[];
+  charCount?: number; // HTML chars written so far — updated live during microsite generation
   error?: string;
   result?: {
     fileName?: string;    // proposal
@@ -92,6 +93,15 @@ export const generationStore = {
     broadcast();
   },
 
+  // Throttled: only broadcasts when charCount grows by ≥2 000 to avoid flooding listeners.
+  updateChars(id: string, count: number): void {
+    const g = store.get(id);
+    if (!g || g.phase !== 'generating') return;
+    if (g.charCount !== undefined && count - g.charCount < 2000) return;
+    store.set(id, { ...g, charCount: count });
+    broadcast();
+  },
+
   addStep(id: string, step: string): void {
     const g = store.get(id);
     if (!g || g.phase !== 'generating') return;
@@ -126,5 +136,20 @@ export const generationStore = {
 
   forClient(slug: string): Generation[] {
     return snap().filter((g) => g.clientSlug === slug);
+  },
+
+  // Bulk-load server-fetched generations into the store without overwriting any
+  // entry that is already active (e.g. a generation started in the current tab).
+  // Stale 'generating' entries (tab was killed mid-run) are converted to 'error'.
+  hydrateFromServer(gens: Omit<Generation, 'abort'>[]): void {
+    let changed = false;
+    for (const g of gens) {
+      if (store.has(g.id)) continue; // never clobber an active entry
+      const phase = g.phase === 'generating' ? 'error' : g.phase;
+      const error = g.phase === 'generating' ? 'Generation did not complete (page was closed)' : g.error;
+      store.set(g.id, { ...g, phase, error, abort: () => {} });
+      changed = true;
+    }
+    if (changed) broadcast();
   },
 };
