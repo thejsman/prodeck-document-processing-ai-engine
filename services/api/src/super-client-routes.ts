@@ -1814,6 +1814,94 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return result.trim();
     }
 
+    // ── Comprehensive background removal ─────────────────────────────────────────
+    // Format: __REMOVE_BACKGROUND__:[cssPath]
+    // Removes background from both the element AND its parent container so that
+    // overlay divs (no own background) also clear the parent's background photo.
+    const removeBgMatch = instruction.match(/^__REMOVE_BACKGROUND__:([\s\S]+)$/);
+    if (removeBgMatch) {
+      const cssPath = removeBgMatch[1].trim();
+      const bounds  = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Element not found — click it again to re-select' });
+
+      let updated = html;
+
+      // Helper: clear background from an element at given bounds in `src`
+      function clearBgFromElement(src: string, b: { start: number; end: number }): string {
+        const elHtml  = src.slice(b.start, b.end);
+        const tagEnd  = elHtml.indexOf('>');
+        if (tagEnd === -1) return src;
+
+        const openTag = elHtml.slice(0, tagEnd);
+        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+        const sm      = styleRx.exec(openTag);
+        let patchedOpen: string;
+        if (sm) {
+          // Remove all background-* declarations from existing inline style
+          const stripped = sm[1]
+            .replace(/\bbackground(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin|-blend-mode)?\s*:[^;]+;?\s*/gi, '')
+            .trim().replace(/;$/, '');
+          patchedOpen = openTag.replace(styleRx,
+            `style="${stripped ? stripped + ';' : ''}background:none;background-image:none"`);
+        } else {
+          patchedOpen = `${openTag} style="background:none;background-image:none"`;
+        }
+
+        // Remove background rules from <style> block for this element's class
+        const classMatch = elHtml.match(/\bclass="([^"]+)"/i);
+        let result = src.slice(0, b.start) + patchedOpen + elHtml.slice(tagEnd) + src.slice(b.end);
+        if (classMatch) {
+          const firstCls = classMatch[1].trim().split(/\s+/).find(c => c.length > 1);
+          if (firstCls) {
+            const clsRe = new RegExp(
+              `(\\.${firstCls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(?:,[^{]*)?\\{[^}]*)background(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin)?\\s*:[^;]+;?\\s*`,
+              'gi',
+            );
+            result = result.replace(clsRe, '$1');
+          }
+        }
+
+        // Also hide any <img> that is a DIRECT child of this element (background photo pattern)
+        // by setting display:none on it
+        const inner = result.slice(b.start, b.start + 3000);
+        const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
+        result = result.replace(imgRe, (match, open, attrs, close) => {
+          if (!inner.includes((open + attrs).slice(0, 60))) return match;
+          // Already display:none — skip
+          if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
+          const styleM = attrs.match(/\bstyle="([^"]*)"/i);
+          if (styleM) {
+            return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
+          }
+          return `${open}${attrs} style="display:none"${close}`;
+        });
+
+        return result;
+      }
+
+      // Apply to the selected element first (clears inline style + CSS class gradient)
+      updated = clearBgFromElement(updated, bounds);
+
+      // ALWAYS also try the parent container — the background photo (<img>) is typically
+      // a sibling of an overlay div, living inside the parent (.hero-bg, etc.).
+      // Doing this unconditionally means a single "remove background" prompt clears
+      // both the gradient overlay AND the photo in one shot.
+      const parentPath = cssPath.split(/\s*>\s*/).slice(0, -1).join(' > ');
+      if (parentPath) {
+        // Re-find parent bounds in the (possibly already modified) `updated` HTML
+        const parentBounds = findByPath(updated, parentPath);
+        if (parentBounds) {
+          updated = clearBgFromElement(updated, parentBounds);
+        }
+      }
+
+      if (updated === html) {
+        return reply.code(422).send({ error: 'No background found on this element or its parent' });
+      }
+      return saveValidatedEdit(updated, 'Background removed');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Inline style property patch (from InlineEditPanel) ─────────────────────
     // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]
     // Deterministic — no LLM. Whitelisted properties only.
@@ -1824,9 +1912,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const rawValue = stylePatchMatch[3].trim();
 
       const ALLOWED_STYLE_PROPS = new Set([
-        'color', 'background-color', 'font-size', 'font-family',
-        'font-weight', 'font-style', 'opacity', 'border-radius',
-        'text-align', 'letter-spacing', 'line-height',
+        'color', 'background-color', 'background-image', 'background',
+        'font-size', 'font-family', 'font-weight', 'font-style',
+        'opacity', 'border-radius', 'text-align', 'letter-spacing', 'line-height',
       ]);
       if (!ALLOWED_STYLE_PROPS.has(prop))
         return reply.code(400).send({ error: `Property "${prop}" is not patchable via __STYLE_PATCH__` });
@@ -1922,6 +2010,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
       const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
       return saveValidatedEdit(updatedHtml, 'Background image updated');
+    }
+
+    // ── Lucide SVG replacement — replaces element with raw SVG markup ─────────
+    // Format: __SVG_REPLACE__:[cssPath]||[svgMarkup]
+    // Used by the Lucide icon picker in InlineEditPanel.
+    const svgReplaceMatch = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+)$/s);
+    if (svgReplaceMatch) {
+      const cssPath   = svgReplaceMatch[1].trim();
+      let   svgMarkup = svgReplaceMatch[2].trim();
+
+      if (!svgMarkup.startsWith('<svg'))
+        return reply.code(400).send({ error: 'Payload must be an SVG element' });
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const originalHtml = html.slice(bounds.start, bounds.end);
+      // Preserve class and inline style from the original element
+      const cls   = originalHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const style = originalHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
+      // Inject class/style into the incoming SVG opening tag
+      svgMarkup = svgMarkup.replace(/^<svg\b/, `<svg${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`);
+      // Remove duplicate class/style injected above if original SVG already had them
+      svgMarkup = svgMarkup.replace(/(<svg[^>]*)\bclass="[^"]*"\s*class="[^"]*"/, '$1');
+
+      const updatedHtml = html.slice(0, bounds.start) + svgMarkup + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Icon replaced');
     }
 
     // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────

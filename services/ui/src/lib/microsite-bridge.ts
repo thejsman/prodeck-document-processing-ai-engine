@@ -29,6 +29,16 @@ const CONTENT_REMOVAL_RE = /\b(video|vimeo|youtube|iframe|background[\s-]video|v
 export function buildInstruction(selected: BridgeMessage | null, userText: string): string {
   if (!selected) return userText;
 
+  // Background removal: "remove background image", "clear background", "remove bg" etc.
+  // Checked BEFORE CONTENT_REMOVAL_RE because "image" would otherwise block the removal route.
+  // Uses __REMOVE_BACKGROUND__ which strips both inline style and CSS class rule in the <style> block.
+  const isBgRemoval = REMOVAL_RE.test(userText)
+    && /\b(?:background|bg)\b/i.test(userText)
+    && !/\b(?:video|vimeo|youtube|iframe)\b/i.test(userText);
+  if (isBgRemoval && selected.path) {
+    return `__REMOVE_BACKGROUND__:${selected.path}`;
+  }
+
   // Removal → deterministic path, BUT only when the user means "remove this element",
   // not "remove something inside it" (e.g. "remove video from background" = content edit).
   if (REMOVAL_RE.test(userText) && !CONTENT_REMOVAL_RE.test(userText)) {
@@ -59,7 +69,7 @@ const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
 // Intercept hash-anchor clicks so they scroll within the srcDoc iframe instead of
 // navigating away (clicking nav links like href="#section" would blank a srcDoc iframe
 // because it has no real base URL).
-const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;var href=a.getAttribute('href');if(href==='#')return;e.preventDefault();var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
 export function normalizeMicrositeHtml(html: string): string {
   if (!html) return html;
@@ -295,7 +305,15 @@ document.addEventListener('mouseleave', function () {
 }, false);
 
 document.addEventListener('click', function (e) {
-  if (e.target && e.target.tagName && e.target.tagName.toLowerCase() === 'a') e.preventDefault();
+  // Prevent link navigation for any click on or inside an <a> element.
+  // Without this, clicking a child (e.g. an <img> inside a.nav-brand) lets the
+  // anchor's href="#" execute, which blanks the srcdoc iframe.
+  if (e.target) {
+    var tgt = e.target;
+    var isAnchor = tgt.tagName && tgt.tagName.toLowerCase() === 'a';
+    var inAnchor = !isAnchor && tgt.closest && tgt.closest('a');
+    if (isAnchor || inAnchor) e.preventDefault();
+  }
   selectedEl = e.target;
   sendMsg('select', e.target);
   startTracking(e.target);
@@ -310,6 +328,16 @@ window.addEventListener('resize', function () {
   if (selectedEl) sendMsg('select', selectedEl);
 }, false);
 
+// Host can send { source: 'microsite-host', type: 'deselect' } to clear
+// the internal selection and stop the RAF tracking loop.
+window.addEventListener('message', function (e) {
+  if (e.data && e.data.source === 'microsite-host' && e.data.type === 'deselect') {
+    selectedEl = null;
+    lastHoverEl = null;
+    if (trackRaf) { cancelAnimationFrame(trackRaf); trackRaf = null; }
+  }
+}, false);
+
 })();
 `;
 
@@ -318,7 +346,15 @@ export const BRIDGE_SCRIPT = `<script>${BRIDGE_SCRIPT_BODY}<\/script>`;
 // In edit mode, iframes swallow all pointer events so the bridge never sees
 // hover/click on them. Disable pointer-events on iframes so mouse events fall
 // through to the parent document — making iframes selectable and deletable.
-const IFRAME_EDIT_STYLE = `<style id="__microsite-iframe-edit">iframe{pointer-events:none!important;outline:2px dashed rgba(99,102,241,0.5);outline-offset:2px;}</style>`;
+// In edit mode, make fixed-position navbars/headers sticky instead of fixed.
+// Class-based position:fixed (e.g. #navbar { position:fixed }) is NOT covered by
+// normalizeMicrositeHtml's inline-style selector, so fixed navbars keep their
+// z-index stacking and intercept clicks intended for hero/section elements below.
+// Forcing sticky keeps them visually at the top without creating an overlay.
+const IFRAME_EDIT_STYLE = `<style id="__microsite-iframe-edit">
+iframe{pointer-events:none!important;outline:2px dashed rgba(99,102,241,0.5);outline-offset:2px;}
+nav,header,[class*="navbar"],[class*="nav-bar"],[class*="site-header"],[class*="top-bar"],[id*="navbar"],[id*="nav-bar"],[id*="header"]{position:sticky!important;top:0!important;}
+</style>`;
 
 export function injectBridgeScript(html: string): string {
   if (html.includes('microsite-bridge')) return html;

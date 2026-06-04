@@ -531,6 +531,60 @@ export default function SuperClientPage() {
   };
   const [hoveredElement, setHoveredElement] = useState<BridgeMessage | null>(null);
   const [selectedElement, setSelectedElement] = useState<BridgeMessage | null>(null);
+
+  // Tell the iframe bridge to clear its internal selectedEl + cancel RAF loop,
+  // then clear parent state. Prevents the tracking loop from re-opening the panel.
+  const clearBridgeSelection = () => {
+    getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'deselect' }, '*');
+    setSelectedElement(null);
+    setHoveredElement(null);
+  };
+
+  // Walk a CSS path ("section#hero > div.foo:nth-of-type(1) > span") inside a
+  // parsed Document to find the matching element. Used only for refreshing
+  // selectedElement state after an LLM edit — best-effort, not safety-critical.
+  function findElByPath(doc: Document, path: string): Element | null {
+    const parts = path.split(/\s*>\s*/);
+    let scope: Element | Document = doc;
+    for (const part of parts) {
+      const tagMatch = part.match(/^(\w[\w-]*)/);
+      if (!tagMatch) return null;
+      const tag = tagMatch[1];
+      const idMatch  = part.match(/#([\w-]+)/);
+      const clsMatch = part.match(/\.([\w-]+)/);
+      const nthMatch = part.match(/:nth-of-type\((\d+)\)/);
+      const nth = nthMatch ? parseInt(nthMatch[1], 10) : 1;
+      const id  = idMatch?.[1];
+      const cls = clsMatch?.[1];
+      const selector = scope instanceof Document ? tag : `:scope > ${tag}`;
+      const candidates: Element[] = Array.from(scope.querySelectorAll(selector)).filter((el): el is Element =>
+        (!id  || (el as Element).id === id) &&
+        (!cls || (el as Element).classList.contains(cls)),
+      );
+      const found: Element | null = candidates[nth - 1] ?? null;
+      if (!found) return null;
+      scope = found;
+    }
+    return scope instanceof Element ? scope : null;
+  }
+
+  // After an LLM edit on a selected element, re-read its outerHtml from the
+  // updated document so the InlineEditPanel shows fresh color/font/text values.
+  // If the element can't be found at the old path, selectedElement is left as-is.
+  function refreshSelectedElementFromHtml(updatedHtml: string) {
+    if (!selectedElement?.path) return;
+    try {
+      const doc = new DOMParser().parseFromString(updatedHtml, 'text/html');
+      const el  = findElByPath(doc, selectedElement.path);
+      if (el) {
+        setSelectedElement({
+          ...selectedElement,
+          outerHtml: el.outerHTML.slice(0, 8192),
+          text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        });
+      }
+    } catch { /* leave selectedElement unchanged on parse error */ }
+  }
   const [editingLogo, setEditingLogo] = useState<{ base64: string; mediaType: string } | null>(null);
   const [editingLogoUrl, setEditingLogoUrl] = useState('');
   const [showEditingLogoUrlInput, setShowEditingLogoUrlInput] = useState(false);
@@ -1132,8 +1186,14 @@ export default function SuperClientPage() {
       setEditingLogo(null);
       setEditingLogoUrl('');
       setShowEditingLogoUrlInput(false);
-      setSelectedElement(null);
-      setHoveredElement(null);
+      if (selectedElement) {
+        // An element was targeted: keep it selected so the inline editor stays
+        // active. Refresh outerHtml so the inline editor shows fresh values.
+        refreshSelectedElementFromHtml(finalHtml);
+      } else {
+        // General microsite edit (no element selected) — deselect as before.
+        clearBridgeSelection();
+      }
       // Write new HTML directly into the iframe (no reload → scroll preserved)
       applyEditHtml(finalHtml);
       setViewingMicrosite((prev) =>
@@ -1213,6 +1273,23 @@ export default function SuperClientPage() {
     await applyMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hint}`, 'Image replaced');
   }
 
+  async function handleLogoReplace(url: string) {
+    if (selectedElement?.path) {
+      await applyMicrositeInstruction(`__LOGO_SWAP__:${selectedElement.path}||${url}`, 'Logo updated');
+    } else {
+      await applyMicrositeInstruction(`__LOGO_INJECT__:${url}`, 'Logo updated');
+    }
+  }
+
+  async function handleRemoveSection() {
+    if (!selectedElement?.path) return;
+    // Remove the exactly selected element (its own CSS path).
+    // If the user selected the section header itself, the section is removed.
+    // If they selected a child element, only that child is removed.
+    await applyMicrositeInstruction(`__REMOVE_BY_PATH__:${selectedElement.path}`, 'Removed');
+    clearBridgeSelection();
+  }
+
   async function handleBgImagePatch(url: string) {
     if (!selectedElement?.path) return;
     await applyMicrositeInstruction(`__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`, 'Background image updated');
@@ -1221,6 +1298,11 @@ export default function SuperClientPage() {
   async function handleIconReplace(url: string) {
     if (!selectedElement?.path) return;
     await applyMicrositeInstruction(`__ICON_REPLACE__:${selectedElement.path}||${url}`, 'Icon replaced');
+  }
+
+  async function handleSvgReplace(svgMarkup: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(`__SVG_REPLACE__:${selectedElement.path}||${svgMarkup}`, 'Icon replaced');
   }
 
   async function handleMicrositeRevert() {
@@ -1370,8 +1452,7 @@ export default function SuperClientPage() {
     setShowEditingLogoUrlInput(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setEditModeActive(false);
-    setSelectedElement(null);
-    setHoveredElement(null);
+    clearBridgeSelection();
   }
 
   function resetComposer() {
@@ -1416,25 +1497,64 @@ export default function SuperClientPage() {
   }
 
   function injectLogoIntoHtml(html: string, logo: { base64: string; mediaType: string } | { url: string }): string {
-    // Remove ALL previously injected logo divs (any attribute order) and their companion scripts
-    let stripped = html
+    // Strip any previous logo injection artifacts
+    let out = html
       .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
-      .replace(/<script[^>]*>\s*\/\*\s*__logo-inject__/gi, (m) => {
-        // find and remove the whole script block that starts with this marker
-        return m; // placeholder; handled by full-block regex below
-      });
-    // Remove the full companion script block by its unique marker comment
-    stripped = stripped.replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+      .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
 
     const src = 'url' in logo ? logo.url : `data:${logo.mediaType};base64,${logo.base64}`;
-    const logoHtml = `<div id="__brand-logo__" style="position:fixed;top:16px;left:20px;z-index:2147483647;pointer-events:none;"><img src="${src}" style="height:44px;width:auto;object-fit:contain;display:block;" alt="" /></div>`;
-    // Hide provider attribution in both footer ("PREPARED BY") and header brand/logo element
-    const hideProviderScript = `<script>/*__logo-inject__*/(function(){function h(){var els=document.querySelectorAll('*');for(var i=0;i<els.length;i++){var t=(els[i].children.length===0?els[i].textContent||'':'');if(/prepared\\s*by/i.test(t)){var p=els[i].parentElement;(p&&p!==document.body?p:els[i]).style.display='none';}}var hdr=document.querySelector('header,nav,[class*="header"],[class*="navbar"]');if(hdr){var brand=hdr.querySelector('[class*="logo"],[class*="brand"],[class*="navbar-brand"]');if(brand){brand.style.visibility='hidden';}else{var first=hdr.firstElementChild;if(first&&first.id!=='__brand-logo__'){first.style.visibility='hidden';}}}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',h);}else{h();}})()</script>`;
-    const injection = logoHtml + hideProviderScript;
-    if (/<body[^>]*>/i.test(stripped)) {
-      return stripped.replace(/(<body[^>]*>)/i, `$1${injection}`);
+    const imgStyle = 'height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;';
+
+    // Strategy 1 — replace the __site-logo__ placeholder the LLM was instructed to emit
+    if (out.includes('id="__site-logo__"')) {
+      // Replace the empty src="" with the real URL and ensure the wrapper flex-centers it
+      out = out.replace(
+        /(<img\b[^>]*id="__site-logo__"[^>]*)\bsrc="[^"]*"/i,
+        `$1src="${src}"`,
+      );
+      // Also ensure the parent wrapper has align-items:center
+      return out;
     }
-    return injection + stripped;
+
+    // Strategy 2 — find any <img> directly inside a <nav> or <header> and replace its src
+    const navImgRe = /(<(?:nav|header)\b[^>]*>[\s\S]*?)(<img\b[^>]*>)/i;
+    if (navImgRe.test(out)) {
+      return out.replace(navImgRe, (_, before, imgTag) => {
+        const patched = imgTag
+          .replace(/\bsrc="[^"]*"/i, `src="${src}"`)
+          .replace(/\bstyle="[^"]*"/i, `style="${imgStyle}"`) ;
+        const finalImg = patched.includes('src=') ? patched : patched.replace('<img', `<img src="${src}"`);
+        return before + finalImg;
+      });
+    }
+
+    // Strategy 3 — find an element with a logo/brand class inside nav/header and inject img
+    const navLogoRe = /(<(?:nav|header)\b[\s\S]*?)(<(?:a|div|span)\b[^>]*class="[^"]*(?:logo|brand|navbar-brand)[^"]*"[^>]*>)/i;
+    if (navLogoRe.test(out)) {
+      return out.replace(navLogoRe, (_, before, logoOpenTag) => {
+        // Add flex centering to the logo container and prepend the img
+        const flexTag = logoOpenTag.includes('style=')
+          ? logoOpenTag.replace(/\bstyle="([^"]*)"/i, (_m: string, s: string) => {
+              const cleaned = s.replace(/display\s*:[^;]+;?/gi, '').replace(/align-items\s*:[^;]+;?/gi, '');
+              return `style="${cleaned.trim()};display:flex;align-items:center;"`;
+            })
+          : logoOpenTag.replace('>', ' style="display:flex;align-items:center;">');
+        return `${before}${flexTag}<img src="${src}" alt="logo" style="${imgStyle}">`;
+      });
+    }
+
+    // Strategy 4 — inject into the very first child of the nav/header
+    const navOpenRe = /(<(?:nav|header)\b[^>]*>)/i;
+    if (navOpenRe.test(out)) {
+      const slot = `<div style="display:flex;align-items:center;flex-shrink:0;"><img src="${src}" alt="logo" style="${imgStyle}"></div>`;
+      return out.replace(navOpenRe, `$1${slot}`);
+    }
+
+    // Strategy 5 — fallback: fixed overlay that is vertically centered within a 64px navbar band
+    const overlay = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;"><img src="${src}" alt="logo" style="${imgStyle}"></div>`;
+    return /<body[^>]*>/i.test(out)
+      ? out.replace(/(<body[^>]*>)/i, `$1${overlay}`)
+      : overlay + out;
   }
 
   async function handleComposerSelectProposal(p: SuperClientProposal) {
@@ -2436,7 +2556,7 @@ export default function SuperClientPage() {
                           : ''}
                       </span>
                       <button
-                        onClick={() => setSelectedElement(null)}
+                        onClick={() => clearBridgeSelection()}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', display: 'flex', alignItems: 'center', padding: '2px 3px', borderRadius: 10, opacity: 0.7, flexShrink: 0 }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.7'; }}
@@ -2817,6 +2937,7 @@ export default function SuperClientPage() {
                       pointerEvents: 'none',
                       zIndex: 30,
                       letterSpacing: '0.02em',
+                      display: 'none',
                     }}
                   >
                     {micrositePanelWidth}px
@@ -2859,8 +2980,7 @@ export default function SuperClientPage() {
                       const next = !editModeActive;
                       setEditModeActive(next);
                       if (!next) {
-                        setSelectedElement(null);
-                        setHoveredElement(null);
+                        clearBridgeSelection();
                       }
                       // Force iframe remount so bridge script is injected/removed
                       setViewingMicrosite((prev) => {
@@ -3019,10 +3139,10 @@ export default function SuperClientPage() {
                     hovered={hoveredElement}
                     selected={selectedElement}
                     isProcessing={micrositeEditing}
-                    onClearSelected={() => setSelectedElement(null)}
+                    onClearSelected={() => clearBridgeSelection()}
                   />
                 )}
-                {/* Inline property editor — floats near the selected element */}
+                {/* Inline property editor — centered at bottom of iframe area */}
                 {editModeActive && selectedElement && (
                   <InlineEditPanel
                     selected={selectedElement}
@@ -3032,7 +3152,10 @@ export default function SuperClientPage() {
                     onImageReplace={handleImageReplace}
                     onBgImagePatch={handleBgImagePatch}
                     onIconReplace={handleIconReplace}
-                    onClose={() => setSelectedElement(null)}
+                    onSvgReplace={handleSvgReplace}
+                    onLogoReplace={handleLogoReplace}
+                    onRemoveSection={handleRemoveSection}
+                    onClose={() => clearBridgeSelection()}
                   />
                 )}
                 {/* Overlay blocks iframe from swallowing mouse events during resize */}
