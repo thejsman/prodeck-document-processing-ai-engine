@@ -18,6 +18,10 @@ export interface BridgeMessage {
   computedBgColor?: string;
   /** Computed (rendered) text color — only on 'select'. Reflects CSS class colors. */
   computedColor?: string;
+  /** Bounding rect of the nearest parent <section> element.
+   *  Used to determine whether the selected element fills the section (and thus
+   *  whether the "Remove Section" button should appear). Only on 'select'. */
+  sectionRect?: { top: number; left: number; width: number; height: number };
 }
 
 const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|clear)\b/i;
@@ -43,6 +47,34 @@ export function buildInstruction(selected: BridgeMessage | null, userText: strin
   // not "remove something inside it" (e.g. "remove video from background" = content edit).
   if (REMOVAL_RE.test(userText) && !CONTENT_REMOVAL_RE.test(userText)) {
     if (selected.path) {
+      // "remove this section" → remove the parent <section>, but ONLY when the
+      // selected element is structural (div, img, svg, etc.) not text (h1, p, span).
+      // If text is selected, "remove this section" is interpreted as "remove this text".
+      const TEXT_TAGS_PROMPT: Record<string,number> = {h1:1,h2:1,h3:1,h4:1,h5:1,h6:1,p:1,span:1,a:1,li:1,button:1,label:1,td:1,th:1,caption:1,figcaption:1,dt:1,dd:1,blockquote:1,em:1,strong:1,small:1,b:1,i:1};
+      const isTextTag = TEXT_TAGS_PROMPT[(selected.tag ?? '').toLowerCase()] === 1;
+      const innerForPrompt = selected.outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, '');
+      const hasChildsP = /<\w/.test(innerForPrompt);
+      const hasTextP  = (selected.text ?? '').trim().length > 0;
+      const isLeafTextEl = isTextTag || (hasTextP && !hasChildsP);
+
+      if (/\bsection\b/i.test(userText) && !isLeafTextEl) {
+        // Use the same dimension check as the "Remove Section" button:
+        // only route to section deletion when the selected element fills ≥85% of
+        // the parent section (width AND height). A small card or content block that
+        // doesn't fill the section should NOT trigger whole-section deletion even
+        // when the user says "remove this section" — route to element removal instead.
+        const secRect = selected.sectionRect;
+        const elRect  = selected.rect;
+        const fillsSection = !secRect || secRect.width <= 0 || secRect.height <= 0 ||
+          (elRect.width / secRect.width >= 0.85 && elRect.height / secRect.height >= 0.85);
+
+        if (fillsSection) {
+          const sectionMatch = selected.path.match(/\b(section#[\w-]+)/);
+          if (sectionMatch) return `__REMOVE_BY_PATH__:${sectionMatch[1]}`;
+          if (selected.sectionType) return `__REMOVE_BY_PATH__:section#${selected.sectionType}`;
+        }
+        // Element doesn't fill the section → treat as "remove this element"
+      }
       return `__REMOVE_BY_PATH__:${selected.path}`;
     }
     if (selected.outerHtml) {
@@ -153,9 +185,16 @@ function getCssPath(el) {
 
     var selector = tag;
 
-    // Append most specific (longest) class that's meaningful
+    // Append most specific (longest) class that's meaningful.
+    // Exclude classes that JavaScript adds at runtime (animation states, scroll
+    // reveal triggers, etc.) — they don't exist in the stored HTML so using them
+    // as the path anchor causes findByPath to fail on the server.
+    var JS_CLASSES = { visible:1, active:1, animated:1, 'in-view':1, 'is-visible':1,
+                       show:1, shown:1, open:1, opened:1, loaded:1, playing:1,
+                       paused:1, focused:1, selected:1, 'is-active':1, 'is-open':1,
+                       current:1, engaged:1, intersecting:1, triggered:1 };
     var classes = (typeof cur.className === 'string' ? cur.className : '')
-      .trim().split(/\\s+/).filter(function(c){ return c.length > 1; });
+      .trim().split(/\\s+/).filter(function(c){ return c.length > 1 && !JS_CLASSES[c]; });
     classes.sort(function(a, b){ return b.length - a.length; });
     var bestCls = classes[0] || '';
     if (bestCls) selector += '.' + bestCls;
@@ -228,12 +267,29 @@ function sendMsg(msgType, rawEl) {
   var path = '';
   var computedBgColor = '';
   var computedColor   = '';
+  var sectionRect     = null;
   if (msgType === 'select') {
     try { path = getCssPath(el); } catch(e) {}
     try {
       var cs = window.getComputedStyle(el);
       computedBgColor = cs.backgroundColor || '';
       computedColor   = cs.color || '';
+    } catch(e) {}
+    // Walk up to find the nearest <section> and capture its bounding rect.
+    // This lets the host compare element.rect vs sectionRect to decide whether
+    // the selected element "fills" the section (used for "Remove Section" visibility).
+    try {
+      var secEl = el;
+      while (secEl && secEl !== document.body) {
+        if ((secEl.tagName || '').toLowerCase() === 'section') {
+          var sr = secEl.getBoundingClientRect();
+          if (sr.width > 0 && sr.height > 0) {
+            sectionRect = { top: sr.top, left: sr.left, width: sr.width, height: sr.height };
+          }
+          break;
+        }
+        secEl = secEl.parentElement;
+      }
     } catch(e) {}
   }
 
@@ -248,7 +304,8 @@ function sendMsg(msgType, rawEl) {
     outerHtml: outerHtml,
     path: path,
     computedBgColor: computedBgColor,
-    computedColor: computedColor
+    computedColor: computedColor,
+    sectionRect: sectionRect
   }, '*');
 }
 
