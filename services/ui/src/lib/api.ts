@@ -2237,6 +2237,7 @@ export interface SuperClientGenerationEntry {
   phase: 'generating' | 'complete' | 'error';
   title: string;
   steps: string[];
+  createdAt?: string;
   charCount?: number;
   error?: string;
   result?: { fileName?: string; micrositeId?: string };

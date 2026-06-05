@@ -80,6 +80,7 @@ interface Message {
   streaming?: boolean;
   generationId?: string;
   uploadId?: string;
+  createdAt?: string;
 }
 
 function genId() {
@@ -618,6 +619,7 @@ export default function SuperClientPage() {
   const docMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const [generations, setGenerations] = useState<Generation[]>([]);
+  const localGenIdsRef = useRef<Set<string>>(new Set());
   const [changedSections, setChangedSections] = useState<Set<string>>(new Set());
   const [updateBanner, setUpdateBanner] = useState('');
 
@@ -700,24 +702,34 @@ export default function SuperClientPage() {
           id: genId(),
           role: h.role,
           content: h.content,
+          createdAt: h.createdAt,
         }));
         // Re-inject capsule messages for any active/complete generations for this client
         const activeGens = generationStore.forClient(name);
         const genMsgs: Message[] = activeGens.map((gen) => ({
           id: `gen-msg-${gen.id}`,
-          role: 'assistant',
+          role: 'assistant' as const,
           content: '',
           generationId: gen.id,
+          createdAt: gen.createdAt,
         }));
         // Re-inject upload cards for any active/recent uploads for this client
         const activeUploads = uploadStore.forClient(name);
         const uploadMsgs: Message[] = activeUploads.map((u) => ({
           id: `upload-msg-${u.id}`,
-          role: 'user',
+          role: 'user' as const,
           content: '',
           uploadId: u.id,
+          createdAt: new Date(u.addedAt).toISOString(),
         }));
-        setMessages([...historyMsgs, ...uploadMsgs, ...genMsgs]);
+        // Merge and sort chronologically so generation/upload cards land in the right position
+        const allMsgs = [...historyMsgs, ...uploadMsgs, ...genMsgs].sort((a, b) => {
+          if (!a.createdAt && !b.createdAt) return 0;
+          if (!a.createdAt) return 1;
+          if (!b.createdAt) return -1;
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        });
+        setMessages(allMsgs);
         setMemoryKey((k) => k + 1);
       })
       .catch((err: Error) => setError(err.message))
@@ -725,10 +737,12 @@ export default function SuperClientPage() {
   }, [name, apiKey]);
 
   // Sync generation store mutations → server for cross-browser / cross-machine persistence.
-  // terminal states (complete/error) are written immediately; generating state is debounced 3s.
+  // terminal states (complete/error) are written immediately; generating state: first write is
+  // immediate (so other tabs/browsers can discover the entry), subsequent updates are debounced 3s.
   useEffect(() => {
     if (!name) return;
     const syncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const syncedIds = new Set<string>(); // IDs that have had at least one server write
     const prevIds = new Set<string>();
 
     const unsub = generationStore.subscribe((gens) => {
@@ -739,6 +753,7 @@ export default function SuperClientPage() {
       for (const prevId of prevIds) {
         if (!currentIds.has(prevId)) {
           void deleteSuperClientGeneration(apiKey, name, prevId);
+          syncedIds.delete(prevId);
         }
       }
       prevIds.clear();
@@ -753,8 +768,14 @@ export default function SuperClientPage() {
         if (gen.phase === 'complete' || gen.phase === 'error') {
           void upsertSuperClientGeneration(apiKey, name, entry);
           syncTimers.delete(gen.id);
+          syncedIds.add(gen.id);
+        } else if (!syncedIds.has(gen.id)) {
+          // First write for this generation — write immediately so other browsers/tabs
+          // can discover it via getSuperClientGenerations on page load.
+          void upsertSuperClientGeneration(apiKey, name, entry);
+          syncedIds.add(gen.id);
         } else {
-          // Debounce generating-state writes — charCount updates fire frequently
+          // Subsequent generating-state updates (e.g. charCount) — debounce to avoid flooding
           const timer = setTimeout(() => {
             void upsertSuperClientGeneration(apiKey, name, entry);
             syncTimers.delete(gen.id);
@@ -769,6 +790,23 @@ export default function SuperClientPage() {
       syncTimers.forEach((t) => clearTimeout(t));
     };
   }, [apiKey, name]);
+
+  // Poll the server for any 'generating' entries that were loaded from another tab/browser.
+  // Stops as soon as there are none left.
+  useEffect(() => {
+    if (!name) return;
+    const remoteGenerating = generations.filter(
+      (g) => g.clientSlug === name && g.phase === 'generating' && !localGenIdsRef.current.has(g.id),
+    );
+    if (remoteGenerating.length === 0) return;
+    const intervalId = setInterval(async () => {
+      try {
+        const serverGens = await getSuperClientGenerations(apiKey, name);
+        generationStore.refreshFromServer(serverGens);
+      } catch { /* ignore */ }
+    }, 4000);
+    return () => clearInterval(intervalId);
+  }, [generations, apiKey, name]);
 
   useEffect(() => {
     scrollToBottom();
@@ -931,7 +969,7 @@ export default function SuperClientPage() {
     if (!name) return;
     const uploadId = genId();
     uploadStore.start({ id: uploadId, clientSlug: name, fileName: file.name });
-    setMessages((prev) => [...prev, { id: `upload-msg-${uploadId}`, role: 'user', content: '', uploadId }]);
+    setMessages((prev) => [...prev, { id: `upload-msg-${uploadId}`, role: 'user', content: '', uploadId, createdAt: new Date().toISOString() }]);
     scrollToBottom();
     try {
       const added = await uploadSuperClientDocument(apiKey, name, file, (pct) => uploadStore.progress(uploadId, pct));
@@ -1602,6 +1640,7 @@ export default function SuperClientPage() {
       title: proposalTitle,
       abort: () => msAbort.abort(),
     });
+    localGenIdsRef.current.add(msGenId);
 
     // Add artifact message to chat and collapse composer immediately
     setMessages((prev) => [
@@ -1611,6 +1650,7 @@ export default function SuperClientPage() {
         role: 'assistant',
         content: '',
         generationId: msGenId,
+        createdAt: new Date().toISOString(),
       },
     ]);
     resetComposer();
@@ -1740,15 +1780,18 @@ export default function SuperClientPage() {
         title: 'Proposal',
         abort: () => abortRef.current?.abort(),
       });
+      localGenIdsRef.current.add(proposalGenId);
     }
 
-    const userMsg: Message = { id: genId(), role: 'user', content: text };
+    const now = new Date().toISOString();
+    const userMsg: Message = { id: genId(), role: 'user', content: text, createdAt: now };
     const assistantMsgId = genId();
     const assistantMsg: Message = {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
       streaming: true,
+      createdAt: now,
       ...(proposalGenId ? { generationId: proposalGenId } : {}),
     };
 
@@ -1794,6 +1837,7 @@ export default function SuperClientPage() {
                   title: evt.proposalSaved.title,
                   abort: () => {},
                 });
+                localGenIdsRef.current.add(effectiveGenId);
                 setMessages((prev) =>
                   prev.map((m) => (m.id === assistantMsgId ? { ...m, generationId: effectiveGenId! } : m)),
                 );
@@ -2051,7 +2095,6 @@ export default function SuperClientPage() {
                       : msg.content;
                   const hasContent = !!visibleContent;
                   const hasArtifact = !!msg.generationId;
-
                   if (msg.role === 'user') {
                     if (msg.uploadId) {
                       return (

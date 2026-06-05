@@ -11,6 +11,7 @@ export interface Generation {
   phase: GenerationPhase;
   title: string;
   steps: string[];
+  createdAt: string;
   charCount?: number; // HTML chars written so far — updated live during microsite generation
   error?: string;
   result?: {
@@ -88,6 +89,7 @@ export const generationStore = {
       phase: 'generating',
       title: params.title,
       steps: [],
+      createdAt: new Date().toISOString(),
       abort: params.abort,
     });
     broadcast();
@@ -140,14 +142,26 @@ export const generationStore = {
 
   // Bulk-load server-fetched generations into the store without overwriting any
   // entry that is already active (e.g. a generation started in the current tab).
-  // Stale 'generating' entries (tab was killed mid-run) are converted to 'error'.
+  // 'generating' entries are kept as-is so other tabs can poll for completion.
   hydrateFromServer(gens: Omit<Generation, 'abort'>[]): void {
     let changed = false;
     for (const g of gens) {
       if (store.has(g.id)) continue; // never clobber an active entry
-      const phase = g.phase === 'generating' ? 'error' : g.phase;
-      const error = g.phase === 'generating' ? 'Generation did not complete (page was closed)' : g.error;
-      store.set(g.id, { ...g, phase, error, abort: () => {} });
+      store.set(g.id, { ...g, abort: () => {} });
+      changed = true;
+    }
+    if (changed) broadcast();
+  },
+
+  // Refresh entries that are 'generating' in the store with the latest server data.
+  // Updates steps and charCount during active generation, and transitions phase when done.
+  // Called by polling in tabs/browsers that didn't start the generation.
+  refreshFromServer(gens: Omit<Generation, 'abort'>[]): void {
+    let changed = false;
+    for (const g of gens) {
+      const existing = store.get(g.id);
+      if (!existing || existing.phase !== 'generating') continue;
+      store.set(g.id, { ...g, abort: existing.abort });
       changed = true;
     }
     if (changed) broadcast();
