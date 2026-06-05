@@ -1075,7 +1075,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
 
-    const body = req.body as { instruction?: string } | undefined;
+    const body = req.body as { instruction?: string; currentHtml?: string } | undefined;
     const instruction = body?.instruction?.trim();
     if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
 
@@ -1094,8 +1094,24 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
 
     const sections = ast.sections as Array<Record<string, unknown>> | undefined;
-    const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
+    // Use client-provided HTML when available — it reflects in-memory edits that
+    // may not have been persisted to disk yet (e.g. after a failed save).
+    const diskHtml = (sections?.[0]?.customHtml as string | undefined) ?? '';
+    const html = (body?.currentHtml?.trim() || diskHtml) || '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
+
+    // Temporary debug — log key info for IMAGE_INJECT_SCOPED
+    if (instruction.startsWith('__IMAGE_INJECT_SCOPED__:')) {
+      const m = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
+      console.log('[IMAGE_INJECT_SCOPED] id:', id);
+      console.log('[IMAGE_INJECT_SCOPED] html source:', body?.currentHtml ? 'client' : 'disk');
+      console.log('[IMAGE_INJECT_SCOPED] html length:', html.length);
+      console.log('[IMAGE_INJECT_SCOPED] cssPath:', m?.[1]?.trim());
+      console.log('[IMAGE_INJECT_SCOPED] newUrl:', m?.[2]?.trim()?.slice(0, 60));
+      const hintSrc = m?.[3]?.match(/\bsrc="([^"]+)"/i)?.[1];
+      console.log('[IMAGE_INJECT_SCOPED] hint src:', hintSrc?.slice(0, 60));
+      console.log('[IMAGE_INJECT_SCOPED] hint src in html:', hintSrc ? html.includes(`src="${hintSrc}"`) : 'no hint');
+    }
 
     // Shared context flags used by both video removal and video injection below
     const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
@@ -1321,6 +1337,68 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Surgical logo swap — path-targeted ───────────────────────────────────
+    // Format: __LOGO_SWAP__:[cssPath]||[imageUrl]
+    // Handles three cases:
+    //   SVG element   → replaces the entire <svg>…</svg> with <img src="…">
+    //   img element   → replaces its src (strips onerror fallback)
+    //   text element  → replaces inner content with <img>
+    const logoSwapMatch = instruction.match(/^__LOGO_SWAP__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)$/s);
+    if (logoSwapMatch) {
+      const cssPath = logoSwapMatch[1].trim();
+      const newSrc  = logoSwapMatch[2].trim();
+      const imgTag  = `<img src="${newSrc}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
+
+      // Strip any prior overlay artifacts before patching
+      const cleanedHtml = html
+        .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+
+      const bounds = findByPath(cleanedHtml, cssPath);
+      if (bounds) {
+        const elHtml = cleanedHtml.slice(bounds.start, bounds.end);
+
+        // Case: SVG element — replace the entire element with an <img>
+        if (/^<svg\b/i.test(elHtml)) {
+          return saveValidatedEdit(
+            cleanedHtml.slice(0, bounds.start) + imgTag + cleanedHtml.slice(bounds.end),
+            'Logo updated',
+          );
+        }
+
+        // Case: element already has an <img> child — replace its src + strip onerror
+        if (/<img\b/i.test(elHtml)) {
+          const patched = elHtml
+            .replace(/(<img\b[^>]*)\bsrc="[^"]*"/i, `$1src="${newSrc}"`)
+            .replace(/(<img\b[^>]*)\bonerror="[^"]*"/gi, '$1');
+          return saveValidatedEdit(
+            cleanedHtml.slice(0, bounds.start) + patched + cleanedHtml.slice(bounds.end),
+            'Logo updated',
+          );
+        }
+
+        // Case: text/anchor element — keep outer tag, replace innerHTML with img
+        const openTagEnd = elHtml.indexOf('>');
+        const closeTagM  = elHtml.match(/<\/(\w+)>\s*$/);
+        if (openTagEnd !== -1 && closeTagM) {
+          const openTag  = elHtml.slice(0, openTagEnd + 1);
+          const closeTag = closeTagM[0];
+          return saveValidatedEdit(
+            cleanedHtml.slice(0, bounds.start) + openTag + imgTag + closeTag + cleanedHtml.slice(bounds.end),
+            'Logo updated',
+          );
+        }
+      }
+
+      // Fallback — overlay injection (path not found or unhandled shape)
+      const logoDiv2 = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;">${imgTag}</div>`;
+      const fbHtml = /<body[^>]*>/i.test(cleanedHtml)
+        ? cleanedHtml.replace(/(<body[^>]*>)/i, `$1${logoDiv2}`)
+        : logoDiv2 + cleanedHtml;
+      return saveValidatedEdit(fbHtml, 'Logo updated');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Deterministic background-image / img-src injection ───────────────────
     const imageInjectMatch = instruction.match(/^__IMAGE_INJECT__:(https?:\/\/.+)$/);
     if (imageInjectMatch) {
@@ -1413,15 +1491,48 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           const updatedHtml = html.slice(0, bounds.start) + modifiedEl + html.slice(bounds.end);
           return saveValidatedEdit(updatedHtml, 'Image updated');
         }
-        // Element itself has no image — try its parent section
-        const sectionBounds = extractAllTopLevelSections(html);
-        const parentSec = sectionBounds.find(s => s.start <= bounds.start && bounds.end <= s.end);
-        if (parentSec) {
-          const sectionHtml = html.slice(parentSec.start, parentSec.end);
-          const modifiedSec = injectImageInto(sectionHtml);
-          if (modifiedSec !== sectionHtml) {
-            const updatedHtml = html.slice(0, parentSec.start) + modifiedSec + html.slice(parentSec.end);
-            return saveValidatedEdit(updatedHtml, 'Image updated');
+
+        // Element itself has no image — walk UP the CSS path one level at a time.
+        // This handles any HTML structure (section, div, article, etc.) without
+        // relying on extractAllTopLevelSections which only finds <section> tags.
+        const pathParts = cssPath.split(/\s*>\s*/).filter(Boolean);
+        for (let i = pathParts.length - 1; i >= 1; i--) {
+          const ancestorPath = pathParts.slice(0, i).join(' > ');
+          const ancestorBounds = findByPath(html, ancestorPath);
+          if (!ancestorBounds) continue;
+          const ancestorHtml = html.slice(ancestorBounds.start, ancestorBounds.end);
+          const modifiedAncestor = injectImageInto(ancestorHtml);
+          if (modifiedAncestor !== ancestorHtml) {
+            return saveValidatedEdit(
+              html.slice(0, ancestorBounds.start) + modifiedAncestor + html.slice(ancestorBounds.end),
+              'Image updated',
+            );
+          }
+        }
+
+        // Final fallback: background-image lives in the <style> block as a CSS class rule,
+        // not in any DOM element (common pattern: .hero-bg { background-image: url(...) }).
+        // Extract the element's class/id names and patch the matching CSS rule.
+        const cssRuleReplace = (src: string, selector: string): string => {
+          const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(
+            `((?:\\.|#)${escaped}\\b[^{]*\\{[^}]*)background-image\\s*:\\s*url\\([^)]+\\)`,
+            'gi',
+          );
+          return src.replace(re, `$1background-image: url('${newUrl}')`);
+        };
+
+        // Try each class name of the selected element, then its id
+        const classAttr = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+        const idAttr    = elementHtml.match(/\bid="([^"]+)"/i)?.[1] ?? '';
+        const candidates = [
+          ...classAttr.trim().split(/\s+/).filter(Boolean),
+          ...(idAttr ? [idAttr] : []),
+        ];
+        for (const name of candidates) {
+          const patched = cssRuleReplace(html, name);
+          if (patched !== html) {
+            return saveValidatedEdit(patched, 'Image updated');
           }
         }
       }
@@ -1445,15 +1556,85 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           }
         }
       }
+
+      // Absolute final fallback: find the img by its current src URL, scoped to
+      // the nearest section/id anchor from the CSS path so that if 2 images share
+      // the same src URL the correct one (in the right section) is replaced.
+      if (hintHtml) {
+        // Browser outerHTML encodes & as &amp; — decode before searching stored HTML
+        const rawHintSrc = hintHtml.match(/\bsrc="([^"]+)"/i)?.[1];
+        const oldSrc = rawHintSrc ? rawHintSrc.replace(/&amp;/gi, '&') : undefined;
+        if (oldSrc && oldSrc !== newUrl) {
+          const escapedSrc = oldSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const imgRe = new RegExp(`(<img\\b[^>]*\\bsrc=")${escapedSrc}("[^>]*>)`, 'i');
+
+          // Try to scope the replacement to the element's section anchor
+          const sectionM = cssPath.match(/\b(section|div|article|main)#([\w-]+)/);
+          if (sectionM) {
+            const anchorTag = sectionM[1];
+            const anchorId  = sectionM[2];
+            const anchorBounds = findByPath(html, `${anchorTag}#${anchorId}`);
+            if (anchorBounds) {
+              // Replace only within the section that contains the selected element
+              const sectionHtml = html.slice(anchorBounds.start, anchorBounds.end);
+              const scopedPatched = sectionHtml.replace(imgRe, `$1${newUrl}$2`);
+              if (scopedPatched !== sectionHtml) {
+                return saveValidatedEdit(
+                  html.slice(0, anchorBounds.start) + scopedPatched + html.slice(anchorBounds.end),
+                  'Image updated',
+                );
+              }
+            }
+          }
+
+          // No section scope — replace first occurrence in entire document
+          const patched = html.replace(imgRe, `$1${newUrl}$2`);
+          if (patched !== html) {
+            return saveValidatedEdit(patched, 'Image updated');
+          }
+        }
+      }
+
       return reply.code(422).send({ error: 'Could not locate the selected image in the document — try clicking the image again to re-select it' });
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Position-based element removal (preferred — uses CSS path) ───────────
-    const removeByPathMatch = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+)$/);
+    // Format: __REMOVE_BY_PATH__:[cssPath]||[hintHtml?]
+    // hintHtml is optional — used as content-based fallback when findByPath fails.
+    const removeByPathMatch = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+?)(?:\|\|([\s\S]*))?$/);
     if (removeByPathMatch) {
-      const cssPath = removeByPathMatch[1].trim();
-      const bounds  = findByPath(html, cssPath);
+      const cssPath  = removeByPathMatch[1].trim();
+      const hintHtml = (removeByPathMatch[2] ?? '').trim();
+      let bounds = findByPath(html, cssPath);
+
+      // Fallback: content-based element location when path doesn't match
+      // (happens after LLM edits restructure the surrounding DOM)
+      if (!bounds && hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+          const VOID_TAGS_R = new Set(['area','base','br','col','embed','hr','img','input',
+                                       'link','meta','param','source','track','wbr']);
+          let end: number;
+          if (VOID_TAGS_R.has(tagName) || hintHtml.trimEnd().endsWith('/>')) {
+            end = html.indexOf('>', hintStart) + 1;
+          } else {
+            const close = `</${tagName}>`;
+            let depth = 1, j = html.indexOf('>', hintStart) + 1;
+            while (j < html.length && depth > 0) {
+              const nO = html.indexOf(`<${tagName}`, j);
+              const nC = html.indexOf(close, j);
+              if (nC === -1) break;
+              if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+              else { depth--; j = nC + close.length; }
+            }
+            end = j;
+          }
+          if (end > hintStart) bounds = { start: hintStart, end };
+        }
+      }
+
       if (!bounds) {
         return reply.code(422).send({ error: 'Element not found — click it again to retry' });
       }
@@ -1673,8 +1854,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // 3. src URL for media elements (unique per page)
+      // Decode &amp; → & because browser outerHTML encodes & as &amp; but stored HTML has raw &
       if (['img', 'video', 'source', 'iframe'].includes(openTag)) {
-        const srcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
+        const rawSrcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
+        const srcVal = rawSrcVal ? rawSrcVal.replace(/&amp;/gi, '&') : undefined;
         if (srcVal) {
           idx = src.indexOf(`src="${srcVal}"`);
           if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
@@ -1833,13 +2016,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Inline style property patch (from InlineEditPanel) ─────────────────────
-    // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]
+    // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]||[hintHtml?]
+    // hintHtml is optional — used for content-based fallback when findByPath fails.
     // Deterministic — no LLM. Whitelisted properties only.
-    const stylePatchMatch = instruction.match(/^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+)$/s);
+    const stylePatchMatch = instruction.match(/^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
     if (stylePatchMatch) {
       const cssPath  = stylePatchMatch[1].trim();
       const prop     = stylePatchMatch[2].trim().toLowerCase();
       const rawValue = stylePatchMatch[3].trim();
+      const hintHtml = (stylePatchMatch[4] ?? '').trim();
 
       const ALLOWED_STYLE_PROPS = new Set([
         'color', 'background-color', 'background-image', 'background',
@@ -1852,7 +2037,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const value = rawValue.replace(/[;'"<>]/g, '').trim().slice(0, 120);
       if (!value) return reply.code(400).send({ error: 'Empty style value' });
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // Content-based fallback when path doesn't match (e.g. after LLM restructured the DOM)
+      if (!bounds && hintHtml) {
+        const hs = locateElement(html, hintHtml);
+        if (hs !== -1) {
+          const ht = html.indexOf('>', hs);
+          if (ht !== -1) bounds = { start: hs, end: ht + 1 };
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const elementHtml = html.slice(bounds.start, bounds.end);
