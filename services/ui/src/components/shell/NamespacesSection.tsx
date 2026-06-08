@@ -55,6 +55,10 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
   const [expandedSuper, setExpandedSuper] = useState(true);
   const [superLabelHovered, setSuperLabelHovered] = useState(false);
   const [hoveredSc, setHoveredSc] = useState<string | null>(null);
+  const [menuSc, setMenuSc] = useState<string | null>(null);
+  const [menuScPos, setMenuScPos] = useState<MenuPos>({ top: 0, right: 0 });
+  const menuScBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const scDropdownRef = useRef<HTMLDivElement | null>(null);
   const [confirmSc, setConfirmSc] = useState<string | null>(null);
   const [deletingSc, setDeletingSc] = useState(false);
 
@@ -70,6 +74,31 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
   useEffect(() => {
     void loadSuperClients();
   }, [loadSuperClients]);
+
+  const openScMenu = useCallback((name: string) => {
+    const btn = menuScBtnRefs.current[name];
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    setMenuScPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setMenuSc(name);
+  }, []);
+
+  useEffect(() => {
+    if (!menuSc) return;
+    const handler = (e: MouseEvent) => {
+      const btn = menuScBtnRefs.current[menuSc];
+      if (
+        scDropdownRef.current &&
+        !scDropdownRef.current.contains(e.target as Node) &&
+        btn &&
+        !btn.contains(e.target as Node)
+      ) {
+        setMenuSc(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuSc]);
 
   const handleDeleteSuperClient = async () => {
     if (!confirmSc) return;
@@ -388,24 +417,26 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
               !collapsed &&
               (pathname === `/super-client/${sc.name}` || !!pathname?.startsWith(`/super-client/${sc.name}/`));
             const isHovered = hoveredSc === sc.name;
+            const isMenuOpen = menuSc === sc.name;
 
             return (
               <div
                 key={sc.name}
                 style={{ position: 'relative' }}
-                onMouseEnter={() => setHoveredSc(sc.name)}
+                onMouseEnter={() => { if (!menuSc || menuSc === sc.name) setHoveredSc(sc.name); }}
                 onMouseLeave={() => setHoveredSc(null)}
               >
                 <button
                   className={`sidebar-link${isActive ? ' sidebar-link--active' : ''}`}
                   onClick={() => {
+                    if (menuSc) return;
                     onMobileClose();
                     router.push(`/super-client/${sc.name}`);
                   }}
                   style={{
                     width: '100%',
                     textAlign: 'left',
-                    paddingRight: isHovered ? 36 : 12,
+                    paddingRight: isHovered || isMenuOpen ? 36 : 12,
                     transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease',
                   }}
                 >
@@ -413,8 +444,9 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
                 </button>
 
                 <button
+                  ref={(el) => { menuScBtnRefs.current[sc.name] = el; }}
                   className="btn btn-sm"
-                  title="Delete"
+                  title="Options"
                   style={{
                     position: 'absolute',
                     right: 6,
@@ -424,23 +456,61 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
                     fontSize: 13,
                     border: 'none',
                     lineHeight: 1,
-                    opacity: isHovered ? 1 : 0,
-                    pointerEvents: isHovered ? 'auto' : 'none',
+                    opacity: isHovered || isMenuOpen ? 1 : 0,
+                    pointerEvents: isHovered || isMenuOpen ? 'auto' : 'none',
                     transition: 'opacity 0.15s',
-                    color: 'var(--danger)',
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setConfirmSc(sc.name);
+                    isMenuOpen ? setMenuSc(null) : openScMenu(sc.name);
                   }}
                 >
-                  <Icon icon={Trash2} size="sm" />
+                  <Icon icon={MoreHorizontal} size="sm" />
                 </button>
               </div>
             );
           })}
       </div>
       {dropdown}
+      {menuSc && createPortal(
+        <div
+          ref={scDropdownRef}
+          className="card"
+          style={{
+            position: 'fixed',
+            top: menuScPos.top,
+            right: menuScPos.right,
+            minWidth: 120,
+            padding: '4px 0',
+            zIndex: 99999,
+          }}
+        >
+          <button
+            className="btn btn-sm"
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              borderRadius: 0,
+              border: 'none',
+              justifyContent: 'flex-start',
+              padding: '8px 14px',
+              fontSize: 14,
+              color: 'var(--danger)',
+              gap: 8,
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const name = menuSc;
+              setMenuSc(null);
+              setConfirmSc(name);
+            }}
+          >
+            <Icon icon={Trash2} size="sm" />
+            <span>Delete</span>
+          </button>
+        </div>,
+        document.body,
+      )}
       {showModal && <CreateNamespaceModal onClose={() => setShowModal(false)} />}
       {showSuperModal && (
         <CreateSuperClientModal

@@ -2806,7 +2806,7 @@ body {
 
 .chat-v2-composer-wrap {
   flex-shrink: 0;
-  padding: 12px max(16px, calc((100% - 760px) / 2)) 14px;
+  padding: 2px max(16px, calc((100% - 760px) / 2)) 14px;
   background: var(--bg);
 }
 
@@ -8432,6 +8432,7 @@ html {
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-top: 8px;
 }
 
 .client-panel-body::-webkit-scrollbar { width: 3px; }
@@ -8472,6 +8473,10 @@ html {
 
 .client-panel-row:hover {
   background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.client-panel-row:hover .brief-field-actions {
+  opacity: 1;
 }
 
 .client-panel-row-name {

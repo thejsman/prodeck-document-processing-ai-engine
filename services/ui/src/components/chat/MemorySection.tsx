@@ -55,12 +55,12 @@ function ProfileField({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (editing) {
       setDraft(value);
-      setTimeout(() => inputRef.current?.focus(), 0);
+      textareaRef.current?.focus();
     }
   }, [editing, value]);
 
@@ -75,62 +75,65 @@ function ProfileField({
     }
   };
 
-  if (editing) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 22 }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, width: 80 }}>{label}</span>
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') void handleSave();
-            if (e.key === 'Escape') setEditing(false);
-          }}
-          disabled={saving}
-          style={{
-            flex: 1,
-            fontSize: 12,
-            padding: '2px 6px',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 4,
-            color: 'var(--text)',
-          }}
-        />
-        <button
-          onClick={() => void handleSave()}
-          disabled={saving || !draft.trim()}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: 'var(--muted)', lineHeight: 1, display: 'flex' }}
-        >
-          <X size={13} strokeWidth={2} style={{ transform: 'rotate(45deg)' }} />
-        </button>
-        <button
-          onClick={() => setEditing(false)}
-          disabled={saving}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: 'var(--muted)', lineHeight: 1, display: 'flex' }}
-        >
-          <X size={13} strokeWidth={2} />
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div
-      style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 22, cursor: 'default' }}
-      onMouseEnter={e => { const btn = e.currentTarget.querySelector('button'); if (btn) (btn as HTMLElement).style.opacity = '1'; }}
-      onMouseLeave={e => { const btn = e.currentTarget.querySelector('button'); if (btn) (btn as HTMLElement).style.opacity = '0'; }}
-    >
-      <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, width: 80 }}>{label}</span>
-      <span style={{ fontSize: 12, color: 'var(--text)', flex: 1 }}>{value || <span style={{ opacity: 0.35 }}>—</span>}</span>
-      <button
-        onClick={() => setEditing(true)}
-        title={`Edit ${label}`}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px', color: 'var(--muted)', lineHeight: 1, display: 'flex', opacity: 0, transition: 'opacity 0.1s' }}
-      >
-        <Pencil size={11} strokeWidth={1.5} />
-      </button>
+    <div className="brief-side-panel-section" style={{ paddingTop: 4, paddingBottom: 4 }}>
+      {/* Label row — same as SectionHeader */}
+      <div className="brief-panel-section-header">
+        <span
+          className="brief-panel-section-label"
+          style={{ flex: "none", textTransform: "none", letterSpacing: 0, fontSize: 14, fontWeight: 400 }}
+        >
+          {label}
+        </span>
+      </div>
+
+      {/* Value / edit area — same as KnowledgeRow */}
+      <div className="brief-side-panel-fields">
+        {editing ? (
+          <div className="brief-field-card">
+            <div className="brief-field-edit-body">
+              <textarea
+                ref={textareaRef}
+                className="brief-field-textarea"
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === "Escape") setEditing(false); }}
+                rows={2}
+              />
+              <div className="brief-field-edit-actions">
+                <button
+                  className="brief-knowledge-save-btn"
+                  disabled={saving || !draft.trim()}
+                  onClick={handleSave}
+                >
+                  {saving ? "…" : "Save"}
+                </button>
+                <button className="brief-knowledge-cancel-btn" onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="brief-field-card" style={{ position: "relative" }}>
+            <span className="brief-knowledge-content" style={{ flex: 1 }}>
+              {value || <span style={{ opacity: 0.35 }}>—</span>}
+            </span>
+            <div
+              className="brief-field-actions"
+              style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", background: "var(--panel)", paddingLeft: 4 }}
+            >
+              <button
+                className="brief-knowledge-icon-btn"
+                title="Edit"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil size={16} strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -843,21 +846,6 @@ export function MemorySection({
 
   return (
     <>
-      {/* Client Profile — stableFields extracted from documents / URL, always shown */}
-      <div className="brief-side-panel-section">
-        <div style={{ padding: '6px 12px 4px' }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-            Client Profile
-          </span>
-        </div>
-        <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <ProfileField label="Name" value={String(sf.clientName?.value ?? memory.clientName ?? '')} onSave={v => handleProfileSave('clientName', v)} />
-          <ProfileField label="Industry" value={String(sf.clientIndustry?.value ?? '')} onSave={v => handleProfileSave('clientIndustry', v)} />
-          <ProfileField label="Project Type" value={String(sf.projectType?.value ?? '')} onSave={v => handleProfileSave('projectType', v)} />
-          <ProfileField label="Contact" value={String(sf.contactName?.value ?? '')} onSave={v => handleProfileSave('contactName', v)} />
-        </div>
-      </div>
-
       {/* Knowledge by category */}
       {CATEGORY_ORDER.map(cat => {
         const entries = memory.knowledge.filter(e => e.category === cat);
@@ -1011,6 +999,40 @@ export function MemorySection({
           onCancel={() => setConfirmDeleteStakeholder(null)}
         />
       )}
+    </>
+  );
+}
+
+// ── Client profile stable fields (rendered inline in the client identity block) ─
+
+export function ClientProfileFields({ namespace }: { namespace: string }) {
+  const { apiKey } = useAuth();
+  const [memory, setMemory] = useState<ClientMemory | null>(null);
+
+  useEffect(() => {
+    if (!namespace || !apiKey) return;
+    fetchClientMemory(apiKey, namespace)
+      .then(m => setMemory(m))
+      .catch(() => setMemory(null));
+  }, [namespace, apiKey]);
+
+  if (!memory) return null;
+
+  const sf = memory.stableFields;
+
+  const handleSave = async (
+    key: 'clientIndustry' | 'contactName' | 'projectType',
+    value: string,
+  ) => {
+    const updated = await updateClientStableField(apiKey, namespace, key, value);
+    setMemory(updated);
+  };
+
+  return (
+    <>
+      <ProfileField label="Industry" value={String(sf.clientIndustry?.value ?? '')} onSave={v => handleSave('clientIndustry', v)} />
+      <ProfileField label="Project Type" value={String(sf.projectType?.value ?? '')} onSave={v => handleSave('projectType', v)} />
+      <ProfileField label="Contact" value={String(sf.contactName?.value ?? '')} onSave={v => handleSave('contactName', v)} />
     </>
   );
 }
