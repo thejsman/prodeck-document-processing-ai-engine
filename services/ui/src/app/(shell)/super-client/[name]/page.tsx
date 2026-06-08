@@ -576,7 +576,7 @@ export default function SuperClientPage() {
   } | null>(null);
   const [fullscreenMicrosite, setFullscreenMicrosite] =
     useState<LayoutAST | null>(null);
-  const [micrositePanelWidth, setMicrositePanelWidth] = useState(640);
+  const [chatPanelWidth, setChatPanelWidth] = useState(320);
   const [micrositeDragging, setMicrositeDragging] = useState(false);
   const [micrositeDragHover, setMicrositeDragHover] = useState(false);
   const micrositeDragRef = useRef<{
@@ -587,18 +587,18 @@ export default function SuperClientPage() {
   const MICROSITE_MIN_WIDTH = 500;
   const CHAT_MIN_WIDTH = 360;
 
-  // Clamp micrositePanelWidth whenever the container resizes (e.g. left nav opens/closes)
+  // Clamp chatPanelWidth whenever the container resizes (e.g. left nav opens/closes)
   useEffect(() => {
     const el = splitContainerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const containerWidth = splitContainerRef.current?.offsetWidth ?? 0;
       if (containerWidth === 0) return;
-      const maxWidth = Math.max(
-        MICROSITE_MIN_WIDTH,
-        containerWidth - CHAT_MIN_WIDTH,
+      const maxChatWidth = Math.max(
+        CHAT_MIN_WIDTH,
+        containerWidth - MICROSITE_MIN_WIDTH,
       );
-      setMicrositePanelWidth((prev) => Math.min(prev, maxWidth));
+      setChatPanelWidth((prev) => Math.min(prev, maxChatWidth));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -1912,7 +1912,7 @@ export default function SuperClientPage() {
     e.preventDefault();
     micrositeDragRef.current = {
       startX: e.clientX,
-      startWidth: micrositePanelWidth,
+      startWidth: chatPanelWidth,
     };
     setMicrositeDragging(true);
     document.body.style.cursor = "col-resize";
@@ -1922,16 +1922,14 @@ export default function SuperClientPage() {
       if (!micrositeDragRef.current) return;
       const containerWidth =
         splitContainerRef.current?.offsetWidth ?? window.innerWidth;
-      const maxWidth = Math.max(
-        MICROSITE_MIN_WIDTH,
-        containerWidth - CHAT_MIN_WIDTH,
-      );
-      const delta = micrositeDragRef.current.startX - ev.clientX;
+      const maxChatWidth = containerWidth - MICROSITE_MIN_WIDTH;
+      // Dragging left shrinks chat (delta positive → subtract), dragging right grows it
+      const delta = ev.clientX - micrositeDragRef.current.startX;
       const next = Math.max(
-        MICROSITE_MIN_WIDTH,
-        Math.min(maxWidth, micrositeDragRef.current.startWidth + delta),
+        CHAT_MIN_WIDTH,
+        Math.min(maxChatWidth, micrositeDragRef.current.startWidth + delta),
       );
-      setMicrositePanelWidth(next);
+      setChatPanelWidth(next);
     }
 
     function onMouseUp() {
@@ -2793,10 +2791,12 @@ export default function SuperClientPage() {
         <div
           style={{
             flex: 1,
+            maxWidth: viewingProposal || viewingMicrosite ? chatPanelWidth : "100%",
             display: "flex",
             flexDirection: "column",
             minWidth: 0,
             overflow: "hidden",
+            transition: "max-width 0.32s cubic-bezier(0.4, 0, 0.2, 1)",
           }}
         >
           {/* Header */}
@@ -3419,80 +3419,117 @@ export default function SuperClientPage() {
 
             {/* Textarea row — hidden while composer expansion is active */}
             {!composerStage && (
-              <div
-                className="chat-v2-composer"
-                style={
-                  viewingProposal || viewingMicrosite
-                    ? { flexDirection: "column", alignItems: "stretch", gap: 0 }
-                    : undefined
-                }
-              >
-                {/* Proposal chip — lives inside the composer bubble */}
+              <>
+                {/* Proposal editing strip — sits above composer, same as microsite strip */}
                 {viewingProposal && (
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      padding: "2px 4px 6px 6px",
+                      justifyContent: "space-between",
+                      padding: "0 10px 0 14px",
+                      height: 44,
+                      borderRadius: "16px 16px 0 0",
+                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      marginBottom: -6,
+                      position: "relative",
+                      zIndex: 0,
                     }}
                   >
-                    <div
+                    <span
                       style={{
-                        display: "inline-flex",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--primary)",
+                        display: "flex",
                         alignItems: "center",
                         gap: 5,
-                        padding: "3px 4px 3px 8px",
-                        borderRadius: 20,
-                        background:
-                          "color-mix(in srgb, var(--primary) 10%, transparent)",
-                        border:
-                          "1px solid color-mix(in srgb, var(--primary) 25%, transparent)",
-                        fontSize: 11,
-                        color: "var(--primary)",
-                        fontWeight: 500,
-                        maxWidth: "100%",
-                        overflow: "hidden",
                       }}
                     >
-                      <FileText size={10} style={{ flexShrink: 0 }} />
-                      <span
-                        style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        Editing: Proposal
-                      </span>
-                      <button
-                        onClick={dismissProposal}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "var(--primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "2px 3px",
-                          borderRadius: 10,
-                          opacity: 0.7,
-                          flexShrink: 0,
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "1";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "0.7";
-                        }}
-                        title="Dismiss proposal"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
+                      <FileText size={16} style={{ flexShrink: 0 }} />
+                      Edit proposal
+                    </span>
+                    <button
+                      onClick={dismissProposal}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: 0,
+                        opacity: 0.6,
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                      title="Close proposal"
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
                 )}
+                {/*Microsite editing strip — sits above composer with 4px sliding behind it */}
+                {viewingMicrosite && !(editModeActive && selectedElement) && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "0 10px 0 14px",
+                      height: 44,
+                      borderRadius: "16px 16px 0 0",
+                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      marginBottom: -6,
+                      position: "relative",
+                      zIndex: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                      }}
+                    >
+                      <Globe size={16} style={{ flexShrink: 0 }} />
+                      Edit microsite
+                    </span>
+                    <button
+                      onClick={dismissMicrosite}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: 0,
+                        opacity: 0.6,
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                      title="Close microsite"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              <div
+                className="chat-v2-composer"
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  ...(viewingProposal || viewingMicrosite
+                    ? { flexDirection: "column", alignItems: "stretch", gap: 0 }
+                    : {}),
+                }}
+              >
                 {/* Selection chip — replaces the chips row when an element is targeted */}
                 {viewingMicrosite && editModeActive && selectedElement && (
                   <div
@@ -3566,231 +3603,6 @@ export default function SuperClientPage() {
                     </div>
                   </div>
                 )}
-                {/* Microsite chip + logo buttons inline */}
-                {viewingMicrosite && !(editModeActive && selectedElement) && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "2px 4px 6px 6px",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {/* Chip */}
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 5,
-                        padding: "3px 4px 3px 8px",
-                        borderRadius: 20,
-                        background:
-                          "color-mix(in srgb, var(--primary) 10%, transparent)",
-                        border:
-                          "1px solid color-mix(in srgb, var(--primary) 25%, transparent)",
-                        fontSize: 11,
-                        color: "var(--primary)",
-                        fontWeight: 500,
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Globe size={10} style={{ flexShrink: 0 }} />
-                      <span
-                        style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: 140,
-                        }}
-                      >
-                        Editing:{" "}
-                        {(
-                          lastMicrositeRef.current?.ast.meta as {
-                            title?: string;
-                          }
-                        )?.title ?? "Microsite"}
-                      </span>
-                      <button
-                        onClick={dismissMicrosite}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "var(--primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "2px 3px",
-                          borderRadius: 10,
-                          opacity: 0.7,
-                          flexShrink: 0,
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "1";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "0.7";
-                        }}
-                        title="Close microsite"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
-                    {/* Update logo button */}
-                    <button
-                      onClick={() => editingLogoInputRef.current?.click()}
-                      style={{
-                        background: "none",
-                        border: "1px solid var(--border)",
-                        borderRadius: 6,
-                        padding: "3px 8px",
-                        cursor: "pointer",
-                        fontSize: 11,
-                        color: editingLogo ? "var(--primary)" : "var(--muted)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        flexShrink: 0,
-                      }}
-                    >
-                      <ImagePlus size={11} />
-                      {editingLogo ? "Logo attached ✓" : "Update logo"}
-                    </button>
-                    <input
-                      ref={editingLogoInputRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (!f) return;
-                        compressLogoFile(f, (base64, mediaType) => {
-                          setEditingLogo({
-                            base64,
-                            mediaType: mediaType as "image/png",
-                          });
-                          setEditingLogoUrl("");
-                        });
-                        e.target.value = "";
-                      }}
-                    />
-                    {/* Logo URL */}
-                    {!editingLogo &&
-                      (showEditingLogoUrlInput ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                          }}
-                        >
-                          <input
-                            autoFocus
-                            type="url"
-                            value={editingLogoUrl}
-                            onChange={(e) => setEditingLogoUrl(e.target.value)}
-                            placeholder="Paste logo URL…"
-                            style={{
-                              fontSize: 11,
-                              padding: "3px 7px",
-                              borderRadius: 6,
-                              border: "1px solid var(--border)",
-                              background: "var(--panel)",
-                              color: "var(--text)",
-                              outline: "none",
-                              width: 160,
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter")
-                                setShowEditingLogoUrlInput(false);
-                              if (e.key === "Escape") {
-                                setEditingLogoUrl("");
-                                setShowEditingLogoUrlInput(false);
-                              }
-                            }}
-                          />
-                          {editingLogoUrl.trim() && (
-                            <button
-                              onClick={() => setShowEditingLogoUrlInput(false)}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                color: "var(--primary)",
-                                fontSize: 11,
-                                padding: "3px 5px",
-                              }}
-                            >
-                              ✓
-                            </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setEditingLogoUrl("");
-                              setShowEditingLogoUrlInput(false);
-                            }}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              color: "var(--muted)",
-                              display: "flex",
-                              padding: 3,
-                            }}
-                          >
-                            <X size={11} />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setShowEditingLogoUrlInput(true)}
-                          style={{
-                            background: "none",
-                            border: "1px solid var(--border)",
-                            borderRadius: 6,
-                            padding: "3px 8px",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            color: editingLogoUrl.trim()
-                              ? "var(--primary)"
-                              : "var(--muted)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                            flexShrink: 0,
-                          }}
-                        >
-                          <LinkIcon size={11} />
-                          {editingLogoUrl.trim()
-                            ? "Logo URL set ✓"
-                            : "Logo URL"}
-                        </button>
-                      ))}
-                    {(editingLogo || editingLogoUrl.trim()) &&
-                      !showEditingLogoUrlInput && (
-                        <button
-                          onClick={() => {
-                            setEditingLogo(null);
-                            setEditingLogoUrl("");
-                            setShowEditingLogoUrlInput(false);
-                          }}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            color: "var(--muted)",
-                            display: "flex",
-                            padding: 2,
-                          }}
-                          title="Remove logo"
-                        >
-                          <X size={11} />
-                        </button>
-                      )}
-                  </div>
-                )}
                 {/* Microsite edit result banner */}
                 {viewingMicrosite &&
                   micrositeEditBanner.startsWith("Error:") && (
@@ -3811,12 +3623,53 @@ export default function SuperClientPage() {
                       {micrositeEditBanner}
                     </span>
                   )}
-                {/* Input row */}
-                <div
-                  style={{ display: "flex", alignItems: "flex-end", flex: 1 }}
-                >
-                  {/* Attach (+) button — left side, chat/proposal mode only */}
-                  {!viewingMicrosite && (
+                {/* Textarea */}
+                <textarea
+                  ref={textareaRef}
+                  className="chat-v2-input"
+                  value={viewingMicrosite ? micrositeEditInput : input}
+                  onChange={(e) =>
+                    viewingMicrosite
+                      ? setMicrositeEditInput(e.target.value)
+                      : setInput(e.target.value)
+                  }
+                  onKeyDown={
+                    viewingMicrosite
+                      ? (e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            void handleMicrositeEdit();
+                          }
+                        }
+                      : handleKeyDown
+                  }
+                  placeholder={
+                    viewingMicrosite && editModeActive && selectedElement
+                      ? selectedElement.tag === "img"
+                        ? `Paste image URL, or describe change…`
+                        : `Edit ${selectedElement.label}…`
+                      : viewingMicrosite
+                        ? editModeActive
+                          ? "Click any element to target it, then describe your edit…"
+                          : "Edit this microsite…"
+                        : viewingProposal
+                          ? "Ask to edit or refine this proposal…"
+                          : `Ask about ${meta.displayName}…`
+                  }
+                  disabled={viewingMicrosite ? micrositeEditing : false}
+                  rows={1}
+                  onInput={(e) => {
+                    const el = e.currentTarget;
+                    el.style.height = "auto";
+                    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+                  }}
+                />
+                {/* Horizontal separator — hidden */}
+                <div style={{ height: 1, margin: "0 2px" }} />
+                {/* Bottom bar: attach left, send right — same padding as textarea */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 8px 8px 4px" }}>
+                  {/* Attach (+) button */}
+                  {!viewingMicrosite ? (
                     <div style={{ position: "relative", flexShrink: 0 }}>
                       <button
                         onClick={() => setAttachMenuOpen((v) => !v)}
@@ -3828,15 +3681,13 @@ export default function SuperClientPage() {
                           color: "var(--muted)",
                           display: "flex",
                           alignItems: "center",
-                          padding: "6px 8px",
+                          padding: "4px 6px",
                           borderRadius: 8,
-                          marginBottom: 2,
                           opacity: 0.65,
                           transition: "opacity 0.15s",
                         }}
                         onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "1";
+                          (e.currentTarget as HTMLButtonElement).style.opacity = "1";
                         }}
                         onMouseLeave={(e) => {
                           (e.currentTarget as HTMLButtonElement).style.opacity =
@@ -3847,13 +3698,8 @@ export default function SuperClientPage() {
                       </button>
                       {attachMenuOpen && (
                         <>
-                          {/* Backdrop to close on outside click */}
                           <div
-                            style={{
-                              position: "fixed",
-                              inset: 0,
-                              zIndex: 9998,
-                            }}
+                            style={{ position: "fixed", inset: 0, zIndex: 9998 }}
                             onClick={() => setAttachMenuOpen(false)}
                           />
                           <div
@@ -3890,14 +3736,10 @@ export default function SuperClientPage() {
                                 textAlign: "left",
                               }}
                               onMouseEnter={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "var(--panel-soft)";
+                                (e.currentTarget as HTMLButtonElement).style.background = "var(--panel-soft)";
                               }}
                               onMouseLeave={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "none";
+                                (e.currentTarget as HTMLButtonElement).style.background = "none";
                               }}
                             >
                               <FileText
@@ -3911,47 +3753,10 @@ export default function SuperClientPage() {
                         </>
                       )}
                     </div>
+                  ) : (
+                    <div />
                   )}
-                  <textarea
-                    ref={textareaRef}
-                    className="chat-v2-input"
-                    value={viewingMicrosite ? micrositeEditInput : input}
-                    onChange={(e) =>
-                      viewingMicrosite
-                        ? setMicrositeEditInput(e.target.value)
-                        : setInput(e.target.value)
-                    }
-                    onKeyDown={
-                      viewingMicrosite
-                        ? (e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                              e.preventDefault();
-                              void handleMicrositeEdit();
-                            }
-                          }
-                        : handleKeyDown
-                    }
-                    placeholder={
-                      viewingMicrosite && editModeActive && selectedElement
-                        ? selectedElement.tag === "img"
-                          ? `Paste image URL, or describe change…`
-                          : `Edit ${selectedElement.label}…`
-                        : viewingMicrosite
-                          ? editModeActive
-                            ? "Click any element to target it, then describe your edit…"
-                            : "Edit this microsite…"
-                          : viewingProposal
-                            ? "Ask to edit or refine this proposal…"
-                            : `Ask about ${meta.displayName}…`
-                    }
-                    disabled={viewingMicrosite ? micrositeEditing : false}
-                    rows={1}
-                    onInput={(e) => {
-                      const el = e.currentTarget;
-                      el.style.height = "auto";
-                      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-                    }}
-                  />
+                  {/* Send button */}
                   <button
                     className="chat-v2-send-btn"
                     onClick={() =>
@@ -3969,10 +3774,8 @@ export default function SuperClientPage() {
                     }
                   >
                     <Icon
-                      icon={
-                        viewingMicrosite && micrositeEditing ? Loader : ArrowUp
-                      }
-                      size="sm"
+                      icon={viewingMicrosite && micrositeEditing ? Loader : ArrowUp}
+                      size="md"
                       style={
                         viewingMicrosite && micrositeEditing
                           ? { animation: "spin 1s linear infinite" }
@@ -3996,7 +3799,8 @@ export default function SuperClientPage() {
                   }}
                 />
               </div>
-            )}
+            </>
+          )}
           </div>
         </div>
 
@@ -4004,20 +3808,19 @@ export default function SuperClientPage() {
         <div
           className={`sc-viewer-panel${viewingMicrosite ? " sc-viewer-panel--open" : ""}`}
           style={{
-            width: viewingMicrosite ? micrositePanelWidth : 0,
-            minWidth: viewingMicrosite ? MICROSITE_MIN_WIDTH : 0,
-            maxWidth: `calc(100% - ${CHAT_MIN_WIDTH}px)`,
-            borderLeft: viewingMicrosite ? "1px solid var(--border)" : "none",
+            flexGrow: viewingMicrosite ? 1 : 0,
             flexShrink: 0,
-            transition:
-              "width 0.32s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.32s cubic-bezier(0.4, 0, 0.2, 1)",
+            flexBasis: viewingMicrosite ? 0 : "auto",
+            width: viewingMicrosite ? undefined : 0,
+            minWidth: viewingMicrosite ? MICROSITE_MIN_WIDTH : 0,
+            borderLeft: viewingMicrosite ? "1px solid var(--border)" : "none",
           }}
         >
           {lastMicrositeRef.current && (
             <div
               className="sc-viewer-panel-inner"
               style={{
-                width: micrositePanelWidth,
+                width: "100%",
                 position: "relative",
               }}
             >
@@ -4093,7 +3896,7 @@ export default function SuperClientPage() {
                       display: "none",
                     }}
                   >
-                    {micrositePanelWidth}px
+                    {chatPanelWidth}px
                   </div>
                 )}
               </div>
@@ -4576,17 +4379,19 @@ export default function SuperClientPage() {
         <div
           className={`sc-viewer-panel${viewingProposal ? " sc-viewer-panel--open" : ""}`}
           style={{
-            width: viewingProposal ? 560 : 0,
-            borderLeft: viewingProposal ? "1px solid var(--border)" : "none",
+            flexGrow: viewingProposal ? 1 : 0,
             flexShrink: 0,
-            transition: "width 0.32s cubic-bezier(0.4, 0, 0.2, 1)",
+            flexBasis: viewingProposal ? 0 : "auto",
+            width: viewingProposal ? undefined : 0,
+            minWidth: viewingProposal ? 400 : 0,
+            borderLeft: viewingProposal ? "1px solid var(--border)" : "none",
           }}
         >
           {lastProposalRef.current && (
             <div
               className="sc-viewer-panel-inner"
               style={{
-                width: 560,
+                width: "100%",
               }}
             >
               <div
