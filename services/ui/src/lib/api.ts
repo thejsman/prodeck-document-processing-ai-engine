@@ -2174,6 +2174,7 @@ export interface SuperClientHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  editContext?: 'microsite' | 'proposal';
 }
 
 export interface SuperClientDetail {
@@ -2445,6 +2446,18 @@ export interface SuperClientChatEvent {
   message?: string;
   proposalSaved?: SuperClientProposal;
   proposalUpdated?: SuperClientProposal;
+}
+
+export async function appendSuperClientHistory(
+  apiKey: string,
+  name: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: string; editContext?: 'microsite' | 'proposal' }>,
+): Promise<void> {
+  await fetch(`/api/super-clients/${name}/history/append`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ messages }),
+  });
 }
 
 export async function streamSuperClientChat(

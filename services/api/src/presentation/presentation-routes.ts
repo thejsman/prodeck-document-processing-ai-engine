@@ -1803,7 +1803,7 @@ ${layoutSummary}`;
 
     // SSE headers — must be set before any writes
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -2277,7 +2277,7 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
 
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -2674,7 +2674,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
     // Setup SSE
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -2829,7 +2829,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
     // Setup SSE
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',

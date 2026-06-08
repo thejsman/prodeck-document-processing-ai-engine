@@ -45,6 +45,7 @@ interface HistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  editContext?: 'microsite' | 'proposal';
 }
 
 interface ScFile {
@@ -672,7 +673,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -861,10 +862,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // Persist turn to history
       const now = new Date().toISOString();
+      const editCtx = activeProposalId ? ({ editContext: 'proposal' } as const) : {};
       const updatedHistory: HistoryEntry[] = [
         ...history,
-        { role: 'user', content: message, createdAt: now },
-        { role: 'assistant', content: displayResponse, createdAt: now },
+        { role: 'user', content: message, createdAt: now, ...editCtx },
+        { role: 'assistant', content: displayResponse, createdAt: now, ...editCtx },
       ];
       await writeFile(path.join(dir, 'history.json'), JSON.stringify(updatedHistory, null, 2));
 
@@ -884,6 +886,32 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     } finally {
       reply.raw.end();
     }
+  });
+
+  // POST /super-clients/:name/history/append — persist arbitrary messages (e.g. edit actions)
+  app.post('/super-clients/:name/history/append', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const dir = path.join(superClientsRoot, name);
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+    const body = req.body as { messages?: Array<{ role: string; content: string; createdAt?: string; editContext?: string }> } | undefined;
+    const entries = body?.messages ?? [];
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return reply.code(400).send({ error: 'messages array required' });
+    }
+    const history = await readHistory(dir);
+    const now = new Date().toISOString();
+    const toAppend: HistoryEntry[] = entries.map((m) => ({
+      role: (m.role === 'user' || m.role === 'assistant' ? m.role : 'user') as 'user' | 'assistant',
+      content: String(m.content ?? ''),
+      createdAt: m.createdAt ?? now,
+      ...(m.editContext === 'microsite' || m.editContext === 'proposal' ? { editContext: m.editContext } : {}),
+    }));
+    await writeFile(path.join(dir, 'history.json'), JSON.stringify([...history, ...toAppend], null, 2));
+    return reply.send({ ok: true });
   });
 
   // GET /super-clients/:name/documents

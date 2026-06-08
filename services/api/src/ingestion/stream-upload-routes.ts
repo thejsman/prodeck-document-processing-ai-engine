@@ -163,7 +163,7 @@ export function registerStreamUploadRoutes(
     const raw = reply.raw;
 
     raw.writeHead(200, {
-      'Content-Type':  'text/event-stream',
+      'Content-Type':  'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection':    'keep-alive',
     });

@@ -71,7 +71,7 @@ export function registerExecutionStreamRoutes(app: FastifyInstance, workdir?: st
   app.get('/ai-executions/stream', async (req, reply) => {
     const raw = reply.raw;
 
-    raw.setHeader('Content-Type', 'text/event-stream');
+    raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     raw.setHeader('Cache-Control', 'no-cache');
     raw.setHeader('Connection', 'keep-alive');
     raw.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
