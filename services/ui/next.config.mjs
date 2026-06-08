@@ -1,7 +1,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -11,7 +13,13 @@ const nextConfig = {
   ...(process.env.NEXT_STANDALONE === "1" ? { output: "standalone" } : {}),
   // Mermaid v11 is ESM-only — webpack must transpile it to avoid production
   // build failures where the mermaid chunk loads but evaluates incorrectly.
-  transpilePackages: ["mermaid"],
+  transpilePackages: ["mermaid", "motion"],
+  webpack(config) {
+    // pnpm symlinks + webpack 5 subpath exports don't resolve reliably on Windows.
+    // Alias motion/react directly to its CJS entry so webpack finds it every time.
+    config.resolve.alias["motion/react"] = require.resolve("motion/react");
+    return config;
+  },
   // LLM-backed routes (proposal generation, RAG query) can take several minutes
   // on local hardware. The default Next.js proxy timeout is 30s which causes
   // ECONNRESET before the Python subprocess finishes.
