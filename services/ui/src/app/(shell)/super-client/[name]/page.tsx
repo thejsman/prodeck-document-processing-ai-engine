@@ -1097,7 +1097,32 @@ export default function SuperClientPage() {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
       const html = (ast.sections?.[0] as { customHtml?: string })?.customHtml ?? '';
       const rk = `${m.id}-${Date.now()}`;
-      setActiveSrcDoc(computeSrcDoc(html));
+      const srcDoc = computeSrcDoc(html);
+
+      if (viewingMicrosite) {
+        // Panel already open — load into background slot and swap once rendered
+        // to avoid the visible blank-then-reload flash on the active iframe.
+        const swapScript = `<script>(function(){requestAnimationFrame(function(){window.parent.postMessage({source:'microsite-swap-ready'},'*');});})();<\/script>`;
+        const bodyClose = srcDoc.lastIndexOf('</body>');
+        const srcDocWithSwap = bodyClose !== -1
+          ? srcDoc.slice(0, bodyClose) + swapScript + srcDoc.slice(bodyClose)
+          : srcDoc + swapScript;
+
+        swapPendingRef.current = true;
+        if (swapSafetyTimerRef.current) clearTimeout(swapSafetyTimerRef.current);
+        swapSafetyTimerRef.current = setTimeout(() => {
+          swapSafetyTimerRef.current = null;
+          if (!swapPendingRef.current) return;
+          swapPendingRef.current = false;
+          const next: 'A' | 'B' = activeSlotRef.current === 'A' ? 'B' : 'A';
+          activeSlotRef.current = next;
+          setActiveSlot(next);
+        }, 2000);
+        setBackSrcDoc(srcDocWithSwap);
+      } else {
+        setActiveSrcDoc(srcDoc);
+      }
+
       setViewingMicrosite({ id: m.id, ast, renderKey: rk });
       if (viewingProposal) {
         setViewingProposal(null);
@@ -2903,6 +2928,7 @@ export default function SuperClientPage() {
             maxWidth: `calc(100% - ${CHAT_MIN_WIDTH}px)`,
             borderLeft: viewingMicrosite ? '1px solid var(--border)' : 'none',
             flexShrink: 0,
+            transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
           }}
         >
           {lastMicrositeRef.current && (
@@ -3224,6 +3250,7 @@ export default function SuperClientPage() {
             width: viewingProposal ? 560 : 0,
             borderLeft: viewingProposal ? '1px solid var(--border)' : 'none',
             flexShrink: 0,
+            transition: 'width 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
           }}
         >
           {lastProposalRef.current && (
