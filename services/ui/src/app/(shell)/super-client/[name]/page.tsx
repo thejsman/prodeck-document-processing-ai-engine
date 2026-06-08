@@ -2944,7 +2944,9 @@ export default function SuperClientPage() {
                   }
 
                   // Assistant message — column wrapper needed to stack bubble + artifact card
-                  const isProposalDone = msg.editContext === 'proposal' && !msg.streaming && !visibleContent.trimEnd().endsWith('?');
+                  const isProposalDone = msg.editContext === 'proposal' && !msg.streaming &&
+                    /\b(updated|changed|saved|applied|modified|revised|replaced|rewritten|regenerated)\b/i.test(visibleContent) &&
+                    !/\?|for example[:\s]|what (would|do|changes)|give me (the )?direction|let me know|tell me|could you|can you/i.test(visibleContent);
                   return (
                     <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: isProposalDone ? 4 : 0 }}>
                       {isProposalDone && (
