@@ -424,8 +424,8 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
                     fontSize: 13,
                     border: 'none',
                     lineHeight: 1,
-                    opacity: isHovered ? 1 : 0,
-                    pointerEvents: isHovered ? 'auto' : 'none',
+                    opacity: isHovered && !collapsed ? 1 : 0,
+                    pointerEvents: isHovered && !collapsed ? 'auto' : 'none',
                     transition: 'opacity 0.15s',
                     color: 'var(--danger)',
                   }}
