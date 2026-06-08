@@ -96,32 +96,143 @@ const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
 .cursor,.cursor-dot,.cursor-ring,.cursor-follower,.cursor-blob,
 .custom-cursor,.mouse-cursor,.pointer-cursor,.cursor-inner,.cursor-outer,
 [class*="cursor-"],[id*="cursor"],[class*="custom-cursor"]{display:none!important}
+/* Layer 1 — disable CSS keyframe animations (the usual way LLMs hide content
+   until scroll/reveal). Transitions are kept so interactive elements like
+   hamburger menus, hover effects, and accordions still work. */
+*{animation:none!important}
+/* Layer 2 — elements that start at opacity:0 for animation purposes:
+   force them visible now that animations are disabled. */
+.word,.reveal,.reveal-text,.reveal-item,.reveal-card,.reveal-image,
+.reveal-up,.reveal-down,.reveal-left,.reveal-right,
+.fade-in,.fade-up,.fade-down,.fade-left,.fade-right,
+.slide-in,.slide-up,.slide-down,.slide-left,.slide-right,
+.zoom-in,.zoom-out,.scale-in,.scale-up,
+[data-aos],[data-sal],[data-scroll],[data-motion],
+[class*="scroll-reveal"],[class*="js-reveal"]{
+  opacity:1!important;transform:none!important;
+  visibility:visible!important;clip-path:none!important
+}
 </style>`;
+
+// Layer 3 — JS fallback for future microsites with unknown class names.
+// Pass A: force visible any opacity:0 element that has a CSS animation or
+//         transition (animation-driven hiding, not intentional UI hiding).
+// Pass B: detect dark gradient text (-webkit-text-fill-color:transparent with
+//         all-dark hex stops) and override to white — handles LLM-generated
+//         microsites that use navy/dark gradients as text color on dark BGs.
+// Runs twice: fast pass at 50ms catches most cases; 500ms pass catches
+// elements created by JS after initial paint (e.g. word-split hero animations).
+const PREVIEW_REVEAL_SCRIPT = `<script id="__preview-reveal-fix">(function(){
+function lumHex(h){var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return 0.299*r+0.587*g+0.114*b;}
+function lumRgb(s){var m=s.match(/\d+/g);if(!m||m.length<3)return 255;return 0.299*parseInt(m[0])+0.587*parseInt(m[1])+0.114*parseInt(m[2]);}
+
+function fix(){
+  var all=document.querySelectorAll('*');
+  for(var i=0;i<all.length;i++){
+    var el=all[i];
+    var cs=window.getComputedStyle(el);
+    var inlineCss=el.getAttribute('style')||'';
+
+    // ── Pass A: force visible content that is opacity:0 due to disabled animations.
+    // Guard 1: display:none  → legitimately hidden (dropdowns, modals closed state).
+    // Guard 2: pointer-events:none → overlay-pattern hidden (e.g. mobile menus that
+    //          use opacity:0+pointer-events:none as their closed state instead of
+    //          display:none). These must NOT be forced visible or the menu appears
+    //          open on load and can never be closed.
+    if(parseFloat(cs.opacity||'1')<=0.05&&cs.display!=='none'&&cs.pointerEvents!=='none'){
+      el.style.setProperty('opacity','1','important');
+      el.style.setProperty('visibility','visible','important');
+      el.style.setProperty('transform','none','important');
+      el.style.setProperty('clip-path','none','important');
+    }
+
+    // ── Pass B: dark gradient text — LLMs often generate navy/dark gradients
+    // as text colour on dark backgrounds, making text invisible.
+    // Uses BOTH inline-style check (reliable for LLM patterns) AND
+    // computed-style check (catches CSS-rule-based gradients after re-edits).
+    var hasGradTextInline=(inlineCss.indexOf('text-fill-color')!==-1||inlineCss.indexOf('background-clip')!==-1)&&inlineCss.indexOf('gradient')!==-1;
+    var bgClipCs=cs.backgroundClip||'';
+    var hasGradTextCs=bgClipCs==='text'&&(cs.backgroundImage||'').indexOf('gradient')!==-1;
+    if(hasGradTextInline||hasGradTextCs){
+      // Get luminance of gradient stops: prefer hex from inline (before browser normalises),
+      // fall back to rgb() from computed background-image.
+      var lums=[];
+      var hexes=inlineCss.match(/#[0-9a-fA-F]{6}/g)||[];
+      if(hexes.length){lums=hexes.map(lumHex);}
+      else{lums=((cs.backgroundImage||'').match(/rgba?\([^)]+\)/g)||[]).map(lumRgb);}
+      var allDark=lums.length>0&&lums.every(function(l){return l<80;});
+      if(allDark){
+        el.style.setProperty('-webkit-text-fill-color','#fff','important');
+        el.style.setProperty('color','#fff','important');
+        el.style.setProperty('background','none','important');
+        el.style.setProperty('-webkit-background-clip','unset','important');
+        el.style.setProperty('background-clip','unset','important');
+      }
+    }
+  }
+}
+
+// Run synchronously now — hero word-split spans already exist (their script runs
+// earlier in the body). Then re-run on timers for transition-based reveals.
+fix();
+setTimeout(fix,80);
+setTimeout(fix,600);
+}());</script>`;
 
 // Intercept hash-anchor clicks so they scroll within the srcDoc iframe instead of
 // navigating away (clicking nav links like href="#section" would blank a srcDoc iframe
 // because it has no real base URL).
 const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
+// IDs of all elements injected by normalizeMicrositeHtml / injectBridgeScript.
+// Used to strip stale saved copies before re-injecting the latest code.
+const PREVIEW_INJECTION_IDS = [
+  '__preview-cursor-reset',
+  '__nav-anchor-fix',
+  '__preview-reveal-fix',
+  '__microsite-iframe-edit',
+  '__scroll-restore',
+] as const;
+
+// Strip any previously-saved preview injections so stale code is never reused.
+export function stripPreviewInjections(html: string): string {
+  let out = html;
+  for (const id of PREVIEW_INJECTION_IDS) {
+    out = out.replace(
+      new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'),
+      '',
+    );
+  }
+  return out;
+}
+
 export function normalizeMicrositeHtml(html: string): string {
   if (!html) return html;
-  // Both injections use idempotent guards so re-calling is safe.
-  let out = html;
-  if (!out.includes('__preview-cursor-reset')) {
-    const headClose = out.indexOf('</head>');
-    out = headClose !== -1
-      ? out.slice(0, headClose) + CURSOR_RESET_CSS + out.slice(headClose)
-      : CURSOR_RESET_CSS + out;
+  // Strip any stale injections first — ensures the latest code always runs even
+  // when the server saved HTML that already contained older injection versions.
+  let out = stripPreviewInjections(html);
+
+  // 1. Cursor-reset + animation-visibility CSS → <head>
+  const headClose = out.indexOf('</head>');
+  out = headClose !== -1
+    ? out.slice(0, headClose) + CURSOR_RESET_CSS + out.slice(headClose)
+    : CURSOR_RESET_CSS + out;
+
+  // 2. Hash-anchor intercept → immediately after <body>
+  const bodyOpen = out.search(/<body[^>]*>/i);
+  if (bodyOpen !== -1) {
+    const tagEnd = out.indexOf('>', bodyOpen) + 1;
+    out = out.slice(0, tagEnd) + NAV_FIX_SCRIPT + out.slice(tagEnd);
+  } else {
+    out = NAV_FIX_SCRIPT + out;
   }
-  if (!out.includes('__nav-anchor-fix')) {
-    const bodyOpen = out.search(/<body[^>]*>/i);
-    if (bodyOpen !== -1) {
-      const tagEnd = out.indexOf('>', bodyOpen) + 1;
-      out = out.slice(0, tagEnd) + NAV_FIX_SCRIPT + out.slice(tagEnd);
-    } else {
-      out = NAV_FIX_SCRIPT + out;
-    }
-  }
+
+  // 3. JS reveal fallback → before </body> (needs DOM to exist first)
+  const bodyClose = out.lastIndexOf('</body>');
+  out = bodyClose !== -1
+    ? out.slice(0, bodyClose) + PREVIEW_REVEAL_SCRIPT + out.slice(bodyClose)
+    : out + PREVIEW_REVEAL_SCRIPT;
+
   return out;
 }
 
@@ -411,6 +522,18 @@ export const BRIDGE_SCRIPT = `<script>${BRIDGE_SCRIPT_BODY}<\/script>`;
 const IFRAME_EDIT_STYLE = `<style id="__microsite-iframe-edit">
 iframe{pointer-events:none!important;outline:2px dashed rgba(99,102,241,0.5);outline-offset:2px;}
 nav,header,[class*="navbar"],[class*="nav-bar"],[class*="site-header"],[class*="top-bar"],[id*="navbar"],[id*="nav-bar"],[id*="header"]{position:sticky!important;top:0!important;}
+/* Force scroll-reveal / GSAP / AOS animation initial states to be visible in edit mode.
+   Microsites set opacity:0 or transform on elements waiting for scroll events that never
+   fire in the srcdoc iframe — this ensures all content is visible while editing. */
+[class*="reveal"],[class*="fade"],[class*="animate"],[class*="slide"],
+[data-aos],[data-sal],[class*="aos-"],[class*="sal-"],[class*="gsap-"],
+[class*="motion"],[class*="hidden"],[class*="invisible"],[class*="in-view"],
+[class*="scroll-"],[class*="-anim"],[class*="anim-"]{
+  opacity:1!important;
+  transform:none!important;
+  visibility:visible!important;
+  clip-path:none!important;
+}
 </style>`;
 
 export function injectBridgeScript(html: string): string {

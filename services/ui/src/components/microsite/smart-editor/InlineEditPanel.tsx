@@ -257,8 +257,8 @@ const isItalicEl         = (h: string) => /font-style\s*:\s*italic/i.test(h);
 function parseFontSize(outerHtml: string): number {
   const raw = parseStyleProp(outerHtml, 'font-size');
   if (!raw) return 16;
-  const n = parseFloat(raw);
-  if (raw.includes('rem') || raw.includes('em')) return Math.round(n * 16);
+  const n = parseFloat(raw); // NaN for values like clamp(1.5rem, 3vw, 3rem)
+  if (raw.includes('rem') || raw.includes('em')) return Math.round(n * 16) || 16;
   return Math.round(n) || 16;
 }
 function parseFontFamily(outerHtml: string): string {

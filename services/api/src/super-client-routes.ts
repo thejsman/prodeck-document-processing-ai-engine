@@ -5,6 +5,27 @@ import { llmGenerateFn } from './agent-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 
+// Strip preview-only injections that the UI adds to srcdoc iframes.
+// These must never be saved to disk — if the client sends currentHtml that
+// already contains them, strip them before patching and persisting.
+const PREVIEW_INJECTION_IDS = [
+  '__preview-cursor-reset',
+  '__nav-anchor-fix',
+  '__preview-reveal-fix',
+  '__microsite-iframe-edit',
+  '__scroll-restore',
+];
+function stripPreviewInjections(html: string): string {
+  let out = html;
+  for (const id of PREVIEW_INJECTION_IDS) {
+    out = out.replace(
+      new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'),
+      '',
+    );
+  }
+  return out;
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -1167,8 +1188,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const sections = ast.sections as Array<Record<string, unknown>> | undefined;
     // Use client-provided HTML when available — it reflects in-memory edits that
     // may not have been persisted to disk yet (e.g. after a failed save).
-    const diskHtml = (sections?.[0]?.customHtml as string | undefined) ?? '';
-    const html = (body?.currentHtml?.trim() || diskHtml) || '';
+    // Strip preview injections (srcdoc-only CSS/JS) so they are never saved to disk
+    // and never confuse edit operations that search/replace within the raw HTML.
+    const diskHtml = stripPreviewInjections((sections?.[0]?.customHtml as string | undefined) ?? '');
+    const html = stripPreviewInjections(body?.currentHtml?.trim() || diskHtml) || '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
     // ── Microsite edit log — shows instruction type and key metadata ────────────
@@ -2967,8 +2990,9 @@ ${sectionHtml}`;
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
 
-    const { customHtml } = (req.body ?? {}) as { customHtml?: string };
-    if (typeof customHtml !== 'string' || !customHtml.trim()) return reply.code(400).send({ error: 'Missing customHtml' });
+    const { customHtml: rawCustomHtml } = (req.body ?? {}) as { customHtml?: string };
+    if (typeof rawCustomHtml !== 'string' || !rawCustomHtml.trim()) return reply.code(400).send({ error: 'Missing customHtml' });
+    const customHtml = stripPreviewInjections(rawCustomHtml);
 
     const dir = path.join(superClientsRoot, name);
     const filePath = path.join(dir, 'microsites', `${id}.json`);

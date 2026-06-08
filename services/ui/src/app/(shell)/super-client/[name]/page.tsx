@@ -506,9 +506,15 @@ export default function SuperClientPage() {
   const [micrositeEditInput, setMicrositeEditInput] = useState('');
   const [micrositeEditing, setMicrositeEditing] = useState(false);
   const [micrositeEditBanner, setMicrositeEditBanner] = useState('');
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Multi-level undo/redo history ────────────────────────────────────────
+  const MAX_HISTORY = 50;
+  const [editHistory,       setEditHistory]       = useState<string[]>([]);
+  const [editHistoryIndex,  setEditHistoryIndex]  = useState(-1);
+  const [savedHistoryIndex, setSavedHistoryIndex] = useState(-1);
+  // Derived flags — no extra state needed
+  const canUndo           = editHistoryIndex > 0;
+  const canRedo           = editHistoryIndex < editHistory.length - 1;
+  const hasUnsavedChanges = editHistory.length > 0 && editHistoryIndex !== savedHistoryIndex;
   const [editModeActive, setEditModeActive] = useState(false);
   // Double-buffer: two stacked iframes. Edits load into the invisible background
   // slot; when it signals ready the slots swap instantly — no white flash.
@@ -540,6 +546,26 @@ export default function SuperClientPage() {
     setSelectedElement(null);
     setHoveredElement(null);
   };
+
+  // ── History helpers ───────────────────────────────────────────────────────
+  // Push a new HTML snapshot onto the stack. Any forward history is discarded
+  // (same behaviour as every text editor: a new edit after undo clears redo).
+  function pushHistory(html: string) {
+    setEditHistory(prev => {
+      const base = prev.slice(0, editHistoryIndex + 1);
+      const next = [...base, html];
+      return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+    });
+    setEditHistoryIndex(prev => Math.min(prev + 1, MAX_HISTORY - 1));
+  }
+
+  // Seed the history stack when a microsite is first opened or generated.
+  function seedHistory(html: string) {
+    setEditHistory([html]);
+    setEditHistoryIndex(0);
+    setSavedHistoryIndex(0); // opening state counts as already "saved"
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Walk a CSS path ("section#hero > div.foo:nth-of-type(1) > span") inside a
   // parsed Document to find the matching element. Used only for refreshing
@@ -900,12 +926,12 @@ export default function SuperClientPage() {
       if (e.key === 'z' && !e.shiftKey) {
         if (canUndo) {
           e.preventDefault();
-          void handleMicrositeRevert();
+          handleMicrositeRevert(); // instant, not async
         }
       } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
         if (canRedo) {
           e.preventDefault();
-          void handleMicrositeRedo();
+          handleMicrositeRedo(); // instant, not async
         }
       }
     }
@@ -1124,6 +1150,7 @@ export default function SuperClientPage() {
       }
 
       setViewingMicrosite({ id: m.id, ast, renderKey: rk });
+      seedHistory(html); // seed undo history with the opening state
       if (viewingProposal) {
         setViewingProposal(null);
         setChangedSections(new Set());
@@ -1225,9 +1252,6 @@ export default function SuperClientPage() {
     }
     setMicrositeEditing(true);
     setMicrositeEditBanner('');
-    setCanUndo(false);
-    setCanRedo(false);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     try {
       let finalHtml: string;
 
@@ -1274,13 +1298,9 @@ export default function SuperClientPage() {
             }
           : null,
       );
-      setCanUndo(true);
-      setCanRedo(false);
+      pushHistory(finalHtml);
       setMicrositeEditBanner('Microsite updated');
-      undoTimerRef.current = setTimeout(() => {
-        setMicrositeEditBanner('');
-        setCanUndo(false);
-      }, 30000);
+      setTimeout(() => setMicrositeEditBanner(''), 4000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Edit failed';
       setMicrositeEditBanner(`Error: ${msg}`);
@@ -1295,8 +1315,6 @@ export default function SuperClientPage() {
     if (!viewingMicrosite || micrositeEditing) return;
     setMicrositeEditing(true);
     setMicrositeEditBanner('');
-    setCanUndo(false);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     try {
       // Sync in-memory HTML to disk before editing so the server always has the
       // latest state (a previous LLM edit may have updated React state but failed
@@ -1319,10 +1337,9 @@ export default function SuperClientPage() {
           renderKey: prev.renderKey,
         } : null,
       );
-      setCanUndo(true);
-      setCanRedo(false);
+      pushHistory(finalHtml);
       setMicrositeEditBanner(banner);
-      undoTimerRef.current = setTimeout(() => { setMicrositeEditBanner(''); setCanUndo(false); }, 30000);
+      setTimeout(() => setMicrositeEditBanner(''), 4000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Edit failed';
       setMicrositeEditBanner(`Error: ${msg}`);
@@ -1400,58 +1417,58 @@ export default function SuperClientPage() {
     await applyMicrositeInstruction(`__SVG_REPLACE__:${selectedElement.path}||${svgMarkup}`, 'Icon replaced');
   }
 
-  async function handleMicrositeRevert() {
-    if (!viewingMicrosite || micrositeEditing) return;
-    setMicrositeEditing(true);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    setCanUndo(false);
-    setMicrositeEditBanner('');
-    try {
-      const { html } = await revertSuperClientMicrosite(apiKey, name, viewingMicrosite.id);
-      applyEditHtml(html);
-      setViewingMicrosite((prev) =>
-        prev
-          ? {
-              ...prev,
-              ast: {
-                ...prev.ast,
-                sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)],
-              },
-              renderKey: prev.renderKey,
-            }
-          : null,
-      );
-      setCanRedo(true);
-    } catch (err) {
-      console.error('Microsite revert failed', err);
-    } finally {
-      setMicrositeEditing(false);
-    }
+  // Instant client-side undo — no server round-trip, no loading spinner.
+  // Silently syncs to server in the background so hard-refresh shows undone state.
+  function handleMicrositeRevert() {
+    if (!viewingMicrosite || micrositeEditing || !canUndo) return;
+    const prevIndex = editHistoryIndex - 1;
+    const prevHtml  = editHistory[prevIndex];
+    setEditHistoryIndex(prevIndex);
+    applyEditHtml(prevHtml);
+    setViewingMicrosite(prev => prev ? {
+      ...prev,
+      ast: { ...prev.ast, sections: [
+        ({ ...(prev.ast.sections[0] as object), customHtml: prevHtml }) as unknown as typeof prev.ast.sections[0],
+        ...prev.ast.sections.slice(1),
+      ]},
+      renderKey: prev.renderKey,
+    } : null);
+    void patchSuperClientMicrositeHtml(apiKey, name, viewingMicrosite.id, prevHtml).catch(() => {});
   }
 
-  async function handleMicrositeRedo() {
+  // Instant client-side redo.
+  function handleMicrositeRedo() {
     if (!viewingMicrosite || micrositeEditing || !canRedo) return;
+    const nextIndex = editHistoryIndex + 1;
+    const nextHtml  = editHistory[nextIndex];
+    setEditHistoryIndex(nextIndex);
+    applyEditHtml(nextHtml);
+    setViewingMicrosite(prev => prev ? {
+      ...prev,
+      ast: { ...prev.ast, sections: [
+        ({ ...(prev.ast.sections[0] as object), customHtml: nextHtml }) as unknown as typeof prev.ast.sections[0],
+        ...prev.ast.sections.slice(1),
+      ]},
+      renderKey: prev.renderKey,
+    } : null);
+    void patchSuperClientMicrositeHtml(apiKey, name, viewingMicrosite.id, nextHtml).catch(() => {});
+  }
+
+  // Explicit save — persists the current history snapshot to disk and marks it
+  // as the "saved" position so the unsaved-changes indicator clears.
+  async function handleMicrositeSave() {
+    if (!viewingMicrosite || micrositeEditing || !hasUnsavedChanges) return;
+    const currentHtml = editHistory[editHistoryIndex];
+    if (!currentHtml) return;
     setMicrositeEditing(true);
-    setCanRedo(false);
-    setMicrositeEditBanner('');
     try {
-      const { html } = await revertSuperClientMicrosite(apiKey, name, viewingMicrosite.id);
-      applyEditHtml(html);
-      setViewingMicrosite((prev) =>
-        prev
-          ? {
-              ...prev,
-              ast: {
-                ...prev.ast,
-                sections: [{ ...prev.ast.sections[0], customHtml: html }, ...prev.ast.sections.slice(1)],
-              },
-              renderKey: prev.renderKey,
-            }
-          : null,
-      );
-      setCanUndo(true);
-    } catch (err) {
-      console.error('Microsite redo failed', err);
+      await patchSuperClientMicrositeHtml(apiKey, name, viewingMicrosite.id, currentHtml);
+      setSavedHistoryIndex(editHistoryIndex);
+      setMicrositeEditBanner('Changes saved');
+      setTimeout(() => setMicrositeEditBanner(''), 3000);
+    } catch {
+      setMicrositeEditBanner('Save failed — try again');
+      setTimeout(() => setMicrositeEditBanner(''), 5000);
     } finally {
       setMicrositeEditing(false);
     }
@@ -1540,12 +1557,13 @@ export default function SuperClientPage() {
     restoreSidebar();
     setMicrositeEditInput('');
     setMicrositeEditBanner('');
-    setCanUndo(false);
-    setCanRedo(false);
+    // Clear history when closing the microsite panel
+    setEditHistory([]);
+    setEditHistoryIndex(-1);
+    setSavedHistoryIndex(-1);
     setEditingLogo(null);
     setEditingLogoUrl('');
     setShowEditingLogoUrlInput(false);
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setEditModeActive(false);
     clearBridgeSelection();
   }
@@ -1849,6 +1867,7 @@ export default function SuperClientPage() {
               ast,
               renderKey: `${tempId}-${Date.now()}`,
             });
+            seedHistory(genHtml); // seed undo history with initial generated state
             setViewingProposal(null);
             setChangedSections(new Set());
             setUpdateBanner('');
@@ -3203,10 +3222,21 @@ export default function SuperClientPage() {
                     <Pencil size={12} />
                     Edit
                   </button>
+                  {/* Unsaved-changes indicator */}
+                  {hasUnsavedChanges && (
+                    <span
+                      title="Unsaved changes"
+                      style={{
+                        width: 6, height: 6, borderRadius: '50%',
+                        background: '#f59e0b', flexShrink: 0, display: 'inline-block',
+                      }}
+                    />
+                  )}
+                  {/* Undo */}
                   <button
-                    onClick={() => void handleMicrositeRevert()}
+                    onClick={() => handleMicrositeRevert()}
                     disabled={micrositeEditing || !canUndo}
-                    title="Undo last edit (Ctrl+Z)"
+                    title={canUndo ? `Undo (${editHistoryIndex} step${editHistoryIndex !== 1 ? 's' : ''} available) — Ctrl+Z` : 'Nothing to undo'}
                     style={{
                       background: 'none',
                       border: '1px solid var(--border)',
@@ -3222,6 +3252,50 @@ export default function SuperClientPage() {
                     }}
                   >
                     ↩ Undo
+                  </button>
+                  {/* Redo */}
+                  <button
+                    onClick={() => handleMicrositeRedo()}
+                    disabled={micrositeEditing || !canRedo}
+                    title="Redo — Ctrl+Shift+Z"
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      cursor: micrositeEditing || !canRedo ? 'default' : 'pointer',
+                      fontSize: 12,
+                      color: canRedo ? 'var(--foreground)' : 'var(--muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      opacity: canRedo ? 1 : 0.4,
+                    }}
+                  >
+                    ↪ Redo
+                  </button>
+                  {/* Explicit Save */}
+                  <button
+                    onClick={() => void handleMicrositeSave()}
+                    disabled={micrositeEditing || !hasUnsavedChanges}
+                    title={hasUnsavedChanges ? 'Save changes' : 'No unsaved changes'}
+                    style={{
+                      background: hasUnsavedChanges && !micrositeEditing ? 'var(--primary)' : 'none',
+                      border: `1px solid ${hasUnsavedChanges && !micrositeEditing ? 'var(--primary)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      cursor: micrositeEditing || !hasUnsavedChanges ? 'default' : 'pointer',
+                      fontSize: 12,
+                      color: hasUnsavedChanges && !micrositeEditing ? '#fff' : 'var(--muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      opacity: hasUnsavedChanges ? 1 : 0.4,
+                      fontWeight: hasUnsavedChanges ? 600 : 400,
+                      transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+                    }}
+                  >
+                    Save
                   </button>
                   <button
                     onClick={() => setFullscreenMicrosite(lastMicrositeRef.current!.ast)}
