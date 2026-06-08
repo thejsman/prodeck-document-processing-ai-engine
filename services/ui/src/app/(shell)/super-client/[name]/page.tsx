@@ -2886,8 +2886,8 @@ export default function SuperClientPage() {
                     if (msg.editContext === 'microsite' || msg.editContext === 'proposal') {
                       const eyebrowLabel = msg.editContext === 'microsite' ? 'Site Edit' : 'Proposal Edit';
                       return (
-                        <Fragment key={msg.id}>
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 2, paddingRight: 2 }}>
+                        <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingRight: 2 }}>
                             <span style={{
                               fontSize: 10,
                               letterSpacing: '0.08em',
@@ -2901,7 +2901,7 @@ export default function SuperClientPage() {
                           <div className="chat-v2-message chat-v2-message--user">
                             <div className="chat-v2-bubble">{visibleContent}</div>
                           </div>
-                        </Fragment>
+                        </div>
                       );
                     }
                     return (
@@ -2918,8 +2918,8 @@ export default function SuperClientPage() {
                   if (msg.editContext === 'microsite') {
                     const isError = visibleContent.startsWith('Edit failed');
                     return (
-                      <Fragment key={msg.id}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 2, paddingLeft: 2 }}>
+                      <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 2 }}>
                           <Icon icon={isError ? X : CheckCircle} size="xs" style={{ color: isError ? '#ef4444' : '#22c55e' }} />
                           <span style={{
                             fontSize: 10,
@@ -2939,14 +2939,29 @@ export default function SuperClientPage() {
                             </div>
                           </div>
                         </div>
-                      </Fragment>
+                      </div>
                     );
                   }
 
                   // Assistant message — column wrapper needed to stack bubble + artifact card
+                  const isProposalDone = msg.editContext === 'proposal' && !msg.streaming && !visibleContent.trimEnd().endsWith('?');
                   return (
+                    <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: isProposalDone ? 4 : 0 }}>
+                      {isProposalDone && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 2 }}>
+                          <Icon icon={CheckCircle} size="xs" style={{ color: '#22c55e' }} />
+                          <span style={{
+                            fontSize: 10,
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            color: '#22c55e',
+                            opacity: 0.8,
+                          }}>
+                            Updated
+                          </span>
+                        </div>
+                      )}
                     <div
-                      key={msg.id}
                       className="chat-v2-message chat-v2-message--assistant"
                     >
                       <div className="chat-v2-avatar">AI</div>
@@ -2959,7 +2974,7 @@ export default function SuperClientPage() {
                           flex: 1,
                         }}
                       >
-                        {msg.editContext === 'proposal' && (
+                        {msg.editContext === 'proposal' && msg.streaming && (
                           <span style={{
                             fontSize: 10,
                             letterSpacing: '0.08em',
@@ -3038,6 +3053,7 @@ export default function SuperClientPage() {
                           />
                         )}
                       </div>
+                    </div>
                     </div>
                   );
                 })}
