@@ -2398,14 +2398,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ? `Located in section ${parentSecIdx + 1} of ${sectionBounds.length}`
         : 'Located outside named sections';
 
+      // ── Detect section-regeneration intent early — must happen before the
+      // deterministic BG shortcuts below so a prompt that mentions "background"
+      // or a hex colour (e.g. "Background: #020509") doesn't get intercepted
+      // by the colour-patch shortcut instead of reaching the redesign flow.
+      const isRedesignIntent = /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul)\b/i.test(editInstruction);
+
       // ── Deterministic background-image injection for element edits ──────────
       // When the instruction contains an image URL AND "background" intent,
       // patch the CSS directly instead of sending to LLM (LLM adds <img> tags
       // instead of setting background-image, which looks like a logo overlay).
+      // Skip when the user is doing a full section redesign — let that flow handle it.
       const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
       const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
         /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
-      if (bgUrlMatch && isBgImageIntent) {
+      if (!isRedesignIntent && bgUrlMatch && isBgImageIntent) {
         const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
         // Apply background-image to the first matching element (section, div, header, etc.)
         const tagEnd = storedElementHtml.indexOf('>');
@@ -2438,10 +2445,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // LLMs confuse hex values like #32a852 with CSS ID selectors and return
       // the element unchanged. Patch inline style directly when a color value
       // and "background" intent are detected.
+      // Skip for section redesigns — they reference many colours in their spec.
       const isBgColorIntent = /\b(?:background[\s-]?color|bg[\s-]?color|background)\b/i.test(editInstruction)
         && !/https?:\/\//.test(editInstruction);
       const colorValueMatch = editInstruction.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/i);
-      if (isBgColorIntent && colorValueMatch) {
+      if (!isRedesignIntent && isBgColorIntent && colorValueMatch) {
         const colorValue = colorValueMatch[1];
         const tagEnd = storedElementHtml.indexOf('>');
         if (tagEnd !== -1) {
@@ -2463,17 +2471,51 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
       // ─────────────────────────────────────────────────────────────────────────
 
+      // ── Section-regeneration flow ─────────────────────────────────────────
+      // isRedesignIntent already computed above (before the deterministic shortcuts).
+      // "Regenerate/redesign/redo the hero section" is fundamentally different
+      // from an element-level edit. When detected:
+      //  1. Auto-elevate the target to the enclosing <section> (so the wrong
+      //     selected element never corrupts the page structure).
+      //  2. Use a section-safe LLM prompt that allows scoped <style>/<script>.
+      //  3. Hoist returned <style>/<script> to <head>/<body> so the page stays
+      //     well-formed after the splice.
+
+      let targetBounds = bounds;
+      let targetHtml   = storedElementHtml;
+
+      if (isRedesignIntent) {
+        // Find the enclosing <section> for the selected element.
+        const allSections = extractAllTopLevelSections(html);
+        const enclosing   = allSections.find(s => s.start <= bounds.start && bounds.end <= s.end);
+
+        // Also check if any section id/class matches a keyword in the instruction.
+        const mentionedName = /\b(hero|about|features?|pricing|contact|footer|header|cta|stats|team|process|next.?step)\b/i
+          .exec(editInstruction)?.[1]?.toLowerCase() ?? '';
+        const namedSection  = allSections.find(s => {
+          const txt = html.slice(s.start, s.start + 200).toLowerCase();
+          return mentionedName && txt.includes(mentionedName);
+        });
+
+        const section = namedSection ?? enclosing;
+        if (section) {
+          targetBounds = section;
+          targetHtml   = html.slice(section.start, section.end);
+          console.log(`⬆ Section-regeneration intent detected — target elevated to section (${targetHtml.length} chars)`);
+        }
+      }
+
       // ── Detect element type for specialised prompt guidance ──────────────
-      const elTag = storedElementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+      const elTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
       const isImgEl = elTag === 'img';
       const currentSrc = isImgEl
-        ? (storedElementHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
+        ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
         : '';
       const currentAlt = isImgEl
-        ? (storedElementHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
+        ? (targetHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
         : '';
 
-      // ── Focused LLM prompt — element only, not full section ──────────────
+      // ── Build the LLM prompt (element-edit vs section-redesign) ──────────
       const imageGuidance = isImgEl ? `
 IMAGE-SPECIFIC RULES (this element is an <img>):
 - Current src: ${currentSrc}
@@ -2484,13 +2526,30 @@ IMAGE-SPECIFIC RULES (this element is an <img>):
   • Replace ONLY the src attribute value — keep all other attributes unchanged
 - If the instruction provides a specific URL, use that URL exactly` : '';
 
-      const elementPrompt = `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
+      const elementPrompt = isRedesignIntent
+        ? `You are regenerating a complete HTML section. Return ONLY the <section> element — nothing before or after it.
+
+SECTION TO REDESIGN:
+${targetHtml}
+
+INSTRUCTION: ${editInstruction}
+
+Output rules (strictly enforced):
+- Start your output with the section's opening tag and end with </section>
+- Do NOT output <!DOCTYPE>, <html>, <head>, or <body>
+- All CSS MUST be inside a single <style> tag placed as the LAST child of <section>, before </section>
+- All CSS selectors MUST be scoped with a unique prefix (e.g. .regen-${Date.now().toString(36)}-) — zero style leakage to other sections
+- All JS MUST be inside a single <script> tag placed as the LAST child of <section>, just before </section>
+- All JS MUST be wrapped in an IIFE: (function(){ ... })(); — no global variable declarations
+- Keep ALL existing text content exactly as-is — only visual/structural design changes
+- No external libraries except Google Fonts (loaded via @import inside the <style> tag)`
+        : `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
 
 ELEMENT PATH: ${cssPath || hintHtml.slice(0, 80)}
 CONTEXT: ${breadcrumb}
 
 ELEMENT TO EDIT:
-${storedElementHtml}
+${targetHtml}
 
 INSTRUCTION: ${editInstruction}
 ${imageGuidance}
@@ -2505,7 +2564,7 @@ Strict rules:
 
       // ── LLM call with clear logging ──────────────────────────────────────────
       console.log('\n┌─ LLM PROMPT ─────────────────────────────────────────────────');
-      console.log(elementPrompt);
+      console.log(elementPrompt.slice(0, 1000));
       console.log('└──────────────────────────────────────────────────────────────');
 
       const raw      = await llmGenerateFn(elementPrompt);
@@ -2521,8 +2580,65 @@ Strict rules:
         return reply.code(502).send({ error: 'LLM returned empty response — try rephrasing' });
       }
 
+      // ── Guard: reject full-page HTML — these would corrupt the document ──
+      if (/<!doctype|<html[\s>]/i.test(modified) || /<\/?(head|body)\b/i.test(modified)) {
+        console.log('✗ LLM returned full-page HTML — rejecting');
+        return reply.code(422).send({
+          error: 'LLM returned a full HTML page instead of just the section. Try selecting the specific section element and rephrasing.',
+        });
+      }
+
+      // ── Guard: root tag mismatch (element-level edits only) ──────────────
+      if (!isRedesignIntent) {
+        const originalRoot = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        const returnedRoot = modified.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (originalRoot && returnedRoot && returnedRoot !== originalRoot) {
+          console.log(`✗ Root tag mismatch: expected <${originalRoot}>, got <${returnedRoot}>`);
+          return reply.code(422).send({
+            error: `Edit mismatch: you selected a <${originalRoot}> element but the edit targets a <${returnedRoot}>. Click directly on the section you want to redesign, then retry.`,
+          });
+        }
+      }
+
+      // ── Hoist <style>/<script> from section body to <head>/<body> ────────
+      // LLMs embed <style> and <script> inside <section> even when asked to
+      // put them at the end. Hoisting keeps the document well-formed and
+      // prevents styles being applied before the stylesheet is parsed.
+      let splicedSection = modified;
+      const hoistedStyles:  string[] = [];
+      const hoistedScripts: string[] = [];
+
+      if (isRedesignIntent) {
+        splicedSection = splicedSection
+          .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (m) => {
+            hoistedStyles.push(m);
+            return '';
+          })
+          .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (m) => {
+            hoistedScripts.push(m);
+            return '';
+          });
+        console.log(`⬆ Hoisting ${hoistedStyles.length} <style> block(s) and ${hoistedScripts.length} <script> block(s)`);
+      }
+
       // ── Exact positional splice — no string matching needed ───────────────
-      const updatedHtml = html.slice(0, bounds.start) + modified + html.slice(bounds.end);
+      let updatedHtml = html.slice(0, targetBounds.start) + splicedSection + html.slice(targetBounds.end);
+
+      // Inject hoisted styles before </head> and scripts before </body>
+      if (hoistedStyles.length) {
+        const headClose = updatedHtml.indexOf('</head>');
+        const styleBlock = hoistedStyles.join('\n');
+        updatedHtml = headClose !== -1
+          ? updatedHtml.slice(0, headClose) + styleBlock + '\n' + updatedHtml.slice(headClose)
+          : styleBlock + '\n' + updatedHtml;
+      }
+      if (hoistedScripts.length) {
+        const bodyClose = updatedHtml.lastIndexOf('</body>');
+        const scriptBlock = hoistedScripts.join('\n');
+        updatedHtml = bodyClose !== -1
+          ? updatedHtml.slice(0, bodyClose) + scriptBlock + '\n' + updatedHtml.slice(bodyClose)
+          : updatedHtml + '\n' + scriptBlock;
+      }
 
       if (updatedHtml === html) {
         console.log('⚠ LLM edit produced no change in the HTML');
