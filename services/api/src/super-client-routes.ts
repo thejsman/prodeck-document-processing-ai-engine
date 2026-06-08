@@ -1171,17 +1171,24 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const html = (body?.currentHtml?.trim() || diskHtml) || '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
-    // Temporary debug — log key info for IMAGE_INJECT_SCOPED
-    if (instruction.startsWith('__IMAGE_INJECT_SCOPED__:')) {
-      const m = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
-      console.log('[IMAGE_INJECT_SCOPED] id:', id);
-      console.log('[IMAGE_INJECT_SCOPED] html source:', body?.currentHtml ? 'client' : 'disk');
-      console.log('[IMAGE_INJECT_SCOPED] html length:', html.length);
-      console.log('[IMAGE_INJECT_SCOPED] cssPath:', m?.[1]?.trim());
-      console.log('[IMAGE_INJECT_SCOPED] newUrl:', m?.[2]?.trim()?.slice(0, 60));
-      const hintSrc = m?.[3]?.match(/\bsrc="([^"]+)"/i)?.[1];
-      console.log('[IMAGE_INJECT_SCOPED] hint src:', hintSrc?.slice(0, 60));
-      console.log('[IMAGE_INJECT_SCOPED] hint src in html:', hintSrc ? html.includes(`src="${hintSrc}"`) : 'no hint');
+    // ── Microsite edit log — shows instruction type and key metadata ────────────
+    {
+      const instrType = instruction.split(':')[0] ?? instruction.slice(0, 40);
+      const isLLM     = instruction.startsWith('__ELEMENT_EDIT__:');
+      const userText  = instruction.includes('||')
+        ? instruction.slice(instruction.lastIndexOf('||') + 2).slice(0, 120)
+        : instruction.slice(0, 120);
+      console.log('\n╔══ MICROSITE EDIT ════════════════════════════════════════════');
+      console.log(`║ Microsite  : ${id}`);
+      console.log(`║ Instruction: ${instrType}`);
+      console.log(`║ HTML source: ${body?.currentHtml ? 'client (in-memory)' : 'disk'} — ${html.length} chars`);
+      if (isLLM) {
+        console.log(`║ → LLM call will be made`);
+        console.log(`║ User prompt: ${userText}`);
+      } else {
+        console.log(`║ → Deterministic (no LLM)`);
+      }
+      console.log('╚══════════════════════════════════════════════════════════════');
     }
 
     // Shared context flags used by both video removal and video injection below
@@ -2431,8 +2438,19 @@ Strict rules:
 - For adding/removing a child: do so while preserving all other children unchanged
 - Never truncate or omit any part of this element`;
 
+      // ── LLM call with clear logging ──────────────────────────────────────────
+      console.log('\n┌─ LLM PROMPT ─────────────────────────────────────────────────');
+      console.log(elementPrompt);
+      console.log('└──────────────────────────────────────────────────────────────');
+
       const raw      = await llmGenerateFn(elementPrompt);
       const modified = extractHtmlFromResponse(raw);
+
+      console.log('\n┌─ LLM RESPONSE (raw) ─────────────────────────────────────────');
+      console.log(raw?.slice(0, 2000) ?? '(empty)');
+      console.log('├─ EXTRACTED HTML ──────────────────────────────────────────────');
+      console.log(modified?.slice(0, 1000) ?? '(none — extraction failed)');
+      console.log(`└─ Status: ${modified ? '✓ HTML extracted successfully' : '✗ No HTML extracted'}`);
 
       if (!modified) {
         return reply.code(502).send({ error: 'LLM returned empty response — try rephrasing' });
@@ -2442,9 +2460,11 @@ Strict rules:
       const updatedHtml = html.slice(0, bounds.start) + modified + html.slice(bounds.end);
 
       if (updatedHtml === html) {
+        console.log('⚠ LLM edit produced no change in the HTML');
         return reply.code(422).send({ error: 'Edit produced no change — try being more specific' });
       }
 
+      console.log('✓ Edit applied successfully\n');
       return saveValidatedEdit(updatedHtml, editInstruction.replace(/^\[[^\]]+\]\s*/, '').slice(0, 80));
     }
     // ─────────────────────────────────────────────────────────────────────────
