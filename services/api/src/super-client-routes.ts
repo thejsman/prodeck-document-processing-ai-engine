@@ -1242,6 +1242,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       console.log('╚══════════════════════════════════════════════════════════════');
     }
 
+    // ── Instruction format convention ────────────────────────────────────────
+    // Deterministic instructions follow: __VERB__:[cssPath]||[payload](||[hint])
+    // The hint is the selected element's outerHTML (≤400 chars), sent by the
+    // client to aid fallback lookups. It is ALWAYS the last ||-segment and
+    // MUST be ignored by regexes that capture URLs or text values.
+    // Safe pattern: ((?:https?://|data:)[^\|]+)(?:\|\|[\s\S]*)?$
+    //   or for text: ([\s\S]+?)(?:\|\|[\s\S]*)?$  (non-greedy stops before hint)
+    // Never use (.+)$ or ([\s\S]+)$ for a URL/text group — those eat the hint.
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Shared context flags used by both video removal and video injection below
     const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
     const isElementEditCtx = instruction.startsWith('__ELEMENT_EDIT__:');
@@ -2202,7 +2212,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Inline text content patch (from InlineEditPanel) ────────────────────
     // Format: __TEXT_PATCH__:[cssPath]||[newText]
     // Deterministic — no LLM. Replaces text nodes, preserves child elements.
-    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+)$/s);
+    // Format: __TEXT_PATCH__:[cssPath]||[newText](||[hint — ignored])
+    // Non-greedy group 2 stops before the trailing ||hint so the hint's outerHTML
+    // is never concatenated into the visible text content.
+    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/s);
     if (textPatchMatch) {
       const cssPath = textPatchMatch[1].trim();
       const newText = textPatchMatch[2].trim().slice(0, 2000);
@@ -2230,12 +2243,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
 
     // ── Background-image patch (from InlineEditPanel "BG Image" input) ─────────
-    // Format: __BG_IMAGE_PATCH__:[cssPath]||[imageUrl]
-    const bgImagePatchMatch = instruction.match(/^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:).+)$/s);
+    // Format: __BG_IMAGE_PATCH__:[cssPath]||[imageUrl](||[hint — ignored])
+    // [^\|]+ stops at the next || so a trailing hint doesn't corrupt data: URLs.
+    const bgImagePatchMatch = instruction.match(/^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
     if (bgImagePatchMatch) {
       const cssPath = bgImagePatchMatch[1].trim();
-      // Allow data: URLs (base64 uploads) — only strip HTML-dangerous chars, not base64 content
-      const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? '' : c);
+      // Strip HTML-dangerous chars from https URLs; data: URLs are base64 and never contain them.
+      const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? c : '');
 
       const bounds = findByPath(html, cssPath);
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
@@ -2294,7 +2308,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
     // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
     // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
-    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:).+)$/s);
+    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
     if (iconReplaceMatch) {
       const cssPath = iconReplaceMatch[1].trim();
       const imgUrl  = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
