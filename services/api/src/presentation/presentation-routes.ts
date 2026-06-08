@@ -2373,9 +2373,9 @@ MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every outp
 NAVBAR LOGO REQUIREMENTS — non-negotiable in every microsite:
 - Every microsite must have a sticky or fixed navbar at the top
 - The navbar must use display:flex;align-items:center so all children are vertically centered
-- The navbar left side must contain exactly this logo element as the first child inside the navbar: <img id="__site-logo__" src="" alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">
-- Wrap the logo in a flex container that is the first child of the nav: <div style="display:flex;align-items:center;flex-shrink:0;"><img id="__site-logo__" src="" alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"></div>
-- The src is intentionally empty — it will be replaced with the real logo URL by the system. Do not invent a src value.
+- The navbar left side must contain exactly this logo element as the first child inside the navbar: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">
+- Wrap the logo in a flex container that is the first child of the nav: <div style="display:flex;align-items:center;flex-shrink:0;"><img id="__site-logo__" src="data:," alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"></div>
+- The src must be exactly "data:," — it will be replaced with the real logo URL or an SVG initials badge by the system. Do not invent a src value and do not add an onerror attribute.
 - The navbar height must be at least 60px so the logo has room to breathe vertically
 
 ${imageInstructions}`;
@@ -2535,7 +2535,8 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       const html = (await resolveImagePlaceholders(rawHtml))
         .replace(
-          /<img\b(?![^>]*\bonerror\b)([^>]*\balt="([^"]*)"[^>]*)>/gi,
+          // Skip imgs that already have onerror AND skip __site-logo__ (replaced client-side)
+          /<img\b(?![^>]*\bonerror\b)(?![^>]*\bid="__site-logo__")([^>]*\balt="([^"]*)"[^>]*)>/gi,
           (_m, attrs: string, alt: string) => {
             const keyword = (alt || 'abstract').trim().split(/\s+/).slice(0, 3).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '');
             return `<img${attrs} onerror="this.onerror=null;this.src='https://picsum.photos/seed/${keyword}/1920/1080'">`;

@@ -1202,7 +1202,10 @@ export default function SuperClientPage() {
         const selectedTag     = selectedElement?.tag?.toLowerCase() ?? '';
 
         if (selectedElement?.path && isBgIntent && selectedTag !== 'img') {
-          // "add image in background" on a section/div → server's background-image CSS bypass.
+          // "add/set/change background image on a section/div"
+          // Use __BG_IMAGE_PATCH__ which sets background-image in the inline style —
+          // works whether or not the element already has a background image.
+          instruction = `__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`;
         } else if (selectedElement?.path && (selectedTag === 'img' || isReplaceIntent)) {
           // Explicit replacement OR <img> selected → scoped src/attr replacement.
           const hintSnippet = selectedElement.outerHtml?.slice(0, 300) ?? '';
@@ -1295,7 +1298,16 @@ export default function SuperClientPage() {
     setCanUndo(false);
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     try {
-      const { html: finalHtml } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction);
+      // Sync in-memory HTML to disk before editing so the server always has the
+      // latest state (a previous LLM edit may have updated React state but failed
+      // to save, leaving the disk file stale).
+      const currentHtml = (viewingMicrosite.ast.sections?.[0] as { customHtml?: string })?.customHtml;
+      if (currentHtml) {
+        try {
+          await patchSuperClientMicrositeHtml(apiKey, name, viewingMicrosite.id, currentHtml);
+        } catch { /* non-fatal — proceed with the edit using currentHtml in request */ }
+      }
+      const { html: finalHtml } = await editSuperClientMicrosite(apiKey, name, viewingMicrosite.id, instruction, currentHtml);
       applyEditHtml(finalHtml);
       setViewingMicrosite((prev) =>
         prev ? {
@@ -1320,20 +1332,24 @@ export default function SuperClientPage() {
     }
   }
 
+  // Short snippet of the selected element's outerHTML — used as a hint on the server
+  // so every instruction has a content-based fallback when findByPath can't locate
+  // the element (e.g. after an LLM edit restructured the surrounding DOM).
+  const hint = () => selectedElement?.outerHtml?.slice(0, 400) ?? '';
+
   async function handleStylePatch(prop: string, value: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(`__STYLE_PATCH__:${selectedElement.path}||${prop}||${value}`, `${prop} updated`);
+    await applyMicrositeInstruction(`__STYLE_PATCH__:${selectedElement.path}||${prop}||${value}||${hint()}`, `${prop} updated`);
   }
 
   async function handleTextPatch(newText: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(`__TEXT_PATCH__:${selectedElement.path}||${newText}`, 'Text updated');
+    await applyMicrositeInstruction(`__TEXT_PATCH__:${selectedElement.path}||${newText}||${hint()}`, 'Text updated');
   }
 
   async function handleImageReplace(url: string) {
     if (!selectedElement?.path) return;
-    const hint = selectedElement.outerHtml.slice(0, 300);
-    await applyMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hint}`, 'Image replaced');
+    await applyMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hint()}`, 'Image replaced');
   }
 
   async function handleLogoReplace(url: string) {
@@ -1346,21 +1362,37 @@ export default function SuperClientPage() {
 
   async function handleRemoveSection() {
     if (!selectedElement?.path) return;
-    // Remove the exactly selected element (its own CSS path).
-    // If the user selected the section header itself, the section is removed.
-    // If they selected a child element, only that child is removed.
-    await applyMicrositeInstruction(`__REMOVE_BY_PATH__:${selectedElement.path}`, 'Removed');
+    // Remove the exactly selected element (not the whole section).
+    await applyMicrositeInstruction(`__REMOVE_BY_PATH__:${selectedElement.path}||${hint()}`, 'Removed');
+    clearBridgeSelection();
+  }
+
+  async function handleRemoveSectionContainer() {
+    if (!selectedElement) return;
+    // Always removes the entire parent <section> regardless of which child is selected.
+    // Extracts the section# anchor from the CSS path — e.g. section#hero from
+    // "section#hero > div.hero-bg > div.overlay".
+    const sectionM = selectedElement.path?.match(/\b(section#[\w-]+)/);
+    if (sectionM) {
+      await applyMicrositeInstruction(`__REMOVE_BY_PATH__:${sectionM[1]}`, `Section removed`);
+    } else if (selectedElement.sectionType) {
+      // Fallback: use sectionType to build path (handles section#phase1-1 → phase1)
+      await applyMicrositeInstruction(
+        `__REMOVE_BY_PATH__:section#${selectedElement.sectionType}`,
+        `Section removed`,
+      );
+    }
     clearBridgeSelection();
   }
 
   async function handleBgImagePatch(url: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(`__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`, 'Background image updated');
+    await applyMicrositeInstruction(`__BG_IMAGE_PATCH__:${selectedElement.path}||${url}||${hint()}`, 'Background image updated');
   }
 
   async function handleIconReplace(url: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(`__ICON_REPLACE__:${selectedElement.path}||${url}`, 'Icon replaced');
+    await applyMicrositeInstruction(`__ICON_REPLACE__:${selectedElement.path}||${url}||${hint()}`, 'Icon replaced');
   }
 
   async function handleSvgReplace(svgMarkup: string) {
@@ -1559,6 +1591,82 @@ export default function SuperClientPage() {
     });
   }
 
+  // ── Initials-based SVG logo fallback ─────────────────────────────────────────
+  // Derives 1-3 uppercase initials from a company name and wraps them in a
+  // rounded-rect SVG that can be injected into the navbar logo slot.
+  function getInitials(name: string): string {
+    const words = name.trim().split(/\s+/)
+      .filter(w => w.length > 1 && !/^(the|and|of|for|in|a|an|&|--)$/i.test(w));
+    if (words.length === 0) return name.slice(0, 2).toUpperCase();
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    // Two words → both initials; three or more → first three
+    return words.slice(0, Math.min(words.length, 3)).map(w => w[0]).join('').toUpperCase();
+  }
+
+  function extractAccentColor(html: string): string {
+    // Try common CSS variable patterns that LLM-generated microsites use
+    const m = html.match(/--(?:c-accent|accent|primary|brand-color|color-accent)\s*:\s*(#[0-9a-fA-F]{3,8})/i);
+    return m?.[1] ?? '#1e3a5f'; // neutral navy fallback
+  }
+
+  function generateInitialsSvg(initials: string, bgColor: string): string {
+    const w = initials.length > 2 ? 52 : 44;
+    const fontSize = initials.length > 2 ? 14 : 17;
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="44" viewBox="0 0 ${w} 44">`,
+      `<rect width="${w}" height="44" rx="8" fill="${bgColor}"/>`,
+      `<text x="${w / 2}" y="22" font-family="system-ui,-apple-system,sans-serif"`,
+      ` font-weight="700" font-size="${fontSize}" fill="#ffffff"`,
+      ` text-anchor="middle" dominant-baseline="central">${initials}</text>`,
+      `</svg>`,
+    ].join('');
+  }
+
+  // Injects an initials SVG into the navbar logo slot when no real logo is available.
+  function injectInitialsFallback(html: string, companyName: string): string {
+    if (!companyName.trim()) return html;
+    const initials = getInitials(companyName);
+    const color    = extractAccentColor(html);
+    const svg      = generateInitialsSvg(initials, color);
+    const wrapper  = `<div style="display:flex;align-items:center;flex-shrink:0;">${svg}</div>`;
+
+    // Strategy 0 — replace __site-logo__ img placeholder (LLM-generated pattern).
+    // Replaces the entire <img> tag (including its onerror scenery fallback) with the SVG.
+    if (html.includes('id="__site-logo__"')) {
+      return html.replace(/<img\b[^>]*id="__site-logo__"[^>]*\/?>/i, svg);
+    }
+
+    // Strategy 1 — replace __site-logo-slot__ text div content (new prompt pattern)
+    if (html.includes('id="__site-logo-slot__"')) {
+      return html.replace(
+        /(<div[^>]*id="__site-logo-slot__"[^>]*>)([\s\S]*?)(<\/div>)/i,
+        `$1${svg}$3`,
+      );
+    }
+    // Strategy 2 — find a logo/brand class element WITHIN nav/header bounds only.
+    // The previous [\s\S]*? approach could cross </nav> and match footer elements.
+    // Now we extract the nav content first, then search inside it.
+    const navOpenM = html.match(/(<(nav|header)\b[^>]*>)/i);
+    if (navOpenM) {
+      const navStart  = html.indexOf(navOpenM[0]);
+      const closeTag  = `</${navOpenM[2].toLowerCase()}>`;
+      const navEndIdx = html.indexOf(closeTag, navStart + navOpenM[0].length);
+      const navBounds = html.slice(navStart, navEndIdx !== -1 ? navEndIdx : navStart + 3000);
+
+      const logoM = navBounds.match(/<(?:a|div|span)\b[^>]*class="[^"]*(?:logo|brand|navbar-brand)[^"]*"[^>]*>/i);
+      if (logoM) {
+        // Insert SVG right after the opening logo tag, scoped inside nav
+        const insertAt = navStart + navBounds.indexOf(logoM[0]) + logoM[0].length;
+        return html.slice(0, insertAt) + svg + html.slice(insertAt);
+      }
+
+      // Strategy 3 — inject as first child of the nav/header
+      return html.slice(0, navStart + navOpenM[0].length) + wrapper + html.slice(navStart + navOpenM[0].length);
+    }
+    return html;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   function injectLogoIntoHtml(html: string, logo: { base64: string; mediaType: string } | { url: string }): string {
     // Strip any previous logo injection artifacts
     let out = html
@@ -1568,15 +1676,27 @@ export default function SuperClientPage() {
     const src = 'url' in logo ? logo.url : `data:${logo.mediaType};base64,${logo.base64}`;
     const imgStyle = 'height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;';
 
-    // Strategy 1 — replace the __site-logo__ placeholder the LLM was instructed to emit
+    // Strategy 1 — replace the __site-logo__ img placeholder the LLM emits.
+    // Also removes the onerror="" scenery fallback so it can never fire.
     if (out.includes('id="__site-logo__"')) {
-      // Replace the empty src="" with the real URL and ensure the wrapper flex-centers it
       out = out.replace(
         /(<img\b[^>]*id="__site-logo__"[^>]*)\bsrc="[^"]*"/i,
         `$1src="${src}"`,
       );
-      // Also ensure the parent wrapper has align-items:center
+      // Strip onerror — prevents the picsum scenery fallback from ever loading
+      out = out.replace(
+        /(<img\b[^>]*id="__site-logo__"[^>]*?)\s*\bonerror="[^"]*"/i,
+        '$1',
+      );
       return out;
+    }
+
+    // Also handle __site-logo-slot__ text div (new prompt pattern)
+    if (out.includes('id="__site-logo-slot__"')) {
+      return out.replace(
+        /(<div[^>]*id="__site-logo-slot__"[^>]*>)([\s\S]*?)(<\/div>)/i,
+        `$1<img src="${src}" alt="logo" style="${imgStyle}">$3`,
+      );
     }
 
     // Strategy 2 — find any <img> directly inside a <nav> or <header> and replace its src
@@ -1703,11 +1823,17 @@ export default function SuperClientPage() {
           }
           if (evt.type === 'complete' && evt.ast) {
             let ast = evt.ast as LayoutAST;
-            // Inject logo into customHtml if provided
-            if (proposalLogo && ast.sections?.[0]) {
+            // Inject logo (real image) or SVG initials fallback into the navbar slot
+            if (ast.sections?.[0]) {
               const section = ast.sections[0] as unknown as { customHtml?: string };
               if (section.customHtml) {
-                const patched = { ...(ast.sections[0] as object), customHtml: injectLogoIntoHtml(section.customHtml, proposalLogo) };
+                const companyName = proposalTitle
+                  || (ast.brand as unknown as Record<string, unknown>)?.companyName as string
+                  || '';
+                const patchedHtml = proposalLogo
+                  ? injectLogoIntoHtml(section.customHtml, proposalLogo)
+                  : injectInitialsFallback(section.customHtml, companyName);
+                const patched = { ...(ast.sections[0] as object), customHtml: patchedHtml };
                 ast = {
                   ...ast,
                   sections: [patched as unknown as typeof ast.sections[0], ...ast.sections.slice(1)],
@@ -3211,6 +3337,81 @@ export default function SuperClientPage() {
                     onClearSelected={() => clearBridgeSelection()}
                   />
                 )}
+                {/* Floating "Remove Section" button — top-right, blue, only for structural
+                     (non-text) elements so text selections don't accidentally wipe the section */}
+                {editModeActive && selectedElement && (() => {
+                  const TEXT_TAGS_INLINE = new Set(['h1','h2','h3','h4','h5','h6','p','span','a','li','button','label','td','th','caption','figcaption','dt','dd','blockquote','em','strong','small','b','i']);
+                  const tag = (selectedElement.tag ?? '').toLowerCase();
+                  const sectionType = selectedElement.sectionType;
+                  if (!sectionType) return null;
+
+                  // Known text tags never get "Remove Section"
+                  if (TEXT_TAGS_INLINE.has(tag)) return null;
+
+                  // Leaf text elements (any tag whose inner content has no child HTML and has text)
+                  // e.g. <div class="hero-label">Confidential Proposal</div>
+                  const innerHtml = (selectedElement.outerHtml ?? '')
+                    .replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, '');
+                  const hasChildElements = /<\w/.test(innerHtml);
+                  const hasTextContent  = (selectedElement.text ?? '').trim().length > 0;
+                  if (hasTextContent && !hasChildElements) return null;
+
+                  // Dimension check — user suggestion:
+                  // Only show "Remove Section" when the selected element fills ≥85% of
+                  // the parent section's width AND height. This ensures that clicking a
+                  // small component (card, image, etc.) inside a large section does NOT
+                  // show the destructive button. Full-section backgrounds/overlays and
+                  // the section element itself always pass this check.
+                  const elRect  = selectedElement.rect;
+                  const secRect = selectedElement.sectionRect;
+                  if (secRect && secRect.width > 0 && secRect.height > 0) {
+                    const wRatio = elRect.width  / secRect.width;
+                    const hRatio = elRect.height / secRect.height;
+                    if (wRatio < 0.85 || hRatio < 0.85) return null;
+                  }
+                  // Position the button inside the section at top-right with margin.
+                  // Use sectionRect (parent section's bounds) so it always lands
+                  // inside the section regardless of which element was clicked.
+                  const btnTop  = secRect ? secRect.top  + 12 : 12;
+                  // Place right edge 12px inside the section's right border.
+                  // translateX(-100% - 12px) moves the button left by its own width + 12px.
+                  const btnLeft = secRect ? secRect.left + secRect.width : undefined;
+                  return (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: btnTop,
+                        ...(btnLeft !== undefined
+                          ? { left: btnLeft, transform: 'translateX(calc(-100% - 12px))' }
+                          : { right: 12 }),
+                        zIndex: 25,
+                        pointerEvents: 'auto',
+                      }}
+                    >
+                      <button
+                        disabled={micrositeEditing}
+                        onClick={() => void handleRemoveSectionContainer()}
+                        title={`Remove entire "${sectionType}" section`}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: 30, height: 30, padding: 0,
+                          borderRadius: 6,
+                          background: micrositeEditing ? 'rgba(13,153,255,0.35)' : 'rgba(13,153,255,0.92)',
+                          border: '1.5px solid rgba(13,153,255,1)',
+                          color: '#fff',
+                          cursor: micrositeEditing ? 'not-allowed' : 'pointer',
+                          boxShadow: '0 2px 12px rgba(13,153,255,0.35)',
+                          opacity: micrositeEditing ? 0.5 : 1,
+                          transition: 'background 0.15s',
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })()}
                 {/* Inline property editor — centered at bottom of iframe area */}
                 {editModeActive && selectedElement && (
                   <InlineEditPanel
@@ -3224,6 +3425,7 @@ export default function SuperClientPage() {
                     onSvgReplace={handleSvgReplace}
                     onLogoReplace={handleLogoReplace}
                     onRemoveSection={handleRemoveSection}
+                    onRemoveSectionContainer={handleRemoveSectionContainer}
                     onClose={() => clearBridgeSelection()}
                   />
                 )}

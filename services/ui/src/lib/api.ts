@@ -2379,11 +2379,14 @@ export async function editSuperClientMicrosite(
   name: string,
   id: string,
   instruction: string,
+  currentHtml?: string,
 ): Promise<{ html: string; summary: string }> {
   const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/edit`, {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instruction }),
+    // Send current in-memory HTML so the server doesn't rely on a potentially
+    // stale disk file (happens when a previous LLM edit failed to persist).
+    body: JSON.stringify({ instruction, currentHtml }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { error?: string };

@@ -225,6 +225,7 @@ interface Props {
   onSvgReplace: (svgMarkup: string) => Promise<void>;
   onLogoReplace: (url: string) => Promise<void>;
   onRemoveSection: () => Promise<void>;
+  onRemoveSectionContainer: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -488,10 +489,22 @@ function IconBtn({ active, disabled, onClick, children, title }: {
 const Sep = () => <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.12)', flexShrink: 0 }} />;
 
 // ── Main component ─────────────────────────────────────────────────────────
-export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onClose }: Props) {
-  const tag    = selected.tag?.toLowerCase() ?? '';
-  const isImg  = isImgEl(tag);
-  const isIcon = isIconEl(tag, selected.outerHtml);
+// Nav-logo SVG: an SVG element that is the initials badge inside a nav/header.
+// Clicking it should show LOGO controls (image upload) not ICON controls.
+const LOGO_CLASS_SET = new Set(['nav-logo','logo-link','brand-logo','site-logo','header-logo','logo-img','logo-text','navbar-brand']);
+function isNavLogoEl(path: string, tag: string, outerHtml: string): boolean {
+  const cls = (outerHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '').toLowerCase();
+  if (cls.split(/\s+/).some(c => LOGO_CLASS_SET.has(c))) return true;
+  if (!/\bnav\b/i.test(path)) return false;
+  if (/(links|mob|burger|footer)/i.test(path)) return false;
+  return tag === 'img' || tag === 'span' || tag === 'svg';
+}
+
+export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
+  const tag      = selected.tag?.toLowerCase() ?? '';
+  const isImg    = isImgEl(tag);
+  const isIcon   = isIconEl(tag, selected.outerHtml);
+  const isNavLogo = isNavLogoEl(selected.path ?? '', tag, selected.outerHtml ?? '');
 
   // Treat element as "text" if it's a known text tag OR if it's any non-void element
   // whose inner content has no child HTML elements (leaf containing only text).
@@ -736,8 +749,22 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         </>
       )}
 
-      {/* Icon replacement — SVG/icon elements: picker + URL fallback */}
-      {isIcon && (
+      {/* Logo replacement — nav logo SVG / img / span: shows image upload instead of icon picker */}
+      {isNavLogo && (
+        <>
+          <Sep />
+          <span style={{ fontSize: 9, color: 'rgba(99,102,241,0.8)', flexShrink: 0, fontWeight: 600, letterSpacing: '0.06em' }}>LOGO</span>
+          <ImageInput
+            placeholder={isImg ? 'Replace logo URL…' : 'Upload or paste logo URL…'}
+            value={isImg ? localImgUrl : ''}
+            disabled={dis}
+            onCommit={(url) => { setLocalImgUrl(url); void onLogoReplace(url); }}
+          />
+        </>
+      )}
+
+      {/* Icon replacement — SVG/icon elements only when NOT a nav logo */}
+      {isIcon && !isNavLogo && (
         <>
           <Sep />
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>ICON</span>
@@ -771,14 +798,15 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
 
       <div style={{ flexShrink: 0, width: 4 }} />
 
-      {/* Remove — deletes the selected element; disabled while an edit is in progress */}
+      {/* Remove — deletes only the selected element. "Remove Section" is a floating
+           blue button at the top-right of the preview (only for structural elements). */}
       {selected.path && (
         <>
           <Sep />
           <button
             onClick={() => void onRemoveSection()}
             disabled={dis}
-            title="Remove selected element"
+            title="Remove this element"
             style={{
               height: 26, padding: '0 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
               border: '1px solid rgba(239,68,68,0.45)',
