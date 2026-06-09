@@ -1086,6 +1086,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // microsites are saved within the same second.
     const id = `${now.toISOString().replace(/[:.]/g, '-').slice(0, 23)}-${Math.random().toString(36).slice(2, 6)}`;
     const proposalTitle = body.proposalTitle?.trim() ?? 'Proposal';
+    const micrositeTitle = proposalTitle.replace(/\bProposal\b/g, 'Microsite').replace(/\bproposal\b/g, 'microsite');
 
     const existing = await readMicrosites(dir);
     const priorCount = existing.filter((m) => m.proposalTitle === proposalTitle).length;
@@ -1093,7 +1094,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     const entry: ScMicrosite = {
       id,
-      title: `${proposalTitle} (v${version})`,
+      title: `${micrositeTitle} (v${version})`,
       proposalTitle,
       savedAt: now.toISOString(),
       version,
