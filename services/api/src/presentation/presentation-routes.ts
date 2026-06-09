@@ -1423,7 +1423,10 @@ ${layoutSummary}`;
                 version: meta.version ?? index.length - i,
                 title: (() => {
                   const v = meta.version ?? index.length - i;
-                  if (meta.proposalTitle) return `${meta.proposalTitle} (v${v})`;
+                  if (meta.proposalTitle) {
+                    const ms = meta.proposalTitle.replace(/\bProposal\b/g, 'Microsite').replace(/\bproposal\b/g, 'microsite');
+                    return `${ms} (v${v})`;
+                  }
                   // strip old "ClientName — " prefix from legacy titles
                   const stripped = meta.title?.replace(/^.+?\s*—\s*/, '') ?? '';
                   return stripped || meta.title;

@@ -25,7 +25,7 @@ import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useSidebar } from "@/lib/sidebar-store";
-import { MemorySection } from "@/components/chat/MemorySection";
+import { MemorySection, ClientProfileFields } from "@/components/chat/MemorySection";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { GenerateV2Modal } from "@/components/microsite/GenerateV2Modal";
@@ -93,10 +93,12 @@ function genId() {
 function ArtifactCard({
   gid,
   generations,
+  version,
   onView,
 }: {
   gid: string;
   generations: Generation[];
+  version?: number;
   onView: (gen: Generation) => void;
 }) {
   const gen = generations.find((g) => g.id === gid);
@@ -111,96 +113,93 @@ function ArtifactCard({
     : Math.min(((gen.charCount ?? 0) / 32000) * 100, 92);
   return (
     <div
+      onClick={isComplete ? () => onView(gen) : undefined}
       style={{
+        position: "relative",
         borderRadius: 12,
-        border: "1px solid var(--border)",
         background: "var(--panel)",
         overflow: "hidden",
-        maxWidth: 300,
+        maxWidth: 280,
+        cursor: isComplete ? "pointer" : "default",
       }}
     >
-      {/* Header */}
+      {/* Check icon — top right when complete */}
+      {isComplete && (
+        <span style={{ position: "absolute", top: 9, right: 10 }}>
+          <CheckCircle size={13} style={{ color: "#22c55e", display: "block" }} />
+        </span>
+      )}
+
+      {/* Header row */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "10px 12px",
+          alignItems: "flex-start",
+          gap: 6,
+          padding: "7px 44px 7px 10px",
         }}
       >
         <span
           style={{
             flexShrink: 0,
-            width: 32,
-            height: 32,
+            width: 26,
+            height: 26,
             borderRadius: "50%",
             background: "var(--primary-soft, rgba(99,102,241,0.12))",
             color: "var(--primary)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            marginTop: 1,
           }}
         >
-          <Icon icon={isMicrosite ? Globe : FileText} size="sm" />
+          {isMicrosite ? (
+            <Globe size={13} strokeWidth={1.5} />
+          ) : (
+            <FileText size={13} strokeWidth={1.5} />
+          )}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
+          <span
             style={{
-              fontSize: 10,
-              color: "var(--muted)",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              fontWeight: 500,
+              display: "block",
+              fontSize: 13,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              paddingRight: 4,
             }}
           >
-            {isMicrosite ? "Microsite" : "Proposal"}
-          </div>
+            {gen.title.split(/\s*[-–—]\s*/)[0]}
+          </span>
           <div
             style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text)",
+              fontSize: 11,
+              color: "var(--muted)",
+              marginTop: 2,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {gen.title}
+            {gen.clientSlug} · {isMicrosite ? "Microsite" : "Proposal"}
           </div>
         </div>
-        <div style={{ flexShrink: 0 }}>
-          {isGenerating && (
-            <Loader
-              size={13}
-              style={{
-                color: "var(--primary)",
-                animation: "spin 1s linear infinite",
-              }}
-            />
-          )}
-          {isComplete && <CheckCircle size={13} style={{ color: "#22c55e" }} />}
-        </div>
       </div>
+
+      {/* Loader — absolute top-right while generating */}
+      {isGenerating && (
+        <span style={{ position: "absolute", top: 9, right: 10 }}>
+          <Loader size={13} style={{ color: "var(--primary)", animation: "spin 1s linear infinite", display: "block" }} />
+        </span>
+      )}
+
       {/* Progress bar — microsite only while generating */}
       {isGenerating && isMicrosite && (
-        <div style={{ padding: "0 12px 6px" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 4,
-            }}
-          >
-            <div
-              style={{
-                flex: 1,
-                height: 3,
-                borderRadius: 2,
-                background: "var(--border)",
-                overflow: "hidden",
-              }}
-            >
+        <div style={{ padding: "0 10px 10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
               <div
                 style={{
                   height: "100%",
@@ -211,30 +210,15 @@ function ArtifactCard({
                 }}
               />
             </div>
-            <span
-              style={{
-                fontSize: 10,
-                color: "var(--muted)",
-                fontVariantNumeric: "tabular-nums",
-                flexShrink: 0,
-              }}
-            >
+            <span style={{ fontSize: 10, color: "var(--muted)", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
               {Math.round(progressPct)}%
             </span>
           </div>
         </div>
       )}
-      {/* Steps */}
-      {gen.steps.length > 0 && (
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            padding: "7px 12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 3,
-          }}
-        >
+      {/* Steps — hide once complete */}
+      {gen.steps.length > 0 && isGenerating && (
+        <div style={{ padding: "0 10px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
           {gen.steps.slice(-4).map((step, i, arr) => {
             const isLast = i === arr.length - 1;
             const isActive = isLast && isGenerating;
@@ -250,16 +234,9 @@ function ArtifactCard({
                 }}
               >
                 {isActive ? (
-                  <span
-                    className="status-glyph"
-                    style={{ width: 6, height: 6, flexShrink: 0 }}
-                  />
+                  <span className="status-glyph" style={{ width: 6, height: 6, flexShrink: 0 }} />
                 ) : (
-                  <span
-                    style={{ color: "#22c55e", fontSize: 9, flexShrink: 0 }}
-                  >
-                    ✓
-                  </span>
+                  <span style={{ color: "#22c55e", fontSize: 9, flexShrink: 0 }}>✓</span>
                 )}
                 <span style={{ flex: 1 }}>{step}</span>
               </div>
@@ -268,44 +245,8 @@ function ArtifactCard({
         </div>
       )}
       {gen.phase === "error" && (
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            padding: "7px 12px",
-            fontSize: 11,
-            color: "var(--danger)",
-          }}
-        >
+        <div style={{ padding: "0 10px 12px", fontSize: 11, color: "var(--danger)" }}>
           {gen.error ?? "Generation failed"}
-        </div>
-      )}
-      {isComplete && (
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            padding: "8px 12px",
-            display: "flex",
-            justifyContent: "flex-end",
-          }}
-        >
-          <button
-            onClick={() => onView(gen)}
-            style={{
-              background: "var(--primary)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-              padding: "5px 12px",
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            View <ChevronRight size={11} />
-          </button>
         </div>
       )}
     </div>
@@ -576,7 +517,7 @@ export default function SuperClientPage() {
   } | null>(null);
   const [fullscreenMicrosite, setFullscreenMicrosite] =
     useState<LayoutAST | null>(null);
-  const [chatPanelWidth, setChatPanelWidth] = useState(320);
+  const [chatPanelWidth, setChatPanelWidth] = useState(344);
   const [micrositeDragging, setMicrositeDragging] = useState(false);
   const [micrositeDragHover, setMicrositeDragHover] = useState(false);
   const micrositeDragRef = useRef<{
@@ -632,6 +573,8 @@ export default function SuperClientPage() {
   const hasUnsavedChanges =
     editHistory.length > 0 && editHistoryIndex !== savedHistoryIndex;
   const [editModeActive, setEditModeActive] = useState(false);
+  const [micrositeStripVisible, setMicrositeStripVisible] = useState(true);
+  const [proposalStripVisible, setProposalStripVisible] = useState(true);
   // Double-buffer: two stacked iframes. Edits load into the invisible background
   // slot; when it signals ready the slots swap instantly — no white flash.
   const iframeARef = useRef<HTMLIFrameElement>(null);
@@ -1126,6 +1069,17 @@ export default function SuperClientPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canUndo, canRedo]);
+
+  // Reset strip visibility when a new microsite/proposal is opened
+  useEffect(() => {
+    if (viewingMicrosite) setMicrositeStripVisible(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingMicrosite?.id]);
+
+  useEffect(() => {
+    if (viewingProposal) setProposalStripVisible(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingProposal?.fileName]);
 
   useEffect(() => {
     if (!editModeActive) return;
@@ -2276,6 +2230,7 @@ export default function SuperClientPage() {
     const msGenId = genId();
     const msAbort = new AbortController();
     const proposalTitle = composerProposal.proposal.title;
+    const micrositeTitle = proposalTitle.replace(/\bProposal\b/g, "Microsite").replace(/\bproposal\b/g, "microsite");
     const proposalMarkdown = composerProposal.markdown;
     const proposalInstructions = composerInstructions || undefined;
     const proposalImage = composerImage ?? undefined;
@@ -2292,7 +2247,7 @@ export default function SuperClientPage() {
       id: msGenId,
       clientSlug: name,
       type: "microsite",
-      title: proposalTitle,
+      title: micrositeTitle,
       abort: () => msAbort.abort(),
     });
     localGenIdsRef.current.add(msGenId);
@@ -2443,8 +2398,8 @@ export default function SuperClientPage() {
         proposals.length === 0
           ? "You'll need a proposal first — ask me to generate one for this client."
           : proposals.length === 1
-            ? "Sure! Select the proposal below to get started."
-            : "Sure! Pick a proposal below and I'll walk you through it.";
+            ? "Pick a proposal below to generate its microsite."
+            : "Pick a proposal below to generate its microsite.";
       setMessages((prev) => [
         ...prev,
         { id: genId(), role: "user", content: text },
@@ -2490,7 +2445,7 @@ export default function SuperClientPage() {
       role: "user",
       content: text,
       createdAt: now,
-      ...(viewingProposal ? { editContext: "proposal" as const } : {}),
+      ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
     };
     const assistantMsgId = genId();
     const assistantMsg: Message = {
@@ -2500,7 +2455,7 @@ export default function SuperClientPage() {
       streaming: true,
       createdAt: now,
       ...(proposalGenId ? { generationId: proposalGenId } : {}),
-      ...(viewingProposal ? { editContext: "proposal" as const } : {}),
+      ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -2781,6 +2736,9 @@ export default function SuperClientPage() {
       group.forEach((p, i) => propVersionMap.set(p.fileName, i + 1));
   }
 
+  const micrositeEditActive = !!(viewingMicrosite && micrositeStripVisible);
+  const proposalEditActive = !!(viewingProposal && proposalStripVisible);
+
   return (
     <>
       <div
@@ -3024,6 +2982,15 @@ export default function SuperClientPage() {
                           <ArtifactCard
                             gid={msg.generationId!}
                             generations={generations}
+                            version={(() => {
+                              const g = generations.find((x) => x.id === msg.generationId);
+                              if (!g) return undefined;
+                              if (g.type === "microsite" && g.result?.micrositeId)
+                                return msVersionMap.get(g.result.micrositeId);
+                              if (g.type === "proposal" && g.result?.fileName)
+                                return propVersionMap.get(g.result.fileName);
+                              return undefined;
+                            })()}
                             onView={(gen) => {
                               if (
                                 gen.type === "microsite" &&
@@ -3070,66 +3037,46 @@ export default function SuperClientPage() {
             {composerStage === "select-proposal" && (
               <div
                 style={{
-                  border: "1px solid var(--border)",
+                  position: "relative",
                   borderRadius: 10,
-                  padding: 12,
+                  padding: "12px 12px 8px",
                   background: "var(--panel-soft)",
                 }}
               >
+                {/* X — top right */}
+                <button
+                  onClick={resetComposer}
+                  style={{
+                    position: "absolute",
+                    top: 10,
+                    right: 10,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--muted)",
+                    display: "flex",
+                    padding: 0,
+                    opacity: 0.6,
+                  }}
+                >
+                  <X size={16} />
+                </button>
                 {composerMessage && (
                   <div
                     style={{
-                      display: "inline-block",
                       marginBottom: 10,
-                      padding: "8px 12px",
-                      borderRadius: "12px 12px 12px 4px",
-                      background: "var(--panel)",
-                      border: "1px solid var(--border)",
-                      fontSize: 13,
+                      fontSize: 14,
+                      fontWeight: 400,
                       color: "var(--text)",
                       lineHeight: 1.5,
+                      paddingRight: 28,
                     }}
                   >
                     {composerMessage}
                   </div>
                 )}
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 10,
-                  }}
-                >
-                  <p
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--text)",
-                      margin: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Sparkles size={13} /> Pick a proposal
-                  </p>
-                  <button
-                    onClick={resetComposer}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "var(--muted)",
-                      display: "flex",
-                      padding: 0,
-                    }}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                  style={{ display: "flex", flexDirection: "column", gap: 2 }}
                 >
                   {proposals.map((p) => (
                     <button
@@ -3138,35 +3085,83 @@ export default function SuperClientPage() {
                       disabled={loadingMicrositeFor === p.fileName}
                       style={{
                         textAlign: "left",
-                        padding: "8px 12px",
+                        padding: "7px 10px",
                         borderRadius: 8,
-                        border: "1px solid var(--border)",
+                        border: "none",
                         background: "var(--panel)",
                         cursor: "pointer",
                         width: "100%",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 6,
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity = "0.8";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity = "1";
                       }}
                     >
-                      <p
+                      <span
                         style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: "var(--text)",
-                          margin: 0,
+                          flexShrink: 0,
+                          width: 26,
+                          height: 26,
+                          borderRadius: "50%",
+                          background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                          color: "var(--primary)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginTop: 1,
                         }}
                       >
-                        {p.title}
-                      </p>
-                      <p
-                        style={{
-                          fontSize: 11,
-                          color: "var(--muted)",
-                          margin: "2px 0 0",
-                        }}
-                      >
-                        {loadingMicrositeFor === p.fileName
-                          ? "Loading…"
-                          : new Date(p.savedAt).toLocaleDateString()}
-                      </p>
+                        <FileText size={13} strokeWidth={1.5} />
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span
+                            style={{
+                              flex: 1,
+                              fontSize: 13,
+                              color: "var(--text)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {p.title.split(/\s*[-–—]\s*/)[0]}
+                          </span>
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: "var(--primary)",
+                              background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                              borderRadius: 4,
+                              padding: "1px 5px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            v{propVersionMap.get(p.fileName) ?? 1}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "var(--muted)",
+                            marginTop: 2,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {loadingMicrositeFor === p.fileName
+                            ? "Loading…"
+                            : `${meta?.displayName ?? name} · ${new Date(p.savedAt).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}`}
+                        </div>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -3421,7 +3416,7 @@ export default function SuperClientPage() {
             {!composerStage && (
               <>
                 {/* Proposal editing strip — sits above composer, same as microsite strip */}
-                {viewingProposal && (
+                {viewingProposal && proposalStripVisible && (
                   <div
                     style={{
                       display: "flex",
@@ -3450,7 +3445,7 @@ export default function SuperClientPage() {
                       Edit proposal
                     </span>
                     <button
-                      onClick={dismissProposal}
+                      onClick={(e) => { e.stopPropagation(); setProposalStripVisible(false); }}
                       style={{
                         background: "none",
                         border: "none",
@@ -3464,14 +3459,68 @@ export default function SuperClientPage() {
                       }}
                       onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
-                      title="Close proposal"
+                      title="Dismiss"
                     >
                       <X size={16} />
                     </button>
                   </div>
                 )}
-                {/*Microsite editing strip — sits above composer with 4px sliding behind it */}
-                {viewingMicrosite && !(editModeActive && selectedElement) && (
+                {/* Selection strip — shows when an element is targeted in microsite edit mode */}
+                {viewingMicrosite && editModeActive && selectedElement && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "0 10px 0 14px",
+                      height: 44,
+                      borderRadius: "16px 16px 0 0",
+                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      marginBottom: -6,
+                      position: "relative",
+                      zIndex: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <Pencil size={16} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {selectedElement.sectionType ? `${selectedElement.sectionType} › ` : ""}
+                        {selectedElement.label}
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => clearBridgeSelection()}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: 0,
+                        opacity: 0.6,
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                      title="Clear selection"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+                {/* Microsite editing strip — sits above composer with 4px sliding behind it */}
+                {viewingMicrosite && micrositeStripVisible && !(editModeActive && selectedElement) && (
                   <div
                     style={{
                       display: "flex",
@@ -3500,7 +3549,7 @@ export default function SuperClientPage() {
                       Edit microsite
                     </span>
                     <button
-                      onClick={dismissMicrosite}
+                      onClick={(e) => { e.stopPropagation(); setMicrositeStripVisible(false); setEditModeActive(false); clearBridgeSelection(); }}
                       style={{
                         background: "none",
                         border: "none",
@@ -3514,7 +3563,7 @@ export default function SuperClientPage() {
                       }}
                       onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
-                      title="Close microsite"
+                      title="Dismiss"
                     >
                       <X size={16} />
                     </button>
@@ -3530,79 +3579,6 @@ export default function SuperClientPage() {
                     : {}),
                 }}
               >
-                {/* Selection chip — replaces the chips row when an element is targeted */}
-                {viewingMicrosite && editModeActive && selectedElement && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "2px 4px 6px 6px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 5,
-                        padding: "3px 4px 3px 8px",
-                        borderRadius: 20,
-                        background:
-                          "color-mix(in srgb, var(--primary) 10%, transparent)",
-                        border:
-                          "1px solid color-mix(in srgb, var(--primary) 25%, transparent)",
-                        fontSize: 11,
-                        color: "var(--primary)",
-                        fontWeight: 500,
-                        maxWidth: "100%",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <Pencil size={10} style={{ flexShrink: 0 }} />
-                      <span
-                        style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {selectedElement.sectionType
-                          ? `${selectedElement.sectionType} › `
-                          : ""}
-                        {selectedElement.label}
-                        {selectedElement.text
-                          ? ` — "${selectedElement.text.slice(0, 60)}${selectedElement.text.length > 60 ? "…" : ""}"`
-                          : ""}
-                      </span>
-                      <button
-                        onClick={() => clearBridgeSelection()}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "var(--primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "2px 3px",
-                          borderRadius: 10,
-                          opacity: 0.7,
-                          flexShrink: 0,
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "1";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            "0.7";
-                        }}
-                        title="Clear selection"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
-                  </div>
-                )}
                 {/* Microsite edit result banner */}
                 {viewingMicrosite &&
                   micrositeEditBanner.startsWith("Error:") && (
@@ -3627,14 +3603,14 @@ export default function SuperClientPage() {
                 <textarea
                   ref={textareaRef}
                   className="chat-v2-input"
-                  value={viewingMicrosite ? micrositeEditInput : input}
+                  value={micrositeEditActive ? micrositeEditInput : input}
                   onChange={(e) =>
-                    viewingMicrosite
+                    micrositeEditActive
                       ? setMicrositeEditInput(e.target.value)
                       : setInput(e.target.value)
                   }
                   onKeyDown={
-                    viewingMicrosite
+                    micrositeEditActive
                       ? (e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
@@ -3644,19 +3620,19 @@ export default function SuperClientPage() {
                       : handleKeyDown
                   }
                   placeholder={
-                    viewingMicrosite && editModeActive && selectedElement
+                    micrositeEditActive && editModeActive && selectedElement
                       ? selectedElement.tag === "img"
-                        ? `Paste image URL, or describe change…`
-                        : `Edit ${selectedElement.label}…`
-                      : viewingMicrosite
+                        ? "Paste URL or describe the change…"
+                        : `Describe the edit…`
+                      : micrositeEditActive
                         ? editModeActive
-                          ? "Click any element to target it, then describe your edit…"
-                          : "Edit this microsite…"
-                        : viewingProposal
-                          ? "Ask to edit or refine this proposal…"
+                          ? "Tap an element to select it"
+                          : "Describe your edit…"
+                        : proposalEditActive
+                          ? "Ask to edit this proposal…"
                           : `Ask about ${meta.displayName}…`
                   }
-                  disabled={viewingMicrosite ? micrositeEditing : false}
+                  disabled={micrositeEditActive ? micrositeEditing : false}
                   rows={1}
                   onInput={(e) => {
                     const el = e.currentTarget;
@@ -3667,9 +3643,9 @@ export default function SuperClientPage() {
                 {/* Horizontal separator — hidden */}
                 <div style={{ height: 1, margin: "0 2px" }} />
                 {/* Bottom bar: attach left, send right — same padding as textarea */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 8px 8px 4px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px" }}>
                   {/* Attach (+) button */}
-                  {!viewingMicrosite ? (
+                  {!micrositeEditActive ? (
                     <div style={{ position: "relative", flexShrink: 0 }}>
                       <button
                         onClick={() => setAttachMenuOpen((v) => !v)}
@@ -3681,20 +3657,12 @@ export default function SuperClientPage() {
                           color: "var(--muted)",
                           display: "flex",
                           alignItems: "center",
-                          padding: "4px 6px",
-                          borderRadius: 8,
-                          opacity: 0.65,
-                          transition: "opacity 0.15s",
-                        }}
-                        onMouseEnter={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity = "1";
-                        }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.opacity =
-                            attachMenuOpen ? "1" : "0.65";
+                          padding: "4px",
+                          borderRadius: 4,
+                          lineHeight: 1,
                         }}
                       >
-                        <Plus size={18} strokeWidth={1.75} />
+                        <Plus size={16} />
                       </button>
                       {attachMenuOpen && (
                         <>
@@ -3756,16 +3724,71 @@ export default function SuperClientPage() {
                   ) : (
                     <div />
                   )}
+                  {/* Right-side group: edit icons + send */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {viewingProposal && (
+                    <button
+                      onClick={() => setProposalStripVisible(true)}
+                      title="Edit proposal"
+                      className="theme-toggle"
+                      style={{
+                        background: proposalEditActive ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
+                        border: "1px solid transparent",
+                        color: proposalEditActive ? "var(--primary)" : undefined,
+                        transition: "background 0.15s, color 0.15s, border-color 0.15s",
+                      }}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                  {viewingMicrosite && (
+                    <button
+                      onClick={() => {
+                        const next = !editModeActive;
+                        setEditModeActive(next);
+                        if (next) {
+                          setMicrositeStripVisible(true);
+                        } else {
+                          clearBridgeSelection();
+                        }
+                        setViewingMicrosite((prev) => {
+                          if (!prev) return null;
+                          const html =
+                            (prev.ast.sections?.[0] as { customHtml?: string })
+                              ?.customHtml ?? "";
+                          setActiveSrcDoc(computeSrcDoc(html, next));
+                          return {
+                            ...prev,
+                            renderKey: `${prev.id}-${Date.now()}`,
+                          };
+                        });
+                      }}
+                      title={
+                        editModeActive
+                          ? "Exit smart edit mode"
+                          : "Smart edit — click any element to target it"
+                      }
+                      className="theme-toggle"
+                      style={{
+                        background: editModeActive ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
+                        border: "1px solid transparent",
+                        color: editModeActive ? "var(--primary)" : undefined,
+                        transition: "background 0.15s, color 0.15s, border-color 0.15s",
+                      }}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
                   {/* Send button */}
                   <button
                     className="chat-v2-send-btn"
                     onClick={() =>
-                      viewingMicrosite
+                      micrositeEditActive
                         ? void handleMicrositeEdit()
                         : void sendMessage()
                     }
                     disabled={
-                      viewingMicrosite
+                      micrositeEditActive
                         ? micrositeEditing ||
                           (!micrositeEditInput.trim() &&
                             !editingLogo &&
@@ -3774,10 +3797,10 @@ export default function SuperClientPage() {
                     }
                   >
                     <Icon
-                      icon={viewingMicrosite && micrositeEditing ? Loader : ArrowUp}
+                      icon={micrositeEditActive && micrositeEditing ? Loader : ArrowUp}
                       size="md"
                       style={
-                        viewingMicrosite && micrositeEditing
+                        micrositeEditActive && micrositeEditing
                           ? { animation: "spin 1s linear infinite" }
                           : undefined
                       }
@@ -3799,6 +3822,7 @@ export default function SuperClientPage() {
                   }}
                 />
               </div>
+            </div>
             </>
           )}
           </div>
@@ -3942,49 +3966,6 @@ export default function SuperClientPage() {
                     flexShrink: 0,
                   }}
                 >
-                  <button
-                    onClick={() => {
-                      const next = !editModeActive;
-                      setEditModeActive(next);
-                      if (!next) {
-                        clearBridgeSelection();
-                      }
-                      // Force iframe remount so bridge script is injected/removed
-                      setViewingMicrosite((prev) => {
-                        if (!prev) return null;
-                        const html =
-                          (prev.ast.sections?.[0] as { customHtml?: string })
-                            ?.customHtml ?? "";
-                        setActiveSrcDoc(computeSrcDoc(html, next));
-                        return {
-                          ...prev,
-                          renderKey: `${prev.id}-${Date.now()}`,
-                        };
-                      });
-                    }}
-                    title={
-                      editModeActive
-                        ? "Exit smart edit mode"
-                        : "Smart edit — click any element to target it"
-                    }
-                    style={{
-                      background: editModeActive ? "var(--primary)" : "none",
-                      border: `1px solid ${editModeActive ? "var(--primary)" : "var(--border)"}`,
-                      borderRadius: 6,
-                      padding: "4px 10px",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      color: editModeActive ? "#fff" : "var(--muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      transition:
-                        "background 0.15s, color 0.15s, border-color 0.15s",
-                    }}
-                  >
-                    <Pencil size={12} />
-                    Edit
-                  </button>
                   {/* Unsaved-changes indicator */}
                   {hasUnsavedChanges && (
                     <span
@@ -4385,6 +4366,7 @@ export default function SuperClientPage() {
             width: viewingProposal ? undefined : 0,
             minWidth: viewingProposal ? 400 : 0,
             borderLeft: viewingProposal ? "1px solid var(--border)" : "none",
+            position: "relative",
           }}
         >
           {lastProposalRef.current && (
@@ -4394,6 +4376,58 @@ export default function SuperClientPage() {
                 width: "100%",
               }}
             >
+              {/* Drag handle */}
+              <div
+                onMouseDown={handleMicrositeDragStart}
+                onMouseEnter={() => setMicrositeDragHover(true)}
+                onMouseLeave={() => setMicrositeDragHover(false)}
+                title="Drag to resize"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 14,
+                  cursor: "col-resize",
+                  zIndex: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: micrositeDragging
+                    ? "color-mix(in srgb, var(--primary) 8%, transparent)"
+                    : micrositeDragHover
+                      ? "color-mix(in srgb, var(--border) 30%, transparent)"
+                      : "transparent",
+                  transition: "background 0.15s",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 3,
+                    transition: "opacity 0.15s, transform 0.15s",
+                    opacity: micrositeDragging || micrositeDragHover ? 1 : 0.4,
+                    transform: micrositeDragging ? "scaleX(1.2)" : "scaleX(1)",
+                  }}
+                >
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: micrositeDragging || micrositeDragHover ? 4 : 3,
+                        height: 4,
+                        borderRadius: "50%",
+                        background: micrositeDragging
+                          ? "var(--primary)"
+                          : "var(--muted-foreground, var(--muted))",
+                        transition: "width 0.15s, background 0.15s",
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
               <div
                 style={{
                   padding: "14px 20px",
@@ -4518,7 +4552,7 @@ export default function SuperClientPage() {
         >
           <div className="client-panel">
             {/* ── Tab bar ── */}
-            <div className="client-panel-tabs" style={{ height: 52 }}>
+            <div className="client-panel-tabs" style={{ height: 48 }}>
               <button
                 className={`client-panel-tab${activeRightTab === "context" ? " active" : ""}`}
                 onClick={() => setActiveRightTab("context")}
@@ -4567,19 +4601,30 @@ export default function SuperClientPage() {
               {activeRightTab === "context" && (
                 <>
                   {/* Client identity */}
-                  <div style={{ padding: "14px 12px 10px 16px" }}>
+                  <div
+                    className="client-panel-list"
+                    style={{ paddingTop: 8, paddingLeft: 12, paddingRight: 12, paddingBottom: 4 }}
+                  >
                     <div
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 400,
-                        color: "var(--text)",
-                      }}
+                      className="brief-panel-section-header"
+                      style={{ padding: "0 4px 2px" }}
                     >
-                      {meta?.displayName ?? name}
+                      <span
+                        style={{
+                          flex: "none",
+                          fontSize: 14,
+                          fontWeight: 400,
+                          color: "var(--text)",
+                          textTransform: "none",
+                          letterSpacing: 0,
+                        }}
+                      >
+                        {meta?.displayName ?? name}
+                      </span>
                     </div>
 
                     {urlEditMode ? (
-                      <div style={{ marginTop: 6 }}>
+                      <div style={{ padding: "4px 4px 6px" }}>
                         <input
                           type="url"
                           value={urlInput}
@@ -4610,7 +4655,7 @@ export default function SuperClientPage() {
                             padding: "4px 8px",
                             background: "var(--surface)",
                             border: "1px solid var(--border)",
-                            borderRadius: 4,
+                            borderRadius: 6,
                             color: "var(--text)",
                             boxSizing: "border-box",
                           }}
@@ -4642,7 +4687,7 @@ export default function SuperClientPage() {
                               background: "var(--accent, #6366f1)",
                               color: "#fff",
                               border: "none",
-                              borderRadius: 4,
+                              borderRadius: 6,
                               cursor:
                                 enriching || !urlInput.trim()
                                   ? "not-allowed"
@@ -4673,7 +4718,7 @@ export default function SuperClientPage() {
                               padding: "3px 8px",
                               background: "none",
                               border: "1px solid var(--border)",
-                              borderRadius: 4,
+                              borderRadius: 6,
                               color: "var(--muted)",
                               cursor: enriching ? "not-allowed" : "pointer",
                             }}
@@ -4684,74 +4729,65 @@ export default function SuperClientPage() {
                       </div>
                     ) : meta?.url ? (
                       <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          marginTop: 2,
-                        }}
+                        className="client-panel-row"
+                        style={{ cursor: "default" }}
                       >
+                        <Globe
+                          size={13}
+                          strokeWidth={1.5}
+                          style={{ flexShrink: 0, color: "var(--muted)" }}
+                        />
                         <a
                           href={meta.url}
                           target="_blank"
                           rel="noopener noreferrer"
+                          className="client-panel-row-name"
                           style={{
-                            fontSize: 13,
-                            fontWeight: 400,
                             color: "var(--muted)",
                             textDecoration: "none",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            flex: 1,
-                            minWidth: 0,
                           }}
                         >
                           {meta.url.replace(/^https?:\/\//, "")}
                         </a>
-                        <button
-                          onClick={() => {
-                            setUrlInput(meta.url ?? "");
-                            setUrlEditMode(true);
-                            setEnrichError("");
-                          }}
-                          title="Edit website URL"
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            padding: "1px 2px",
-                            color: "var(--muted)",
-                            flexShrink: 0,
-                            display: "flex",
-                            lineHeight: 1,
-                          }}
-                        >
-                          <Pencil size={12} strokeWidth={1.5} />
-                        </button>
+                        <div className="brief-field-actions" style={{ marginLeft: "auto" }}>
+                          <button
+                            className="brief-knowledge-icon-btn"
+                            onClick={() => {
+                              setUrlInput(meta.url ?? "");
+                              setUrlEditMode(true);
+                              setEnrichError("");
+                            }}
+                            title="Edit website URL"
+                          >
+                            <Pencil size={16} strokeWidth={1.5} />
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <button
+                      <div
+                        className="client-panel-row"
+                        style={{ cursor: "pointer" }}
                         onClick={() => {
                           setUrlInput("");
                           setUrlEditMode(true);
                           setEnrichError("");
                         }}
-                        style={{
-                          marginTop: 4,
-                          fontSize: 12,
-                          color: "var(--muted)",
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          padding: 0,
-                          textDecoration: "underline",
-                          textDecorationStyle: "dashed",
-                          textUnderlineOffset: 2,
-                        }}
                       >
-                        Add website URL
-                      </button>
+                        <Plus
+                          size={13}
+                          strokeWidth={1.5}
+                          style={{ flexShrink: 0, color: "var(--muted)", opacity: 0.5 }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 13,
+                            color: "var(--muted)",
+                            opacity: 0.5,
+                          }}
+                        >
+                          Add website URL
+                        </span>
+                      </div>
                     )}
                   </div>
 
@@ -4767,6 +4803,8 @@ export default function SuperClientPage() {
                       onCancel={() => setEnrichConfirmPending(false)}
                     />
                   )}
+
+                  <ClientProfileFields namespace={name} />
 
                   {/* Documents */}
                   <div
@@ -4938,12 +4976,12 @@ export default function SuperClientPage() {
               {activeRightTab === "artifacts" && (
                 <div
                   className="client-panel-list"
-                  style={{ padding: "6px 12px" }}
+                  style={{ paddingTop: 4, paddingLeft: 12, paddingRight: 12 }}
                 >
                   {/* Microsites */}
                   <div
                     className="brief-panel-section-header"
-                    style={{ padding: "12px 4px 2px" }}
+                    style={{ padding: "0 4px 2px" }}
                   >
                     <span
                       style={{
@@ -5090,7 +5128,7 @@ export default function SuperClientPage() {
                   {/* Proposals */}
                   <div
                     className="brief-panel-section-header"
-                    style={{ padding: "10px 4px 2px" }}
+                    style={{ padding: "8px 4px 2px" }}
                   >
                     <span
                       style={{
