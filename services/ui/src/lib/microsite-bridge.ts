@@ -385,7 +385,12 @@ function sendMsg(msgType, rawEl) {
   var tag = (el.tagName || '').toLowerCase();
   var label = makeLabel(el);
   var text = '';
-  try { text = (el.textContent || '').replace(/\\s+/g,' ').trim().slice(0, 120); } catch(e) {}
+  // On hover: truncate to 120 chars (breadcrumb display only).
+  // On select: send full text so the inline editor can show and edit the complete content.
+  try {
+    var rawText = (el.textContent || '').replace(/\\s+/g,' ').trim();
+    text = msgType === 'select' ? rawText : rawText.slice(0, 120);
+  } catch(e) {}
 
   var outerHtml = '';
   try {
