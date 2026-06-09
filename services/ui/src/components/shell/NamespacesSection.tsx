@@ -1,17 +1,31 @@
-'use client';
+"use client";
 
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import { useRouter, usePathname } from 'next/navigation';
-import { useNamespace } from '@/lib/namespace-context';
-import { useAuth } from '@/lib/auth-context';
-import { deleteNamespace, renameNamespace, listSuperClients, deleteSuperClient, type SuperClientMeta } from '@/lib/api';
-import { CreateNamespaceModal } from './CreateNamespaceModal';
-import { CreateSuperClientModal } from './CreateSuperClientModal';
-import { Pencil, Trash2, PlusCircle, ChevronDown, MoreHorizontal, X, Sparkles } from 'lucide-react';
-import { Icon } from '@/components/ui/Icon';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { toast } from 'sonner';
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { useRouter, usePathname } from "next/navigation";
+import { useNamespace } from "@/lib/namespace-context";
+import { useAuth } from "@/lib/auth-context";
+import {
+  deleteNamespace,
+  renameNamespace,
+  listSuperClients,
+  deleteSuperClient,
+  type SuperClientMeta,
+} from "@/lib/api";
+import { CreateNamespaceModal } from "./CreateNamespaceModal";
+import { CreateSuperClientModal } from "./CreateSuperClientModal";
+import {
+  Pencil,
+  Trash2,
+  PlusCircle,
+  ChevronDown,
+  MoreHorizontal,
+  X,
+  Sparkles,
+} from "lucide-react";
+import { Icon } from "@/components/ui/Icon";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { toast } from "sonner";
 
 interface Props {
   onMobileClose: () => void;
@@ -24,7 +38,12 @@ interface MenuPos {
 }
 
 export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
-  const { namespaces, namespace: activeNamespace, setNamespace, refresh } = useNamespace();
+  const {
+    namespaces,
+    namespace: activeNamespace,
+    setNamespace,
+    refresh,
+  } = useNamespace();
   const { apiKey } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const router = useRouter();
@@ -42,7 +61,7 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
 
   // rename state
   const [renamingNs, setRenamingNs] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // confirm delete dialog
@@ -79,7 +98,10 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
     const btn = menuScBtnRefs.current[name];
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
-    setMenuScPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setMenuScPos({
+      top: rect.bottom + 4,
+      right: window.innerWidth - rect.right,
+    });
     setMenuSc(name);
   }, []);
 
@@ -96,8 +118,8 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
         setMenuSc(null);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [menuSc]);
 
   const handleDeleteSuperClient = async () => {
@@ -107,7 +129,7 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
       await deleteSuperClient(apiKey, confirmSc);
       await loadSuperClients();
       toast.success(`Deleted "${confirmSc}"`);
-      if (pathname?.startsWith(`/super-client/${confirmSc}`)) router.push('/');
+      if (pathname?.startsWith(`/super-client/${confirmSc}`)) router.push("/");
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -139,8 +161,8 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
         setMenuNs(null);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [menuNs]);
 
   // focus rename input when it appears
@@ -178,10 +200,10 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
     setDeleting(true);
     try {
       await deleteNamespace(apiKey, confirmNs);
-      if (activeNamespace === confirmNs) setNamespace('');
+      if (activeNamespace === confirmNs) setNamespace("");
       await refresh();
       toast.success(`Deleted namespace "${confirmNs}"`);
-      router.push('/');
+      router.push("/");
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -197,23 +219,23 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           ref={dropdownRef}
           className="card"
           style={{
-            position: 'fixed',
+            position: "fixed",
             top: menuPos.top,
             right: menuPos.right,
             minWidth: 120,
-            padding: '4px 0',
+            padding: "4px 0",
             zIndex: 99999,
           }}
         >
           <button
             className="btn btn-sm"
             style={{
-              width: '100%',
-              textAlign: 'left',
+              width: "100%",
+              textAlign: "left",
               borderRadius: 0,
-              border: 'none',
-              justifyContent: 'flex-start',
-              padding: '8px 14px',
+              border: "none",
+              justifyContent: "flex-start",
+              padding: "8px 14px",
               fontSize: 14,
               gap: 8,
             }}
@@ -226,14 +248,14 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           <button
             className="btn btn-sm"
             style={{
-              width: '100%',
-              textAlign: 'left',
+              width: "100%",
+              textAlign: "left",
               borderRadius: 0,
-              border: 'none',
-              justifyContent: 'flex-start',
-              padding: '8px 14px',
+              border: "none",
+              justifyContent: "flex-start",
+              padding: "8px 14px",
               fontSize: 14,
-              color: 'var(--danger)',
+              color: "var(--danger)",
               gap: 8,
             }}
             onMouseDown={(e) => e.preventDefault()}
@@ -384,7 +406,11 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
 
       {/* Super Clients section */}
       <div className="sidebar-group">
-        <div className="sidebar-link" onClick={() => setShowSuperModal(true)} style={{ cursor: 'pointer' }}>
+        <div
+          className="sidebar-link"
+          onClick={() => setShowSuperModal(true)}
+          style={{ cursor: "pointer" }}
+        >
           <Icon icon={Sparkles} size="md" className="sidebar-icon" />
           <span className="sidebar-label">New Client</span>
         </div>
@@ -394,7 +420,7 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           onClick={() => setExpandedSuper((v) => !v)}
           onMouseEnter={() => setSuperLabelHovered(true)}
           onMouseLeave={() => setSuperLabelHovered(false)}
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: "pointer" }}
         >
           <span className="sidebar-label" style={{ flex: 1, opacity: 0.45 }}>
             Clients
@@ -405,8 +431,8 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
             style={{
               flexShrink: 0,
               opacity: superLabelHovered ? 0.5 : 0,
-              transform: expandedSuper ? 'rotate(0deg)' : 'rotate(-90deg)',
-              transition: 'opacity 0.15s, transform 0.15s ease',
+              transform: expandedSuper ? "rotate(0deg)" : "rotate(-90deg)",
+              transition: "opacity 0.15s, transform 0.15s ease",
             }}
           />
         </div>
@@ -415,50 +441,57 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           superClients.map((sc) => {
             const isActive =
               !collapsed &&
-              (pathname === `/super-client/${sc.name}` || !!pathname?.startsWith(`/super-client/${sc.name}/`));
+              (pathname === `/super-client/${sc.name}` ||
+                !!pathname?.startsWith(`/super-client/${sc.name}/`));
             const isHovered = hoveredSc === sc.name;
             const isMenuOpen = menuSc === sc.name;
 
             return (
               <div
                 key={sc.name}
-                style={{ position: 'relative' }}
-                onMouseEnter={() => { if (!menuSc || menuSc === sc.name) setHoveredSc(sc.name); }}
+                style={{ position: "relative" }}
+                onMouseEnter={() => {
+                  if (!menuSc || menuSc === sc.name) setHoveredSc(sc.name);
+                }}
                 onMouseLeave={() => setHoveredSc(null)}
               >
                 <button
-                  className={`sidebar-link${isActive ? ' sidebar-link--active' : ''}`}
+                  className={`sidebar-link${isActive ? " sidebar-link--active" : ""}`}
                   onClick={() => {
                     if (menuSc) return;
                     onMobileClose();
                     router.push(`/super-client/${sc.name}`);
                   }}
                   style={{
-                    width: '100%',
-                    textAlign: 'left',
+                    width: "100%",
+                    textAlign: "left",
                     paddingRight: isHovered || isMenuOpen ? 36 : 12,
-                    transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease',
+                    transition:
+                      "padding-right 0.15s, background 0.2s ease, color 0.2s ease",
                   }}
                 >
                   <span className="sidebar-label">{sc.displayName}</span>
                 </button>
 
                 <button
-                  ref={(el) => { menuScBtnRefs.current[sc.name] = el; }}
+                  ref={(el) => {
+                    menuScBtnRefs.current[sc.name] = el;
+                  }}
                   className="btn btn-sm"
                   title="Options"
                   style={{
-                    position: 'absolute',
+                    position: "absolute",
                     right: 6,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    padding: '1px 5px',
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    padding: "1px 5px",
                     fontSize: 13,
-                    border: 'none',
+                    border: "none",
                     lineHeight: 1,
-                    opacity: isHovered || isMenuOpen ? 1 : 0,
-                    pointerEvents: isHovered || isMenuOpen ? 'auto' : 'none',
-                    transition: 'opacity 0.15s',
+                    opacity: isHovered || (isMenuOpen && !collapsed) ? 1 : 0,
+                    pointerEvents:
+                      isHovered || (isMenuOpen && !collapsed) ? "auto" : "none",
+                    transition: "opacity 0.15s",
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -472,46 +505,49 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           })}
       </div>
       {dropdown}
-      {menuSc && createPortal(
-        <div
-          ref={scDropdownRef}
-          className="card"
-          style={{
-            position: 'fixed',
-            top: menuScPos.top,
-            right: menuScPos.right,
-            minWidth: 120,
-            padding: '4px 0',
-            zIndex: 99999,
-          }}
-        >
-          <button
-            className="btn btn-sm"
+      {menuSc &&
+        createPortal(
+          <div
+            ref={scDropdownRef}
+            className="card"
             style={{
-              width: '100%',
-              textAlign: 'left',
-              borderRadius: 0,
-              border: 'none',
-              justifyContent: 'flex-start',
-              padding: '8px 14px',
-              fontSize: 14,
-              color: 'var(--danger)',
-              gap: 8,
-            }}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              const name = menuSc;
-              setMenuSc(null);
-              setConfirmSc(name);
+              position: "fixed",
+              top: menuScPos.top,
+              right: menuScPos.right,
+              minWidth: 120,
+              padding: "4px 0",
+              zIndex: 99999,
             }}
           >
-            <Icon icon={Trash2} size="sm" />
-            <span>Delete</span>
-          </button>
-        </div>,
-        document.body,
+            <button
+              className="btn btn-sm"
+              style={{
+                width: "100%",
+                textAlign: "left",
+                borderRadius: 0,
+                border: "none",
+                justifyContent: "flex-start",
+                padding: "8px 14px",
+                fontSize: 14,
+                color: "var(--danger)",
+                gap: 8,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const name = menuSc;
+                setMenuSc(null);
+                setConfirmSc(name);
+              }}
+            >
+              <Icon icon={Trash2} size="sm" />
+              <span>Delete</span>
+            </button>
+          </div>,
+          document.body,
+        )}
+      {showModal && (
+        <CreateNamespaceModal onClose={() => setShowModal(false)} />
       )}
-      {showModal && <CreateNamespaceModal onClose={() => setShowModal(false)} />}
       {showSuperModal && (
         <CreateSuperClientModal
           onClose={() => setShowSuperModal(false)}
