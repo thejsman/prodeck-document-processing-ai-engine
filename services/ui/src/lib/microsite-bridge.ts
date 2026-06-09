@@ -374,10 +374,65 @@ function getInteresting(raw) {
   return raw;
 }
 
+// ── Elevate overlay layers and fill-media to their meaningful container ────
+// Two patterns are handled:
+//
+// 1. Overlay divs  — position:absolute / position:fixed elements that fill
+//    their parent completely (noise layers, gradient masks, scanline textures,
+//    visual overlays, etc.).  These are decorative and the user intends to
+//    target the whole component, not just the top layer.
+//
+// 2. Fill-media  — <img>, <video>, <canvas>, <picture> elements whose bounding
+//    rect matches the parent container.  Clicking such an element means the
+//    user wants to act on the whole visual block (image card, hero media area),
+//    so we return the container so Remove / edits affect the entire component.
+//
+// Walk up as long as:
+//   • the current element is an overlay (position:absolute/fixed)
+//     OR a fill-media tag whose bounds equal the parent's (±5 px)
+//   • the parent is not body / html
+//   • the parent bounds are the same (overlay case uses ±2 px; media uses ±5 px)
+//
+// Result: the topmost container that shares the same footprint — the real
+// "image block" / "card" / "banner" the user wanted to select or remove.
+function elevateToContainer(el) {
+  try {
+    var FILL_MEDIA = { img:1, video:1, canvas:1, picture:1, iframe:1 };
+    var cur = el;
+    while (cur.parentElement) {
+      var tag = (cur.tagName || '').toLowerCase();
+      var cs  = window.getComputedStyle(cur);
+      var pos = cs.position;
+
+      var isOverlay = pos === 'absolute' || pos === 'fixed';
+      var isMedia   = !!FILL_MEDIA[tag];
+      if (!isOverlay && !isMedia) break;
+
+      var parent = cur.parentElement;
+      var ptag   = (parent.tagName || '').toLowerCase();
+      if (ptag === 'body' || ptag === 'html') break;
+
+      var cr  = cur.getBoundingClientRect();
+      var pr  = parent.getBoundingClientRect();
+      var tol = isMedia ? 5 : 2;
+      if (Math.abs(pr.width - cr.width) <= tol && Math.abs(pr.height - cr.height) <= tol) {
+        cur = parent;
+      } else {
+        break;
+      }
+    }
+    return cur;
+  } catch(e) { return el; }
+}
+
 // ── Messaging ─────────────────────────────────────────────────────────────
 function sendMsg(msgType, rawEl) {
   var el = getInteresting(rawEl);
   if (!el) return;
+
+  // On click (select): elevate overlay layers to their actual container.
+  // Only on select — getComputedStyle is expensive and would slow hover events.
+  if (msgType === 'select') el = elevateToContainer(el);
 
   var rect = el.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) return;
