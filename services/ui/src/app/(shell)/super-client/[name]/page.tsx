@@ -1466,15 +1466,17 @@ export default function SuperClientPage() {
     setMicrositeEditBanner("");
     try {
       let finalHtml: string;
+      let editSummary: string = '';
 
       if (hasText && activeLogo) {
         // Text edit first, then inject logo via deterministic server bypass
-        await editSuperClientMicrosite(
+        const { summary: s1 } = await editSuperClientMicrosite(
           apiKey,
           name,
           viewingMicrosite.id,
           instruction,
         );
+        editSummary = s1;
         const logoSrc =
           "url" in activeLogo
             ? activeLogo.url
@@ -1488,13 +1490,14 @@ export default function SuperClientPage() {
         finalHtml = html;
       } else if (hasText) {
         // Text edit only
-        const { html } = await editSuperClientMicrosite(
+        const { html, summary: s } = await editSuperClientMicrosite(
           apiKey,
           name,
           viewingMicrosite.id,
           instruction,
         );
         finalHtml = html;
+        editSummary = s;
       } else {
         // Logo-only: deterministic server-side injection, no LLM
         const logoSrc =
@@ -1508,6 +1511,7 @@ export default function SuperClientPage() {
           `__LOGO_INJECT__:${logoSrc}`,
         );
         finalHtml = html;
+        editSummary = 'Logo updated';
       }
 
       setMicrositeEditInput("");
@@ -1548,7 +1552,7 @@ export default function SuperClientPage() {
 
       // Save assistant confirmation to chat
       const successAt = new Date().toISOString();
-      const successContent = `Done! Updated **${micrositeTitle}** microsite.`;
+      const successContent = editSummary || `Updated microsite`;
       setMessages((prev) => [
         ...prev,
         {
@@ -2842,22 +2846,25 @@ export default function SuperClientPage() {
                       );
                     }
                     if (msg.editContext === 'microsite' || msg.editContext === 'proposal') {
-                      const eyebrowLabel = msg.editContext === 'microsite' ? 'Site Edit' : 'Proposal Edit';
+                      const EyebrowIcon = msg.editContext === 'microsite' ? Globe : FileText;
+                      const eyebrowLabel = msg.editContext === 'microsite' ? 'Edit microsite' : 'Edit proposal';
                       return (
-                        <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingRight: 2 }}>
+                        <div key={msg.id} className="chat-v2-message chat-v2-message--user">
+                          <div className="chat-v2-bubble" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                             <span style={{
-                              fontSize: 10,
-                              letterSpacing: '0.08em',
-                              textTransform: 'uppercase',
-                              color: 'var(--text-secondary)',
-                              opacity: 0.5,
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: '#706F6B',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              lineHeight: 1,
+                              marginBottom: 0,
                             }}>
+                              <EyebrowIcon size={16} style={{ flexShrink: 0 }} />
                               {eyebrowLabel}
                             </span>
-                          </div>
-                          <div className="chat-v2-message chat-v2-message--user">
-                            <div className="chat-v2-bubble">{visibleContent}</div>
+                            {visibleContent}
                           </div>
                         </div>
                       );
@@ -2880,13 +2887,11 @@ export default function SuperClientPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 2 }}>
                           <Icon icon={isError ? X : CheckCircle} size="xs" style={{ color: isError ? '#ef4444' : '#22c55e' }} />
                           <span style={{
-                            fontSize: 10,
-                            letterSpacing: '0.08em',
-                            textTransform: 'uppercase',
+                            fontSize: 11,
+                            fontWeight: 500,
                             color: isError ? '#ef4444' : '#22c55e',
-                            opacity: 0.8,
                           }}>
-                            {isError ? 'Edit Failed' : 'Updated'}
+                            {isError ? 'Edit failed' : 'Microsite updated'}
                           </span>
                         </div>
                         <div className="chat-v2-message chat-v2-message--assistant">
@@ -2911,13 +2916,11 @@ export default function SuperClientPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 2 }}>
                           <Icon icon={CheckCircle} size="xs" style={{ color: '#22c55e' }} />
                           <span style={{
-                            fontSize: 10,
-                            letterSpacing: '0.08em',
-                            textTransform: 'uppercase',
+                            fontSize: 11,
+                            fontWeight: 500,
                             color: '#22c55e',
-                            opacity: 0.8,
                           }}>
-                            Updated
+                            Proposal updated
                           </span>
                         </div>
                       )}

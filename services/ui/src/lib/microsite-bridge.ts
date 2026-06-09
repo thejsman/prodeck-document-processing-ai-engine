@@ -244,6 +244,19 @@ const BRIDGE_SCRIPT_BODY = /* javascript */ `
 // ── Skip list: elements we never select ──────────────────────────────────
 var SKIP_TAGS = { html:1, body:1, head:1, script:1, style:1, meta:1, link:1, title:1 };
 
+// ── Word-split class detection ────────────────────────────────────────────
+// JS animation libraries (GSAP SplitText, splitting.js, etc.) wrap each word/char
+// in a <span class="word"> (or "char", "letter", etc.) at runtime. These spans
+// are never present in the stored HTML, so the server can never locate them.
+// We detect them early and walk up to the actual text container instead.
+var WORD_SPLIT_CLS = {word:1,char:1,letter:1,line:1,'split-word':1,'split-char':1,'split-text':1,'split-line':1,'word-split':1,'char-split':1};
+function isWordSplitSpan(el) {
+  if (!el || (el.tagName||'').toLowerCase() !== 'span') return false;
+  var cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/) : [];
+  for (var i = 0; i < cls.length; i++) { if (WORD_SPLIT_CLS[cls[i]]) return true; }
+  return false;
+}
+
 // ── Section type detection (reads section[id] directly) ──────────────────
 function getSectionType(el) {
   var cur = el;
@@ -334,6 +347,13 @@ function getCssPath(el) {
 // ── Find interesting element: minimal upward walking ─────────────────────
 function getInteresting(raw) {
   if (!raw) return null;
+
+  // Walk out of word-split spans — they are JS-generated at runtime and don't
+  // exist in the stored HTML, so the server can never locate them by path.
+  // Climb to the nearest non-word-split ancestor (the real text container).
+  var cur = raw;
+  while (isWordSplitSpan(cur) && cur.parentElement) cur = cur.parentElement;
+  if (cur !== raw) return getInteresting(cur);
 
   // Walk out of SVG to the root SVG element
   if (raw.closest && raw.closest('svg')) {

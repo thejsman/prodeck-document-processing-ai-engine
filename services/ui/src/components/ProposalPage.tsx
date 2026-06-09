@@ -1352,9 +1352,7 @@ export function ProposalPage() {
                         </div>
                         <div className="proposal-card-footer">
                           {ns ? (
-                            <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
-                              Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ns}</span>
-                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{ns}</span>
                           ) : (
                             <span />
                           )}
