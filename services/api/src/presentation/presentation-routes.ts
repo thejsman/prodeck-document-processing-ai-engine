@@ -2534,7 +2534,10 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       // Strip markdown fences, resolve image:// placeholders with real photos, inject onerror fallback
       const rawHtml = raw
-        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
+        // Strip em dashes the LLM generates despite being told not to.
+        // " — " (spaced) → ", "  |  bare "—" → "-"
+        .replace(/ — /g, ', ').replace(/—/g, '-');
 
       const html = (await resolveImagePlaceholders(rawHtml))
         .replace(
