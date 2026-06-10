@@ -139,7 +139,10 @@ function fix(){
     //          use opacity:0+pointer-events:none as their closed state instead of
     //          display:none). These must NOT be forced visible or the menu appears
     //          open on load and can never be closed.
-    if(parseFloat(cs.opacity||'1')<=0.05&&cs.display!=='none'&&cs.pointerEvents!=='none'){
+    // Threshold <=0.005: CSS animations always start at exactly opacity:0.
+    // Design overlays (grain, noise, scanline textures) intentionally use
+    // values like 0.03, 0.05, 0.1+ and must keep their designed opacity.
+    if(parseFloat(cs.opacity||'1')<=0.005&&cs.display!=='none'&&cs.pointerEvents!=='none'){
       el.style.setProperty('opacity','1','important');
       el.style.setProperty('visibility','visible','important');
       el.style.setProperty('transform','none','important');

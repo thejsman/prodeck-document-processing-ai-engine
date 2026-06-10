@@ -302,14 +302,16 @@ const FONT_OPTIONS: Array<{ label: string; stack: string }> = [
   { label: 'System UI',        stack: 'system-ui, -apple-system, sans-serif' },
 ];
 
-// ── Compress an image File to a base64 data URL (≤200px tall, PNG 85%) ───────
+// ── Compress an image File to a base64 data URL ──────────────────────────────
+// Uses JPEG at 800px max width — ~10x smaller than PNG for photos.
+// PNG was creating 1-2MB data URIs that bloated the HTML file.
 function compressToDataUrl(file: File): Promise<string> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const MAX = 1200;
+        const MAX = 800;
         const scale = img.naturalWidth > MAX ? MAX / img.naturalWidth : 1;
         const w = Math.round(img.naturalWidth * scale);
         const h = Math.round(img.naturalHeight * scale);
@@ -318,7 +320,7 @@ function compressToDataUrl(file: File): Promise<string> {
         const ctx = canvas.getContext('2d');
         if (!ctx) { resolve(e.target!.result as string); return; }
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/png', 0.85));
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
       };
       img.src = e.target!.result as string;
     };
@@ -503,6 +505,14 @@ function isNavLogoEl(path: string, tag: string, outerHtml: string): boolean {
 export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
   const tag      = selected.tag?.toLowerCase() ?? '';
   const isImg    = isImgEl(tag);
+  // A container (div/section) elevated from an <img> click via elevateToContainer:
+  // it is NOT an <img> itself, but it wraps a fill-image. Treat it like an img
+  // for editing purposes so Local/URL replacement routes to __IMAGE_INJECT_SCOPED__
+  // (which finds the <img src> inside) rather than __BG_IMAGE_PATCH__ (CSS bg-image
+  // which is invisible because the real <img> element sits on top of it).
+  const wrappedImgSrc = !isImg ? parseImgSrc(selected.outerHtml) : '';
+  const hasWrappedImg = wrappedImgSrc !== '';
+  const isImgLike     = isImg || hasWrappedImg; // controls routing for all image ops
   const isIcon   = isIconEl(tag, selected.outerHtml);
   const isNavLogo = isNavLogoEl(selected.path ?? '', tag, selected.outerHtml ?? '');
 
@@ -702,8 +712,8 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         </>
       )}
 
-      {/* Image URL + local upload — img elements only */}
-      {isImg && (
+      {/* Image URL + local upload — img elements AND containers wrapping a fill-image */}
+      {isImgLike && (
         <>
           <Sep />
           <ImageInput
@@ -716,7 +726,7 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
       )}
 
       {/* Text content — leaf text elements */}
-      {isLeaf && !isImg && (
+      {isLeaf && !isImgLike && (
         <>
           <Sep />
           <input
@@ -735,8 +745,8 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         </>
       )}
 
-      {/* Background image URL + local upload — containers only */}
-      {!isImg && !isText && !isIcon && (
+      {/* Background image URL + local upload — containers WITHOUT a wrapped img */}
+      {!isImgLike && !isText && !isIcon && (
         <>
           <Sep />
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>BG IMG</span>

@@ -104,7 +104,15 @@ async function readMeta(dir: string): Promise<SuperClientMeta> {
 async function readHistory(dir: string): Promise<HistoryEntry[]> {
   try {
     const raw = await readFile(path.join(dir, 'history.json'), 'utf-8');
-    return JSON.parse(raw) as HistoryEntry[];
+    const entries = JSON.parse(raw) as HistoryEntry[];
+    // Sort ascending by createdAt. Entries without a timestamp (written before
+    // this field existed) sort to the front so old history stays in place.
+    return entries.sort((a, b) => {
+      if (!a.createdAt && !b.createdAt) return 0;
+      if (!a.createdAt) return -1;
+      if (!b.createdAt) return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
   } catch {
     return [];
   }
@@ -860,13 +868,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
-      // Persist turn to history
-      const now = new Date().toISOString();
+      // Persist turn to history.
+      // User and assistant get distinct timestamps (+1 ms apart) so timestamp-
+      // based sort always places the user message before its paired assistant reply.
+      const userTs      = new Date().toISOString();
+      const assistantTs = new Date(Date.now() + 1).toISOString();
       const editCtx = activeProposalId ? ({ editContext: 'proposal' } as const) : {};
       const updatedHistory: HistoryEntry[] = [
         ...history,
-        { role: 'user', content: message, createdAt: now, ...editCtx },
-        { role: 'assistant', content: displayResponse, createdAt: now, ...editCtx },
+        { role: 'user',      content: message,         createdAt: userTs,      ...editCtx },
+        { role: 'assistant', content: displayResponse, createdAt: assistantTs, ...editCtx },
       ];
       await writeFile(path.join(dir, 'history.json'), JSON.stringify(updatedHistory, null, 2));
 
@@ -1507,10 +1518,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
 
         // Case: element already has an <img> child — replace its src + strip onerror
+        // Non-greedy [^>]*? so we match the real src= not one inside onerror="...src=..."
         if (/<img\b/i.test(elHtml)) {
           const patched = elHtml
-            .replace(/(<img\b[^>]*)\bsrc="[^"]*"/i, `$1src="${newSrc}"`)
-            .replace(/(<img\b[^>]*)\bonerror="[^"]*"/gi, '$1');
+            .replace(/(<img\b[^>]*?)\bsrc="[^"]*"/i, `$1src="${newSrc}"`)
+            .replace(/(<img\b[^>]*?)\bonerror="[^"]*"/gi, '$1');
           return saveValidatedEdit(
             cleanedHtml.slice(0, bounds.start) + patched + cleanedHtml.slice(bounds.end),
             'Logo updated',
@@ -1560,9 +1572,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // 3. If still unchanged, replace first <img src="..."> in the document
+      // Non-greedy [^>]*? prevents matching src= inside onerror handlers.
       if (updatedHtml === html) {
         updatedHtml = html.replace(
-          /(<img\b[^>]+\bsrc=["'])(https?:\/\/[^'"]+)(["'])/i,
+          /(<img\b[^>]*?\bsrc=["'])(https?:\/\/[^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
       }
@@ -1592,9 +1605,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           () => `background-image: url('${newUrl}')`,
         );
         if (out !== target) return out;
-        // 2. <img src="..."> — matches ANY existing src value (relative, data:, https://, etc.)
+        // 2. <img src="..."> — matches the FIRST src= in the tag (non-greedy [^>]*?).
+        // Without ?, the greedy match skips the real src and lands on src= inside
+        // onerror handlers (e.g. onerror="this.src='fallback'"), leaving the
+        // visible image unchanged while only the fallback URL gets replaced.
         out = target.replace(
-          /(<img\b[^>]*\bsrc=["'])([^'"]+)(["'])/i,
+          /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
         if (out !== target) return out;
@@ -1605,7 +1621,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // Also directly patch src attribute on a void element (img/source/input type=image)
       // when findByPath locates it — handles elements with relative or data: src values.
+      // Uses <img\b[^>]*?\bsrc= (non-greedy) so the first src= in the tag is matched,
+      // never the src= inside an onerror="this.src='fallback'" handler.
       function patchSrcOnElement(target: string): string {
+        const patched = target.replace(
+          /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
+        if (patched !== target) return patched;
+        // Fallback for non-img void elements (source, input[type=image], etc.)
         return target.replace(
           /(\bsrc=["'])([^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
@@ -1706,7 +1730,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const oldSrc = rawHintSrc ? rawHintSrc.replace(/&amp;/gi, '&') : undefined;
         if (oldSrc && oldSrc !== newUrl) {
           const escapedSrc = oldSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const imgRe = new RegExp(`(<img\\b[^>]*\\bsrc=")${escapedSrc}("[^>]*>)`, 'i');
+          // Non-greedy [^>]*? prevents matching src= inside onerror= attribute values
+          const imgRe = new RegExp(`(<img\\b[^>]*?\\bsrc=")${escapedSrc}("[^>]*>)`, 'i');
 
           // Try to scope the replacement to the element's section anchor
           const sectionM = cssPath.match(/\b(section|div|article|main)#([\w-]+)/);
@@ -1845,9 +1870,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         return { ok: false, reason: 'Result HTML is truncated (missing </body> — edit produced incomplete output)' };
       }
 
-      // 2. Length guard — result must be at least 35% of the original
-      //    Prevents edits that silently delete most of the microsite
-      if (updated.length < html.length * 0.35) {
+      // 2. Length guard — result must be at least 35% of the original.
+      //    Skip when the original contains data: URIs (inline images) — replacing
+      //    a large data URI with a URL legitimately shrinks the HTML by >65%.
+      const originalHasDataUri = html.includes('data:image/') || html.includes('data:application/');
+      if (!originalHasDataUri && updated.length < html.length * 0.35) {
         return { ok: false, reason: 'Edit removed too much content — result is less than 35% of the original size' };
       }
 
@@ -2256,6 +2283,48 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const elementHtml = html.slice(bounds.start, bounds.end);
+
+      // Strategy 1 (CSS rules — runs FIRST): look in <style> blocks for rules whose
+      // selector references the element's ID word (e.g. section#hero → .hero-bg, #hero).
+      // This is the most common pattern: the visual background lives in a CSS class
+      // (.hero-bg, .about-bg, etc.) not inline on the element itself. Running this first
+      // prevents Strategy 2 from short-circuiting on stale inline styles left by earlier
+      // fallback writes, which would update the invisible outer-element style while the
+      // real .hero-bg CSS rule keeps showing the old image.
+      const sectionId = cssPath.match(/#([\w-]+)/)?.[1] ?? '';
+      if (sectionId) {
+        const esc = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const patchedHtml = html.replace(
+          /([^{}]+)\{([^}]*\bbackground-image\s*:\s*url\([^)]*\)[^}]*)\}/gi,
+          (match, selector, body) => {
+            if (!new RegExp(`\\b${esc}\\b`, 'i').test(selector)) return match;
+            const newBody = body.replace(
+              /\bbackground-image\s*:\s*url\([^)]*\)/gi,
+              `background-image:url('${imgUrl}')`,
+            );
+            return `${selector}{${newBody}}`;
+          },
+        );
+        if (patchedHtml !== html) {
+          return saveValidatedEdit(patchedHtml, 'Background image updated');
+        }
+      }
+
+      // Strategy 2: replace every background-image:url() in the element's inline HTML
+      // (opening tag inline style + nested child divs with inline background-image).
+      const bgReplaceRe = /\bbackground-image\s*:\s*url\([^)]*\)/gi;
+      if (bgReplaceRe.test(elementHtml)) {
+        const fullPatched = elementHtml.replace(
+          bgReplaceRe,
+          `background-image:url('${imgUrl}')`,
+        );
+        return saveValidatedEdit(
+          html.slice(0, bounds.start) + fullPatched + html.slice(bounds.end),
+          'Background image updated',
+        );
+      }
+
+      // Strategy 3: no existing background-image anywhere — add inline style to opening tag
       const tagEnd = elementHtml.indexOf('>');
       if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
 
@@ -2266,8 +2335,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const bgVal = `background-image:url('${imgUrl}');background-size:cover;background-position:center`;
       let patchedTag: string;
       if (sm) {
+        // Use url\([^)]*\) to match the entire url(...) token — including data URIs
+        // which contain internal semicolons (data:image/png;base64,...).
         const existing = sm[1]
-          .replace(/\bbackground-image\s*:[^;]+;?\s*/gi, '')
+          .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
           .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
           .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
           .trim().replace(/;$/, '');
@@ -2275,8 +2346,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       } else {
         patchedTag = `${openTag} style="${bgVal}"`;
       }
-      const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
-      return saveValidatedEdit(updatedHtml, 'Background image updated');
+      return saveValidatedEdit(
+        html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end),
+        'Background image updated',
+      );
     }
 
     // ── Lucide SVG replacement — replaces element with raw SVG markup ─────────
@@ -2425,7 +2498,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           let patchedTag: string;
           if (sm) {
             const existing = sm[1]
-              .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/g, '')
               .replace(/\bbackground-size\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-position\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-repeat\s*:[^;]+;?\s*/g, '')

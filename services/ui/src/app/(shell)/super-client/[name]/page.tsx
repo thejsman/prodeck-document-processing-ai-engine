@@ -1412,16 +1412,23 @@ export default function SuperClientPage() {
           );
         const selectedTag = selectedElement?.tag?.toLowerCase() ?? "";
 
-        if (selectedElement?.path && isBgIntent && selectedTag !== "img") {
-          // "add/set/change background image on a section/div"
-          // Use __BG_IMAGE_PATCH__ which sets background-image in the inline style —
-          // works whether or not the element already has a background image.
+        // Container elevated from an <img> click: outerHtml contains <img src>.
+        // __BG_IMAGE_PATCH__ would set a CSS background-image that's invisible
+        // because the real <img> element sits on top. Use __IMAGE_INJECT_SCOPED__
+        // instead — it finds and replaces the <img src> inside the container.
+        const hasWrappedImg = selectedTag !== "img" &&
+          /<img\b/i.test(selectedElement?.outerHtml ?? "");
+
+        if (selectedElement?.path && isBgIntent && selectedTag !== "img" && !hasWrappedImg) {
+          // "add/set/change background image on a section/div" with no img child
+          // Use __BG_IMAGE_PATCH__ which sets background-image in the inline style.
           instruction = `__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`;
         } else if (
           selectedElement?.path &&
-          (selectedTag === "img" || isReplaceIntent)
+          (selectedTag === "img" || isReplaceIntent || hasWrappedImg)
         ) {
-          // Explicit replacement OR <img> selected → scoped src/attr replacement.
+          // Explicit replacement, <img> selected, or container with wrapped img
+          // → scoped src/attr replacement via __IMAGE_INJECT_SCOPED__.
           const hintSnippet = selectedElement.outerHtml?.slice(0, 300) ?? "";
           instruction = `__IMAGE_INJECT_SCOPED__:${selectedElement.path}||${url}||${hintSnippet}`;
         } else if (selectedElement?.path) {

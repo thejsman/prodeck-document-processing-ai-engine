@@ -356,6 +356,7 @@ export async function generateSectionHtml(
     `- Card/grid sections: each card MUST have a title AND a description of ≥2 sentences`,
     `- Timeline sections: show phase name, duration, AND owner (Agency/Client/Joint) if present in content JSON`,
     `- Deliverables sections: show bullet-point deliverables per workstream, NOT just workstream names`,
+    `- NEVER use em dashes (—) in any text — use a comma, colon, parentheses, or rewrite the sentence`,
     ``,
     `LAYOUT SAFETY RULES (prevent clipping, overflow, and card overlap — non-negotiable):`,
     `- NEVER use overflow:hidden on any element that contains body text or list content`,

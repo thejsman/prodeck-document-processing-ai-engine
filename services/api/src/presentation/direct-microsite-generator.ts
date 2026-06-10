@@ -82,6 +82,7 @@ CONTENT RULES:
 - Why Choose Us: list every credential and case study mentioned
 - If a section heading exists in the proposal but has minimal content, render the section anyway using what IS available
 - NEVER use placeholder text like "[Information not available]"
+- NEVER use em dashes (—) in any text — use a comma, colon, parentheses, or rewrite the sentence
 
 OUTPUT FORMAT:
 - Start the response IMMEDIATELY with <!DOCTYPE html> — no explanation, no preamble, no markdown fences

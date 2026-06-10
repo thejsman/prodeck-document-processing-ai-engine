@@ -64,6 +64,9 @@ export function buildBriefFramingRule(
     `  - Scan the proposal's Executive Summary for strong transformation phrases and use them verbatim or near-verbatim for the hero headline.`,
     `  - Priority order: (1) direct quote from Executive Summary, (2) rephrased key outcome from the proposal, (3) client name + primary workstream benefit.`,
     `  - NEVER fabricate a generic headline when the proposal contains specific compelling language.`,
+    '',
+    'PUNCTUATION RULE:',
+    `  - NEVER use em dashes (—) in any text — use a comma, colon, parentheses, or rewrite the sentence.`,
   ].join('\n');
 }
 
