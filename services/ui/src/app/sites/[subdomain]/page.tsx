@@ -1,9 +1,12 @@
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { getAst } from '@/lib/micrositeStorage';
+import { verifyAccessToken, accessCookieName } from '@/lib/micrositeAuth';
 import { Microsite } from '@/components/microsite/Microsite';
 import { MicrositeV2Frame } from '@/components/microsite/MicrositeV2Frame';
+import { PasswordGate } from '@/components/microsite/PasswordGate';
 
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 interface Params {
   params: Promise<{ subdomain: string }>;
@@ -13,6 +16,13 @@ export default async function MicrositePublicPage({ params }: Params) {
   const { subdomain } = await params;
   const record = await getAst(subdomain);
   if (!record) notFound();
+
+  if (record.passwordHash) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(accessCookieName(subdomain))?.value ?? '';
+    const granted = verifyAccessToken(subdomain, record.passwordHash, token);
+    if (!granted) return <PasswordGate subdomain={subdomain} />;
+  }
 
   if (record.ast.generationMode === 'v2') {
     const html = (record.ast.sections?.[0] as { customHtml?: string } | undefined)?.customHtml ?? '';
