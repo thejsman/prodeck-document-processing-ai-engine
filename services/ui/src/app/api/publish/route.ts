@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { validateSubdomain } from '@/lib/subdomainValidation';
@@ -10,6 +11,7 @@ interface PublishRequest {
   namespace: string;
   ast: LayoutAST;
   subdomain: string;
+  password?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -20,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { namespace, ast, subdomain } = body;
+  const { namespace, ast, subdomain, password } = body;
   if (!namespace || !ast || !subdomain) {
     return NextResponse.json({ error: 'namespace, ast, and subdomain are required' }, { status: 400 });
   }
@@ -30,8 +32,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: v.message }, { status: 400 });
   }
 
+  const passwordHash = password
+    ? crypto.scryptSync(password, subdomain, 64).toString('hex')
+    : undefined;
+
   try {
-    const { publishedAt } = await putAst(subdomain, ast, { namespace });
+    const { publishedAt } = await putAst(subdomain, ast, { namespace, passwordHash });
 
     // Flush ISR cache immediately so re-publishes are visible without the 60s
     // revalidate window. Safe to call even if the path hasn't been rendered yet.
@@ -48,6 +54,7 @@ export async function POST(req: NextRequest) {
       subdomain,
       namespace,
       publishedAt,
+      passwordProtected: !!passwordHash,
     });
   } catch (err) {
     console.error('[publish] failed to publish microsite', err);

@@ -72,6 +72,7 @@ services:
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - MICROSITE_ACCESS_SECRET=${MICROSITE_ACCESS_SECRET:-}
     depends_on:
       api:
         condition: service_healthy
