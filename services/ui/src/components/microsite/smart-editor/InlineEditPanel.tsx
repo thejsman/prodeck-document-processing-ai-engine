@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { BridgeMessage } from '@/lib/microsite-bridge';
 import {
   Home, Search, Menu, ChevronRight, ChevronLeft, ChevronUp, ChevronDown,
@@ -561,6 +561,24 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
 
   const [showIconPicker, setShowIconPicker] = useState(false);
 
+  // Self-measure panel width AND container width via offsetParent.
+  // useLayoutEffect is synchronous before paint, so there is never a visible flicker
+  // and no dependency on the parent's ResizeObserver timing (containerW prop may be 0).
+  const panelOuterRef = useRef<HTMLDivElement>(null);
+  const [measuredHalfW, setMeasuredHalfW] = useState(420);
+  const [measuredContainerW, setMeasuredContainerW] = useState(0);
+  useLayoutEffect(() => {
+    const el = panelOuterRef.current;
+    if (!el) return;
+    const half = Math.ceil(el.offsetWidth / 2) + 4;
+    if (half !== measuredHalfW) setMeasuredHalfW(half);
+    const parent = el.offsetParent as HTMLElement | null;
+    if (parent) {
+      const cw = parent.clientWidth;
+      if (Math.abs(cw - measuredContainerW) > 1) setMeasuredContainerW(cw);
+    }
+  });
+
   const dis = micrositeEditing;
 
   const PANEL_H = 48;
@@ -575,16 +593,19 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
     ? (elementCenter > containerH * 0.55 || below + PANEL_H + 40 > containerH)
     : elementCenter > 300;
   const unclamped = showAbove ? above : below;
-  // Hard-clamp so the panel never escapes the container bounds
+  // Clamp at the bottom so the panel doesn't get buried below the container.
+  // No top clamp: when the user scrolls up, the toolbar should scroll off the
+  // top edge naturally (following the element) rather than sticking at y=0.
   const floatTop = containerH > 0
-    ? Math.max(GAP, Math.min(unclamped, containerH - PANEL_H - GAP))
-    : Math.max(GAP, unclamped);
-  // Horizontal: center on element, clamped so panel never clips the right or left edge.
-  // 380px is a generous estimate of half the max panel width (full text toolbar ≈ 760px).
-  const PANEL_HALF_W = 380;
+    ? Math.min(unclamped, containerH - PANEL_H - GAP)
+    : unclamped;
+  // Horizontal: clamp panel center so it never clips left or right.
+  // Use self-measured container width (from offsetParent) which is always accurate.
+  // Fall back to the containerW prop only if self-measurement hasn't fired yet.
+  const effectiveCW = measuredContainerW > 0 ? measuredContainerW : containerW;
   const rawLeft = rect.left + rect.width / 2;
-  const floatLeft = containerW > 0
-    ? Math.max(PANEL_HALF_W + 8, Math.min(rawLeft, containerW - PANEL_HALF_W - 8))
+  const floatLeft = effectiveCW > 0
+    ? Math.max(measuredHalfW + 8, Math.min(rawLeft, effectiveCW - measuredHalfW - 8))
     : rawLeft;
 
   const label = [selected.tag, selected.sectionType].filter(Boolean).join(' · ');
@@ -614,6 +635,7 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
     // Outer wrapper: absolutely positioned near the selected element.
     // Icon picker uses position:absolute bottom:100% to float above this.
     <div
+      ref={panelOuterRef}
       style={{
         position: 'absolute',
         top: floatTop,
