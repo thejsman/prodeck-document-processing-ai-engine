@@ -2223,15 +2223,23 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const rest    = elementHtml.slice(tagEnd);
       const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
       const sm = styleRx.exec(openTag);
+      // When setting background-color, also clear background-image so the color shows
+      // (bg-image renders on top of bg-color; CSS class bg-image needs !important override)
+      const clearBgImage = prop === 'background-color';
       let patchedTag: string;
       if (sm) {
         const escaped = prop.replace(/-/g, '\\-');
-        const existing = sm[1]
+        let existing = sm[1]
           .replace(new RegExp(`\\b${escaped}\\s*:[^;]+;?\\s*`, 'gi'), '')
           .trim().replace(/;$/, '');
-        patchedTag = openTag.replace(styleRx, `style="${existing ? existing + '; ' : ''}${prop}:${value}"`);
+        if (clearBgImage) {
+          existing = existing.replace(/background-image\s*:[^;]+;?\s*/gi, '').trim().replace(/;$/, '');
+        }
+        const extra = clearBgImage ? '; background-image:none !important' : '';
+        patchedTag = openTag.replace(styleRx, `style="${existing ? existing + '; ' : ''}${prop}:${value}${extra}"`);
       } else {
-        patchedTag = `${openTag} style="${prop}:${value}"`;
+        const extra = clearBgImage ? '; background-image:none !important' : '';
+        patchedTag = `${openTag} style="${prop}:${value}${extra}"`;
       }
       const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
       return saveValidatedEdit(updatedHtml, `${prop} set to ${value}`);
@@ -2332,7 +2340,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const rest    = elementHtml.slice(tagEnd);
       const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
       const sm = styleRx.exec(openTag);
-      const bgVal = `background-image:url('${imgUrl}');background-size:cover;background-position:center`;
+      const bgVal = `background-image:url('${imgUrl}') !important;background-size:cover !important;background-position:center !important`;
       let patchedTag: string;
       if (sm) {
         // Use url\([^)]*\) to match the entire url(...) token — including data URIs

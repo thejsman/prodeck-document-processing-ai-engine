@@ -217,6 +217,10 @@ function LucideIconPicker({ disabled, onSelect, onClose }: {
 interface Props {
   selected: BridgeMessage;
   micrositeEditing: boolean;
+  /** Height of the iframe container — used to flip panel above the element when near the bottom */
+  containerH?: number;
+  /** Width of the iframe container — used to clamp panel so it never overflows the right edge */
+  containerW?: number;
   onStylePatch: (prop: string, value: string) => Promise<void>;
   onTextPatch: (newText: string) => Promise<void>;
   onImageReplace: (url: string) => Promise<void>;
@@ -502,7 +506,7 @@ function isNavLogoEl(path: string, tag: string, outerHtml: string): boolean {
   return tag === 'img' || tag === 'span' || tag === 'svg';
 }
 
-export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
   const tag      = selected.tag?.toLowerCase() ?? '';
   const isImg    = isImgEl(tag);
   // A container (div/section) elevated from an <img> click via elevateToContainer:
@@ -516,13 +520,21 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
   const isIcon   = isIconEl(tag, selected.outerHtml);
   const isNavLogo = isNavLogoEl(selected.path ?? '', tag, selected.outerHtml ?? '');
 
-  // Treat element as "text" if it's a known text tag OR if it's any non-void element
-  // whose inner content has no child HTML elements (leaf containing only text).
-  // This covers <div class="scope-card-title">Product Line Pages</div> etc.
+  // Detect background containers: divs/sections whose purpose is to hold a background image.
+  // These have a background-image inline style, or an id/class name that signals bg role.
+  // They must NOT be classified as text elements even when they have no child HTML.
+  const isBgContainer = !isImg && !isIcon && (
+    /background(?:-image)?\s*:\s*url\(/i.test(selected.outerHtml) ||
+    /\bid="[^"]*(?:bg|Bg|BG|background|Background|backdrop|Backdrop|cover|Cover|hero)[^"]*"/i.test(selected.outerHtml) ||
+    /\bclass="[^"]*(?:\bbg\b|\bbg-|-bg\b|background|backdrop|\bcover\b|parallax|hero-bg|banner-bg)[^"]*"/i.test(selected.outerHtml)
+  );
+
+  // Treat element as "text" if it's a known text tag OR a leaf element with only text content.
+  // Background containers are always excluded from the text classification.
   const hasChildElements = /<\w/.test(
     selected.outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
   );
-  const isText = isTextEl(tag) || (!isImg && !isIcon && !hasChildElements);
+  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements)) && !isBgContainer;
   const isLeaf = isText && isLeafEl(selected.outerHtml);
 
   const [localFontSize,   setLocalFontSize]   = useState(16);
@@ -551,10 +563,29 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
 
   const dis = micrositeEditing;
 
-  // ── Centered, bottom-anchored position ───────────────────────────────────
-  // Horizontally centered in the panel; sits near the bottom of the iframe
-  // area so it stays visible and responsive as the panel is drag-resized.
   const PANEL_H = 48;
+  const GAP = 8;
+  const rect = selected.rect;
+  const below = rect.top + rect.height + GAP;
+  const above = rect.top - PANEL_H - GAP;
+  // Flip above when: element center is past 55% of container, OR panel would be within 40px of bottom.
+  // Fall back to rect.top > 300 when containerH hasn't been measured yet (still 0).
+  const elementCenter = rect.top + rect.height / 2;
+  const showAbove = containerH > 0
+    ? (elementCenter > containerH * 0.55 || below + PANEL_H + 40 > containerH)
+    : elementCenter > 300;
+  const unclamped = showAbove ? above : below;
+  // Hard-clamp so the panel never escapes the container bounds
+  const floatTop = containerH > 0
+    ? Math.max(GAP, Math.min(unclamped, containerH - PANEL_H - GAP))
+    : Math.max(GAP, unclamped);
+  // Horizontal: center on element, clamped so panel never clips the right or left edge.
+  // 380px is a generous estimate of half the max panel width (full text toolbar ≈ 760px).
+  const PANEL_HALF_W = 380;
+  const rawLeft = rect.left + rect.width / 2;
+  const floatLeft = containerW > 0
+    ? Math.max(PANEL_HALF_W + 8, Math.min(rawLeft, containerW - PANEL_HALF_W - 8))
+    : rawLeft;
 
   const label = [selected.tag, selected.sectionType].filter(Boolean).join(' · ');
   const bold   = isBoldEl(selected.outerHtml);
@@ -580,13 +611,13 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
   }
 
   return (
-    // Outer wrapper: handles absolute positioning so the icon picker can
-    // use position:absolute bottom:100% to float directly above the toolbar.
+    // Outer wrapper: absolutely positioned near the selected element.
+    // Icon picker uses position:absolute bottom:100% to float above this.
     <div
       style={{
         position: 'absolute',
-        bottom: 14,
-        left: '50%',
+        top: floatTop,
+        left: floatLeft,
         transform: 'translateX(-50%)',
         zIndex: 30,
         maxWidth: 'calc(100% - 16px)',
@@ -616,15 +647,23 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         border: '1px solid rgba(255,255,255,0.12)',
         borderRadius: 10,
         boxShadow: '0 8px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3)',
-        padding: '0 12px',
         height: PANEL_H,
         display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        overflowX: 'auto',
-        overflowY: 'hidden',
+        alignItems: 'stretch',
+        overflow: 'hidden',
       }}
     >
+    {/* Scrollable editing controls */}
+    <div style={{
+      flex: 1,
+      minWidth: 0,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '0 12px',
+      overflowX: 'auto',
+      overflowY: 'hidden',
+    }}>
       {/* Element label */}
       <span style={{
         fontSize: 10, color: 'rgba(255,255,255,0.4)',
@@ -636,16 +675,18 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
 
       <Sep />
 
-      {/* Background color */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>BG</span>
-        <ColorSwatch
-          initial={bgColorHex}
-          title="Background color"
-          disabled={dis}
-          onCommit={(hex) => void onStylePatch('background-color', hex)}
-        />
-      </div>
+      {/* Background color — not applicable to bare <img> or icon/SVG elements */}
+      {!isImg && !isIcon && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>BG</span>
+          <ColorSwatch
+            initial={bgColorHex}
+            title="Background color"
+            disabled={dis}
+            onCommit={(hex) => void onStylePatch('background-color', hex)}
+          />
+        </div>
+      )}
 
       {/* Text color — text elements only */}
       {isText && (
@@ -712,8 +753,9 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         </>
       )}
 
-      {/* Image URL + local upload — img elements AND containers wrapping a fill-image */}
-      {isImgLike && (
+      {/* Image URL + local upload — img elements and containers wrapping a fill-image.
+          Hidden for bg-containers: they use the BG IMG control below instead. */}
+      {isImgLike && !isBgContainer && (
         <>
           <Sep />
           <ImageInput
@@ -734,19 +776,35 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
             value={localText} disabled={dis}
             onChange={(e) => setLocalText(e.target.value)}
             onBlur={(e) => { if (e.target.value !== selected.text) void onTextPatch(e.target.value); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') void onTextPatch(localText); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void onTextPatch(localText); } }}
             style={{
               height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4,
               border: '1px solid rgba(255,255,255,0.12)',
               background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)',
-              outline: 'none', width: 200, flexShrink: 0, opacity: dis ? 0.4 : 1,
+              outline: 'none', flex: '1 1 100px', minWidth: 80, maxWidth: 200, opacity: dis ? 0.4 : 1,
             }}
           />
+          <button
+            disabled={dis}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void onTextPatch(localText)}
+            title="Apply text (Enter)"
+            style={{
+              height: 26, width: 26, borderRadius: 4, border: 'none', flexShrink: 0,
+              background: dis ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.75)',
+              color: '#fff', cursor: dis ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, opacity: dis ? 0.4 : 1,
+            }}
+          >
+            ✓
+          </button>
         </>
       )}
 
-      {/* Background image URL + local upload — containers WITHOUT a wrapped img */}
-      {!isImgLike && !isText && !isIcon && (
+      {/* Background image URL + local upload — bg-containers + generic containers.
+          Nav-logo elements use LOGO controls instead. */}
+      {(isBgContainer || (!isImgLike && !isText && !isIcon && !isNavLogo)) && (
         <>
           <Sep />
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>BG IMG</span>
@@ -807,32 +865,38 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
       )}
 
       <div style={{ flexShrink: 0, width: 4 }} />
+    </div>{/* end scrollable section */}
 
-      {/* Remove — deletes only the selected element. "Remove Section" is a floating
-           blue button at the top-right of the preview (only for structural elements). */}
+    {/* Fixed right section — always visible, never scrolls away */}
+    <div style={{
+      flexShrink: 0,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '0 8px',
+      borderLeft: '1px solid rgba(255,255,255,0.10)',
+    }}>
+      {/* Remove — deletes only the selected element. */}
       {selected.path && (
-        <>
-          <Sep />
-          <button
-            onClick={() => void onRemoveSection()}
-            disabled={dis}
-            title="Remove this element"
-            style={{
-              height: 26, padding: '0 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-              border: '1px solid rgba(239,68,68,0.45)',
-              background: dis ? 'rgba(255,255,255,0.04)' : 'rgba(239,68,68,0.12)',
-              color: dis ? 'rgba(255,255,255,0.25)' : 'rgba(239,68,68,0.9)',
-              cursor: dis ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
-              opacity: dis ? 0.4 : 1, whiteSpace: 'nowrap',
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-            </svg>
-            Remove
-          </button>
-        </>
+        <button
+          onClick={() => void onRemoveSection()}
+          disabled={dis}
+          title="Remove this element"
+          style={{
+            height: 26, padding: '0 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+            border: '1px solid rgba(239,68,68,0.45)',
+            background: dis ? 'rgba(255,255,255,0.04)' : 'rgba(239,68,68,0.12)',
+            color: dis ? 'rgba(255,255,255,0.25)' : 'rgba(239,68,68,0.9)',
+            cursor: dis ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+            opacity: dis ? 0.4 : 1, whiteSpace: 'nowrap',
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+          Remove
+        </button>
       )}
 
       {/* Close */}
@@ -840,10 +904,10 @@ export function InlineEditPanel({ selected, micrositeEditing, onStylePatch, onTe
         background: 'none', border: 'none', cursor: 'pointer',
         color: 'rgba(255,255,255,0.35)', fontSize: 13, lineHeight: 1,
         display: 'flex', alignItems: 'center', padding: 3, borderRadius: 4, flexShrink: 0,
-        marginLeft: 4,
       }}>
         ✕
       </button>
+    </div>
     </div>
     </div>
   );

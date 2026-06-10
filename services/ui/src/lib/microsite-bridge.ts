@@ -1,6 +1,6 @@
 export interface BridgeMessage {
   source: 'microsite-bridge';
-  type: 'hover' | 'select' | 'leave';
+  type: 'hover' | 'select' | 'leave' | 'track-update';
   /** Raw HTML tag name: "div", "h1", "img", "svg", "button" */
   tag: string;
   /** Display label: "div.ms-card", "h1", "img", "section#hero" */
@@ -428,6 +428,22 @@ function elevateToContainer(el) {
   } catch(e) { return el; }
 }
 
+// ── Lightweight rect-only update (scroll / RAF tracking) ─────────────────
+// Uses 'track-update' type so the host updates the overlay/panel position
+// WITHOUT triggering the re-click-to-deselect logic.
+function sendRectUpdate(raw) {
+  var el = getInteresting(raw);
+  if (!el) return;
+  try {
+    var r = el.getBoundingClientRect();
+    window.parent.postMessage({
+      source: 'microsite-bridge',
+      type: 'track-update',
+      rect: { top: r.top, left: r.left, width: r.width, height: r.height }
+    }, '*');
+  } catch(e) {}
+}
+
 // ── Messaging ─────────────────────────────────────────────────────────────
 function sendMsg(msgType, rawEl) {
   var el = getInteresting(rawEl);
@@ -522,7 +538,7 @@ function startTracking(raw) {
         Math.abs(r.width  - trackRect.width)  > 0.5 ||
         Math.abs(r.height - trackRect.height) > 0.5) {
       trackRect = { top: r.top, left: r.left, width: r.width, height: r.height };
-      sendMsg('select', raw);
+      sendRectUpdate(raw);
     }
     trackRaf = requestAnimationFrame(tick);
   }
@@ -571,7 +587,7 @@ document.addEventListener('click', function (e) {
 }, true);
 
 window.addEventListener('scroll', function () {
-  if (selectedEl) sendMsg('select', selectedEl);
+  if (selectedEl) sendRectUpdate(selectedEl);
   if (lastHoverEl) sendMsg('hover', lastHoverEl);
 }, true);
 
