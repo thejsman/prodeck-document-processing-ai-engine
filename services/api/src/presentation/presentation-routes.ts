@@ -3629,12 +3629,12 @@ Common token names and their roles:
   });
 
   // POST /presentations/:namespace/:proposalId/publish-meta
-  // Saves the published subdomain/url after a successful S3 publish.
+  // Saves the published subdomain/url (or custom domain) after a successful S3 publish.
   app.post('/presentations/:namespace/:proposalId/publish-meta', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
-    const body = req.body as { subdomain: string; url: string; publishedAt: string };
+    const body = req.body as { subdomain?: string; customDomain?: string; url: string; publishedAt: string };
     // Prefer super-client directory if microsite exists there
     const superClientMicrosite = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.json`);
     let metaDir: string;
