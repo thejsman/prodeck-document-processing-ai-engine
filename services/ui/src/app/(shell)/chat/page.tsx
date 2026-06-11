@@ -918,6 +918,10 @@ export default function ChatPage() {
       await applyChatMicrositeInstruction(`__LOGO_SWAP__:${chatSelectedElement.path}||${url}`, 'Logo updated');
     }
   }
+  async function handleChatVideoReplace(url: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__VIDEO_INJECT__:${chatSelectedElement.path}||${url}||${chatHint()}`, 'Video updated');
+  }
   async function handleChatRemoveSection() {
     if (!chatSelectedElement?.path) return;
     await applyChatMicrositeInstruction(`__REMOVE_BY_PATH__:${chatSelectedElement.path}||${chatHint()}`, 'Removed');
@@ -1751,6 +1755,7 @@ export default function ChatPage() {
                   onIconReplace={handleChatIconReplace}
                   onSvgReplace={handleChatSvgReplace}
                   onLogoReplace={handleChatLogoReplace}
+                  onVideoReplace={handleChatVideoReplace}
                   onRemoveSection={handleChatRemoveSection}
                   onRemoveSectionContainer={handleChatRemoveSectionContainer}
                   onClose={() => clearChatBridgeSelection()}

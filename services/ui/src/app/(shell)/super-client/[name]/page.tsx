@@ -1787,6 +1787,14 @@ export default function SuperClientPage() {
     );
   }
 
+  async function handleVideoReplace(url: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(
+      `__VIDEO_INJECT__:${selectedElement.path}||${url}||${hint()}`,
+      "Video updated",
+    );
+  }
+
   async function handleIconReplace(url: string) {
     if (!selectedElement?.path) return;
     await applyMicrositeInstruction(
@@ -4379,6 +4387,7 @@ export default function SuperClientPage() {
                     onIconReplace={handleIconReplace}
                     onSvgReplace={handleSvgReplace}
                     onLogoReplace={handleLogoReplace}
+                    onVideoReplace={handleVideoReplace}
                     onRemoveSection={handleRemoveSection}
                     onRemoveSectionContainer={handleRemoveSectionContainer}
                     onClose={() => clearBridgeSelection()}

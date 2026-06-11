@@ -228,6 +228,7 @@ interface Props {
   onIconReplace: (url: string) => Promise<void>;
   onSvgReplace: (svgMarkup: string) => Promise<void>;
   onLogoReplace: (url: string) => Promise<void>;
+  onVideoReplace: (url: string) => Promise<void>;
   onRemoveSection: () => Promise<void>;
   onRemoveSectionContainer: () => Promise<void>;
   onClose: () => void;
@@ -255,6 +256,8 @@ function parseStyleProp(outerHtml: string, prop: string): string {
 const parseInlineBgColor = (h: string) => parseStyleProp(h, 'background-color');
 const parseInlineColor   = (h: string) => parseStyleProp(h, 'color');
 const parseImgSrc        = (h: string) => h.match(/\bsrc="([^"]+)"/i)?.[1] ?? '';
+const parseIframeSrc     = (h: string) => h.match(/<iframe\b[^>]*?\bsrc=["']([^"']+)["']/i)?.[1] ?? '';
+const isVideoSrc         = (src: string) => /(?:youtube\.com|youtu\.be|vimeo\.com)/i.test(src);
 const isBoldEl           = (h: string) => /font-weight\s*:\s*(bold|[6-9]\d{2})/i.test(h);
 const isItalicEl         = (h: string) => /font-style\s*:\s*italic/i.test(h);
 
@@ -506,7 +509,7 @@ function isNavLogoEl(path: string, tag: string, outerHtml: string): boolean {
   return tag === 'img' || tag === 'span' || tag === 'svg';
 }
 
-export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onVideoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
   const tag      = selected.tag?.toLowerCase() ?? '';
   const isImg    = isImgEl(tag);
   // A container (div/section) elevated from an <img> click via elevateToContainer:
@@ -514,10 +517,28 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   // for editing purposes so Local/URL replacement routes to __IMAGE_INJECT_SCOPED__
   // (which finds the <img src> inside) rather than __BG_IMAGE_PATCH__ (CSS bg-image
   // which is invisible because the real <img> element sits on top of it).
-  const wrappedImgSrc = !isImg ? parseImgSrc(selected.outerHtml) : '';
+  // Use a specific <img src> pattern (not the generic parseImgSrc) so that containers
+  // wrapping a <video> or <iframe> don't get incorrectly classified as image wrappers.
+  const wrappedImgSrc = !isImg ? (selected.outerHtml.match(/<img\b[^>]*?\bsrc="([^"]+)"/i)?.[1] ?? '') : '';
   const hasWrappedImg = wrappedImgSrc !== '';
   const isImgLike     = isImg || hasWrappedImg; // controls routing for all image ops
   const isIcon   = isIconEl(tag, selected.outerHtml);
+
+  // Video detection rules (in priority order):
+  // 1. Element IS an iframe with a recognised video src (youtube/vimeo).
+  // 2. Element's opening-tag class/id OR CSS path contains a video-wrapper naming pattern
+  //    (e.g. div.video-wrap, div#video-container).
+  //
+  // We deliberately do NOT scan deep outerHtml for iframe descendants here.
+  // A section that *contains* a video-wrap inside it would otherwise also trigger
+  // video controls, hiding its own bg-color / bg-image controls incorrectly.
+  const selfIframeSrc = tag === 'iframe' ? parseIframeSrc(selected.outerHtml) : '';
+  const openTag       = selected.outerHtml.match(/^<\w+[^>]*>/)?.[0] ?? '';
+  const VIDEO_WRAP_RE = /\bvideo[-_]?(?:wrap|container|section|holder|block|player|embed|bg|area)\b/i;
+  const isVideoLike   = (tag === 'iframe' && isVideoSrc(selfIframeSrc)) ||
+                        VIDEO_WRAP_RE.test(openTag) ||
+                        VIDEO_WRAP_RE.test(selected.path ?? '');
+  const currentVideoSrc = selfIframeSrc || parseIframeSrc(selected.outerHtml);
   const isNavLogo = isNavLogoEl(selected.path ?? '', tag, selected.outerHtml ?? '');
 
   // Detect background containers: divs/sections whose purpose is to hold a background image.
@@ -543,6 +564,7 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   const [localText,       setLocalText]       = useState('');
   const [localBgImgUrl,   setLocalBgImgUrl]   = useState('');
   const [localIconUrl,    setLocalIconUrl]    = useState('');
+  const [localVideoUrl,   setLocalVideoUrl]   = useState('');
 
   useEffect(() => {
     setLocalFontSize(parseFontSize(selected.outerHtml));
@@ -557,6 +579,7 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
     setLocalText(selected.text ?? '');
     setLocalBgImgUrl('');
     setLocalIconUrl('');
+    setLocalVideoUrl(parseIframeSrc(selected.outerHtml));
   }, [selected.path, selected.outerHtml, selected.text]);
 
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -697,8 +720,8 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
 
       <Sep />
 
-      {/* Background color — not applicable to bare <img> or icon/SVG elements */}
-      {!isImg && !isIcon && (
+      {/* Background color — not applicable to bare <img>, icon/SVG, or video containers */}
+      {!isImg && !isIcon && !isVideoLike && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>BG</span>
           <ColorSwatch
@@ -776,8 +799,8 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
       )}
 
       {/* Image URL + local upload — img elements and containers wrapping a fill-image.
-          Hidden for bg-containers: they use the BG IMG control below instead. */}
-      {isImgLike && !isBgContainer && (
+          Hidden for bg-containers and video containers. */}
+      {isImgLike && !isBgContainer && !isVideoLike && (
         <>
           <Sep />
           <ImageInput
@@ -825,8 +848,9 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
       )}
 
       {/* Background image URL + local upload — bg-containers + generic containers.
-          Nav-logo elements use LOGO controls instead. */}
-      {(isBgContainer || (!isImgLike && !isText && !isIcon && !isNavLogo)) && (
+          Nav-logo elements use LOGO controls instead.
+          Video containers use the VIDEO control below instead. */}
+      {(isBgContainer || (!isImgLike && !isText && !isIcon && !isNavLogo)) && !isVideoLike && (
         <>
           <Sep />
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>BG IMG</span>
@@ -836,6 +860,47 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
             disabled={dis}
             onCommit={(url) => { setLocalBgImgUrl(url); void onBgImagePatch(url); }}
           />
+        </>
+      )}
+
+      {/* Video URL replacement — iframe or container wrapping a Vimeo/YouTube iframe */}
+      {isVideoLike && (
+        <>
+          <Sep />
+          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>VIDEO</span>
+          <input
+            type="url"
+            placeholder="YouTube or Vimeo URL…"
+            value={localVideoUrl}
+            disabled={dis}
+            onChange={(e) => setLocalVideoUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && localVideoUrl.startsWith('http')) {
+                void onVideoReplace(localVideoUrl);
+              }
+            }}
+            style={{
+              height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)',
+              outline: 'none', width: 130, opacity: dis ? 0.4 : 1,
+            }}
+          />
+          <button
+            title="Apply video URL"
+            disabled={dis || !localVideoUrl.startsWith('http')}
+            onClick={() => { if (localVideoUrl.startsWith('http')) void onVideoReplace(localVideoUrl); }}
+            style={{
+              height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4, flexShrink: 0,
+              border: '1px solid rgba(99,102,241,0.5)',
+              background: (localVideoUrl.startsWith('http') && !dis) ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)',
+              color: (localVideoUrl.startsWith('http') && !dis) ? '#a5b4fc' : 'rgba(255,255,255,0.3)',
+              cursor: (dis || !localVideoUrl.startsWith('http')) ? 'not-allowed' : 'pointer',
+              opacity: dis ? 0.4 : 1, whiteSpace: 'nowrap', fontWeight: 600,
+            }}
+          >
+            ✓
+          </button>
         </>
       )}
 

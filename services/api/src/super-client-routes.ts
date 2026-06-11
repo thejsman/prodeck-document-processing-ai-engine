@@ -1334,7 +1334,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // is placed where the user intended (below, beside, inside the section) rather than always
     // being injected as a fullscreen background in the first <section>.
     const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
-    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent)) {
+    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:')) {
       const isVimeo = !!vimeoIdMatch;
       const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
       const src = isVimeo
@@ -1401,6 +1401,59 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
       return saveValidatedEdit(updatedHtml, summary);
+    }
+    // ── Video src replacement — replaces the iframe src in a video container ───
+    // Format: __VIDEO_INJECT__:[cssPath]||[videoUrl]||[hintHtml?]
+    // Converts watch-page URLs to embed format before patching.
+    const videoInjectMatch = instruction.match(/^__VIDEO_INJECT__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    if (videoInjectMatch) {
+      const cssPath = videoInjectMatch[1].trim();
+      const rawUrl  = videoInjectMatch[2].trim();
+
+      function normalizeVideoUrl(raw: string): string {
+        const ytWatch = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+        if (ytWatch) {
+          const id = ytWatch[1];
+          return `https://www.youtube.com/embed/${id}?autoplay=1&loop=1&mute=1&controls=0&playlist=${id}`;
+        }
+        const ytShort = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+        if (ytShort) {
+          const id = ytShort[1];
+          return `https://www.youtube.com/embed/${id}?autoplay=1&loop=1&mute=1&controls=0&playlist=${id}`;
+        }
+        const vimeoWatch = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/i);
+        if (vimeoWatch) {
+          return `https://player.vimeo.com/video/${vimeoWatch[1]}?background=1&autoplay=1&loop=1&muted=1`;
+        }
+        return raw; // already an embed URL or custom src — use as-is
+      }
+
+      const newSrc = normalizeVideoUrl(rawUrl);
+
+      function patchIframeSrc(target: string): string {
+        return target.replace(
+          /(<iframe\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newSrc}${post}`,
+        );
+      }
+
+      const bounds = findByPath(html, cssPath);
+      if (bounds) {
+        const elementHtml = html.slice(bounds.start, bounds.end);
+        const patched = patchIframeSrc(elementHtml);
+        if (patched !== elementHtml) {
+          return saveValidatedEdit(
+            html.slice(0, bounds.start) + patched + html.slice(bounds.end),
+            'Video updated',
+          );
+        }
+      }
+      // Fallback: patch the first video iframe anywhere in the document
+      const globalPatched = patchIframeSrc(html);
+      if (globalPatched !== html) {
+        return saveValidatedEdit(globalPatched, 'Video updated');
+      }
+      return reply.code(400).send({ error: 'Could not locate video iframe in the document' });
     }
     // ── Deterministic logo injection (bypasses LLM entirely) ─────────────────
     const logoInjectMatch = instruction.match(/^__LOGO_INJECT__:([\s\S]+)$/);
