@@ -5,10 +5,26 @@ import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Lock, Loader2 } from 'lucide-react';
 
 interface Props {
-  subdomain: string;
+  /** For subdomain microsites — used as identifier when `identifier` is not provided */
+  subdomain?: string;
+  /** For custom domain microsites — the full domain string used as the identifier */
+  identifier?: string;
+  /** Override the verify endpoint. Defaults to '/api/verify-password' for subdomains. */
+  verifyEndpoint?: string;
+  /** The body key for the identifier value. Defaults to 'subdomain'. */
+  payloadKey?: string;
 }
 
-export function PasswordGate({ subdomain }: Props) {
+export function PasswordGate({
+  subdomain,
+  identifier,
+  verifyEndpoint,
+  payloadKey,
+}: Props) {
+  const id = identifier ?? subdomain ?? '';
+  const endpoint = verifyEndpoint ?? '/api/verify-password';
+  const bodyKey = payloadKey ?? 'subdomain';
+
   const router = useRouter();
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
@@ -19,10 +35,10 @@ export function PasswordGate({ subdomain }: Props) {
     if (!password || status === 'loading') return;
     setStatus('loading');
     try {
-      const res = await fetch('/api/verify-password', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subdomain, password }),
+        body: JSON.stringify({ [bodyKey]: id, password }),
       });
       const data = (await res.json()) as { valid: boolean };
       if (data.valid) {

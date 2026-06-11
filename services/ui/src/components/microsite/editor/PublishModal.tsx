@@ -7,6 +7,7 @@ import { useAuth } from '../../../lib/auth-context';
 import { publishMicrosite } from '../../../lib/api';
 import type { LayoutAST } from '../../../types/presentation';
 import { PublishSubdomainSection } from './PublishSubdomainSection';
+import { PublishCustomDomainSection } from './PublishCustomDomainSection';
 
 interface Props {
   ast: LayoutAST;
@@ -93,7 +94,7 @@ export function PublishModal({ ast, namespace, proposalId, onClose, showPreviewU
           background: 'var(--panel)',
           borderRadius: 12,
           width: '100%',
-          maxWidth: 440,
+          maxWidth: 520,
           boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
           overflow: 'hidden',
         }}
@@ -157,6 +158,14 @@ export function PublishModal({ ast, namespace, proposalId, onClose, showPreviewU
             namespace={namespace}
             proposalId={proposalId}
             rootDomain={rootDomain}
+            onPublishingChange={setPublishing}
+          />
+
+          {/* Custom domain publishing */}
+          <PublishCustomDomainSection
+            ast={ast}
+            namespace={namespace}
+            proposalId={proposalId}
             onPublishingChange={setPublishing}
           />
 

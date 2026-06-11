@@ -9,7 +9,7 @@ export type PublishStatus = 'idle' | 'publishing' | 'success' | 'error';
 export interface UsePublishMicrosite {
   publish: (namespace: string, ast: LayoutAST, subdomain: string, proposalId: string, apiKey: string, password?: string) => Promise<void>;
   reset: () => void;
-  restoreFromMeta: (meta: { subdomain: string; url: string; publishedAt: string; passwordProtected?: boolean }) => void;
+  restoreFromMeta: (meta: { subdomain?: string; url: string; publishedAt: string; passwordProtected?: boolean }) => void;
   status: PublishStatus;
   url: string | null;
   subdomain: string | null;
@@ -81,7 +81,8 @@ export function usePublishMicrosite(): UsePublishMicrosite {
     setError(null);
   }, []);
 
-  const restoreFromMeta = useCallback((meta: { subdomain: string; url: string; publishedAt: string; passwordProtected?: boolean }) => {
+  const restoreFromMeta = useCallback((meta: { subdomain?: string; url: string; publishedAt: string; passwordProtected?: boolean }) => {
+    if (!meta.subdomain) return; // custom domain publish — not for this hook
     setUrl(meta.url);
     setSubdomain(meta.subdomain);
     setPublishedAt(meta.publishedAt);
