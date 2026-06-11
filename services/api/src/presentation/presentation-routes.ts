@@ -2381,6 +2381,23 @@ NAVBAR LOGO REQUIREMENTS — non-negotiable in every microsite:
 - The src must be exactly "data:," — it will be replaced with the real logo URL or an SVG initials badge by the system. Do not invent a src value and do not add an onerror attribute.
 - The navbar height must be at least 60px so the logo has room to breathe vertically
 
+ICON SYSTEM — always use modern icons:
+- Choose whichever icon library or inline SVG approach best suits the theme and style you've chosen
+- Icons must be current-trend: clean, geometric, purposeful — not dated clip-art or old-style glyph fonts
+- Size icons at 20–24px; match colour to accent or muted text tone
+- Icons must be contextually meaningful — reinforce the content they accompany, never just decorate
+
+SMOOTH SCROLL — always:
+- html { scroll-behavior: smooth; }
+- All internal anchor links use href="#sectionId" with a matching id on the target section
+
+MOTION BASELINE — when no explicit MOTION override is present:
+- IntersectionObserver fade-up on every section (opacity 0→1, translateY 24px→0, 0.55s ease-out, 0.08s stagger between siblings)
+- Hero: subtle parallax on background image or gradient (CSS transform driven by scroll listener, 0.25× speed ratio)
+- Buttons: scale(1.04) + box-shadow lift on :hover, transition 0.18s ease
+- Cards: translateY(-4px) + shadow deepen on :hover, transition 0.2s ease
+- This is the floor — exceed it whenever the brand mood warrants it
+
 ${imageInstructions}`;
 
     const resolveImagePlaceholders = async (html: string): Promise<string> => {
@@ -2456,6 +2473,42 @@ ${imageInstructions}`;
       return text;
     };
 
+    // Injected when user provides no prompt — full creative brief derived from the proposal.
+    const NO_INSTRUCTION_DIRECTIVE = `NO INSTRUCTION MODE — no constraints from the user. This is your creative brief.
+
+Read the full proposal before writing a single line of HTML. Then make every design decision from scratch based on what you read — not from a template, not from a default.
+
+THEME — derive it, don't default it
+There is no prescribed color scheme. Read the proposal and ask: what does this project feel like? What would a world-class design director choose if they had full creative freedom and were trying to make this specific client feel that this vendor truly understood them?
+
+The palette, typography, and visual tone should emerge from the content — the industry, the ambition in the language, the size of the numbers, the nature of the deliverables. A fintech risk platform and a children's education startup should look nothing alike. A government infrastructure bid and a boutique creative agency pitch should feel completely different.
+
+Use color boldly. Not everything needs to be light-on-dark or dark-on-light. Consider unexpected combinations that feel native to the industry and emotionally resonant. Pick 2 Google Fonts (one display, one text) that match the character — load via @import in <style>. No two proposals should produce the same visual identity.
+
+IMAGERY — make it contextual, not stock
+Derive every image query from the proposal's actual content. What is the client's world? What do the locations, services, outcomes, and people in this proposal look like? A query should pass this test: would it work for any other proposal? If yes, it's too generic. Make it specific to this one.
+
+MOTION — always include, calibrate to the mood you chose
+- html { scroll-behavior: smooth; } always
+- IntersectionObserver scroll reveals on every section (opacity + translateY, 0.55s ease-out)
+- Hero: background parallax (0.25× speed) or a CSS gradient animation or subtle ambient motion
+- Hover micro-interactions on every button and card (scale, glow, lift — whatever fits the theme)
+- If the theme is bold and expressive: add GSAP + ScrollTrigger from jsdelivr CDN for staggered headline reveals, animated counters, pinned scroll effects
+- If the theme is calm and minimal: keep motion restrained to subtle fades and smooth transitions only
+- Motion should feel like a natural extension of the visual theme — not bolted on
+
+ICONS — always modern, your choice of library or inline SVG
+Use icons that reinforce meaning, not just decorate. Match icon style and weight to the theme you chose. Never use dated iconography — always current-trend, clean, and geometric.
+
+SECTIONS — from the proposal, not from a template
+Build sections around the proposal's actual content and narrative arc. Name them in natural language. Include every major topic. Sequence them to tell a story: the problem, the solution, the proof, the investment, the next step.
+
+This microsite must look and feel like it was designed specifically for this client, this proposal, and this moment — not assembled from a pattern. Push the craft.`;
+
+    // Injected when user gave instructions but didn't specify a visual theme.
+    const THEME_FALLBACK_DIRECTIVE = `THEME INTELLIGENCE — read the proposal for visual direction unless already specified above:
+If the instructions above do not explicitly specify a visual theme, colors, or design style — derive those from the proposal itself. Read the proposal's industry, tone, and ambition, then choose a palette, typography, and visual mood that feels native to this specific engagement. Do not default to a generic look. The user's content instructions take full priority; this applies only to any visual direction they left unspecified.`;
+
     try {
       send({ type: 'start', message: 'Generating…' });
       send({ type: 'progress', message: 'Analyzing proposal…' });
@@ -2491,8 +2544,15 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
       const parts: string[] = [];
+      const hasUserInstructions = !!(body?.userPrompt?.trim() || body?.designPrompt?.trim());
       if (body?.userPrompt?.trim()) parts.push(sanitizeFrameworkPrompt(body.userPrompt.trim()));
       if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${sanitizeFrameworkPrompt(body.designPrompt.trim())}`);
+      // Inject intelligent default directive — full creative brief when no instructions, theme fallback when instructions lack visual direction
+      if (!hasUserInstructions) {
+        parts.push(NO_INSTRUCTION_DIRECTIVE);
+      } else {
+        parts.push(THEME_FALLBACK_DIRECTIVE);
+      }
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
       // Motion level hint — tells Claude what animation approach to use
