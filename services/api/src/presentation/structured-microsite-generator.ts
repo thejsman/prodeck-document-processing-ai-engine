@@ -310,7 +310,8 @@ export async function generateStructuredMicrosite(
   }
 
   const data = await res.json() as { content: Array<{ type: string; text: string }> };
-  const raw  = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  const raw  = data.content.filter(b => b.type === 'text').map(b => b.text).join('')
+    .replace(/ — /g, ', ').replace(/—/g, '-'); // strip em dashes the LLM generates
 
   // Strip markdown fences if present
   const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();

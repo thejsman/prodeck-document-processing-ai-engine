@@ -139,6 +139,12 @@ function resolveImageUrl(rawUrl: string): string {
   return rawUrl.startsWith('/presentation-images/') ? `/api${rawUrl}` : rawUrl;
 }
 
+// Post-processing: replace em dashes the LLM generates despite being told not to.
+// " — " (spaced) → ", "  |  bare "—" → "-"
+function stripEmDashes(s: string): string {
+  return s.replace(/ — /g, ', ').replace(/—/g, '-');
+}
+
 const LAYOUT_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
 
 interface HeroProposalMeta {
@@ -396,10 +402,10 @@ export async function generateSectionHtml(
   // Deterministically inject the 4-column metadata strip at the bottom of the hero.
   // Post-processing guarantees the strip even if the LLM ignores or rephrases the instruction.
   if (sectionType === 'hero' && heroMeta) {
-    return injectHeroMetadataStrip(cleaned, heroMeta);
+    return stripEmDashes(injectHeroMetadataStrip(cleaned, heroMeta));
   }
 
-  return cleaned;
+  return stripEmDashes(cleaned);
 }
 
 export interface CSSTheme {

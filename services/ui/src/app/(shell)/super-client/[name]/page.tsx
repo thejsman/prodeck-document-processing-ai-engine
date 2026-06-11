@@ -525,8 +525,26 @@ export default function SuperClientPage() {
     startWidth: number;
   } | null>(null);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  const iframeContainerRef = useRef<HTMLDivElement>(null);
+  const [iframeContainerH, setIframeContainerH] = useState(0);
+  const [iframeContainerW, setIframeContainerW] = useState(0);
   const MICROSITE_MIN_WIDTH = 500;
   const CHAT_MIN_WIDTH = 360;
+
+  // Track iframe container dimensions so InlineEditPanel can flip above/below and clamp horizontally
+  useEffect(() => {
+    const el = iframeContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setIframeContainerH(el.offsetHeight);
+      setIframeContainerW(el.offsetWidth);
+    });
+    ro.observe(el);
+    setIframeContainerH(el.offsetHeight);
+    setIframeContainerW(el.offsetWidth);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Clamp chatPanelWidth whenever the container resizes (e.g. left nav opens/closes)
   useEffect(() => {
@@ -1087,8 +1105,12 @@ export default function SuperClientPage() {
       const msg = e.data as BridgeMessage;
       if (!msg || msg.source !== "microsite-bridge") return;
       if (msg.type === "hover") setHoveredElement(msg);
-      else if (msg.type === "select") setSelectedElement(msg);
       else if (msg.type === "leave") setHoveredElement(null);
+      else if (msg.type === "track-update" && msg.rect) {
+        setSelectedElement(prev => prev ? { ...prev, rect: msg.rect } : prev);
+        setHoveredElement(prev => prev ? { ...prev, rect: msg.rect } : prev);
+      }
+      else if (msg.type === "select") setSelectedElement(msg);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -2213,6 +2235,9 @@ export default function SuperClientPage() {
       const markdown = await getSuperClientProposal(apiKey, name, p.fileName);
       setComposerProposal({ proposal: p, markdown });
       setComposerStage("configure");
+      // Collapse open viewer panels so the configure card gets full chat width
+      setViewingProposal(null);
+      setViewingMicrosite(null);
     } catch (err) {
       console.error("Failed to load proposal", err);
     } finally {
@@ -2427,6 +2452,9 @@ export default function SuperClientPage() {
       if (proposals.length > 0) {
         setComposerMessage(reply);
         setComposerStage("select-proposal");
+        // Collapse viewer panels so the proposal picker gets full chat width
+        setViewingProposal(null);
+        setViewingMicrosite(null);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -2760,7 +2788,10 @@ export default function SuperClientPage() {
         <div
           style={{
             flex: 1,
-            maxWidth: viewingProposal || viewingMicrosite ? chatPanelWidth : "100%",
+            maxWidth:
+              editModeActive ? CHAT_MIN_WIDTH
+              : (viewingProposal || viewingMicrosite) ? chatPanelWidth
+              : "100%",
             display: "flex",
             flexDirection: "column",
             minWidth: 0,
@@ -3858,19 +3889,19 @@ export default function SuperClientPage() {
                 position: "relative",
               }}
             >
-              {/* Drag handle */}
+              {/* Drag handle — hidden in edit mode so microsite stays maximised */}
               <div
-                onMouseDown={handleMicrositeDragStart}
-                onMouseEnter={() => setMicrositeDragHover(true)}
+                onMouseDown={editModeActive ? undefined : handleMicrositeDragStart}
+                onMouseEnter={() => !editModeActive && setMicrositeDragHover(true)}
                 onMouseLeave={() => setMicrositeDragHover(false)}
-                title="Drag to resize"
+                title={editModeActive ? undefined : "Drag to resize"}
                 style={{
                   position: "absolute",
                   left: 0,
                   top: 0,
                   bottom: 0,
-                  width: 14,
-                  cursor: "col-resize",
+                  width: editModeActive ? 0 : 14,
+                  cursor: editModeActive ? "default" : "col-resize",
                   zIndex: 20,
                   display: "flex",
                   alignItems: "center",
@@ -4151,6 +4182,7 @@ export default function SuperClientPage() {
 
               {/* Responsive iframe preview */}
               <div
+                ref={iframeContainerRef}
                 style={{
                   flex: 1,
                   minHeight: 0,
@@ -4338,6 +4370,8 @@ export default function SuperClientPage() {
                   <InlineEditPanel
                     selected={selectedElement}
                     micrositeEditing={micrositeEditing}
+                    containerH={iframeContainerH}
+                    containerW={iframeContainerW}
                     onStylePatch={handleStylePatch}
                     onTextPatch={handleTextPatch}
                     onImageReplace={handleImageReplace}

@@ -8,7 +8,6 @@ import {
   ArrowUp,
   Brain,
   Database,
-  Download,
   Eraser,
   Menu,
   Pencil,
@@ -38,11 +37,13 @@ import { useProposalGenerationStore } from '@/core/proposal-generation-store';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
 import { ProposalForm } from '@/components/ProposalForm';
-import { fetchMicrositeContent, fetchKnowledgeFiles, postUploadMessage, listSkills, type ProposalDocument, type Presentation, type SkillSummaryApi } from '@/lib/api';
+import { fetchMicrositeContent, saveMicrositeAst, fetchKnowledgeFiles, postUploadMessage, listSkills, type ProposalDocument, type Presentation, type SkillSummaryApi } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
 import { MicrositePro } from '@/components/microsite/MicrositePro';
-import { MicrositeEditor } from '@/components/microsite/editor/MicrositeEditor';
+import { injectBridgeScript, normalizeMicrositeHtml, type BridgeMessage } from '@/lib/microsite-bridge';
+import { SelectionOverlay } from '@/components/microsite/smart-editor/SelectionOverlay';
+import { InlineEditPanel } from '@/components/microsite/smart-editor/InlineEditPanel';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { useExecutionStore } from '@/core/execution/execution-store';
 import { startExecutionTransport } from '@/core/execution/execution-transport';
@@ -292,10 +293,24 @@ export default function ChatPage() {
   const [viewMicrosite, setViewMicrosite] = useState<{ entryId: string; namespace: string; proposalId: string; displayName: string } | null>(null);
   const [viewMicrositeAST, setViewMicrositeAST] = useState<LayoutAST | null>(null);
   const [viewMicrositeLoading, setViewMicrositeLoading] = useState(false);
-  const [editingMicrosite, setEditingMicrosite] = useState(false);
   const [msHeaderScrolled, setMsHeaderScrolled] = useState(false);
-  const micrositeRef = useRef<MicrositeHandle>(null);
   const msSentinelRef = useRef<HTMLDivElement>(null);
+  const micrositeRef = useRef<MicrositeHandle>(null);
+  // Bridge inline editor state
+  const chatIframeRef = useRef<HTMLIFrameElement>(null);
+  const chatIframeContainerRef = useRef<HTMLDivElement>(null);
+  const [chatIframeContainerH, setChatIframeContainerH] = useState(0);
+  const [chatIframeContainerW, setChatIframeContainerW] = useState(0);
+  const [chatActiveSrcDoc, setChatActiveSrcDoc] = useState('');
+  const [chatEditModeActive, setChatEditModeActive] = useState(false);
+  const [chatSelectedElement, setChatSelectedElement] = useState<BridgeMessage | null>(null);
+  const [chatHoveredElement, setChatHoveredElement] = useState<BridgeMessage | null>(null);
+  const [chatEditing, setChatEditing] = useState(false);
+  const [chatEditBanner, setChatEditBanner] = useState('');
+  const [chatEditHistory, setChatEditHistory] = useState<string[]>([]);
+  const [chatEditHistoryIndex, setChatEditHistoryIndex] = useState(-1);
+  const chatDeselectingRef = useRef(false);
+  const chatSelectedRef = useRef<BridgeMessage | null>(null);
 
   const chatSessionIdRef = useRef<string | null>(null);
   const uploadMsgIdRef = useRef<string | null>(null);
@@ -539,10 +554,385 @@ export default function ChatPage() {
     setViewMicrositeAST(null);
     setViewMicrositeLoading(true);
     fetchMicrositeContent(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId, undefined, viewMicrosite.entryId)
-      .then(({ ast }) => setViewMicrositeAST(ast as LayoutAST))
+      .then(({ ast }) => {
+        setViewMicrositeAST(ast as LayoutAST);
+        const html = ((ast as LayoutAST)?.sections?.[0] as { customHtml?: string })?.customHtml ?? '';
+        if (html) {
+          const normalized = normalizeMicrositeHtml(html);
+          setChatActiveSrcDoc(normalized);
+          setChatEditHistory([html]);
+          setChatEditHistoryIndex(0);
+        }
+      })
       .catch(() => {})
       .finally(() => setViewMicrositeLoading(false));
   }, [viewMicrosite, apiKey]);
+
+  // Reset bridge editor state when a new microsite is opened
+  useEffect(() => {
+    setChatEditModeActive(false);
+    setChatSelectedElement(null);
+    setChatHoveredElement(null);
+    setChatEditBanner('');
+    chatDeselectingRef.current = false;
+    chatSelectedRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMicrosite?.entryId]);
+
+  // Keep chatSelectedRef in sync for bridge listener closure
+  useEffect(() => { chatSelectedRef.current = chatSelectedElement; }, [chatSelectedElement]);
+
+  // Track iframe container height for InlineEditPanel above/below flip
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const el = chatIframeContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setChatIframeContainerH(entry.contentRect.height);
+      setChatIframeContainerW(entry.contentRect.width);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [viewMicrositeAST]);
+
+  // Bridge message listener — only active when edit mode is on
+  useEffect(() => {
+    if (!chatEditModeActive) return;
+    function handleBridgeMsg(e: MessageEvent) {
+      const d = e.data as Partial<BridgeMessage>;
+      if (d?.source !== 'microsite-bridge') return;
+      if (d.type === 'hover') { setChatHoveredElement(d as BridgeMessage); return; }
+      if (d.type === 'leave') { setChatHoveredElement(null); return; }
+      if (d.type === 'track-update' && d.rect) {
+        setChatSelectedElement(prev => prev ? { ...prev, rect: d.rect! } : prev);
+        setChatHoveredElement(prev => prev ? { ...prev, rect: d.rect! } : prev);
+        return;
+      }
+      if (d.type === 'select') {
+        if (chatDeselectingRef.current) return;
+        const incoming = d as BridgeMessage;
+        if (chatSelectedRef.current?.path && chatSelectedRef.current.path === incoming.path) {
+          clearChatBridgeSelection();
+        } else {
+          setChatSelectedElement(incoming);
+        }
+      }
+    }
+    window.addEventListener('message', handleBridgeMsg);
+    return () => window.removeEventListener('message', handleBridgeMsg);
+  }, [chatEditModeActive]);
+
+  function clearChatBridgeSelection() {
+    chatIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'deselect' }, '*');
+    chatDeselectingRef.current = true;
+    setTimeout(() => { chatDeselectingRef.current = false; }, 150);
+    setChatSelectedElement(null);
+    setChatHoveredElement(null);
+  }
+
+  function chatGetCurrentHtml(): string {
+    return (viewMicrositeAST?.sections?.[0] as { customHtml?: string })?.customHtml ?? '';
+  }
+
+  function chatRefreshSelectedElement(updatedHtml: string) {
+    const path = chatSelectedRef.current?.path;
+    if (!path) return;
+    try {
+      const doc = new DOMParser().parseFromString(updatedHtml, 'text/html');
+      const parts = path.split(/\s*>\s*/);
+      let scope: Element | Document = doc;
+      for (const part of parts) {
+        const tagM = part.match(/^(\w[\w-]*)/);
+        if (!tagM) return;
+        const tag = tagM[1];
+        const idM = part.match(/#([\w-]+)/);
+        const clsM = part.match(/\.([\w-]+)/);
+        const nthM = part.match(/:nth-of-type\((\d+)\)/);
+        const nth = nthM ? parseInt(nthM[1], 10) : 1;
+        const candidates: Element[] = Array.from(scope.querySelectorAll(scope instanceof Document ? tag : `:scope > ${tag}`))
+          .filter((el) => (!idM?.[1] || el.id === idM[1]) && (!clsM?.[1] || el.classList.contains(clsM[1])));
+        const found: Element | null = candidates[nth - 1] ?? null;
+        if (!found) return;
+        scope = found;
+      }
+      if (scope instanceof Element) {
+        setChatSelectedElement((prev) => prev
+          ? { ...prev, outerHtml: scope.outerHTML.slice(0, 8192), text: ((scope as Element).textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) }
+          : prev,
+        );
+      }
+    } catch { /* leave as-is on parse error */ }
+  }
+
+  function chatApplyHtml(html: string) {
+    // Capture scroll position before srcDoc update so the iframe can restore it after reload
+    const scrollY = Math.round(chatIframeRef.current?.contentWindow?.scrollY ?? 0);
+    const normalized = normalizeMicrositeHtml(html);
+    let srcDoc = chatEditModeActive ? injectBridgeScript(normalized) : normalized;
+    if (scrollY > 0) {
+      const scrollScript = `<script>(function(){var y=${scrollY};var b=document.documentElement;b.style.scrollBehavior='auto';function r(){window.scrollTo(0,y);}r();setTimeout(r,50);setTimeout(r,150);})()</script>`;
+      const bodyClose = srcDoc.lastIndexOf('</body>');
+      srcDoc = bodyClose !== -1 ? srcDoc.slice(0, bodyClose) + scrollScript + srcDoc.slice(bodyClose) : srcDoc + scrollScript;
+    }
+    // Refresh selected element state so InlineEditPanel reflects new bold/italic/color etc.
+    chatRefreshSelectedElement(html);
+    setChatActiveSrcDoc(srcDoc);
+    setViewMicrositeAST((prev) =>
+      prev
+        ? ({
+            ...prev,
+            sections: [
+              { ...(prev.sections[0] as object), customHtml: html },
+              ...prev.sections.slice(1),
+            ],
+          } as unknown as LayoutAST)
+        : prev,
+    );
+    // Push to history
+    setChatEditHistory((prev) => {
+      const base = prev.slice(0, chatEditHistoryIndex + 1);
+      const next = [...base, html];
+      return next.length > 50 ? next.slice(next.length - 50) : next;
+    });
+    setChatEditHistoryIndex((prev) => Math.min(prev + 1, 49));
+  }
+
+  // Client-side deterministic HTML patching — handles STYLE, TEXT, BG_IMAGE, IMAGE, REMOVE
+  function applyClientHtmlPatch(html: string, instruction: string): string | null {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    function findEl(cssPath: string): Element | null {
+      try {
+        const parts = cssPath.trim().split(/\s*>\s*/);
+        let scope: Element | Document = doc;
+        for (const part of parts) {
+          const tagM = part.match(/^(\w[\w-]*)/);
+          if (!tagM) return null;
+          const tag = tagM[1];
+          const idM = part.match(/#([\w-]+)/);
+          const clsM = part.match(/\.([\w-]+)/);
+          const nthM = part.match(/:nth-of-type\((\d+)\)/);
+          const nth = nthM ? parseInt(nthM[1], 10) : 1;
+          const id = idM?.[1];
+          const cls = clsM?.[1];
+          const sel = scope instanceof Document ? tag : `:scope > ${tag}`;
+          const candidates: Element[] = Array.from(scope.querySelectorAll(sel)).filter(
+            (el: Element) => (!id || el.id === id) && (!cls || el.classList.contains(cls)),
+          );
+          const found: Element | null = candidates[nth - 1] ?? null;
+          if (!found) return null;
+          scope = found;
+        }
+        return scope instanceof Document ? null : (scope as Element);
+      } catch {
+        return null;
+      }
+    }
+
+    const stylePatch = instruction.match(/^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/);
+    if (stylePatch) {
+      const [, path, prop, value] = stylePatch;
+      const el = findEl(path) as HTMLElement | null;
+      if (el) {
+        const existing = el.getAttribute('style') ?? '';
+        const propRx = new RegExp(`(?:^|;)\\s*${prop}\\s*:[^;]*`, 'gi');
+        let cleaned = existing.replace(propRx, '').replace(/^;+|;+$/g, '').trim();
+        if (prop === 'background-color') {
+          // Clear background-image so the color isn't hidden behind it
+          cleaned = cleaned.replace(/background-image\s*:[^;]*/gi, '').replace(/;{2,}/g, ';').replace(/^;|;$/g, '').trim();
+          el.setAttribute('style', cleaned
+            ? `${cleaned}; ${prop}: ${value}; background-image: none !important`
+            : `${prop}: ${value}; background-image: none !important`);
+        } else {
+          el.setAttribute('style', cleaned ? `${cleaned}; ${prop}: ${value} !important` : `${prop}: ${value} !important`);
+        }
+      }
+      return doc.documentElement.outerHTML;
+    }
+
+    const textPatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/);
+    if (textPatch) {
+      const [, path, newText] = textPatch;
+      const el = findEl(path);
+      if (el) el.textContent = newText;
+      return doc.documentElement.outerHTML;
+    }
+
+    const bgImagePatch = instruction.match(/^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/);
+    if (bgImagePatch) {
+      const [, path, url] = bgImagePatch;
+      const el = findEl(path) as HTMLElement | null;
+      if (el) {
+        const existing = el.getAttribute('style') ?? '';
+        const cleaned = existing.replace(/background(?:-image)?\s*:[^;]*/gi, '').replace(/^;+|;+$/g, '').trim();
+        el.setAttribute('style', cleaned
+          ? `${cleaned}; background-image:url('${url}') !important; background-size:cover !important; background-position:center !important`
+          : `background-image:url('${url}') !important; background-size:cover !important; background-position:center !important`);
+      }
+      return doc.documentElement.outerHTML;
+    }
+
+    const imgInject = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/);
+    if (imgInject) {
+      const [, path, url] = imgInject;
+      const el = findEl(path);
+      if (el) {
+        const img = el.tagName.toLowerCase() === 'img' ? el : el.querySelector('img');
+        if (img) { img.setAttribute('src', url); (img as HTMLElement).removeAttribute('srcset'); }
+      }
+      return doc.documentElement.outerHTML;
+    }
+
+    const removeByPath = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+?)(?:\|\|[\s\S]*)?$/);
+    if (removeByPath) {
+      const [, path] = removeByPath;
+      const el = findEl(path);
+      if (el) el.parentNode?.removeChild(el);
+      return doc.documentElement.outerHTML;
+    }
+
+    const iconReplace = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/);
+    if (iconReplace) {
+      const [, path, url] = iconReplace;
+      const el = findEl(path);
+      if (el) {
+        const img = el.tagName.toLowerCase() === 'img' ? el : el.querySelector('img');
+        if (img) img.setAttribute('src', url);
+      }
+      return doc.documentElement.outerHTML;
+    }
+
+    const svgReplace = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+)$/);
+    if (svgReplace) {
+      const [, path, svgMarkup] = svgReplace;
+      const el = findEl(path);
+      if (el) {
+        const container = doc.createElement('div');
+        container.innerHTML = svgMarkup;
+        const newSvg = container.querySelector('svg');
+        const existingSvg = el.tagName.toLowerCase() === 'svg' ? el : el.querySelector('svg');
+        if (newSvg && existingSvg) existingSvg.replaceWith(newSvg);
+      }
+      return doc.documentElement.outerHTML;
+    }
+
+    const logoSwap = instruction.match(/^__LOGO_SWAP__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)$/);
+    if (logoSwap) {
+      const [, path, url] = logoSwap;
+      const el = findEl(path);
+      if (el) {
+        const img = el.tagName.toLowerCase() === 'img' ? el : el.querySelector('img');
+        if (img) { img.setAttribute('src', url); (img as HTMLElement).removeAttribute('srcset'); }
+      }
+      return doc.documentElement.outerHTML;
+    }
+
+    return null;
+  }
+
+  async function applyChatMicrositeInstruction(instruction: string, banner: string) {
+    if (!viewMicrosite || !apiKey || chatEditing) return;
+    const currentHtml = chatGetCurrentHtml();
+    if (!currentHtml) return;
+
+    const patched = applyClientHtmlPatch(currentHtml, instruction);
+    if (patched) {
+      chatApplyHtml(patched);
+      setChatEditBanner(banner);
+      setTimeout(() => setChatEditBanner(''), 3000);
+      // Persist to server in background
+      try {
+        const updatedAst = {
+          ...viewMicrositeAST!,
+          sections: [
+            { ...(viewMicrositeAST!.sections[0] as object), customHtml: patched },
+            ...viewMicrositeAST!.sections.slice(1),
+          ],
+        } as unknown as LayoutAST;
+        await saveMicrositeAst(apiKey, viewMicrosite.namespace, viewMicrosite.proposalId, updatedAst, viewMicrosite.entryId);
+      } catch { /* non-fatal */ }
+      return;
+    }
+    // Non-patchable instruction — no-op for now
+  }
+
+  const chatCanUndo = chatEditHistoryIndex > 0;
+  const chatCanRedo = chatEditHistoryIndex < chatEditHistory.length - 1;
+
+  function chatHandleUndo() {
+    if (!chatCanUndo) return;
+    const newIdx = chatEditHistoryIndex - 1;
+    const html = chatEditHistory[newIdx];
+    setChatEditHistoryIndex(newIdx);
+    const normalized = normalizeMicrositeHtml(html);
+    setChatActiveSrcDoc(chatEditModeActive ? injectBridgeScript(normalized) : normalized);
+    setViewMicrositeAST((prev) =>
+      prev
+        ? ({ ...prev, sections: [{ ...(prev.sections[0] as object), customHtml: html }, ...prev.sections.slice(1)] } as unknown as LayoutAST)
+        : prev,
+    );
+  }
+
+  function chatHandleRedo() {
+    if (!chatCanRedo) return;
+    const newIdx = chatEditHistoryIndex + 1;
+    const html = chatEditHistory[newIdx];
+    setChatEditHistoryIndex(newIdx);
+    const normalized = normalizeMicrositeHtml(html);
+    setChatActiveSrcDoc(chatEditModeActive ? injectBridgeScript(normalized) : normalized);
+    setViewMicrositeAST((prev) =>
+      prev
+        ? ({ ...prev, sections: [{ ...(prev.sections[0] as object), customHtml: html }, ...prev.sections.slice(1)] } as unknown as LayoutAST)
+        : prev,
+    );
+  }
+
+  const chatHint = () => chatSelectedElement?.outerHtml?.slice(0, 400) ?? '';
+
+  async function handleChatStylePatch(prop: string, value: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__STYLE_PATCH__:${chatSelectedElement.path}||${prop}||${value}||${chatHint()}`, `${prop} updated`);
+  }
+  async function handleChatTextPatch(newText: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__TEXT_PATCH__:${chatSelectedElement.path}||${newText}||${chatHint()}`, 'Text updated');
+  }
+  async function handleChatImageReplace(url: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__IMAGE_INJECT_SCOPED__:${chatSelectedElement.path}||${url}||${chatHint()}`, 'Image replaced');
+  }
+  async function handleChatBgImagePatch(url: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__BG_IMAGE_PATCH__:${chatSelectedElement.path}||${url}||${chatHint()}`, 'Background image updated');
+  }
+  async function handleChatIconReplace(url: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__ICON_REPLACE__:${chatSelectedElement.path}||${url}||${chatHint()}`, 'Icon replaced');
+  }
+  async function handleChatSvgReplace(svgMarkup: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__SVG_REPLACE__:${chatSelectedElement.path}||${svgMarkup}`, 'Icon replaced');
+  }
+  async function handleChatLogoReplace(url: string) {
+    if (chatSelectedElement?.path) {
+      await applyChatMicrositeInstruction(`__LOGO_SWAP__:${chatSelectedElement.path}||${url}`, 'Logo updated');
+    }
+  }
+  async function handleChatRemoveSection() {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__REMOVE_BY_PATH__:${chatSelectedElement.path}||${chatHint()}`, 'Removed');
+    clearChatBridgeSelection();
+  }
+  async function handleChatRemoveSectionContainer() {
+    if (!chatSelectedElement) return;
+    const sectionM = chatSelectedElement.path?.match(/\b(section#[\w-]+)/);
+    if (sectionM) {
+      await applyChatMicrositeInstruction(`__REMOVE_BY_PATH__:${sectionM[1]}`, 'Section removed');
+    } else if (chatSelectedElement.sectionType) {
+      await applyChatMicrositeInstruction(`__REMOVE_BY_PATH__:section#${chatSelectedElement.sectionType}`, 'Section removed');
+    }
+    clearChatBridgeSelection();
+  }
 
   // Load persisted chat history and initial insights on mount (or namespace change)
   useEffect(() => {
@@ -1226,78 +1616,148 @@ export default function ChatPage() {
     const dismiss = () => {
       setViewMicrosite(null);
       setViewMicrositeAST(null);
-      setEditingMicrosite(false);
+      setChatEditModeActive(false);
+      clearChatBridgeSelection();
+      setChatActiveSrcDoc('');
+      setChatEditHistory([]);
+      setChatEditHistoryIndex(-1);
     };
-    const isPro = viewMicrositeAST?.generationMode !== 'classic';
-    const entryParam = `?entryId=${encodeURIComponent(viewMicrosite.entryId)}`;
-    const editorPath = isPro
-      ? `/microsite-editor-pro/${encodeURIComponent(viewMicrosite.namespace)}/${encodeURIComponent(viewMicrosite.proposalId)}${entryParam}`
-      : `/microsite-editor/${encodeURIComponent(viewMicrosite.namespace)}/${encodeURIComponent(viewMicrosite.proposalId)}${entryParam}`;
-    const MicrositeComponent = isPro ? MicrositePro : Microsite;
-
-    if (editingMicrosite && viewMicrositeAST) {
-      return (
-        <MicrositeEditor
-          ast={viewMicrositeAST}
-          namespace={viewMicrosite.namespace}
-          proposalId={viewMicrosite.proposalId}
-          onClose={() => setEditingMicrosite(false)}
-          onExport={(editedAst) => {
-            setViewMicrositeAST(editedAst);
-            setEditingMicrosite(false);
-          }}
-        />
-      );
-    }
+    const hasCustomHtml = !!chatGetCurrentHtml();
 
     return (
       <div className="chat-v2">
-        <div className="chat-v2-center">
+        <div className="chat-v2-center" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <header className={`chat-v2-header${msHeaderScrolled ? ' chat-v2-header--scrolled' : ''}`}>
-            <div className="chat-v2-header-left">
-              <span className="chat-v2-ns">{viewMicrosite.displayName}</span>
-            </div>
-            <div className="chat-v2-header-right">
-              {viewMicrositeAST && (
+            <div className="chat-v2-header-left" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {chatEditModeActive && (
                 <>
                   <button
                     className="chat-v2-clear-btn"
-                    onClick={() => micrositeRef.current?.downloadPdf()}
-                    aria-label="Download PDF"
+                    onClick={chatHandleUndo}
+                    disabled={!chatCanUndo}
+                    aria-label="Undo"
+                    title="Undo"
+                    style={{ opacity: chatCanUndo ? 1 : 0.35 }}
                   >
-                    <Icon icon={Download} size="md" />
+                    ↩
                   </button>
                   <button
                     className="chat-v2-clear-btn"
-                    onClick={() => router.push(editorPath)}
-                    aria-label="Edit microsite"
+                    onClick={chatHandleRedo}
+                    disabled={!chatCanRedo}
+                    aria-label="Redo"
+                    title="Redo"
+                    style={{ opacity: chatCanRedo ? 1 : 0.35 }}
                   >
-                    <Icon icon={Pencil} size="md" />
+                    ↪
                   </button>
                 </>
+              )}
+              <span className="chat-v2-ns">{viewMicrosite.displayName}</span>
+              {chatEditModeActive && chatEditBanner && (
+                <span style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 600 }}>{chatEditBanner}</span>
+              )}
+            </div>
+            <div className="chat-v2-header-right">
+              {viewMicrositeAST && hasCustomHtml && (
+                <button
+                  className="chat-v2-clear-btn"
+                  style={{
+                    background: chatEditModeActive ? 'color-mix(in srgb, var(--primary) 12%, transparent)' : 'transparent',
+                    color: chatEditModeActive ? 'var(--primary)' : undefined,
+                    borderRadius: 6,
+                  }}
+                  onClick={() => {
+                    const next = !chatEditModeActive;
+                    setChatEditModeActive(next);
+                    if (!next) clearChatBridgeSelection();
+                    const html = chatGetCurrentHtml();
+                    if (html) {
+                      const normalized = normalizeMicrositeHtml(html);
+                      setChatActiveSrcDoc(next ? injectBridgeScript(normalized) : normalized);
+                    }
+                  }}
+                  aria-label="Toggle edit mode"
+                  title={chatEditModeActive ? 'Exit edit mode' : 'Edit microsite'}
+                >
+                  <Icon icon={Pencil} size="md" />
+                </button>
               )}
               <button className="chat-v2-clear-btn" onClick={dismiss} aria-label="Close microsite">
                 <Icon icon={X} size="md" />
               </button>
             </div>
           </header>
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <div ref={msSentinelRef} style={{ height: 0, flexShrink: 0 }} />
-            {viewMicrositeLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)', fontSize: 14 }}>
-                Loading…
-              </div>
-            )}
-            {!viewMicrositeLoading && viewMicrositeAST && (
-              <MicrositeComponent
-                ref={micrositeRef}
-                ast={viewMicrositeAST}
-                mode="embedded"
-                namespace={viewMicrosite.namespace}
-                proposalId={viewMicrosite.proposalId}
+
+          {viewMicrositeLoading && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 14 }}>
+              Loading…
+            </div>
+          )}
+
+          {!viewMicrositeLoading && viewMicrositeAST && !hasCustomHtml && (
+            // AST-only microsite (no customHtml) — render with React component, no bridge editing
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              {viewMicrositeAST.generationMode !== 'classic' ? (
+                <MicrositePro
+                  ref={micrositeRef}
+                  ast={viewMicrositeAST}
+                  mode="embedded"
+                  namespace={viewMicrosite.namespace}
+                  proposalId={viewMicrosite.proposalId}
+                />
+              ) : (
+                <Microsite
+                  ref={micrositeRef}
+                  ast={viewMicrositeAST}
+                  mode="embedded"
+                  namespace={viewMicrosite.namespace}
+                  proposalId={viewMicrosite.proposalId}
+                />
+              )}
+            </div>
+          )}
+
+          {!viewMicrositeLoading && viewMicrositeAST && hasCustomHtml && (
+            <div
+              ref={chatIframeContainerRef}
+              style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}
+            >
+              <iframe
+                ref={chatIframeRef}
+                srcDoc={chatActiveSrcDoc}
+                style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                sandbox="allow-scripts allow-same-origin"
+                title="Microsite preview"
               />
-            )}
-          </div>
+              {chatEditModeActive && (
+                <SelectionOverlay
+                  hovered={chatHoveredElement}
+                  selected={chatSelectedElement}
+                  isProcessing={chatEditing}
+                  onClearSelected={() => clearChatBridgeSelection()}
+                />
+              )}
+              {chatEditModeActive && chatSelectedElement && (
+                <InlineEditPanel
+                  selected={chatSelectedElement}
+                  micrositeEditing={chatEditing}
+                  containerH={chatIframeContainerH}
+                  containerW={chatIframeContainerW}
+                  onStylePatch={handleChatStylePatch}
+                  onTextPatch={handleChatTextPatch}
+                  onImageReplace={handleChatImageReplace}
+                  onBgImagePatch={handleChatBgImagePatch}
+                  onIconReplace={handleChatIconReplace}
+                  onSvgReplace={handleChatSvgReplace}
+                  onLogoReplace={handleChatLogoReplace}
+                  onRemoveSection={handleChatRemoveSection}
+                  onRemoveSectionContainer={handleChatRemoveSectionContainer}
+                  onClose={() => clearChatBridgeSelection()}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

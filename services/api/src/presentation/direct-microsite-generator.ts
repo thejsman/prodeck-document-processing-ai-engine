@@ -10,6 +10,12 @@
  *   generateMicrositeStream    — streaming, calls onChunk per delta
  */
 
+// Post-processing: replace em dashes the LLM generates despite being told not to.
+// " — " (spaced) → ", "  |  bare "—" → "-"
+function stripEmDashes(s: string): string {
+  return s.replace(/ — /g, ', ').replace(/—/g, '-');
+}
+
 // ---------------------------------------------------------------------------
 // Pre-pass: pure regex extraction — no LLM, no I/O
 // ---------------------------------------------------------------------------
@@ -183,7 +189,7 @@ export async function generateMicrositeDirectly(
 
   if (!html.trim()) throw new Error('Anthropic returned empty response');
 
-  return { html, elapsed: Date.now() - t0 };
+  return { html: stripEmDashes(html), elapsed: Date.now() - t0 };
 }
 
 // ---------------------------------------------------------------------------
