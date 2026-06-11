@@ -64,6 +64,8 @@ services:
         # NEXT_PUBLIC_* vars are baked into the client bundle at build time.
         # Reuse DOMAIN (already set for nginx/SSL) so no extra var is needed.
         NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN: ${DOMAIN:-}
+        NEXT_PUBLIC_MICROSITE_CNAME_TARGET: ${MICROSITE_CNAME_TARGET:-}
+        NEXT_PUBLIC_MICROSITE_SERVER_IP: ${MICROSITE_SERVER_IP:-}
     environment:
       - API_URL=http://api:3000
       # Microsite publishing — DOMAIN is the same root domain used by nginx/SSL.
@@ -73,6 +75,11 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - MICROSITE_ACCESS_SECRET=${MICROSITE_ACCESS_SECRET:-}
+      # Custom domain publishing
+      - MICROSITE_CUSTOM_DOMAINS_ENABLED=${MICROSITE_CUSTOM_DOMAINS_ENABLED:-false}
+      - MICROSITE_CNAME_TARGET=${MICROSITE_CNAME_TARGET:-}
+      - MICROSITE_SERVER_IP=${MICROSITE_SERVER_IP:-}
+      - CERT_MANAGER_URL=http://cert-manager:3002
     depends_on:
       api:
         condition: service_healthy
@@ -94,9 +101,28 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - letsencrypt_certs:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot
+      - nginx_custom_conf:/etc/nginx/conf.d
     depends_on:
       ui:
         condition: service_healthy
+    restart: unless-stopped
+
+  # ── cert-manager: provisions Let's Encrypt certs for custom domains ──
+  cert-manager:
+    build:
+      context: ..
+      dockerfile: deployment/cert-manager/Dockerfile
+    environment:
+      - CERTBOT_EMAIL=${CERTBOT_EMAIL:-}
+      - NGINX_CONTAINER=${COMPOSE_PROJECT_NAME:-ai-engine}-nginx-1
+      - PORT=3002
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+      - nginx_custom_conf:/etc/nginx/conf.d
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - nginx
     restart: unless-stopped
 
   # ── Certbot (on-demand, not auto-started) ────────────────────────
@@ -121,4 +147,6 @@ volumes:
     external: true
     name: ai-engine_letsencrypt_certs
   certbot_webroot:
+    driver: local
+  nginx_custom_conf:
     driver: local
