@@ -185,7 +185,7 @@ setTimeout(fix,600);
 // Intercept hash-anchor clicks so they scroll within the srcDoc iframe instead of
 // navigating away (clicking nav links like href="#section" would blank a srcDoc iframe
 // because it has no real base URL).
-const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){if(window.__editMode)return;var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
 // IDs of all elements injected by normalizeMicrositeHtml / injectBridgeScript.
 // Used to strip stale saved copies before re-injecting the latest code.
@@ -243,6 +243,9 @@ export function normalizeMicrositeHtml(html: string): string {
 const BRIDGE_SCRIPT_BODY = /* javascript */ `
 (function () {
 'use strict';
+
+// Signal to NAV_FIX_SCRIPT that edit mode is active — suppresses scrollIntoView.
+window.__editMode = true;
 
 // ── Skip list: elements we never select ──────────────────────────────────
 var SKIP_TAGS = { html:1, body:1, head:1, script:1, style:1, meta:1, link:1, title:1 };
@@ -572,15 +575,11 @@ document.addEventListener('mouseleave', function () {
 }, false);
 
 document.addEventListener('click', function (e) {
-  // Prevent link navigation for any click on or inside an <a> element.
-  // Without this, clicking a child (e.g. an <img> inside a.nav-brand) lets the
-  // anchor's href="#" execute, which blanks the srcdoc iframe.
-  if (e.target) {
-    var tgt = e.target;
-    var isAnchor = tgt.tagName && tgt.tagName.toLowerCase() === 'a';
-    var inAnchor = !isAnchor && tgt.closest && tgt.closest('a');
-    if (isAnchor || inAnchor) e.preventDefault();
-  }
+  // In edit mode every click is a selection — prevent ALL default browser actions
+  // so that buttons don't submit forms, anchors don't navigate or scroll, and
+  // any inline onclick handlers that would cause location changes are neutralised.
+  e.preventDefault();
+  e.stopPropagation();
   selectedEl = e.target;
   sendMsg('select', e.target);
   startTracking(e.target);
