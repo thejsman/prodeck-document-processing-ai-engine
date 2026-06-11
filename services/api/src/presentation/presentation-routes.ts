@@ -2339,6 +2339,30 @@ When asked to create a website or microsite:
 - CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
 
+MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every output:
+- Always include <meta name="viewport" content="width=device-width, initial-scale=1"> in <head>
+- Write base styles for 320px–768px first, then layer on desktop enhancements with min-width media queries
+- Never use fixed pixel widths on layout containers — use %, max-width + width:100%, or clamp()
+- Body text minimum 15px on mobile; headings at least 26px on small screens; use clamp() for fluid scaling (e.g. font-size: clamp(26px, 5vw, 56px))
+- All tap targets (buttons, links, nav items) must be at least 44×44px with adequate padding
+- Multi-column grids must collapse to a single column below 768px — never let columns overflow or shrink to unreadable widths
+- Hero sections must be fully legible at 375px wide — no content cut off, no horizontal scroll
+- Horizontal overflow is forbidden: add overflow-x:hidden to html,body and any fixed-width inner containers
+- Navigation on mobile (<768px): use a hamburger toggle or vertical stacked list — never a horizontal nav row that overflows
+- Section padding must scale: use clamp() or percentage-based values (e.g. padding: clamp(48px, 8vw, 120px) clamp(20px, 5vw, 80px))
+- Images: always width:100%; height:auto, or object-fit:cover inside a container with explicit height
+- Avoid hover-only states for essential interactions — every interactive element must also respond to touch/click
+
+NAVBAR LOGO REQUIREMENTS — apply to every microsite without exception:
+- Every microsite must include a sticky navbar at the top of the page
+- The navbar must use display:flex and align-items:center so all items are vertically centered
+- The FIRST child inside the navbar must be a logo slot div with EXACTLY this structure (copy verbatim):
+  <div id="__site-logo-slot__" style="display:flex;align-items:center;flex-shrink:0;gap:8px;">COMPANY_NAME</div>
+  Replace COMPANY_NAME with the actual company name text from the proposal.
+- The id="__site-logo-slot__" attribute is mandatory — the system replaces the slot's content with the real client logo image after generation.
+- Do NOT put an <img> tag inside the slot — text only. The system handles the image injection.
+- The navbar height must be at least 64px so the logo has room vertically.
+
 ${imageInstructions}`;
 
     const resolveImagePlaceholders = async (html: string): Promise<string> => {

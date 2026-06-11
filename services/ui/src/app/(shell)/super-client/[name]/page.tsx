@@ -251,152 +251,136 @@ function ArtifactCard({
 
 // UploadMessageCard — upload progress card rendered in the chat thread (user side).
 // Subscribes directly to uploadStore for XHR progress, and reads live doc status
-// from `docs` (polled by the right panel) to mirror the exact same states.
+// from `docs` (polled by the right panel) to show a rich sequential step visualization.
+const SC_PROCESSING_STEPS = [
+  { label: 'Reading document' },
+  { label: 'Extracting information' },
+  { label: 'Building search index' },
+] as const;
+
 function UploadMessageCard({ uploadId, docs }: { uploadId: string; docs: SuperClientFile[] }) {
   const [entry, setEntry] = useState<UploadEntry | undefined>(() => uploadStore.get(uploadId));
   useEffect(() => uploadStore.subscribe((all) => setEntry(all.find((u) => u.id === uploadId))), [uploadId]);
+
+  // Advance through processing steps on a timer to show believable progress
+  const [processingStep, setProcessingStep] = useState(0);
+  const isProcessingState = entry && entry.status !== 'uploading' && entry.status !== 'failed';
+  const docForEntry = entry ? docs.find((d) => d.fileName === entry.fileName) : undefined;
+  const isProcessing = isProcessingState && (!docForEntry || docForEntry.status === 'processing');
+
+  useEffect(() => {
+    if (!isProcessing) { setProcessingStep(0); return; }
+    const t1 = setTimeout(() => setProcessingStep(1), 2500);
+    const t2 = setTimeout(() => setProcessingStep(2), 6000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [isProcessing]);
+
   if (!entry) return null;
 
   const isUploading = entry.status === 'uploading';
   const isFailed = entry.status === 'failed';
-
-  // Once the XHR is done, mirror the server-side doc status from the right panel
   const doc = !isUploading ? docs.find((d) => d.fileName === entry.fileName) : undefined;
   const docStatus = doc?.status;
+  const isDone = !isUploading && !isFailed && docStatus === 'extracted';
+  const isDocFailed = !isUploading && !isFailed && docStatus === 'failed';
 
-  return (
-    <div
-      style={{
-        background: 'var(--panel)',
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '10px 14px',
-        minWidth: 220,
-        maxWidth: 300,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
-      {/* File name row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          minWidth: 0,
-        }}
-      >
-        <FileText size={15} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--muted)' }} />
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: 'var(--foreground)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-          }}
-        >
-          {entry.fileName}
-        </span>
+  // ── Done: collapsed pill ────────────────────────────────────────
+  if (isDone) {
+    return (
+      <div className="chat-file-upload chat-file-upload--done">
+        <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--primary)' }} />
+        <span className="chat-file-upload__name chat-file-upload__name--inline">{entry.fileName}</span>
+        <CheckCircle size={14} strokeWidth={2} className="chat-file-upload__check-icon" />
       </div>
+    );
+  }
 
-      {/* Progress / status — mirrors right panel exactly */}
-      {isUploading && (
-        <>
-          <div
-            style={{
-              height: 3,
-              borderRadius: 99,
-              background: 'var(--border)',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: `${entry.pct}%`,
-                background: 'var(--primary)',
-                borderRadius: 99,
-                transition: 'width 0.2s ease',
-              }}
-            />
+  // ── Error ───────────────────────────────────────────────────────
+  if (isFailed || isDocFailed) {
+    const msg = isFailed ? (entry.error ?? 'Upload failed') : 'Extraction failed';
+    const label = msg.length > 80 ? msg.slice(0, 80) + '…' : msg;
+    return (
+      <div className="chat-file-upload">
+        <div className="chat-file-upload__header">
+          <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--muted)' }} />
+          <span className="chat-file-upload__name">{entry.fileName}</span>
+        </div>
+        <div className="chat-file-upload__track">
+          <div className="chat-file-upload__fill chat-file-upload__fill--error" style={{ width: '100%' }} />
+        </div>
+        <div className="chat-file-upload__status chat-file-upload__status--error">{label}</div>
+      </div>
+    );
+  }
+
+  // ── Uploading: progress bar + pending steps ─────────────────────
+  if (isUploading) {
+    const pct = entry.pct ?? 0;
+    return (
+      <div className="chat-file-upload">
+        <div className="chat-file-upload__header">
+          <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--primary)' }} />
+          <span className="chat-file-upload__name">{entry.fileName}</span>
+        </div>
+        <div className="chat-file-upload__track">
+          <div className="chat-file-upload__fill" style={{ width: `${Math.max(pct, 4)}%` }} />
+        </div>
+        <div className="chat-file-upload__steps">
+          <div className="chat-file-upload__step chat-file-upload__step--active">
+            <span className="chat-file-upload__step-icon">
+              <span className="chat-file-upload__step-spinner" />
+            </span>
+            <span>Uploading{pct > 0 && pct < 100 ? ` ${pct}%` : '…'}</span>
           </div>
-          <span
-            style={{
-              fontSize: 11,
-              color: 'var(--muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-            }}
-          >
-            <Icon icon={Loader} size="sm" style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }} />
-            {entry.pct}% · Uploading…
+          {SC_PROCESSING_STEPS.map((step) => (
+            <div key={step.label} className="chat-file-upload__step chat-file-upload__step--pending">
+              <span className="chat-file-upload__step-icon">
+                <span className="chat-file-upload__step-dot-pending" />
+              </span>
+              <span>{step.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Processing: timed step advance ─────────────────────────────
+  return (
+    <div className="chat-file-upload">
+      <div className="chat-file-upload__header">
+        <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--primary)' }} />
+        <span className="chat-file-upload__name">{entry.fileName}</span>
+      </div>
+      <div className="chat-file-upload__steps">
+        <div className="chat-file-upload__step chat-file-upload__step--done">
+          <span className="chat-file-upload__step-icon">
+            <CheckCircle size={12} strokeWidth={2} className="chat-file-upload__step-check" />
           </span>
-        </>
-      )}
-
-      {/* XHR done — show server-side extraction status */}
-      {!isUploading && !isFailed && (!doc || docStatus === 'processing') && (
-        <span
-          style={{
-            fontSize: 11,
-            color: 'var(--primary)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-          }}
-        >
-          <Icon icon={Loader} size="sm" style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }} />
-          Processing…
-        </span>
-      )}
-
-      {!isUploading && !isFailed && docStatus === 'extracted' && (
-        <span
-          style={{
-            fontSize: 11,
-            color: '#16a34a',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-          }}
-        >
-          <CheckCircle size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
-          Indexed
-        </span>
-      )}
-
-      {!isUploading && !isFailed && docStatus === 'failed' && (
-        <span
-          style={{
-            fontSize: 11,
-            color: 'var(--destructive, #ef4444)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-          }}
-        >
-          ✕ Extraction failed
-        </span>
-      )}
-
-      {isFailed && (
-        <span
-          style={{
-            fontSize: 11,
-            color: 'var(--destructive, #ef4444)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-          }}
-        >
-          ✕ {entry.error ?? 'Upload failed'}
-        </span>
-      )}
+          <span>Uploaded</span>
+        </div>
+        {SC_PROCESSING_STEPS.map((step, idx) => {
+          const isDoneStep = idx < processingStep;
+          const isActiveStep = idx === processingStep;
+          return (
+            <div
+              key={step.label}
+              className={`chat-file-upload__step${isDoneStep ? ' chat-file-upload__step--done' : isActiveStep ? ' chat-file-upload__step--active' : ' chat-file-upload__step--pending'}`}
+            >
+              <span className="chat-file-upload__step-icon">
+                {isDoneStep ? (
+                  <CheckCircle size={12} strokeWidth={2} className="chat-file-upload__step-check" />
+                ) : isActiveStep ? (
+                  <span className="chat-file-upload__step-spinner" />
+                ) : (
+                  <span className="chat-file-upload__step-dot-pending" />
+                )}
+              </span>
+              <span>{step.label}{isActiveStep ? '…' : ''}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -435,6 +419,7 @@ export default function SuperClientPage() {
   const composerFileInputRef = useRef<HTMLInputElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hadProcessingRef = useRef(false);
+  const summarizedDocsRef = useRef<Set<string>>(new Set());
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
 
   const [proposals, setProposals] = useState<SuperClientProposal[]>([]);
@@ -689,6 +674,33 @@ export default function SuperClientPage() {
       }
     };
   }, [docs, loadDocs]);
+
+  // When a document transitions from processing → extracted, add an assistant summary message
+  const prevDocsRef = useRef<SuperClientFile[]>([]);
+  useEffect(() => {
+    const prev = prevDocsRef.current;
+    prevDocsRef.current = docs;
+    const justExtracted = docs.filter(
+      (d) =>
+        d.status === 'extracted' &&
+        prev.find((p) => p.fileName === d.fileName)?.status === 'processing' &&
+        !summarizedDocsRef.current.has(d.fileName),
+    );
+    if (justExtracted.length === 0) return;
+    for (const d of justExtracted) summarizedDocsRef.current.add(d.fileName);
+    const names = justExtracted.map((d) => d.fileName);
+    const label = names.length === 1
+      ? `**${names[0]}**`
+      : `**${names[0]}** and ${names.length - 1} other file${names.length > 2 ? 's' : ''}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: genId(),
+        role: 'assistant',
+        content: `${label} has been indexed and added to the knowledge base. Ask me anything about it, or say "generate proposal" to create one based on this context.`,
+      },
+    ]);
+  }, [docs]);
 
   // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo for microsite editor
   useEffect(() => {
@@ -1245,25 +1257,58 @@ export default function SuperClientPage() {
   }
 
   function injectLogoIntoHtml(html: string, logo: { base64: string; mediaType: string } | { url: string }): string {
-    // Remove ALL previously injected logo divs (any attribute order) and their companion scripts
-    let stripped = html
+    // Strip any previous logo injection artifacts
+    let out = html
       .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
-      .replace(/<script[^>]*>\s*\/\*\s*__logo-inject__/gi, (m) => {
-        // find and remove the whole script block that starts with this marker
-        return m; // placeholder; handled by full-block regex below
-      });
-    // Remove the full companion script block by its unique marker comment
-    stripped = stripped.replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+      .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
 
     const src = 'url' in logo ? logo.url : `data:${logo.mediaType};base64,${logo.base64}`;
-    const logoHtml = `<div id="__brand-logo__" style="position:fixed;top:16px;left:20px;z-index:2147483647;pointer-events:none;"><img src="${src}" style="height:44px;width:auto;object-fit:contain;display:block;" alt="" /></div>`;
-    // Hide provider attribution in both footer ("PREPARED BY") and header brand/logo element
-    const hideProviderScript = `<script>/*__logo-inject__*/(function(){function h(){var els=document.querySelectorAll('*');for(var i=0;i<els.length;i++){var t=(els[i].children.length===0?els[i].textContent||'':'');if(/prepared\\s*by/i.test(t)){var p=els[i].parentElement;(p&&p!==document.body?p:els[i]).style.display='none';}}var hdr=document.querySelector('header,nav,[class*="header"],[class*="navbar"]');if(hdr){var brand=hdr.querySelector('[class*="logo"],[class*="brand"],[class*="navbar-brand"]');if(brand){brand.style.visibility='hidden';}else{var first=hdr.firstElementChild;if(first&&first.id!=='__brand-logo__'){first.style.visibility='hidden';}}}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',h);}else{h();}})()</script>`;
-    const injection = logoHtml + hideProviderScript;
-    if (/<body[^>]*>/i.test(stripped)) {
-      return stripped.replace(/(<body[^>]*>)/i, `$1${injection}`);
+    const imgTag = `<img src="${src}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
+
+    // Strategy 1 — slot div the LLM was instructed to emit (safest: no img placeholder crash)
+    if (out.includes('id="__site-logo-slot__"')) {
+      // Replace the inner content of the slot div with our img
+      return out.replace(
+        /(<div[^>]*id="__site-logo-slot__"[^>]*>)([\s\S]*?)(<\/div>)/i,
+        `$1${imgTag}$3`,
+      );
     }
-    return injection + stripped;
+
+    // Strategy 2 — any <img> directly inside <nav> or <header>: replace its src
+    const navImgRe = /(<(?:nav|header)\b[^>]*>[\s\S]*?)(<img\b[^>]*>)/i;
+    if (navImgRe.test(out)) {
+      return out.replace(navImgRe, (_, before, imgEl) => {
+        const patched = imgEl.includes('src=')
+          ? imgEl.replace(/\bsrc="[^"]*"/i, `src="${src}"`)
+          : imgEl.replace('<img', `<img src="${src}"`);
+        return before + patched.replace(/\bstyle="[^"]*"/i, `style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"`);
+      });
+    }
+
+    // Strategy 3 — element with logo/brand class inside nav/header: prepend img with flex wrapper
+    const navLogoRe = /(<(?:nav|header)\b[\s\S]*?)(<(?:a|div|span)\b[^>]*class="[^"]*(?:logo|brand|navbar-brand)[^"]*"[^>]*>)/i;
+    if (navLogoRe.test(out)) {
+      return out.replace(navLogoRe, (_, before, logoTag) => {
+        const flexTag = logoTag.includes('style=')
+          ? logoTag.replace(/\bstyle="([^"]*)"/i, (_m: string, s: string) =>
+              `style="${s.replace(/display\s*:[^;]+;?/gi, '').replace(/align-items\s*:[^;]+;?/gi, '').trim()};display:flex;align-items:center;"`)
+          : logoTag.replace('>', ' style="display:flex;align-items:center;">');
+        return `${before}${flexTag}${imgTag}`;
+      });
+    }
+
+    // Strategy 4 — insert as first child of nav/header inside a flex-centered wrapper
+    const navOpenRe = /(<(?:nav|header)\b[^>]*>)/i;
+    if (navOpenRe.test(out)) {
+      const slot = `<div style="display:flex;align-items:center;flex-shrink:0;">${imgTag}</div>`;
+      return out.replace(navOpenRe, `$1${slot}`);
+    }
+
+    // Strategy 5 — fixed overlay fallback, properly centered within a 64px navbar band
+    const overlay = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;">${imgTag}</div>`;
+    return /<body[^>]*>/i.test(out)
+      ? out.replace(/(<body[^>]*>)/i, `$1${overlay}`)
+      : overlay + out;
   }
 
   async function handleComposerSelectProposal(p: SuperClientProposal) {
@@ -3142,27 +3187,6 @@ export default function SuperClientPage() {
                       >
                         Documents
                       </span>
-                      <span style={{ flex: 1 }} />
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
-                        title="Upload document"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: uploading ? 'not-allowed' : 'pointer',
-                          padding: '2px 4px',
-                          color: 'var(--muted)',
-                          display: 'flex',
-                          lineHeight: 1,
-                        }}
-                      >
-                        {uploading ? (
-                          <span style={{ fontSize: 10 }}>{uploadPct}%</span>
-                        ) : (
-                          <Plus size={16} strokeWidth={1.5} />
-                        )}
-                      </button>
                     </div>
                     <input
                       ref={fileInputRef}
@@ -3320,24 +3344,6 @@ export default function SuperClientPage() {
                     >
                       Microsites
                     </span>
-                    <span style={{ flex: 1 }} />
-                    <button
-                      onClick={() => void handleGenerateMicrosite()}
-                      disabled={proposals.length === 0 || loadingMicrositeFor !== null}
-                      title="Generate microsite"
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: proposals.length === 0 ? 'not-allowed' : 'pointer',
-                        padding: '2px 4px',
-                        color: 'var(--muted)',
-                        display: 'flex',
-                        lineHeight: 1,
-                        opacity: proposals.length === 0 ? 0.3 : 1,
-                      }}
-                    >
-                      <Plus size={16} strokeWidth={1.5} />
-                    </button>
                   </div>
                   {microsites.length === 0 ? (
                     <div
