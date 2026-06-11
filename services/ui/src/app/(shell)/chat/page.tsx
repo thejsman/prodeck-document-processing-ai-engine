@@ -57,6 +57,8 @@ import {
   discardExtractionCard,
   reclassifyExtractionCard,
   fetchPendingExtractions,
+  fetchBriefReadiness,
+  type BriefContext as BriefContextData,
 } from '@/lib/api';
 import { useIngestionProgressStore } from '@/core/execution/ingestion-progress-store';
 import { ClientPanel } from '@/components/chat/ClientPanel';
@@ -181,6 +183,27 @@ function TypewriterLabel({ text, className }: { text: string; className?: string
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [text]);
   return <em className={className}>{displayed}</em>;
+}
+
+function buildUploadSummaryMessage(fileNames: string[], context: BriefContextData): string {
+  const relevant = context.sources.filter((s) => fileNames.includes(s.fileName));
+  const fields = relevant.reduce((sum, s) => sum + s.fieldsExtracted.length, 0);
+  const knowledge = relevant.reduce((sum, s) => sum + s.knowledgeEntriesCreated, 0);
+
+  const name =
+    fileNames.length > 1
+      ? `${fileNames[0]} +${fileNames.length - 1} more`
+      : (fileNames[0] ?? 'the document');
+
+  if (fields === 0 && knowledge === 0) {
+    return `**${name}** is indexed and ready. Ask me anything about its contents.`;
+  }
+
+  const parts: string[] = [];
+  if (fields > 0) parts.push(`${fields} requirement field${fields > 1 ? 's' : ''} extracted`);
+  if (knowledge > 0) parts.push(`${knowledge} knowledge entr${knowledge > 1 ? 'ies' : 'y'} added`);
+
+  return `Processed **${name}** — ${parts.join(', ')}. The context panel has been updated.\n\nAsk me anything about this document, or say "generate proposal" to create a proposal using this context.`;
 }
 
 export default function ChatPage() {
@@ -1004,7 +1027,23 @@ export default function ChatPage() {
             : m,
         ),
       );
-      if (terminalStatus === 'done') setFileRefreshTick((t) => t + 1);
+      if (terminalStatus === 'done') {
+        setFileRefreshTick((t) => t + 1);
+        // Fetch context summary and surface what was extracted as an assistant message
+        fetchBriefReadiness(apiKey, namespace || 'default')
+          .then(({ context }) => {
+            const summary = buildUploadSummaryMessage(fileNames, context);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `assistant-upload-summary-${Date.now()}`,
+                role: 'assistant',
+                content: summary,
+              },
+            ]);
+          })
+          .catch(() => { /* non-critical */ });
+      }
     }
 
     const interval = setInterval(async () => {

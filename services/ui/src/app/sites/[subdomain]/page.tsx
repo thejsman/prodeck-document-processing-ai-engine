@@ -29,5 +29,16 @@ export async function generateMetadata({ params }: Params) {
   return {
     title: record.ast.meta?.title ?? subdomain,
     description: record.ast.brief?.engagementSummary ?? undefined,
+    robots: {
+      index: false,
+      follow: false,
+      nocache: true,
+      googleBot: {
+        index: false,
+        follow: false,
+        nosnippet: true,
+        noimageindex: true,
+      },
+    },
   };
 }
