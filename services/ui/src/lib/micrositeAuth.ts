@@ -36,6 +36,6 @@ export function verifyAccessToken(subdomain: string, passwordHash: string, token
   }
 }
 
-export function accessCookieName(subdomain: string): string {
-  return `ms_access_${subdomain.replace(/-/g, '_')}`;
+export function accessCookieName(identifier: string): string {
+  return `ms_access_${identifier.replace(/[^a-z0-9]/gi, '_')}`;
 }

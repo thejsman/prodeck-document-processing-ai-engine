@@ -698,22 +698,29 @@ export async function publishMicrosite(
   return handleResponse<{ downloadUrl: string; size: number }>(res);
 }
 
+export interface PublishMeta {
+  subdomain?: string;
+  customDomain?: string;
+  url: string;
+  publishedAt: string;
+}
+
 export async function fetchPublishMeta(
   namespace: string,
   proposalId: string,
-): Promise<{ subdomain: string; url: string; publishedAt: string } | null> {
+): Promise<PublishMeta | null> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
   );
   if (!res.ok) return null;
-  return res.json() as Promise<{ subdomain: string; url: string; publishedAt: string } | null>;
+  return res.json() as Promise<PublishMeta | null>;
 }
 
 export async function savePublishMeta(
   apiKey: string,
   namespace: string,
   proposalId: string,
-  meta: { subdomain: string; url: string; publishedAt: string },
+  meta: PublishMeta,
 ): Promise<void> {
   await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
