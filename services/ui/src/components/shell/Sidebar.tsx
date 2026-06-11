@@ -93,6 +93,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <Icon icon={Globe} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Microsites</span>
           </Link>
+          {/* TEMP: Skills section hidden
           <Link
             href="/skills"
             className={`sidebar-link${pathname?.startsWith('/skills') ? ' sidebar-link--active' : ''}`}
@@ -101,6 +102,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <Icon icon={Layers} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Skills</span>
           </Link>
+          */}
         </div>
 
         <NamespacesSection onMobileClose={onMobileClose} collapsed={collapsed} />
