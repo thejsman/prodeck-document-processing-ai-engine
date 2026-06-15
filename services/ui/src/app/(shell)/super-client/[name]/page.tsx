@@ -4035,6 +4035,19 @@ export default function SuperClientPage() {
                   />
                   {(lastMicrositeRef.current!.ast.meta as { title?: string })
                     ?.title ?? "Microsite"}
+                  {msVersionMap.get(lastMicrositeRef.current!.id) != null && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600,
+                      color: "rgba(var(--primary-rgb, 99,102,241), 0.85)",
+                      background: "rgba(99,102,241,0.1)",
+                      border: "1px solid rgba(99,102,241,0.25)",
+                      borderRadius: 999, padding: "1px 6px",
+                      letterSpacing: "0.04em", flexShrink: 0,
+                      lineHeight: "16px",
+                    }}>
+                      v{msVersionMap.get(lastMicrositeRef.current!.id)}
+                    </span>
+                  )}
                 </p>
                 <div
                   style={{
