@@ -68,6 +68,7 @@ interface ScMicrosite {
   proposalTitle: string;
   savedAt: string;
   version: number;
+  pdfPresentation?: boolean;
 }
 
 interface GenerationEntry {
@@ -1103,12 +1104,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const priorCount = existing.filter((m) => m.proposalTitle === proposalTitle).length;
     const version = priorCount + 1;
 
+    const astObj = body.ast as Record<string, unknown> | undefined;
     const entry: ScMicrosite = {
       id,
       title: `${micrositeTitle} (v${version})`,
       proposalTitle,
       savedAt: now.toISOString(),
       version,
+      ...(astObj?.pdfPresentation ? { pdfPresentation: true } : {}),
     };
 
     await writeFile(path.join(micrositesDir, `${id}.json`), JSON.stringify(body.ast, null, 2));

@@ -20,6 +20,7 @@ import {
   Plus,
   Pencil,
   Link2 as LinkIcon,
+  Download,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { Icon } from "@/components/ui/Icon";
@@ -42,6 +43,7 @@ import {
   buildInstruction,
 } from "@/lib/microsite-bridge";
 import { generationStore, type Generation } from "@/lib/generation-store";
+import { generateCapturePDF } from "@/lib/pdfCaptureRenderer";
 import { uploadStore, type UploadEntry } from "@/lib/upload-store";
 // UploadEntry is used inside UploadMessageCard only
 import {
@@ -580,6 +582,7 @@ export default function SuperClientPage() {
   const [micrositeEditInput, setMicrositeEditInput] = useState("");
   const [micrositeEditing, setMicrositeEditing] = useState(false);
   const [micrositeEditBanner, setMicrositeEditBanner] = useState("");
+  const [pdfDownloading, setPdfDownloading] = useState(false);
   // ── Multi-level undo/redo history ────────────────────────────────────────
   const MAX_HISTORY = 50;
   const [editHistory, setEditHistory] = useState<string[]>([]);
@@ -775,6 +778,7 @@ export default function SuperClientPage() {
     markdown: string;
   } | null>(null);
   const [composerInstructions, setComposerInstructions] = useState("");
+  const [composerPresentationMode, setComposerPresentationMode] = useState(false);
   const [composerImage, setComposerImage] = useState<{
     base64: string;
     mediaType: string;
@@ -893,8 +897,33 @@ export default function SuperClientPage() {
           uploadId: u.id,
           createdAt: new Date(u.addedAt).toISOString(),
         }));
+        // De-duplicate: appendSuperClientHistory saves a user+assistant pair when a
+        // microsite is generated. If the gen card from generationStore is also present,
+        // prefer the card and drop both history messages to avoid duplicate entries.
+        // Match by checking whether any gen card's createdAt is within 30 s of either message.
+        const genCardTimes = activeGens.map((g) => new Date(g.createdAt).getTime());
+        const isNearGenCard = (iso: string | undefined) => {
+          if (!iso) return false;
+          const t = new Date(iso).getTime();
+          return genCardTimes.some((gt) => Math.abs(t - gt) < 30_000);
+        };
+        // Collect the indices of microsite-generation history pairs to drop
+        const dropIndices = new Set<number>();
+        for (let i = 0; i < historyMsgs.length; i++) {
+          const h = historyMsgs[i];
+          if (h.editContext !== "microsite") continue;
+          if (h.role !== "assistant") continue;
+          if (!isNearGenCard(h.createdAt)) continue;
+          // Drop this assistant message and the preceding user message (the trigger)
+          dropIndices.add(i);
+          const prev = historyMsgs[i - 1];
+          if (prev && prev.role === "user" && !prev.editContext && isNearGenCard(h.createdAt)) {
+            dropIndices.add(i - 1);
+          }
+        }
+        const filteredHistoryMsgs = historyMsgs.filter((_, idx) => !dropIndices.has(idx));
         // Merge and sort chronologically so generation/upload cards land in the right position
-        const allMsgs = [...historyMsgs, ...uploadMsgs, ...genMsgs].sort(
+        const allMsgs = [...filteredHistoryMsgs, ...uploadMsgs, ...genMsgs].sort(
           (a, b) => {
             if (!a.createdAt && !b.createdAt) return 0;
             if (!a.createdAt) return 1;
@@ -1386,6 +1415,30 @@ export default function SuperClientPage() {
       setMicrosites((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
       console.error("Delete microsite failed", err);
+    }
+  }
+
+  async function handleDownloadPresentationPDF() {
+    const iframe = (activeSlotRef.current === "A" ? iframeARef : iframeBRef).current;
+    if (!iframe?.contentDocument) return;
+    setPdfDownloading(true);
+    showToast("Generating PDF…");
+    try {
+      const iframeDoc = iframe.contentDocument;
+      const slideW = iframeDoc.documentElement.clientWidth || 1280;
+      const slideH = Math.round(slideW * 9 / 16);
+
+      await generateCapturePDF(iframeDoc.body, iframeDoc.documentElement, {
+        title: (viewingMicrosite?.ast?.meta as { title?: string } | undefined)?.title ?? "presentation",
+        slideModeHeight: slideH,
+        onProgress: ({ pct }) => {
+          if (pct >= 100) showToast("PDF downloaded");
+        },
+      });
+    } catch {
+      showToast("PDF generation failed", "error");
+    } finally {
+      setPdfDownloading(false);
     }
   }
 
@@ -2038,6 +2091,7 @@ export default function SuperClientPage() {
     setComposerStage(null);
     setComposerProposal(null);
     setComposerInstructions("");
+    setComposerPresentationMode(false);
     setComposerImage(null);
     setComposerLogo(null);
     setComposerLogoUrl("");
@@ -2302,6 +2356,7 @@ export default function SuperClientPage() {
 
     const msGenId = genId();
     const msAbort = new AbortController();
+    const generationStartedAt = new Date().toISOString();
     const proposalTitle = composerProposal.proposal.title;
     const micrositeTitle = proposalTitle.replace(/\bProposal\b/g, "Microsite").replace(/\bproposal\b/g, "microsite");
     const proposalMarkdown = composerProposal.markdown;
@@ -2340,10 +2395,12 @@ export default function SuperClientPage() {
 
     try {
       let partialCharCount = 0;
+      const isPdfMode = composerPresentationMode;
       await generateMicrositeV2Stream(apiKey, name, proposalId, {
         proposalMarkdown,
         userPrompt: proposalInstructions,
         referenceImage: proposalImage,
+        pdfPresentation: isPdfMode || undefined,
         signal: msAbort.signal,
         onEvent: (evt) => {
           if (evt.type === "html_chunk") {
@@ -2392,6 +2449,7 @@ export default function SuperClientPage() {
               }
             }
             // Open panel immediately with the stream AST — don't block on save
+            if (isPdfMode) ast = { ...ast, pdfPresentation: true };
             const tempId = `preview-${msGenId}`;
             const genHtml =
               (ast.sections?.[0] as { customHtml?: string })?.customHtml ?? "";
@@ -2437,6 +2495,21 @@ export default function SuperClientPage() {
                 });
                 loadMicrosites(); // sync with server
                 showToast("Microsite generated and saved");
+                // Persist to history.json so the generation survives browser refresh
+                // even if localStorage is cleared (incognito, cache wipe, etc.)
+                void appendSuperClientHistory(apiKey, name, [
+                  {
+                    role: "user",
+                    content: `Generate microsite for "${proposalTitle}"${composerPresentationMode ? " (PDF Presentation)" : ""}`,
+                    createdAt: generationStartedAt,
+                  },
+                  {
+                    role: "assistant",
+                    content: `Microsite generated: **${saved.title ?? micrositeTitle}**`,
+                    createdAt: new Date().toISOString(),
+                    editContext: "microsite" as const,
+                  },
+                ]);
               } catch (err) {
                 generationStore.error(msGenId, (err as Error).message);
                 showToast(
@@ -3311,6 +3384,32 @@ export default function SuperClientPage() {
                     boxSizing: "border-box",
                   }}
                 />
+                {/* PDF mode toggle */}
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  {([
+                    { val: false, label: "Web Microsite" },
+                    { val: true,  label: "PDF Presentation (16:9)" },
+                  ] as const).map(({ val, label }) => (
+                    <button
+                      key={String(val)}
+                      onClick={() => setComposerPresentationMode(val)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${composerPresentationMode === val ? "var(--primary)" : "var(--border)"}`,
+                        background: composerPresentationMode === val ? "color-mix(in srgb, var(--primary) 12%, var(--panel))" : "var(--panel)",
+                        color: composerPresentationMode === val ? "var(--primary)" : "var(--muted)",
+                        fontSize: 11,
+                        fontWeight: composerPresentationMode === val ? 600 : 400,
+                        cursor: "pointer",
+                        transition: "border-color 0.15s, background 0.15s",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
                 <div
                   style={{
                     display: "flex",
@@ -3484,7 +3583,7 @@ export default function SuperClientPage() {
                       gap: 6,
                     }}
                   >
-                    <Sparkles size={13} /> Generate Microsite
+                    <Sparkles size={13} /> {composerPresentationMode ? "Generate PDF Presentation" : "Generate Microsite"}
                   </button>
                 </div>
               </div>
@@ -4190,6 +4289,32 @@ export default function SuperClientPage() {
                   >
                     <Globe size={12} /> Publish
                   </button>
+                  {lastMicrositeRef.current?.ast?.pdfPresentation && (
+                    <button
+                      onClick={() => void handleDownloadPresentationPDF()}
+                      disabled={pdfDownloading}
+                      title="Download as PDF Presentation"
+                      style={{
+                        background: pdfDownloading ? "none" : "color-mix(in srgb, var(--primary) 12%, transparent)",
+                        border: "1px solid var(--primary)",
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor: pdfDownloading ? "default" : "pointer",
+                        fontSize: 12,
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: pdfDownloading ? 0.6 : 1,
+                        transition: "background 0.15s, opacity 0.15s",
+                      }}
+                    >
+                      {pdfDownloading
+                        ? <><Loader size={12} className="animate-spin" /> Generating…</>
+                        : <><Download size={12} /> Download PDF</>
+                      }
+                    </button>
+                  )}
                   <button
                     onClick={dismissMicrosite}
                     style={{
@@ -5201,6 +5326,24 @@ export default function SuperClientPage() {
                               >
                                 v{msVersionMap.get(m.id) ?? 1}
                               </span>
+                              {m.pdfPresentation && (
+                                <span
+                                  title="PDF Presentation (16:9)"
+                                  style={{
+                                    flexShrink: 0,
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: "#7c6af7",
+                                    background: "rgba(124,106,247,0.12)",
+                                    borderRadius: 3,
+                                    padding: "1px 4px",
+                                    lineHeight: 1.5,
+                                    letterSpacing: "0.04em",
+                                  }}
+                                >
+                                  PDF
+                                </span>
+                              )}
                             </div>
                             <div
                               style={{

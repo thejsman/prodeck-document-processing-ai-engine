@@ -572,6 +572,8 @@ export interface LayoutAST {
   hoverStyle?: 'none' | 'subtle' | 'lift' | 'glow' | 'tilt';
   /** Which generation mode produced this microsite */
   generationMode?: 'pro' | 'classic' | 'v2';
+  /** Each section is a self-contained 16:9 slide; user can download as PDF presentation */
+  pdfPresentation?: boolean;
 }
 
 // ── Icon hint type ───────────────────────────────────────────────────────────

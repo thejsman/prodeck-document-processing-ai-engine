@@ -2107,6 +2107,7 @@ export interface V2StreamOptions {
   designPrompt?: string;
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
+  pdfPresentation?: boolean;
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -2126,6 +2127,7 @@ export async function generateMicrositeV2Stream(
       ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
+      ...(opts.pdfPresentation ? { pdfPresentation: true } : {}),
     }),
     signal: opts.signal,
   });
@@ -2335,6 +2337,7 @@ export interface SuperClientMicrosite {
   title: string;
   proposalTitle: string;
   savedAt: string;
+  pdfPresentation?: boolean;
 }
 
 export async function listSuperClientMicrosites(apiKey: string, name: string): Promise<SuperClientMicrosite[]> {

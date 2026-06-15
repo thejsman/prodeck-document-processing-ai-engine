@@ -26,6 +26,8 @@ export interface CapturePDFOptions {
   title?: string;
   quality?: number;
   onProgress?: (p: { pct: number; message: string }) => void;
+  /** When set, each [data-section-id] section is capped to this pixel height (PDF slide mode). */
+  slideModeHeight?: number;
 }
 
 export interface CapturePDFResult {
@@ -255,7 +257,7 @@ export async function generateCapturePDF(
   rootEl: HTMLElement,
   options: CapturePDFOptions = {},
 ): Promise<CapturePDFResult> {
-  const { title = 'Microsite', quality = 0.90, onProgress } = options;
+  const { title = 'Microsite', quality = 0.90, onProgress, slideModeHeight } = options;
   const progress = (pct: number, message: string) => onProgress?.({ pct, message });
 
   try {
@@ -320,13 +322,19 @@ export async function generateCapturePDF(
         const sectionHasImageBg = origBg.includes('url(');
         const sectionHasCssGradient = !sectionHasImageBg && origBg.includes('gradient');
 
+        // In PDF slide mode the caller passes slideModeHeight; each section is captured
+        // at that fixed height so decorative overflows don't bleed into adjacent pages.
+        // For regular web microsites slideModeHeight is undefined → original behaviour.
+        const clipH = slideModeHeight ?? 0;
+        const isSlideMode = clipH > 0;
+
         const clone = sections[i].cloneNode(true) as HTMLElement;
         clone.style.cssText = [
           `width:${CAPTURE_W}px`,
-          `height:auto`,
+          isSlideMode ? `height:${clipH}px` : `height:auto`,
           `min-height:0`,
-          `max-height:none`,
-          `overflow:visible`,
+          isSlideMode ? `max-height:${clipH}px` : `max-height:none`,
+          isSlideMode ? `overflow:hidden` : `overflow:visible`,
           `box-sizing:border-box`,
           `position:relative`,
           `inset:auto`,
@@ -478,12 +486,17 @@ export async function generateCapturePDF(
         // Measure from the clone itself (not wrapper) so SVG/diagram children are included.
         // scrollHeight misses SVG height; getBoundingClientRect is reliable for rendered height.
         const cloneRect = clone.getBoundingClientRect();
-        const naturalH = Math.max(
-          cloneRect.height,
-          clone.scrollHeight,
-          measureWrapper.scrollHeight,
-          100,
-        );
+        // In PDF slide mode, trust clipH directly — scrollHeight would include overflowing
+        // SVGs and cause multi-page slicing of a single slide. Regular microsite captures
+        // always use the natural measured height (slideModeHeight not set → isSlideMode false).
+        const naturalH = isSlideMode
+          ? clipH
+          : Math.max(
+              cloneRect.height,
+              clone.scrollHeight,
+              measureWrapper.scrollHeight,
+              100,
+            );
 
         // When the section has a real image background and is shorter than the slide,
         // stretch it to fill the full slide height so the photo covers the entire

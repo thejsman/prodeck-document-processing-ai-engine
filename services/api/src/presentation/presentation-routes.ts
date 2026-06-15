@@ -2297,6 +2297,7 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       referenceImage?: { base64: string; mediaType: string }; // screenshot for vision
       coldStart?: boolean;       // bypass proposal — generate content from scratch
       motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive'; // explicit motion override
+      pdfPresentation?: boolean; // each section is a 16:9 slide for PDF download
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2555,14 +2556,38 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       }
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
+      // PDF presentation directive — overrides motion and enforces 16:9 slide layout
+      if (body?.pdfPresentation) {
+        parts.push(`PDF SLIDE CONSTRAINT — apply ONLY these structural changes on top of your normal web microsite design. Do NOT change colors, fonts, gradients, visual style, tone, or design language. The result must look exactly like the web microsite, just split into fixed-height 16:9 slides.
+
+STRUCTURE (only change from normal microsite):
+- Wrap every logical section in <section data-section-id="slide-N"> where N is 1, 2, 3…
+- Each section MUST have this inline style: style="aspect-ratio:16/9;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:center;width:100%;box-sizing:border-box;padding:clamp(28px,3.5vw,56px) clamp(36px,5vw,80px)"
+- Each section is exactly 1280×720px — everything must be visible without scrolling
+
+KEEP EXACTLY AS IN NORMAL MICROSITE:
+- All colors, gradients, backgrounds, dark/light theme
+- All fonts, font sizes, font weights, letter-spacing
+- All visual decorations: geometric shapes, gradient overlays, color bands, subtle patterns
+- The overall premium/professional visual tone and brand feel
+
+SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 720px height):
+- Headings: max font-size 2.8vw (≈36px). Body text: max font-size 1.3vw (≈17px)
+- Icons/SVG shapes used decoratively: max-height 140px, max-width 140px — keep them as accents not full-bleed fills
+- Images: max-height 42% of section height (use style="max-height:42%;object-fit:cover")
+- Max 5–6 bullet points per section; trim body copy to fit the 720px height
+- No sticky/fixed children, no scroll animations, no IntersectionObserver — content must be fully visible on load`);
+      }
+
       // Motion level hint — tells Claude what animation approach to use
-      const motionHint = body?.motionLevel === 'none'
+      const effectiveMotionLevel = body?.pdfPresentation ? 'none' : body?.motionLevel;
+      const motionHint = effectiveMotionLevel === 'none'
         ? 'MOTION: Generate a fully static site — no CSS animations, no JS animations, no transitions whatsoever.'
-        : body?.motionLevel === 'minimal'
+        : effectiveMotionLevel === 'minimal'
         ? 'MOTION: Use only subtle CSS fade-in transitions on page load. No scroll animations.'
-        : body?.motionLevel === 'cinematic'
+        : effectiveMotionLevel === 'cinematic'
         ? 'MOTION: Add high-end scroll-driven animations via GSAP loaded from CDN. Include: parallax background layers, 3D card tilt on hover (CSS perspective + JS), staggered fade-up on scroll, animated number counters. Add GSAP + ScrollTrigger scripts in <head> from https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/'
-        : body?.motionLevel === 'immersive'
+        : effectiveMotionLevel === 'immersive'
         ? 'MOTION: Maximum cinematic motion. Load GSAP + ScrollTrigger from jsdelivr CDN. Include: deep parallax scrub on backgrounds, canvas particle system in hero section, split-text headline reveals (animate each word), 3D perspective card tilts, staggered section entrances, smooth magnetic cursor effect on CTAs. Use requestAnimationFrame for all continuous animations.'
         : null;
       if (motionHint) parts.push(motionHint);
@@ -2632,6 +2657,15 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
           },
         );
 
+      // Inject hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
+      // Only constrains layout/overflow; does NOT change colors, fonts, or visual style.
+      const finalHtml = body?.pdfPresentation
+        ? html.replace(
+            /(<head[^>]*>)/i,
+            `$1<style id="__pdf-slide-constraints__">[data-section-id]{aspect-ratio:16/9!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:calc(100vw * 9 / 16)!important;max-height:calc(100vw * 9 / 16)!important;width:100%!important;box-sizing:border-box!important;}[data-section-id] svg{max-height:140px;max-width:140px;}[data-section-id] img{max-height:42%;object-fit:cover;}</style>`,
+          )
+        : html;
+
       send({ type: 'plan', totalSections: 1, sectionTypes: ['overview'] });
 
       send({
@@ -2639,7 +2673,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
         id: 'microsite',
         heading: 'microsite',
         sectionType: 'overview',
-        customHtml: html,
+        customHtml: finalHtml,
         content: { headline: 'microsite' },
         index: 0,
         image: { source: 'gradient', query: '', url: null, fallback: '' },
@@ -2649,11 +2683,12 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       const ast = {
         generationMode: 'v2',
+        ...(body?.pdfPresentation ? { pdfPresentation: true } : {}),
         sections: [{
           id: 'microsite',
           heading: 'microsite',
           sectionType: 'overview',
-          customHtml: html,
+          customHtml: finalHtml,
           content: { headline: 'microsite' },
           image: { source: 'gradient', query: '', url: null, fallback: '' },
           editable: true,
