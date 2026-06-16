@@ -21,6 +21,7 @@ import { registerAgentRoutes, llmGenerateFn } from './agent-routes.js';
 import { registerAssetRoutes } from './asset-routes.js';
 import { registerStreamUploadRoutes } from './ingestion/stream-upload-routes.js';
 import { registerImageRoutes } from './image-routes.js';
+import { registerAnalyzeImageRoutes } from './analyze-image-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { registerSkillRoutes } from './skills/skill-routes.js';
 import { registerDesignSkillRoutes } from './skills/design-skill-routes.js';
@@ -127,6 +128,7 @@ export async function createServer(opts: ServerOptions) {
   registerAssetRoutes(app, opts.workdir);
   registerStreamUploadRoutes(app, opts.workdir);
   registerImageRoutes(app, opts.workdir);
+  registerAnalyzeImageRoutes(app);
   registerPluginRoutes(app, presenterRegistry);
   registerSkillRoutes(app, opts.workdir, policyConfig);
   registerDesignSkillRoutes(app, opts.workdir);
