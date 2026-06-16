@@ -1432,12 +1432,22 @@ export function PresentationPage() {
   // ── Wizard steps ─────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', height: '100%' }}>
+      {/* Mobile-only fixed header */}
+      <div className="page-list-mobile-header">
+        <button className="topbar-hamburger" onClick={openMobileNav} aria-label="Open navigation">
+          <Icon icon={Menu} size="md" />
+        </button>
+        <span className="page-list-mobile-title">Microsites</span>
+        <div style={{ flex: 1 }} />
+        <ThemeToggle />
+      </div>
+
       <div className="page-theme-toggle-corner" style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
         <ThemeToggle />
       </div>
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
+      <div className="page-list-content" style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
         {/* ── Header — same style as Proposals page ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
+        <div className="page-list-inline-header" style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
           <button
             className="topbar-hamburger"
             onClick={openMobileNav}
@@ -1449,7 +1459,7 @@ export function PresentationPage() {
             Microsites{totalHistoryCount > 0 ? ` (${totalHistoryCount})` : ''}
           </span>
         </div>
-        <div style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
+        <div className="page-list-divider" style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
 
         {/* History — always visible */}
         <MicrositeHistory

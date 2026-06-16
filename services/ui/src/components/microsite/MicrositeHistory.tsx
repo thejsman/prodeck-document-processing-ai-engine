@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Globe, Trash2, MoreHorizontal, Clock, FolderOpen, Eye } from 'lucide-react';
+import { Globe, Trash2, MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
@@ -25,18 +25,6 @@ interface CombinedEntry {
   title?: string;    // explicit title from super-client microsites.json
 }
 
-// Derive a unique, vivid color pair from any string (namespace/id)
-function hashPalette(str: string): { primary: string; secondary: string; hue: number } {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = (Math.imul(h, 31) + str.charCodeAt(i)) | 0;
-  const hue = ((h >>> 0) % 360);
-  const hue2 = (hue + 150) % 360;
-  return {
-    primary: `hsl(${hue}, 78%, 58%)`,
-    secondary: `hsl(${hue2}, 72%, 52%)`,
-    hue,
-  };
-}
 
 function formatDate(iso: string): string {
   try {
@@ -258,7 +246,6 @@ export function MicrositeHistory({
   const combinedWithVersion = combined.map((e) => ({
     entry: e,
     companyName: e.ast.brand?.companyName || e.title || 'Untitled',
-    version: e.version ?? 1,
   }));
 
   return (
@@ -289,172 +276,56 @@ export function MicrositeHistory({
         </div>
       )}
 
-      <div className="proposal-cards-grid" style={{ padding: 0, maxWidth: 'none', margin: 0 }}>
-        {combinedWithVersion.map(({ entry, companyName, version }) => {
-          const isPro = entry.ast.generationMode === 'pro';
-          const isV2 = entry.ast.generationMode === 'v2';
+      <div className="proposal-cards-grid" style={{ paddingTop: 20, paddingLeft: 0, paddingRight: 0, paddingBottom: 0, maxWidth: 'none', margin: 0 }}>
+        {combinedWithVersion.map(({ entry, companyName }) => {
           const isHovered = hoveredCard === entry.id;
-          // Always derive from namespace so each client gets a unique, consistent palette
-          const { primary: primaryColor, secondary: secondaryColor, hue } = hashPalette(entry.namespace);
-
-          // Initials from namespace for the avatar
-          const initials = entry.namespace.split('-').map((w: string) => w[0]?.toUpperCase() ?? '').slice(0, 2).join('');
 
           return (
             <div
               key={entry.id}
               className="proposal-card"
-              style={{
-                gap: 0,
-                position: 'relative',
-                padding: 0,
-                overflow: 'hidden',
-                cursor: 'default',
-                borderColor: isHovered ? primaryColor : 'var(--border)',
-                transform: isHovered ? 'translateY(-4px)' : 'translateY(0)',
-                boxShadow: isHovered
-                  ? `0 16px 40px rgba(0,0,0,0.35), 0 0 0 1px ${primaryColor}`
-                  : '0 2px 10px rgba(0,0,0,0.2)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
-              }}
+              style={{ position: 'relative' }}
               onMouseEnter={() => setHoveredCard(entry.id)}
               onMouseLeave={() => setHoveredCard(null)}
             >
-              {/* ── Accent bar top ── */}
-              <div style={{ height: 3, background: `linear-gradient(90deg, ${primaryColor}, ${secondaryColor})`, flexShrink: 0 }} />
+              {/* Options button — absolutely positioned, hover-only */}
+              <button
+                ref={(el) => { menuBtnRefs.current[entry.id] = el; }}
+                className="btn btn-sm"
+                title="Options"
+                onClick={(e) => { e.stopPropagation(); openMenu(entry); }}
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  padding: '1px 5px',
+                  border: 'none',
+                  lineHeight: 1,
+                  opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0,
+                  pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none',
+                  transition: 'opacity 0.15s',
+                  zIndex: 1,
+                }}
+              >
+                <Icon icon={MoreHorizontal} size="sm" />
+              </button>
 
-              {/* ── Header row: avatar + pills ── */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 14px 0' }}>
-                {/* Namespace avatar */}
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  background: `linear-gradient(135deg, ${primaryColor}22, ${secondaryColor}22)`,
-                  border: `1.5px solid ${primaryColor}44`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 14,
-                  fontWeight: 800,
-                  color: primaryColor,
-                  flexShrink: 0,
-                  letterSpacing: '-0.02em',
-                }}>
-                  {initials}
-                </div>
-
-                {/* Mode + version + options */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase' as const,
-                    color: primaryColor,
-                    background: `${primaryColor}18`,
-                    border: `1px solid ${primaryColor}30`,
-                    borderRadius: 100,
-                    padding: '3px 8px',
-                  }}>
-                    {isV2 ? '✦ Microsite' : isPro ? '⚡ Pro' : '🎨 Classic'}
-                  </span>
-                  <span style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    color: 'var(--muted)',
-                    background: 'var(--panel-soft)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 100,
-                    padding: '3px 8px',
-                    letterSpacing: '0.06em',
-                  }}>
-                    v{version}
-                  </span>
-                  <button
-                    ref={(el) => { menuBtnRefs.current[entry.id] = el; }}
-                    className="btn btn-sm"
-                    title="Options"
-                    onClick={(e) => { e.stopPropagation(); openMenu(entry); }}
-                    style={{
-                      padding: '2px 4px',
-                      border: 'none',
-                      lineHeight: 1,
-                      opacity: isHovered || menuEntry?.id === entry.id ? 1 : 0,
-                      pointerEvents: isHovered || menuEntry?.id === entry.id ? 'auto' : 'none',
-                      transition: 'opacity 0.15s',
-                    }}
-                  >
-                    <Icon icon={MoreHorizontal} size="sm" />
-                  </button>
-                </div>
-              </div>
-
-              {/* ── Body ── */}
-              <div style={{ padding: '12px 14px 14px' }}>
-                <span style={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: 'var(--text)',
-                  lineHeight: 1.45,
-                }}>
-                  {companyName}
-                </span>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 6 }}>
-                  <span title={entry.namespace} style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: 'var(--muted)',
-                    maxWidth: '65%',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    <FolderOpen size={9} style={{ flexShrink: 0, color: primaryColor }} />
-                    {entry.namespace}
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
-                    <Clock size={9} />
+              {/* Header: title + date */}
+              <div className="proposal-card-header">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span className="proposal-card-eyebrow">Microsite</span>
+                  <span className="proposal-card-name">{companyName}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
                     {formatDate(entry.savedAt)}
                   </span>
                 </div>
               </div>
 
-              {/* ── Footer ── */}
-              <div style={{ padding: '0 12px 12px' }}>
-                <button
-                  onClick={() => setPreviewEntry(entry)}
-                  title="View microsite"
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    padding: '9px 0',
-                    borderRadius: 10,
-                    border: 'none',
-                    background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
-                    color: '#fff',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    letterSpacing: '0.04em',
-                    boxShadow: isHovered ? `0 6px 20px ${primaryColor}55` : `0 2px 8px ${primaryColor}30`,
-                    transition: 'filter 0.15s, box-shadow 0.2s',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.filter = 'brightness(1)'; }}
-                >
-                  <Eye size={12} /> View
+              {/* Footer: namespace + view button */}
+              <div className="proposal-card-footer">
+                <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{entry.namespace}</span>
+                <button className="chat-v2-clear-btn" onClick={() => setPreviewEntry(entry)}>
+                  View
                 </button>
               </div>
             </div>
