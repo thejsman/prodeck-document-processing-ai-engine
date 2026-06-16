@@ -1407,11 +1407,10 @@ export default function SuperClientPage() {
     try {
       const slideW = 1280;
       const slideH = Math.round(slideW * 9 / 16);
-      const hasSlideMarkers = iframeDoc.body.querySelector('[data-section-id]') !== null;
 
       const result = await generateCapturePDF(iframeDoc.body, iframeDoc.documentElement, {
         title: (viewingMicrosite?.ast?.meta as { title?: string } | undefined)?.title ?? "presentation",
-        slideModeHeight: hasSlideMarkers ? slideH : undefined,
+        slideModeHeight: slideH,
         onProgress: ({ pct }) => {
           if (pct >= 100) showToast("PDF downloaded");
         },
