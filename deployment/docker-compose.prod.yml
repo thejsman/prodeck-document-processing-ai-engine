@@ -79,6 +79,7 @@ services:
       - MICROSITE_CUSTOM_DOMAINS_ENABLED=${MICROSITE_CUSTOM_DOMAINS_ENABLED:-false}
       - MICROSITE_CNAME_TARGET=${MICROSITE_CNAME_TARGET:-}
       - MICROSITE_SERVER_IP=${MICROSITE_SERVER_IP:-}
+      - CERTBOT_EMAIL=${CERTBOT_EMAIL:-}
       - CERT_MANAGER_URL=http://cert-manager:3002
     depends_on:
       api:
@@ -139,6 +140,22 @@ services:
       - letsencrypt_certs:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot
     profiles: ["certbot"]
+
+  # ── Cert renewal for custom domains (run via cron) ───────────────
+  # Renews HTTP-01 certs provisioned by cert-manager for custom domains.
+  # Trigger from the EC2 host cron (e.g. daily at 03:00):
+  #   docker compose -p ai-engine -f deployment/docker-compose.prod.yml \
+  #     --env-file deployment/.env.production \
+  #     --profile certbot-renew run --rm certbot-renew && \
+  #   docker compose -p ai-engine -f deployment/docker-compose.prod.yml \
+  #     exec nginx nginx -s reload
+  certbot-renew:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: /bin/sh -c "certbot renew --webroot -w /var/www/certbot --quiet"
+    profiles: ["certbot-renew"]
 
 volumes:
   engine_data:
