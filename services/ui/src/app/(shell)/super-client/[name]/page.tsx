@@ -603,6 +603,14 @@ export default function SuperClientPage() {
   const [iframeSrcDocA, setIframeSrcDocA] = useState("");
   const [iframeSrcDocB, setIframeSrcDocB] = useState("");
   const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
+  // Video loading overlay — shown after a video URL replacement until Vimeo buffers.
+  const [videoLoading, setVideoLoading] = useState(false);
+  const videoLoadingRef = useRef(false); // ref so the swap-ready handler sees current value
+  const videoLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function setVideoLoadingBoth(v: boolean) {
+    videoLoadingRef.current = v;
+    setVideoLoading(v);
+  }
   // Helpers that always operate on the current active/background slot.
   const getActiveIframe = () =>
     activeSlotRef.current === "A" ? iframeARef.current : iframeBRef.current;
@@ -1129,6 +1137,15 @@ export default function SuperClientPage() {
       const next: "A" | "B" = activeSlotRef.current === "A" ? "B" : "A";
       activeSlotRef.current = next;
       setActiveSlot(next);
+      // If a video replacement is pending, start the post-swap countdown.
+      // Vimeo needs ~3 more seconds after the iframe swap to start playing.
+      if (videoLoadingRef.current) {
+        if (videoLoadTimerRef.current) clearTimeout(videoLoadTimerRef.current);
+        videoLoadTimerRef.current = setTimeout(() => {
+          videoLoadTimerRef.current = null;
+          setVideoLoadingBoth(false);
+        }, 3000);
+      }
     }
     window.addEventListener("message", onSwapReady);
     return () => window.removeEventListener("message", onSwapReady);
@@ -1789,10 +1806,22 @@ export default function SuperClientPage() {
 
   async function handleVideoReplace(url: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(
-      `__VIDEO_INJECT__:${selectedElement.path}||${url}||${hint()}`,
-      "Video updated",
-    );
+    // Show loader immediately; cleared by onSwapReady + 3s or by 10s safety timeout.
+    if (videoLoadTimerRef.current) clearTimeout(videoLoadTimerRef.current);
+    setVideoLoadingBoth(true);
+    videoLoadTimerRef.current = setTimeout(() => {
+      videoLoadTimerRef.current = null;
+      setVideoLoadingBoth(false);
+    }, 10000);
+    try {
+      await applyMicrositeInstruction(
+        `__VIDEO_INJECT__:${selectedElement.path}||${url}||${hint()}`,
+        "Video updated",
+      );
+    } catch {
+      if (videoLoadTimerRef.current) clearTimeout(videoLoadTimerRef.current);
+      setVideoLoadingBoth(false);
+    }
   }
 
   async function handleIconReplace(url: string) {
@@ -4006,6 +4035,19 @@ export default function SuperClientPage() {
                   />
                   {(lastMicrositeRef.current!.ast.meta as { title?: string })
                     ?.title ?? "Microsite"}
+                  {msVersionMap.get(lastMicrositeRef.current!.id) != null && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600,
+                      color: "rgba(var(--primary-rgb, 99,102,241), 0.85)",
+                      background: "rgba(99,102,241,0.1)",
+                      border: "1px solid rgba(99,102,241,0.25)",
+                      borderRadius: 999, padding: "1px 6px",
+                      letterSpacing: "0.04em", flexShrink: 0,
+                      lineHeight: "16px",
+                    }}>
+                      v{msVersionMap.get(lastMicrositeRef.current!.id)}
+                    </span>
+                  )}
                 </p>
                 <div
                   style={{
@@ -4234,6 +4276,32 @@ export default function SuperClientPage() {
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                 />
+                {/* Video loading overlay — shown while Vimeo/YouTube buffers after a URL swap */}
+                {videoLoading && (
+                  <>
+                    <style>{`@keyframes __vl-spin{to{transform:rotate(360deg)}}`}</style>
+                    <div style={{
+                      position: 'absolute', inset: 0, zIndex: 25,
+                      background: 'rgba(0,0,0,0.55)',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                      pointerEvents: 'none',
+                    }}>
+                      <div style={{
+                        width: 44, height: 44, borderRadius: '50%',
+                        border: '3px solid rgba(255,255,255,0.2)',
+                        borderTopColor: '#fff',
+                        animation: '__vl-spin 0.75s linear infinite',
+                      }} />
+                      <p style={{
+                        color: 'rgba(255,255,255,0.85)', marginTop: 14,
+                        fontSize: 13, fontWeight: 500, letterSpacing: '0.02em',
+                      }}>
+                        Loading video…
+                      </p>
+                    </div>
+                  </>
+                )}
                 {/* Figma-style selection overlay — only in smart edit mode */}
                 {editModeActive && (
                   <SelectionOverlay

@@ -2569,6 +2569,29 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 
+      // Log the full prompt to disk for auditing — fire-and-forget, never blocks generation
+      {
+        const logDir = path.join(workdir, 'namespaces', namespace, 'logs');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const logPath = path.join(logDir, `microsite-prompt-${proposalId}-${ts}.txt`);
+        const logContent = [
+          `=== Microsite Generation Prompt Log ===`,
+          `Timestamp : ${new Date().toISOString()}`,
+          `Namespace : ${namespace}`,
+          `ProposalId: ${proposalId}`,
+          `Model     : ${model}`,
+          ``,
+          `--- SYSTEM PROMPT ---`,
+          ARTIFACT_SYSTEM,
+          ``,
+          `--- USER PROMPT ---`,
+          prompt,
+        ].join('\n');
+        mkdir(logDir, { recursive: true })
+          .then(() => writeFile(logPath, logContent, 'utf-8'))
+          .catch((e) => console.error('[microsite-gen] Failed to write prompt log:', e));
+      }
+
       // Heartbeat: send progress messages every 6 s while the LLM is generating
       const heartbeatSteps = ['Designing layout…', 'Building hero section…', 'Writing content…', 'Applying styles…', 'Polishing design…'];
       let hbIdx = 0;

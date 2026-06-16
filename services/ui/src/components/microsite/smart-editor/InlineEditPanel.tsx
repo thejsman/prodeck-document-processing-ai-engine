@@ -248,6 +248,74 @@ const isLeafEl = (outerHtml: string) => !/<(div|section|article|ul|ol|table|p|h[
   outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
 );
 
+// ── Contextual label derivation ─────────────────────────────────────────────
+function deriveContextLabel(
+  tag: string,
+  sectionType: string | null,
+  bridgeLabel: string,
+  outerHtml: string,
+): { elementType: string; sectionDisplay: string | null } {
+  const t = tag.toLowerCase();
+
+  const sectionDisplay = sectionType
+    ? sectionType.charAt(0).toUpperCase() + sectionType.slice(1).replace(/-/g, ' ')
+    : null;
+
+  let elementType: string;
+  switch (t) {
+    case 'h1':         elementType = 'Title';     break;
+    case 'h2':         elementType = 'Subtitle';  break;
+    case 'h3':         elementType = 'Heading';   break;
+    case 'h4': case 'h5': case 'h6': elementType = 'Label'; break;
+    case 'p':          elementType = 'Paragraph'; break;
+    case 'span':       elementType = 'Text';      break;
+    case 'a':          elementType = 'Link';      break;
+    case 'button':     elementType = 'Button';    break;
+    case 'img':        elementType = 'Image';     break;
+    case 'svg':        elementType = 'Icon';      break;
+    case 'video':      elementType = 'Video';     break;
+    case 'iframe':     elementType = 'Embed';     break;
+    case 'ul': case 'ol': elementType = 'List';   break;
+    case 'li':         elementType = 'List Item'; break;
+    case 'nav':        elementType = 'Nav';       break;
+    case 'header':     elementType = 'Header';    break;
+    case 'footer':     elementType = 'Footer';    break;
+    case 'section':    elementType = 'Section';   break;
+    case 'blockquote': elementType = 'Quote';     break;
+    default: {
+      const cls = (outerHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '').toLowerCase();
+      const lbl = bridgeLabel.toLowerCase();
+      const combined = cls + ' ' + lbl;
+      // Leaf/content types first — so "card-title" matches Title before Card
+      if (/\b(?:btn|button|cta)\b/.test(combined))                                          elementType = 'Button';
+      else if (/\b(?:icon|ico|fa-|bi-)\b/.test(cls))                                       elementType = 'Icon';
+      else if (/\b(?:label|eyebrow|kicker|tagline|overline|caption|tag-line)\b/.test(cls)) elementType = 'Label';
+      else if (/\b(?:title|heading|headline)\b/.test(cls))                                  elementType = 'Title';
+      else if (/\b(?:subtitle|subheading|sub-title|description|excerpt|byline)\b/.test(cls)) elementType = 'Subtitle';
+      else if (/\b(?:text|body|copy)\b/.test(cls))                                          elementType = 'Text';
+      else if (/\b(?:link)\b/.test(cls))                                                    elementType = 'Link';
+      else if (/\b(?:img|image|photo|thumb|picture|figure)\b/.test(cls))                   elementType = 'Image';
+      else if (/\b(?:video|player|embed)\b/.test(cls))                                     elementType = 'Video';
+      else if (/\b(?:badge|chip|pill)\b/.test(cls))                                         elementType = 'Badge';
+      else if (/\b(?:stat|metric|number|counter|kpi)\b/.test(cls))                         elementType = 'Stat';
+      else if (/\b(?:quote|testimonial|review)\b/.test(cls))                               elementType = 'Quote';
+      else if (/\b(?:logo)\b/.test(cls))                                                    elementType = 'Logo';
+      else if (/\b(?:divider|separator|rule)\b/.test(cls))                                 elementType = 'Divider';
+      // Container/layout types after — so they don't shadow more specific leaf matches
+      else if (/\b(?:card)\b/.test(combined))                                               elementType = 'Card';
+      else if (/\b(?:hero)\b/.test(combined))                                               elementType = 'Hero';
+      else if (/\b(?:nav|navbar|navigation|menu)\b/.test(combined))                         elementType = 'Nav';
+      else if (/\b(?:grid|columns?)\b/.test(cls))                                           elementType = 'Grid';
+      else if (/\b(?:row|flex|wrap)\b/.test(cls))                                           elementType = 'Row';
+      else if (/\b(?:section|block|panel|area|zone)\b/.test(cls))                          elementType = 'Section';
+      else if (/\b(?:wrapper|inner|outer|contain)\b/.test(cls))                            elementType = 'Wrapper';
+      else                                                                                    elementType = 'Div';
+    }
+  }
+
+  return { elementType, sectionDisplay };
+}
+
 // ── Style parsers (inline style="" only — fallback to computed if unavailable) ──
 function parseStyleProp(outerHtml: string, prop: string): string {
   const s = outerHtml.match(/\bstyle="([^"]*)"/i)?.[1] ?? '';
@@ -631,7 +699,12 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
     ? Math.max(measuredHalfW + 8, Math.min(rawLeft, effectiveCW - measuredHalfW - 8))
     : rawLeft;
 
-  const label = [selected.tag, selected.sectionType].filter(Boolean).join(' · ');
+  const { elementType, sectionDisplay } = deriveContextLabel(
+    tag,
+    selected.sectionType,
+    selected.label,
+    selected.outerHtml,
+  );
   const bold   = isBoldEl(selected.outerHtml);
   const italic = isItalicEl(selected.outerHtml);
 
@@ -709,14 +782,30 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
       overflowX: 'auto',
       overflowY: 'hidden',
     }}>
-      {/* Element label */}
-      <span style={{
-        fontSize: 10, color: 'rgba(255,255,255,0.4)',
-        whiteSpace: 'nowrap', maxWidth: 90, overflow: 'hidden',
-        textOverflow: 'ellipsis', flexShrink: 0,
-      }}>
-        {label}
-      </span>
+      {/* Contextual element indicator */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        {sectionDisplay && (
+          <span style={{
+            fontSize: 9, fontWeight: 600, letterSpacing: '0.05em',
+            color: 'rgba(165,180,252,0.75)',
+            background: 'rgba(99,102,241,0.15)',
+            border: '1px solid rgba(99,102,241,0.3)',
+            borderRadius: 999, padding: '1px 7px',
+            whiteSpace: 'nowrap', lineHeight: '16px', flexShrink: 0,
+            textTransform: 'capitalize',
+          }}>
+            {sectionDisplay}
+          </span>
+        )}
+        <span style={{
+          fontSize: 11, fontWeight: 600,
+          color: 'rgba(255,255,255,0.82)',
+          whiteSpace: 'nowrap', flexShrink: 0,
+          letterSpacing: '0.01em',
+        }}>
+          {elementType}
+        </span>
+      </div>
 
       <Sep />
 
