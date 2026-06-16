@@ -943,7 +943,7 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 10000,
+        zIndex: 30000,
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg)',

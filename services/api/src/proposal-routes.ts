@@ -175,6 +175,7 @@ export function registerProposalRoutes(
 
       // Determine expected output file path for finalized / lock checks
       const safeName = client
+        .replace(/\s*—\s*/g, ' ')   // strip em dashes before sanitising
         .replace(/[^\w\s-]/g, '')
         .replace(/\s+/g, '_')
         .slice(0, 100);
@@ -574,9 +575,9 @@ ${current}`;
             const filePath = path.join(dir, file);
             const fileStat = await stat(filePath);
             const match = file.match(/^(.+)_proposal(?:_v(\d+))?\.md$/);
-            const clientName = match
+            const clientName = (match
               ? match[1].replace(/_/g, ' ')
-              : file.replace(/\.md$/, '');
+              : file.replace(/\.md$/, '')).replace(/\s*—\s*/g, ' ');
             const version = match?.[2] ? parseInt(match[2], 10) : null;
             const meta = await readMeta(filePath);
             proposals.push({
@@ -622,7 +623,7 @@ ${current}`;
             const filePath = path.join(scProposalsDir, file);
             const fileStat = await stat(filePath);
             const meta = await readMeta(filePath);
-            const title = titleMap[file] ?? file.replace(/\.md$/, '').replace(/-/g, ' ');
+            const title = (titleMap[file] ?? file.replace(/\.md$/, '').replace(/-/g, ' ')).replace(/\s*—\s*/g, ' ');
             proposals.push({
               fileName: `sc-${sc}::${file}`,
               client: title,

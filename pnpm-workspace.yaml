@@ -5,3 +5,8 @@ packages:
   - "plugins/*"
   - "services/*"
   - "agents/*"
+allowBuilds:
+  core-js: true
+  esbuild: true
+  puppeteer: true
+  sharp: true

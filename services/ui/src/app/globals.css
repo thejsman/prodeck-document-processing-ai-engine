@@ -450,6 +450,8 @@ body {
   background: var(--color-bg);
   color: var(--color-text-muted);
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* ── Metadata Bar ──────────────────────────────────────────────── */
@@ -1299,6 +1301,7 @@ body {
   color: var(--color-text);
   line-height: 1.5;
   letter-spacing: 0em;
+  min-width: 0;
 }
 
 .section-toggle {
@@ -2510,6 +2513,34 @@ body {
 
 .chat-v2-panel-toggle:hover { color: var(--text); border-color: var(--border); }
 
+.chat-v2-back-btn,
+.proposal-mobile-back-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .chat-v2-back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    border-radius: 6px;
+    flex-shrink: 0;
+    padding: 0;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .chat-v2-back-btn:hover {
+    color: var(--text);
+    background: var(--panel-soft);
+  }
+}
+
 /* ── Body ────────────────────────────────────────────────────────── */
 
 .chat-v2-body {
@@ -2887,6 +2918,14 @@ body {
 
 .chat-v2-send-btn:hover:not(:disabled) { background: #4a7aee; }
 .chat-v2-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.chat-v2-composer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  gap: 8px;
+}
 
 .chat-v2-composer-hint {
   font-size: 11px;
@@ -6819,6 +6858,18 @@ body {
   gap: 10px;
 }
 
+.proposal-card-eyebrow {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+  padding-bottom: 2px;
+  line-height: 1;
+}
+
 .proposal-card-name {
   font-size: 14px;
   font-weight: 500;
@@ -7736,6 +7787,75 @@ body {
   transform: translateX(0);
 }
 
+/* ── Panel header ──────────────────────────────────────────────────── */
+
+.sc-panel-history-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .sc-panel-history-btns {
+    display: none;
+  }
+
+  .sc-panel-header {
+    padding-left: 8px !important;
+  }
+
+  .sc-panel-close-btn {
+    display: none;
+  }
+
+  /* ── Proposal page header — mobile only ───────────────────────────── */
+
+  /* Show back arrow, hide hamburger */
+  .proposal-mobile-back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    min-width: 44px;
+    min-height: 44px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    border-radius: 6px;
+    flex-shrink: 0;
+    padding: 0;
+  }
+
+  .proposal-mobile-back-btn svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .proposal-page-header .topbar-hamburger {
+    display: none;
+  }
+
+  /* Hide entire right-side actions (Edit with AI, Draft, overflow, X) */
+  .proposal-page-header .chat-v2-header-right {
+    display: none;
+  }
+
+  /* Stack name + date vertically; hide sections count and namespace */
+  .proposal-header-meta {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 2px !important;
+  }
+
+  .proposal-header-sep,
+  .proposal-header-extra {
+    display: none !important;
+  }
+}
+
 /* Mobile: outer becomes fixed full-screen overlay; inner transform is not needed */
 @media (max-width: 768px) {
   .sc-viewer-panel {
@@ -7919,6 +8039,26 @@ html {
     min-height: 44px;
   }
 
+  .chat-v2-back-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* ── 24px icons on mobile for legibility ──────────────────────────
+     Targets the SVG rendered by <Icon> / lucide inside each button.
+     width + height override the inline size attribute set by lucide. */
+  .topbar-hamburger svg,
+  .chat-v2-back-btn svg,
+  .theme-toggle svg,
+  .chat-v2-panel-toggle svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .chat-v2-composer-bottom {
+    padding: 6px 10px;
+  }
+
   /* ── Text overflow safety ──────────────────────────────────────────
      Long unbroken strings (URLs, API keys, slugs) inside .page-container
      would cause the container to overflow the viewport horizontally.
@@ -7949,14 +8089,11 @@ html {
   .chat-v2-input {
     max-height: 88px;
     font-size: 16px;
-  }
-
-  .chat-v2-composer {
-    align-items: center;
+    padding-top: 14px;
   }
 
   .chat-v2-header {
-    padding-left: 8px;
+    padding-left: 4px;
     padding-right: 12px;
   }
 
@@ -7998,21 +8135,46 @@ html {
     align-items: center;
     gap: 8px;
     position: absolute;
-    top: 8px;
-    left: 12px;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    padding: 0 12px;
   }
 
   .welcome-mobile-brand {
-    font-size: 15px;
+    font-size: 18px;
     font-weight: 600;
     color: var(--text);
     letter-spacing: -0.01em;
+  }
+
+  .welcome-desktop-toggle {
+    display: none;
+  }
+
+  .chat-v2-ns {
+    font-size: 18px;
+  }
+
+  .proposal-page-header .chat-v2-ns {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 55vw;
   }
 }
 
 @media (min-width: 769px) {
   .welcome-mobile-header,
   .welcome-mobile-brand { display: none; }
+
+  .welcome-desktop-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -9039,6 +9201,68 @@ html {
   color: var(--muted);
   background: var(--panel-soft);
   border-radius: 0 6px 6px 0;
+}
+
+/* ── Page List Mobile Header (Proposals / Microsites) ──────────── */
+
+.page-list-mobile-header {
+  display: none;
+}
+
+.page-list-mobile-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .page-list-mobile-header {
+    display: flex;
+    align-items: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    padding: 0 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+    gap: 8px;
+  }
+
+  /* Hide the desktop inline header on mobile */
+  .page-list-inline-header {
+    display: none !important;
+  }
+
+  /* Hide the desktop ThemeToggle corner on mobile (mobile header has its own) */
+  .page-theme-toggle-corner {
+    display: none;
+  }
+
+  /* Remove divider and fix consistent list top spacing (52px header + 16px gap) */
+  .page-list-divider {
+    display: none !important;
+  }
+
+  .page-list-content {
+    padding-top: 68px !important;
+  }
+}
+
+/* ── Section Card — Mobile Overrides ───────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Hide action buttons (Lock, Improve with AI, Regenerate) on mobile */
+  .section-header-right {
+    display: none !important;
+  }
+
+  /* Always show the OK badge on mobile (not hover-gated) */
+  .badge--ok {
+    display: inline-block;
+  }
 }
 
 @keyframes scToastIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
