@@ -36,8 +36,8 @@ export interface CapturePDFResult {
 }
 
 /** Copy all CSS custom properties (--foo: bar) from `from` to `to`. */
-function copyCustomProps(from: HTMLElement, to: HTMLElement) {
-  const computed = window.getComputedStyle(from);
+function copyCustomProps(from: HTMLElement, to: HTMLElement, win: Window) {
+  const computed = win.getComputedStyle(from);
   for (const prop of Array.from(computed)) {
     if (prop.startsWith('--')) {
       to.style.setProperty(prop, computed.getPropertyValue(prop).trim());
@@ -260,26 +260,36 @@ export async function generateCapturePDF(
   const { title = 'Microsite', quality = 0.90, onProgress, slideModeHeight } = options;
   const progress = (pct: number, message: string) => onProgress?.({ pct, message });
 
+  // Derive document and window from the passed element.
+  // When contentEl comes from an iframe, this gives us that iframe's document/window
+  // so all CSS class styles apply to clones without polluting the parent app.
+  const captureDoc = contentEl.ownerDocument;
+  const captureWin = (captureDoc.defaultView ?? window) as Window & typeof globalThis;
+
   try {
     progress(2, 'Finding sections…');
 
     // [data-section-id] is set by AnimatedSection for every section regardless of type.
     // Typed React sections render inner <section> elements; design-skill microsites use
     // customHtml which renders <div class="ms-cv"> — no <section> tag at all.
-    const sections = Array.from(contentEl.querySelectorAll<HTMLElement>('[data-section-id]'));
+    // Prefer explicit slide markers; fall back to any <section> elements for microsites
+    // where the LLM generated valid structure but skipped the data-section-id attribute.
+    let sections = Array.from(contentEl.querySelectorAll<HTMLElement>('[data-section-id]'));
+    if (sections.length === 0) sections = Array.from(contentEl.querySelectorAll<HTMLElement>('section'));
     if (sections.length === 0) {
-      return { success: false, error: 'No sections found in the microsite.' };
+      return { success: false, error: 'No sections found in the microsite HTML.' };
     }
 
     // getComputedStyle returns rgba(0,0,0,0) when root uses a CSS gradient background.
     // In that case fall back to the hard-coded dark theme colour.
-    const _rawBg = window.getComputedStyle(rootEl).backgroundColor;
+    const _rawBg = captureWin.getComputedStyle(rootEl).backgroundColor;
     const rootBg = (!_rawBg || _rawBg === 'rgba(0, 0, 0, 0)' || _rawBg === 'transparent')
       ? '#0d1117'
       : _rawBg;
 
     // ── Off-screen host — very tall so nothing clips during measurement ───────
-    const host = document.createElement('div');
+    // Appended to captureDoc (the iframe's document) so iframe CSS applies to clones.
+    const host = captureDoc.createElement('div');
     host.style.cssText = [
       `position:fixed`,
       `left:-${CAPTURE_W + 200}px`,
@@ -290,8 +300,8 @@ export async function generateCapturePDF(
       `pointer-events:none`,
       `z-index:-1`,
     ].join(';');
-    copyCustomProps(rootEl, host);
-    document.body.appendChild(host);
+    copyCustomProps(rootEl, host, captureWin);
+    captureDoc.body.appendChild(host);
 
     const pdf = new JsPDF({
       orientation: 'landscape',
@@ -427,7 +437,7 @@ export async function generateCapturePDF(
         // preserves the rendered content.
         clone.querySelectorAll<HTMLCanvasElement>('canvas').forEach(c => {
           try {
-            const img = document.createElement('img');
+            const img = captureDoc.createElement('img') as HTMLImageElement;
             img.src = c.toDataURL('image/png');
             img.style.cssText = c.style.cssText;
             img.style.display = 'block';
@@ -446,7 +456,7 @@ export async function generateCapturePDF(
         clone.style.paddingBottom = '40px';
 
 
-        const measureWrapper = document.createElement('div');
+        const measureWrapper = captureDoc.createElement('div');
         measureWrapper.style.cssText = [
           `width:${CAPTURE_W}px`,
           `height:auto`,
@@ -462,9 +472,9 @@ export async function generateCapturePDF(
 
         // ── Margin-tightening AFTER DOM insertion so getComputedStyle is accurate ──
         clone.querySelectorAll<HTMLElement>('*').forEach(el => {
-          const mt = parseFloat(getComputedStyle(el).marginTop);
+          const mt = parseFloat(captureWin.getComputedStyle(el).marginTop);
           if (mt > 40) el.style.marginTop = '24px';
-          const mb = parseFloat(getComputedStyle(el).marginBottom);
+          const mb = parseFloat(captureWin.getComputedStyle(el).marginBottom);
           if (mb > 40) el.style.marginBottom = '16px';
         });
 
@@ -473,7 +483,7 @@ export async function generateCapturePDF(
         // catches Tailwind/CSS-class-based gradient text where computed color resolves
         // to transparent — without this fix those headings are invisible in the PDF.
         clone.querySelectorAll<HTMLElement>('*').forEach(el => {
-          const computed = getComputedStyle(el);
+          const computed = captureWin.getComputedStyle(el);
           const c = computed.color;
           if (c === 'rgba(0, 0, 0, 0)' || c === 'transparent') {
             el.style.color = '#e6edf3';
@@ -517,7 +527,7 @@ export async function generateCapturePDF(
         if (naturalH <= CAPTURE_H) {
           // ── Case A: short section — one page with breathing room ─────────────
           const topPad = sectionHasImageBg ? 0 : Math.round((CAPTURE_H - naturalH) * 0.25);
-          const wrapper = document.createElement('div');
+          const wrapper = captureDoc.createElement('div');
           wrapper.style.cssText = [
             `width:${CAPTURE_W}px`,
             `height:${CAPTURE_H}px`,
@@ -551,7 +561,7 @@ export async function generateCapturePDF(
           // ── Case B: medium section — capture full height, scale down to one page ─
           // Content fits when scaled, text remains readable (ratio ≥ FIT_THRESHOLD).
           const captureH = Math.ceil(naturalH);
-          const wrapper = document.createElement('div');
+          const wrapper = captureDoc.createElement('div');
           wrapper.style.cssText = [
             `width:${CAPTURE_W}px`,
             `height:${captureH}px`,
@@ -582,7 +592,7 @@ export async function generateCapturePDF(
           // Each page is a 1:1 crop at full resolution — no scaling, no clipping.
           // A 4px pixel overlap between pages prevents cuts at element boundaries.
           const captureH = Math.ceil(naturalH);
-          const wrapper = document.createElement('div');
+          const wrapper = captureDoc.createElement('div');
           wrapper.style.cssText = [
             `width:${CAPTURE_W}px`,
             `height:${captureH}px`,
@@ -613,7 +623,7 @@ export async function generateCapturePDF(
         }
       }
     } finally {
-      document.body.removeChild(host);
+      captureDoc.body.removeChild(host);
     }
 
     progress(98, 'Saving PDF…');

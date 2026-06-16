@@ -2140,6 +2140,7 @@ export async function generateMicrositeV2Stream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
 
   try {
     while (true) {
@@ -2152,9 +2153,13 @@ export async function generateMicrositeV2Stream(
         if (!line.startsWith('data: ')) continue;
         try {
           const event = JSON.parse(line.slice(6)) as StreamEvent;
+          if (event.type === 'complete' || event.type === 'error') completed = true;
           opts.onEvent(event);
         } catch { /* malformed line — skip */ }
       }
+    }
+    if (!completed) {
+      throw new Error('Generation stream ended without completing — please try again');
     }
   } finally {
     reader.releaseLock();

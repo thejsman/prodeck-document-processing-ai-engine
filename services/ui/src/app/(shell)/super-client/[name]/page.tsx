@@ -897,33 +897,8 @@ export default function SuperClientPage() {
           uploadId: u.id,
           createdAt: new Date(u.addedAt).toISOString(),
         }));
-        // De-duplicate: appendSuperClientHistory saves a user+assistant pair when a
-        // microsite is generated. If the gen card from generationStore is also present,
-        // prefer the card and drop both history messages to avoid duplicate entries.
-        // Match by checking whether any gen card's createdAt is within 30 s of either message.
-        const genCardTimes = activeGens.map((g) => new Date(g.createdAt).getTime());
-        const isNearGenCard = (iso: string | undefined) => {
-          if (!iso) return false;
-          const t = new Date(iso).getTime();
-          return genCardTimes.some((gt) => Math.abs(t - gt) < 30_000);
-        };
-        // Collect the indices of microsite-generation history pairs to drop
-        const dropIndices = new Set<number>();
-        for (let i = 0; i < historyMsgs.length; i++) {
-          const h = historyMsgs[i];
-          if (h.editContext !== "microsite") continue;
-          if (h.role !== "assistant") continue;
-          if (!isNearGenCard(h.createdAt)) continue;
-          // Drop this assistant message and the preceding user message (the trigger)
-          dropIndices.add(i);
-          const prev = historyMsgs[i - 1];
-          if (prev && prev.role === "user" && !prev.editContext && isNearGenCard(h.createdAt)) {
-            dropIndices.add(i - 1);
-          }
-        }
-        const filteredHistoryMsgs = historyMsgs.filter((_, idx) => !dropIndices.has(idx));
         // Merge and sort chronologically so generation/upload cards land in the right position
-        const allMsgs = [...filteredHistoryMsgs, ...uploadMsgs, ...genMsgs].sort(
+        const allMsgs = [...historyMsgs, ...uploadMsgs, ...genMsgs].sort(
           (a, b) => {
             if (!a.createdAt && !b.createdAt) return 0;
             if (!a.createdAt) return 1;
@@ -1420,23 +1395,32 @@ export default function SuperClientPage() {
 
   async function handleDownloadPresentationPDF() {
     const iframe = (activeSlotRef.current === "A" ? iframeARef : iframeBRef).current;
-    if (!iframe?.contentDocument) return;
+    if (!iframe?.contentDocument) {
+      showToast("Microsite not ready — try again in a moment", "error");
+      return;
+    }
     setPdfDownloading(true);
     showToast("Generating PDF…");
-    try {
-      const iframeDoc = iframe.contentDocument;
-      const slideW = iframeDoc.documentElement.clientWidth || 1280;
-      const slideH = Math.round(slideW * 9 / 16);
 
-      await generateCapturePDF(iframeDoc.body, iframeDoc.documentElement, {
+    const iframeDoc = iframe.contentDocument;
+
+    try {
+      const slideW = 1280;
+      const slideH = Math.round(slideW * 9 / 16);
+      const hasSlideMarkers = iframeDoc.body.querySelector('[data-section-id]') !== null;
+
+      const result = await generateCapturePDF(iframeDoc.body, iframeDoc.documentElement, {
         title: (viewingMicrosite?.ast?.meta as { title?: string } | undefined)?.title ?? "presentation",
-        slideModeHeight: slideH,
+        slideModeHeight: hasSlideMarkers ? slideH : undefined,
         onProgress: ({ pct }) => {
           if (pct >= 100) showToast("PDF downloaded");
         },
       });
-    } catch {
-      showToast("PDF generation failed", "error");
+      if (!result.success) {
+        showToast(result.error ?? "PDF generation failed", "error");
+      }
+    } catch (err) {
+      showToast((err as Error).message ?? "PDF generation failed", "error");
     } finally {
       setPdfDownloading(false);
     }
@@ -2465,6 +2449,8 @@ export default function SuperClientPage() {
             setUpdateBanner("");
             setActiveRightTab("artifacts");
             collapseForPanel();
+            // Mark complete immediately so the progress card snaps to 100% without waiting for save
+            generationStore.complete(msGenId, { ast });
             void (async () => {
               try {
                 const saved = await saveSuperClientMicrosite(
@@ -2495,8 +2481,6 @@ export default function SuperClientPage() {
                 });
                 loadMicrosites(); // sync with server
                 showToast("Microsite generated and saved");
-                // Persist to history.json so the generation survives browser refresh
-                // even if localStorage is cleared (incognito, cache wipe, etc.)
                 void appendSuperClientHistory(apiKey, name, [
                   {
                     role: "user",
@@ -2507,7 +2491,6 @@ export default function SuperClientPage() {
                     role: "assistant",
                     content: `Microsite generated: **${saved.title ?? micrositeTitle}**`,
                     createdAt: new Date().toISOString(),
-                    editContext: "microsite" as const,
                   },
                 ]);
               } catch (err) {
