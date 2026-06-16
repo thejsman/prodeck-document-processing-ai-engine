@@ -53,6 +53,9 @@ importers:
       '@ai-engine/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@ai-engine/tool-analyze-image':
+        specifier: workspace:*
+        version: link:../tools/analyze-image
       '@ai-engine/tool-extract-section':
         specifier: workspace:*
         version: link:../tools/extract-section
@@ -139,6 +142,12 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@25.2.0)(yaml@2.8.2)
+
+  packages/tools/analyze-image:
+    dependencies:
+      '@ai-engine/core':
+        specifier: workspace:*
+        version: link:../../core
 
   packages/tools/extract-section:
     dependencies:
@@ -351,6 +360,9 @@ importers:
       '@ai-engine/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@ai-engine/tool-analyze-image':
+        specifier: workspace:*
+        version: link:../../packages/tools/analyze-image
       '@ai-engine/tool-extract-section':
         specifier: workspace:*
         version: link:../../packages/tools/extract-section

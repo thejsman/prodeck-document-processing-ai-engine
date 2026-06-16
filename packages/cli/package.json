@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-engine/agent-microsite-generator": "workspace:*",
     "@ai-engine/agent-proposal-section": "workspace:*",
+    "@ai-engine/tool-analyze-image": "workspace:*",
     "@ai-engine/tool-extract-section": "workspace:*",
     "@ai-engine/types": "workspace:*",
     "@ai-engine/core": "workspace:*",
