@@ -30,6 +30,7 @@ import { registerClientMemoryRoutes } from './client-memory-routes.js';
 import { registerContextRoutes } from './context-routes.js';
 import { clientDataRoutes } from './client-data-routes.js';
 import { registerSuperClientRoutes } from './super-client-routes.js';
+import { registerOrgContextRoutes } from './inspiration/org-context-routes.js';
 import { registerExtractionRoutes } from './ingestion/extraction-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
 import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
@@ -134,6 +135,7 @@ export async function createServer(opts: ServerOptions) {
   registerDesignSkillRoutes(app, opts.workdir);
   registerClientMemoryRoutes(app, opts.workdir);
   registerSuperClientRoutes(app, opts.workdir);
+  registerOrgContextRoutes(app, opts.workdir, llmGenerateFn);
   app.register(clientDataRoutes);
 
   // ── Static exports (HTML downloads) ──────────────────────────
