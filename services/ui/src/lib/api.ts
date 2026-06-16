@@ -2510,3 +2510,116 @@ export async function streamSuperClientChat(
     reader.releaseLock();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Org-level Inspiration & Global Context — Author Voice (Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface AuthorVoiceWeightedItem {
+  value: string;
+  weight: number;
+}
+
+export interface AuthorVoice {
+  version: number;
+  updatedAt: string;
+  docCount: number;
+  tone: string[];
+  formality: 'casual' | 'neutral' | 'formal' | 'highly-formal';
+  sectionPatterns: string[];
+  openingStyle: string;
+  closingStyle: string;
+  recurringPhrases: AuthorVoiceWeightedItem[];
+  vocabulary: AuthorVoiceWeightedItem[];
+  persuasionPatterns: AuthorVoiceWeightedItem[];
+  formatting: string[];
+  sourceProfileIds: string[];
+}
+
+export interface VoiceDocEntry {
+  id: string;
+  sourceDocument: string;
+  size: number;
+  uploadedAt: string;
+  status: 'processing' | 'extracted' | 'failed';
+  error?: string;
+}
+
+export interface OrgContextSettings {
+  applyAuthorVoice: boolean;
+  applyDesignKit: boolean;
+}
+
+export async function fetchAuthorVoice(apiKey: string): Promise<AuthorVoice | null> {
+  const res = await fetch('/api/org-context/voice', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ voice: AuthorVoice | null }>(res);
+  return data.voice;
+}
+
+export async function fetchVoiceDocuments(apiKey: string): Promise<VoiceDocEntry[]> {
+  const res = await fetch('/api/org-context/voice/documents', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ documents: VoiceDocEntry[] }>(res);
+  return data.documents;
+}
+
+export async function uploadVoiceDocument(
+  apiKey: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/org-context/voice/documents/upload');
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteVoiceDocument(apiKey: string, id: string): Promise<AuthorVoice> {
+  const res = await fetch(`/api/org-context/voice/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function recomputeAuthorVoice(apiKey: string): Promise<AuthorVoice> {
+  const res = await fetch('/api/org-context/voice/regenerate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function fetchOrgContextSettings(apiKey: string): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
+}
+
+export async function saveOrgContextSettings(
+  apiKey: string,
+  patch: Partial<OrgContextSettings>,
+): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(patch),
+  });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
+}
