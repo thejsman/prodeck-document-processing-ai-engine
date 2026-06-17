@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { NamespacesSection } from './NamespacesSection';
-import { Globe, FileText, MoreVertical, Layers, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Globe, FileText, MoreVertical, Layers, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useSidebar } from '@/lib/sidebar-store';
 
@@ -94,6 +94,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <span className="sidebar-label">Microsites</span>
           </Link>
           <Link
+            href="/inspiration-context"
+            className={`sidebar-link${pathname?.startsWith('/inspiration-context') ? ' sidebar-link--active' : ''}`}
+            onClick={onMobileClose}
+          >
+            <Icon icon={Sparkles} size="md" className="sidebar-icon" />
+            <span className="sidebar-label">Inspiration &amp; Context</span>
+          </Link>
+          {/* TEMP: Skills section hidden
+          <Link
             href="/skills"
             className={`sidebar-link${pathname?.startsWith('/skills') ? ' sidebar-link--active' : ''}`}
             onClick={onMobileClose}
@@ -101,6 +110,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <Icon icon={Layers} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Skills</span>
           </Link>
+          */}
         </div>
 
         <NamespacesSection onMobileClose={onMobileClose} collapsed={collapsed} />

@@ -1423,7 +1423,10 @@ ${layoutSummary}`;
                 version: meta.version ?? index.length - i,
                 title: (() => {
                   const v = meta.version ?? index.length - i;
-                  if (meta.proposalTitle) return `${meta.proposalTitle} (v${v})`;
+                  if (meta.proposalTitle) {
+                    const ms = meta.proposalTitle.replace(/\bProposal\b/g, 'Microsite').replace(/\bproposal\b/g, 'microsite');
+                    return `${ms} (v${v})`;
+                  }
                   // strip old "ClientName — " prefix from legacy titles
                   const stripped = meta.title?.replace(/^.+?\s*—\s*/, '') ?? '';
                   return stripped || meta.title;
@@ -1803,7 +1806,7 @@ ${layoutSummary}`;
 
     // SSE headers — must be set before any writes
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -2277,7 +2280,7 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
 
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -2339,6 +2342,23 @@ When asked to create a website or microsite:
 - CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
 
+FRAMEWORK TRANSLATION RULES — apply these when the prompt references any JS framework:
+- React component → vanilla JS function using document.createElement / innerHTML
+- Framer Motion initial/animate/transition → CSS @keyframes + IntersectionObserver, or GSAP if motion is needed
+- Framer Motion whileHover → CSS :hover with transform / box-shadow
+- Tailwind utility classes → equivalent inline styles or a <style> block with the same values
+- <script type="text/babel"> → standard <script> tag with plain ES6 JS
+- window.X = X component exports → not needed; keep all JS inline in one <script> block
+- CDN links for React, ReactDOM, Babel standalone, or Framer Motion → omit them entirely; use GSAP from jsdelivr if animation is needed
+- BlurText / word-by-word animation → JS that splits text into <span> words and stagger-fades them via IntersectionObserver or GSAP
+- FadingVideo crossfade → vanilla JS using requestAnimationFrame to tween video.style.opacity, with ended + timeupdate listeners for manual looping
+
+NAV INTEGRITY RULE — always enforce this:
+- Every href="#anchor" in the navigation must have a matching id="anchor" on a real page section
+- Scan every nav link you generate; if a nav item points to a section not explicitly defined in the prompt, generate a minimal but styled placeholder section for it — same visual language as the rest of the page, with a heading and 1–2 lines of relevant placeholder copy
+- Never wire multiple nav items to the same section ID just because that section is the closest match
+- After writing all sections, do a final mental check: for each nav href, confirm its target id exists in the HTML
+
 MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every output:
 - Always include <meta name="viewport" content="width=device-width, initial-scale=1"> in <head>
 - Write base styles for 320px–768px first, then layer on desktop enhancements with min-width media queries
@@ -2353,15 +2373,30 @@ MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every outp
 - Images: always width:100%; height:auto, or object-fit:cover inside a container with explicit height
 - Avoid hover-only states for essential interactions — every interactive element must also respond to touch/click
 
-NAVBAR LOGO REQUIREMENTS — apply to every microsite without exception:
-- Every microsite must include a sticky navbar at the top of the page
-- The navbar must use display:flex and align-items:center so all items are vertically centered
-- The FIRST child inside the navbar must be a logo slot div with EXACTLY this structure (copy verbatim):
-  <div id="__site-logo-slot__" style="display:flex;align-items:center;flex-shrink:0;gap:8px;">COMPANY_NAME</div>
-  Replace COMPANY_NAME with the actual company name text from the proposal.
-- The id="__site-logo-slot__" attribute is mandatory — the system replaces the slot's content with the real client logo image after generation.
-- Do NOT put an <img> tag inside the slot — text only. The system handles the image injection.
-- The navbar height must be at least 64px so the logo has room vertically.
+NAVBAR LOGO REQUIREMENTS — non-negotiable in every microsite:
+- Every microsite must have a sticky or fixed navbar at the top
+- The navbar must use display:flex;align-items:center so all children are vertically centered
+- The navbar left side must contain exactly this logo element as the first child inside the navbar: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">
+- Wrap the logo in a flex container that is the first child of the nav: <div style="display:flex;align-items:center;flex-shrink:0;"><img id="__site-logo__" src="data:," alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"></div>
+- The src must be exactly "data:," — it will be replaced with the real logo URL or an SVG initials badge by the system. Do not invent a src value and do not add an onerror attribute.
+- The navbar height must be at least 60px so the logo has room to breathe vertically
+
+ICON SYSTEM — always use modern icons:
+- Choose whichever icon library or inline SVG approach best suits the theme and style you've chosen
+- Icons must be current-trend: clean, geometric, purposeful — not dated clip-art or old-style glyph fonts
+- Size icons at 20–24px; match colour to accent or muted text tone
+- Icons must be contextually meaningful — reinforce the content they accompany, never just decorate
+
+SMOOTH SCROLL — always:
+- html { scroll-behavior: smooth; }
+- All internal anchor links use href="#sectionId" with a matching id on the target section
+
+MOTION BASELINE — when no explicit MOTION override is present:
+- IntersectionObserver fade-up on every section (opacity 0→1, translateY 24px→0, 0.55s ease-out, 0.08s stagger between siblings)
+- Hero: subtle parallax on background image or gradient (CSS transform driven by scroll listener, 0.25× speed ratio)
+- Buttons: scale(1.04) + box-shadow lift on :hover, transition 0.18s ease
+- Cards: translateY(-4px) + shadow deepen on :hover, transition 0.2s ease
+- This is the floor — exceed it whenever the brand mood warrants it
 
 ${imageInstructions}`;
 
@@ -2396,6 +2431,7 @@ ${imageInstructions}`;
     const callLLMStream = async (
       messages: { role: string; content: unknown }[],
       maxTokens = 16000,
+      onChunk?: (chunk: string) => void,
     ): Promise<string> => {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -2427,13 +2463,51 @@ ${imageInstructions}`;
           try {
             const evt = JSON.parse(raw) as { type?: string; delta?: { type?: string; text?: string } };
             if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-              text += evt.delta.text ?? '';
+              const chunk = evt.delta.text ?? '';
+              text += chunk;
+              if (chunk && onChunk) onChunk(chunk);
             }
           } catch { /* skip malformed */ }
         }
       }
       return text;
     };
+
+    // Injected when user provides no prompt — full creative brief derived from the proposal.
+    const NO_INSTRUCTION_DIRECTIVE = `NO INSTRUCTION MODE — no constraints from the user. This is your creative brief.
+
+Read the full proposal before writing a single line of HTML. Then make every design decision from scratch based on what you read — not from a template, not from a default.
+
+THEME — derive it, don't default it
+There is no prescribed color scheme. Read the proposal and ask: what does this project feel like? What would a world-class design director choose if they had full creative freedom and were trying to make this specific client feel that this vendor truly understood them?
+
+The palette, typography, and visual tone should emerge from the content — the industry, the ambition in the language, the size of the numbers, the nature of the deliverables. A fintech risk platform and a children's education startup should look nothing alike. A government infrastructure bid and a boutique creative agency pitch should feel completely different.
+
+Use color boldly. Not everything needs to be light-on-dark or dark-on-light. Consider unexpected combinations that feel native to the industry and emotionally resonant. Pick 2 Google Fonts (one display, one text) that match the character — load via @import in <style>. No two proposals should produce the same visual identity.
+
+IMAGERY — make it contextual, not stock
+Derive every image query from the proposal's actual content. What is the client's world? What do the locations, services, outcomes, and people in this proposal look like? A query should pass this test: would it work for any other proposal? If yes, it's too generic. Make it specific to this one.
+
+MOTION — always include, calibrate to the mood you chose
+- html { scroll-behavior: smooth; } always
+- IntersectionObserver scroll reveals on every section (opacity + translateY, 0.55s ease-out)
+- Hero: background parallax (0.25× speed) or a CSS gradient animation or subtle ambient motion
+- Hover micro-interactions on every button and card (scale, glow, lift — whatever fits the theme)
+- If the theme is bold and expressive: add GSAP + ScrollTrigger from jsdelivr CDN for staggered headline reveals, animated counters, pinned scroll effects
+- If the theme is calm and minimal: keep motion restrained to subtle fades and smooth transitions only
+- Motion should feel like a natural extension of the visual theme — not bolted on
+
+ICONS — always modern, your choice of library or inline SVG
+Use icons that reinforce meaning, not just decorate. Match icon style and weight to the theme you chose. Never use dated iconography — always current-trend, clean, and geometric.
+
+SECTIONS — from the proposal, not from a template
+Build sections around the proposal's actual content and narrative arc. Name them in natural language. Include every major topic. Sequence them to tell a story: the problem, the solution, the proof, the investment, the next step.
+
+This microsite must look and feel like it was designed specifically for this client, this proposal, and this moment — not assembled from a pattern. Push the craft.`;
+
+    // Injected when user gave instructions but didn't specify a visual theme.
+    const THEME_FALLBACK_DIRECTIVE = `THEME INTELLIGENCE — read the proposal for visual direction unless already specified above:
+If the instructions above do not explicitly specify a visual theme, colors, or design style — derive those from the proposal itself. Read the proposal's industry, tone, and ambition, then choose a palette, typography, and visual mood that feels native to this specific engagement. Do not default to a generic look. The user's content instructions take full priority; this applies only to any visual direction they left unspecified.`;
 
     try {
       send({ type: 'start', message: 'Generating…' });
@@ -2449,10 +2523,36 @@ Implement as a full-bleed iframe background inside a position:relative container
 The hero section must have position:relative; overflow:hidden. All overlay text sits above with position:relative; z-index:1.`
         : '';
 
+      // Strip framework-specific CDN script tags and export patterns from the prompt so the LLM
+      // isn't confused into attempting React/Babel output instead of vanilla HTML.
+      const sanitizeFrameworkPrompt = (text: string): string => {
+        let out = text;
+        // Remove <script> tags loading React, ReactDOM, Babel, Framer Motion, Vue, Angular
+        out = out.replace(/<script[^>]*(?:unpkg\.com\/react|unpkg\.com\/react-dom|unpkg\.com\/@babel|framer-motion|vue(?:\.global|\.esm)|angular)[^>]*><\/script>/gi, '');
+        // Remove integrity/crossorigin CDN <script> tags for the above (self-closing or paired)
+        out = out.replace(/<script[^>]*(?:react|babel\.min|framer-motion)[^>]*(?:\/>|>[\s\S]*?<\/script>)/gi, '');
+        // Remove window.X = X export lines
+        out = out.replace(/window\.\w+\s*=\s*\w+\s*;?/g, '');
+        // Neutralise <script type="text/babel"> mentions in prose
+        out = out.replace(/<script\s+type=["']text\/babel["']/gi, '<script');
+        // Prepend translation note if any framework keyword was found in the original text
+        if (/react|framer.?motion|babel|jsx|\.createRoot|window\.\w+\s*=/i.test(text)) {
+          out = `NOTE: Translate all React/JSX/Framer Motion patterns to equivalent vanilla HTML, CSS, and JS — do NOT emit any React, Babel, or Framer Motion code.\n\n${out}`;
+        }
+        return out;
+      };
+
       // Structure the message like the Claude app: instruction first, then the proposal as an attachment.
       const parts: string[] = [];
-      if (body?.userPrompt?.trim()) parts.push(body.userPrompt.trim());
-      if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${body.designPrompt.trim()}`);
+      const hasUserInstructions = !!(body?.userPrompt?.trim() || body?.designPrompt?.trim());
+      if (body?.userPrompt?.trim()) parts.push(sanitizeFrameworkPrompt(body.userPrompt.trim()));
+      if (body?.designPrompt?.trim()) parts.push(`DESIGN REFERENCE:\n${sanitizeFrameworkPrompt(body.designPrompt.trim())}`);
+      // Inject intelligent default directive — full creative brief when no instructions, theme fallback when instructions lack visual direction
+      if (!hasUserInstructions) {
+        parts.push(NO_INSTRUCTION_DIRECTIVE);
+      } else {
+        parts.push(THEME_FALLBACK_DIRECTIVE);
+      }
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
       // Motion level hint — tells Claude what animation approach to use
@@ -2468,6 +2568,29 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       if (motionHint) parts.push(motionHint);
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
+
+      // Log the full prompt to disk for auditing — fire-and-forget, never blocks generation
+      {
+        const logDir = path.join(workdir, 'namespaces', namespace, 'logs');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const logPath = path.join(logDir, `microsite-prompt-${proposalId}-${ts}.txt`);
+        const logContent = [
+          `=== Microsite Generation Prompt Log ===`,
+          `Timestamp : ${new Date().toISOString()}`,
+          `Namespace : ${namespace}`,
+          `ProposalId: ${proposalId}`,
+          `Model     : ${model}`,
+          ``,
+          `--- SYSTEM PROMPT ---`,
+          ARTIFACT_SYSTEM,
+          ``,
+          `--- USER PROMPT ---`,
+          prompt,
+        ].join('\n');
+        mkdir(logDir, { recursive: true })
+          .then(() => writeFile(logPath, logContent, 'utf-8'))
+          .catch((e) => console.error('[microsite-gen] Failed to write prompt log:', e));
+      }
 
       // Heartbeat: send progress messages every 6 s while the LLM is generating
       const heartbeatSteps = ['Designing layout…', 'Building hero section…', 'Writing content…', 'Applying styles…', 'Polishing design…'];
@@ -2485,7 +2608,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
               { type: 'text', text: prompt },
             ] }]
           : [{ role: 'user', content: prompt }];
-        raw = await callLLMStream(messages, 32000);
+        raw = await callLLMStream(messages, 32000, (chunk) => { send({ type: 'html_chunk', chunk }); });
       } finally {
         clearInterval(hbTimer);
       }
@@ -2494,11 +2617,15 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       // Strip markdown fences, resolve image:// placeholders with real photos, inject onerror fallback
       const rawHtml = raw
-        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
+        // Strip em dashes the LLM generates despite being told not to.
+        // " — " (spaced) → ", "  |  bare "—" → "-"
+        .replace(/ — /g, ', ').replace(/—/g, '-');
 
       const html = (await resolveImagePlaceholders(rawHtml))
         .replace(
-          /<img\b(?![^>]*\bonerror\b)([^>]*\balt="([^"]*)"[^>]*)>/gi,
+          // Skip imgs that already have onerror AND skip __site-logo__ (replaced client-side)
+          /<img\b(?![^>]*\bonerror\b)(?![^>]*\bid="__site-logo__")([^>]*\balt="([^"]*)"[^>]*)>/gi,
           (_m, attrs: string, alt: string) => {
             const keyword = (alt || 'abstract').trim().split(/\s+/).slice(0, 3).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '');
             return `<img${attrs} onerror="this.onerror=null;this.src='https://picsum.photos/seed/${keyword}/1920/1080'">`;
@@ -2636,7 +2763,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
     // Setup SSE
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -2791,7 +2918,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
     // Setup SSE
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -3502,12 +3629,12 @@ Common token names and their roles:
   });
 
   // POST /presentations/:namespace/:proposalId/publish-meta
-  // Saves the published subdomain/url after a successful S3 publish.
+  // Saves the published subdomain/url (or custom domain) after a successful S3 publish.
   app.post('/presentations/:namespace/:proposalId/publish-meta', async (req: FastifyRequest, reply: FastifyReply) => {
     const { namespace, proposalId } = req.params as { namespace: string; proposalId: string };
     const auth = getAuth(req);
     if (!checkNamespaceAccess(auth, namespace, reply)) return;
-    const body = req.body as { subdomain: string; url: string; publishedAt: string };
+    const body = req.body as { subdomain?: string; customDomain?: string; url: string; publishedAt: string };
     // Prefer super-client directory if microsite exists there
     const superClientMicrosite = path.join(workdir, 'super-clients', namespace, 'microsites', `${proposalId}.json`);
     let metaDir: string;

@@ -171,6 +171,8 @@ function buildSystemPrompt(
   const parts = [
     'You are a workflow-driven AI assistant.',
     '',
+    'FORMATTING: Never use bold (**text**), never use em dashes (—). Write in plain prose only.',
+    '',
     'You MUST follow the workflow strictly. You are NOT a general chatbot.',
     '',
     '---',

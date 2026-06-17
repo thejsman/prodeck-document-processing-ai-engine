@@ -101,11 +101,12 @@ function Highlight({ rect, color, fill, dash, label, labelColor, showClose, onCl
         outlineOffset: -1,
         background: fill,
         borderRadius: 2,
-        pointerEvents: showClose ? 'auto' : 'none',
+        pointerEvents: 'none',
         // No CSS transition — snap immediately like Figma
       }}
     >
-      {/* Label chip */}
+      {/* Label chip — pointer events only on the chip, never on the full highlight box
+          so scroll events pass through to the iframe underneath */}
       <div
         style={{
           position: 'absolute',

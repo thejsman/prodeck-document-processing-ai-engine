@@ -9,3 +9,4 @@ export * from './agents/index.js';
 export * from './usage/index.js';
 export * from './tools/index.js';
 export * from './vector-store/index.js';
+export * from './inspiration/index.js';

@@ -698,22 +698,29 @@ export async function publishMicrosite(
   return handleResponse<{ downloadUrl: string; size: number }>(res);
 }
 
+export interface PublishMeta {
+  subdomain?: string;
+  customDomain?: string;
+  url: string;
+  publishedAt: string;
+}
+
 export async function fetchPublishMeta(
   namespace: string,
   proposalId: string,
-): Promise<{ subdomain: string; url: string; publishedAt: string } | null> {
+): Promise<PublishMeta | null> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
   );
   if (!res.ok) return null;
-  return res.json() as Promise<{ subdomain: string; url: string; publishedAt: string } | null>;
+  return res.json() as Promise<PublishMeta | null>;
 }
 
 export async function savePublishMeta(
   apiKey: string,
   namespace: string,
   proposalId: string,
-  meta: { subdomain: string; url: string; publishedAt: string },
+  meta: PublishMeta,
 ): Promise<void> {
   await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
@@ -774,6 +781,7 @@ export interface AgentRunResult {
 export type StreamEvent =
   | { type: 'start'; message: string }
   | { type: 'progress'; message: string }
+  | { type: 'html_chunk'; chunk: string }
   | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
@@ -2173,6 +2181,7 @@ export interface SuperClientHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  editContext?: 'microsite' | 'proposal';
 }
 
 export interface SuperClientDetail {
@@ -2227,6 +2236,40 @@ export async function getSuperClient(apiKey: string, name: string): Promise<Supe
   const res = await fetch(`/api/super-clients/${name}`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`getSuperClient failed: ${res.status}`);
   return res.json() as Promise<SuperClientDetail>;
+}
+
+export interface SuperClientGenerationEntry {
+  id: string;
+  clientSlug: string;
+  type: 'proposal' | 'microsite';
+  phase: 'generating' | 'complete' | 'error';
+  title: string;
+  steps: string[];
+  createdAt?: string;
+  charCount?: number;
+  error?: string;
+  result?: { fileName?: string; micrositeId?: string };
+}
+
+export async function getSuperClientGenerations(apiKey: string, name: string): Promise<SuperClientGenerationEntry[]> {
+  const res = await fetch(`/api/super-clients/${name}/generations`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) return [];
+  return res.json() as Promise<SuperClientGenerationEntry[]>;
+}
+
+export async function upsertSuperClientGeneration(apiKey: string, name: string, gen: SuperClientGenerationEntry): Promise<void> {
+  await fetch(`/api/super-clients/${name}/generations/${gen.id}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(gen),
+  });
+}
+
+export async function deleteSuperClientGeneration(apiKey: string, name: string, id: string): Promise<void> {
+  await fetch(`/api/super-clients/${name}/generations/${id}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
 }
 
 export async function deleteSuperClient(apiKey: string, name: string): Promise<void> {
@@ -2344,11 +2387,14 @@ export async function editSuperClientMicrosite(
   name: string,
   id: string,
   instruction: string,
+  currentHtml?: string,
 ): Promise<{ html: string; summary: string }> {
   const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/edit`, {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instruction }),
+    // Send current in-memory HTML so the server doesn't rely on a potentially
+    // stale disk file (happens when a previous LLM edit failed to persist).
+    body: JSON.stringify({ instruction, currentHtml }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { error?: string };
@@ -2409,6 +2455,18 @@ export interface SuperClientChatEvent {
   proposalUpdated?: SuperClientProposal;
 }
 
+export async function appendSuperClientHistory(
+  apiKey: string,
+  name: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: string; editContext?: 'microsite' | 'proposal' }>,
+): Promise<void> {
+  await fetch(`/api/super-clients/${name}/history/append`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ messages }),
+  });
+}
+
 export async function streamSuperClientChat(
   apiKey: string,
   name: string,
@@ -2451,4 +2509,117 @@ export async function streamSuperClientChat(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Org-level Inspiration & Global Context — Author Voice (Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface AuthorVoiceWeightedItem {
+  value: string;
+  weight: number;
+}
+
+export interface AuthorVoice {
+  version: number;
+  updatedAt: string;
+  docCount: number;
+  tone: string[];
+  formality: 'casual' | 'neutral' | 'formal' | 'highly-formal';
+  sectionPatterns: string[];
+  openingStyle: string;
+  closingStyle: string;
+  recurringPhrases: AuthorVoiceWeightedItem[];
+  vocabulary: AuthorVoiceWeightedItem[];
+  persuasionPatterns: AuthorVoiceWeightedItem[];
+  formatting: string[];
+  sourceProfileIds: string[];
+}
+
+export interface VoiceDocEntry {
+  id: string;
+  sourceDocument: string;
+  size: number;
+  uploadedAt: string;
+  status: 'processing' | 'extracted' | 'failed';
+  error?: string;
+}
+
+export interface OrgContextSettings {
+  applyAuthorVoice: boolean;
+  applyDesignKit: boolean;
+}
+
+export async function fetchAuthorVoice(apiKey: string): Promise<AuthorVoice | null> {
+  const res = await fetch('/api/org-context/voice', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ voice: AuthorVoice | null }>(res);
+  return data.voice;
+}
+
+export async function fetchVoiceDocuments(apiKey: string): Promise<VoiceDocEntry[]> {
+  const res = await fetch('/api/org-context/voice/documents', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ documents: VoiceDocEntry[] }>(res);
+  return data.documents;
+}
+
+export async function uploadVoiceDocument(
+  apiKey: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/org-context/voice/documents/upload');
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteVoiceDocument(apiKey: string, id: string): Promise<AuthorVoice> {
+  const res = await fetch(`/api/org-context/voice/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function recomputeAuthorVoice(apiKey: string): Promise<AuthorVoice> {
+  const res = await fetch('/api/org-context/voice/regenerate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function fetchOrgContextSettings(apiKey: string): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
+}
+
+export async function saveOrgContextSettings(
+  apiKey: string,
+  patch: Partial<OrgContextSettings>,
+): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(patch),
+  });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
 }

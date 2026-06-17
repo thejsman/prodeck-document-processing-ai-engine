@@ -11,6 +11,8 @@ export interface Generation {
   phase: GenerationPhase;
   title: string;
   steps: string[];
+  createdAt: string;
+  charCount?: number; // HTML chars written so far — updated live during microsite generation
   error?: string;
   result?: {
     fileName?: string;    // proposal
@@ -87,8 +89,18 @@ export const generationStore = {
       phase: 'generating',
       title: params.title,
       steps: [],
+      createdAt: new Date().toISOString(),
       abort: params.abort,
     });
+    broadcast();
+  },
+
+  // Throttled: only broadcasts when charCount grows by ≥2 000 to avoid flooding listeners.
+  updateChars(id: string, count: number): void {
+    const g = store.get(id);
+    if (!g || g.phase !== 'generating') return;
+    if (g.charCount !== undefined && count - g.charCount < 2000) return;
+    store.set(id, { ...g, charCount: count });
     broadcast();
   },
 
@@ -126,5 +138,32 @@ export const generationStore = {
 
   forClient(slug: string): Generation[] {
     return snap().filter((g) => g.clientSlug === slug);
+  },
+
+  // Bulk-load server-fetched generations into the store without overwriting any
+  // entry that is already active (e.g. a generation started in the current tab).
+  // 'generating' entries are kept as-is so other tabs can poll for completion.
+  hydrateFromServer(gens: Omit<Generation, 'abort'>[]): void {
+    let changed = false;
+    for (const g of gens) {
+      if (store.has(g.id)) continue; // never clobber an active entry
+      store.set(g.id, { ...g, abort: () => {} });
+      changed = true;
+    }
+    if (changed) broadcast();
+  },
+
+  // Refresh entries that are 'generating' in the store with the latest server data.
+  // Updates steps and charCount during active generation, and transitions phase when done.
+  // Called by polling in tabs/browsers that didn't start the generation.
+  refreshFromServer(gens: Omit<Generation, 'abort'>[]): void {
+    let changed = false;
+    for (const g of gens) {
+      const existing = store.get(g.id);
+      if (!existing || existing.phase !== 'generating') continue;
+      store.set(g.id, { ...g, abort: existing.abort });
+      changed = true;
+    }
+    if (changed) broadcast();
   },
 };

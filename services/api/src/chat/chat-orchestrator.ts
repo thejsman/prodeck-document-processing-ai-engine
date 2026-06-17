@@ -185,20 +185,20 @@ async function answerFromKnowledge(
   const SYSTEM_CAPABILITIES = [
     'This is an AI-powered proposal management system. You interact with it via chat.',
     '',
-    '**Available actions (just type these):**',
-    '- **"Generate a proposal for [client]"** — Starts the proposal generation workflow. The system checks for an uploaded RFP, collects any extra requirements from you, recommends a template, asks for confirmation, then auto-generates all proposal sections.',
-    '- **"Analyse this RFP"** or **"Should we bid?"** — Runs an RFP analysis and gives a go/no-go recommendation.',
-    '- **"Convert proposal to microsite"** — Turns a generated proposal into a shareable presentation site.',
-    '- **"Create a proposal template"** — Builds a reusable template from the RFP.',
-    '- **"Check proposal for compliance issues"** — Legal/regulatory review of a proposal.',
-    '- **"Update the [section name]"** — Edits a specific section of an existing proposal.',
+    'Available actions (just type these):',
+    '- "Generate a proposal for [client]" - Starts the proposal generation workflow. The system checks for an uploaded RFP, collects any extra requirements from you, recommends a template, asks for confirmation, then auto-generates all proposal sections.',
+    '- "Analyse this RFP" or "Should we bid?" - Runs an RFP analysis and gives a go/no-go recommendation.',
+    '- "Convert proposal to microsite" - Turns a generated proposal into a shareable presentation site.',
+    '- "Create a proposal template" - Builds a reusable template from the RFP.',
+    '- "Check proposal for compliance issues" - Legal/regulatory review of a proposal.',
+    '- "Update the [section name]" - Edits a specific section of an existing proposal.',
     '- Ask any question about your uploaded documents.',
     '',
-    '**To generate a proposal:**',
+    'To generate a proposal:',
     '1. Upload your RFP and any supporting documents via the Knowledge tab.',
-    '2. Select of gererate a proposal template if prompted — this helps the system structure the proposal correctly.',
-    '3. Come back to chat and say: **"Generate a proposal for [client name]"**',
-    '3. The system will guide you through the rest automatically.',
+    '2. Select or generate a proposal template if prompted.',
+    '3. Come back to chat and say: "Generate a proposal for [client name]"',
+    '4. The system will guide you through the rest automatically.',
   ].join('\n');
 
   // "How do I use this?" / "How to generate a proposal?" — answer from system
@@ -212,6 +212,7 @@ async function answerFromKnowledge(
     return generateFn(
       [
         'You are an assistant for a proposal management system. The user is asking how to use the system.',
+        'FORMATTING: Never use bold (**text**), never use em dashes (—). Write in plain prose only.',
         '',
         '## System Guide',
         SYSTEM_CAPABILITIES,
@@ -240,10 +241,10 @@ async function answerFromKnowledge(
       }
       const indexed = files.filter((f) => f.status === 'indexed' || f.status === 'extracting' || f.status === 'extracted');
       const lines = files.map(
-        (f) => `- **${f.fileName}** (${f.status}${f.uploadedAt ? `, uploaded ${f.uploadedAt.slice(0, 10)}` : ''})`,
+        (f) => `- ${f.fileName} (${f.status}${f.uploadedAt ? `, uploaded ${f.uploadedAt.slice(0, 10)}` : ''})`,
       );
       return [
-        `There are **${files.length} file(s)** in this namespace (${indexed.length} indexed):`,
+        `There are ${files.length} file(s) in this namespace (${indexed.length} indexed):`,
         '',
         ...lines,
       ].join('\n');
@@ -293,6 +294,7 @@ async function answerFromKnowledge(
   const context = allChunks.map((t, i) => `[${i + 1}] ${t}`).join('\n\n');
   const prompt = [
     "You are an AI assistant. Answer the user's question using ONLY the document excerpts provided below.",
+    'FORMATTING: Never use bold (**text**), never use em dashes (—). Write in plain prose only.',
     'Do NOT use general knowledge, make assumptions, or introduce information not present in the excerpts.',
     'If the excerpts do not contain enough information to answer, respond with: "I could not find that information in the uploaded documents."',
     ...(extraContext ? ['', '## Current Session Context', extraContext] : []),
