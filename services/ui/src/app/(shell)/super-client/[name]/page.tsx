@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
 import {
   ExternalLink,
+  ArrowLeft,
   ArrowUp,
   X,
   CheckCircle,
@@ -742,6 +743,10 @@ export default function SuperClientPage() {
   const [enrichError, setEnrichError] = useState("");
   const [enrichConfirmPending, setEnrichConfirmPending] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  // Close right panel by default on mobile — prevents it from auto-sliding in on navigation
+  useEffect(() => {
+    if (window.innerWidth <= 768) setRightPanelOpen(false);
+  }, []);
   const [menuMicrositeId, setMenuMicrositeId] = useState<string | null>(null);
   const [menuMicrositePos, setMenuMicrositePos] = useState({
     top: 0,
@@ -2894,6 +2899,13 @@ export default function SuperClientPage() {
           {/* Header */}
           <header className="chat-v2-header">
             <div className="chat-v2-header-left">
+              <button
+                className="chat-v2-back-btn"
+                onClick={() => router.push("/")}
+                aria-label="Back to all clients"
+              >
+                <ArrowLeft size={16} />
+              </button>
               <span className="chat-v2-ns">{meta.displayName}</span>
             </div>
             <div className="chat-v2-header-right">
@@ -3349,6 +3361,11 @@ export default function SuperClientPage() {
                 <textarea
                   value={composerInstructions}
                   onChange={(e) => setComposerInstructions(e.target.value)}
+                  onInput={(e) => {
+                    const el = e.currentTarget;
+                    el.style.height = "auto";
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
                   placeholder="Optional: any design direction or focus areas…"
                   rows={2}
                   style={{
@@ -3364,6 +3381,8 @@ export default function SuperClientPage() {
                     fontFamily: "inherit",
                     lineHeight: 1.5,
                     boxSizing: "border-box",
+                    overflow: "hidden",
+                    minHeight: 60,
                   }}
                 />
                 {/* PDF mode toggle */}
@@ -3802,7 +3821,7 @@ export default function SuperClientPage() {
                 {/* Horizontal separator — hidden */}
                 <div style={{ height: 1, margin: "0 2px" }} />
                 {/* Bottom bar: attach left, send right — same padding as textarea */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px" }}>
+                <div className="chat-v2-composer-bottom">
                   {/* Attach (+) button */}
                   {!micrositeEditActive ? (
                     <div style={{ position: "relative", flexShrink: 0 }}>
@@ -4085,6 +4104,7 @@ export default function SuperClientPage() {
               </div>
               {/* Header */}
               <div
+                className="sc-panel-header"
                 style={{
                   padding: "14px 20px",
                   borderBottom: "1px solid var(--border)",
@@ -4092,8 +4112,16 @@ export default function SuperClientPage() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   flexShrink: 0,
+                  gap: 8,
                 }}
               >
+                <button
+                  className="chat-v2-back-btn sc-panel-back-btn"
+                  onClick={dismissMicrosite}
+                  aria-label="Close microsite panel"
+                >
+                  <ArrowLeft size={16} />
+                </button>
                 <p
                   style={{
                     fontSize: 14,
@@ -4138,103 +4166,106 @@ export default function SuperClientPage() {
                     flexShrink: 0,
                   }}
                 >
-                  {/* Unsaved-changes indicator */}
-                  {hasUnsavedChanges && (
-                    <span
-                      title="Unsaved changes"
+                  {/* Undo / Redo / Save — hidden on mobile */}
+                  <div className="sc-panel-history-btns">
+                    {/* Unsaved-changes indicator */}
+                    {hasUnsavedChanges && (
+                      <span
+                        title="Unsaved changes"
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: "#f59e0b",
+                          flexShrink: 0,
+                          display: "inline-block",
+                        }}
+                      />
+                    )}
+                    {/* Undo */}
+                    <button
+                      onClick={() => handleMicrositeRevert()}
+                      disabled={micrositeEditing || !canUndo}
+                      title={
+                        canUndo
+                          ? `Undo (${editHistoryIndex} step${editHistoryIndex !== 1 ? "s" : ""} available) — Ctrl+Z`
+                          : "Nothing to undo"
+                      }
                       style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        background: "#f59e0b",
-                        flexShrink: 0,
-                        display: "inline-block",
+                        background: "none",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor:
+                          micrositeEditing || !canUndo ? "default" : "pointer",
+                        fontSize: 12,
+                        color: canUndo ? "var(--foreground)" : "var(--muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: canUndo ? 1 : 0.4,
                       }}
-                    />
-                  )}
-                  {/* Undo */}
-                  <button
-                    onClick={() => handleMicrositeRevert()}
-                    disabled={micrositeEditing || !canUndo}
-                    title={
-                      canUndo
-                        ? `Undo (${editHistoryIndex} step${editHistoryIndex !== 1 ? "s" : ""} available) — Ctrl+Z`
-                        : "Nothing to undo"
-                    }
-                    style={{
-                      background: "none",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      padding: "4px 10px",
-                      cursor:
-                        micrositeEditing || !canUndo ? "default" : "pointer",
-                      fontSize: 12,
-                      color: canUndo ? "var(--foreground)" : "var(--muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      opacity: canUndo ? 1 : 0.4,
-                    }}
-                  >
-                    ↩ Undo
-                  </button>
-                  {/* Redo */}
-                  <button
-                    onClick={() => handleMicrositeRedo()}
-                    disabled={micrositeEditing || !canRedo}
-                    title="Redo — Ctrl+Shift+Z"
-                    style={{
-                      background: "none",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      padding: "4px 10px",
-                      cursor:
-                        micrositeEditing || !canRedo ? "default" : "pointer",
-                      fontSize: 12,
-                      color: canRedo ? "var(--foreground)" : "var(--muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      opacity: canRedo ? 1 : 0.4,
-                    }}
-                  >
-                    ↪ Redo
-                  </button>
-                  {/* Explicit Save */}
-                  <button
-                    onClick={() => void handleMicrositeSave()}
-                    disabled={micrositeEditing || !hasUnsavedChanges}
-                    title={
-                      hasUnsavedChanges ? "Save changes" : "No unsaved changes"
-                    }
-                    style={{
-                      background:
-                        hasUnsavedChanges && !micrositeEditing
-                          ? "var(--primary)"
-                          : "none",
-                      border: `1px solid ${hasUnsavedChanges && !micrositeEditing ? "var(--primary)" : "var(--border)"}`,
-                      borderRadius: 6,
-                      padding: "4px 10px",
-                      cursor:
-                        micrositeEditing || !hasUnsavedChanges
-                          ? "default"
-                          : "pointer",
-                      fontSize: 12,
-                      color:
-                        hasUnsavedChanges && !micrositeEditing
-                          ? "#fff"
-                          : "var(--muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      opacity: hasUnsavedChanges ? 1 : 0.4,
-                      fontWeight: hasUnsavedChanges ? 600 : 400,
-                      transition:
-                        "background 0.15s, border-color 0.15s, color 0.15s",
-                    }}
-                  >
-                    Save
-                  </button>
+                    >
+                      ↩ Undo
+                    </button>
+                    {/* Redo */}
+                    <button
+                      onClick={() => handleMicrositeRedo()}
+                      disabled={micrositeEditing || !canRedo}
+                      title="Redo — Ctrl+Shift+Z"
+                      style={{
+                        background: "none",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor:
+                          micrositeEditing || !canRedo ? "default" : "pointer",
+                        fontSize: 12,
+                        color: canRedo ? "var(--foreground)" : "var(--muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: canRedo ? 1 : 0.4,
+                      }}
+                    >
+                      ↪ Redo
+                    </button>
+                    {/* Explicit Save */}
+                    <button
+                      onClick={() => void handleMicrositeSave()}
+                      disabled={micrositeEditing || !hasUnsavedChanges}
+                      title={
+                        hasUnsavedChanges ? "Save changes" : "No unsaved changes"
+                      }
+                      style={{
+                        background:
+                          hasUnsavedChanges && !micrositeEditing
+                            ? "var(--primary)"
+                            : "none",
+                        border: `1px solid ${hasUnsavedChanges && !micrositeEditing ? "var(--primary)" : "var(--border)"}`,
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor:
+                          micrositeEditing || !hasUnsavedChanges
+                            ? "default"
+                            : "pointer",
+                        fontSize: 12,
+                        color:
+                          hasUnsavedChanges && !micrositeEditing
+                            ? "#fff"
+                            : "var(--muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: hasUnsavedChanges ? 1 : 0.4,
+                        fontWeight: hasUnsavedChanges ? 600 : 400,
+                        transition:
+                          "background 0.15s, border-color 0.15s, color 0.15s",
+                      }}
+                    >
+                      Save
+                    </button>
+                  </div>
                   <button
                     onClick={() =>
                       setFullscreenMicrosite(lastMicrositeRef.current!.ast)
@@ -4298,6 +4329,7 @@ export default function SuperClientPage() {
                     </button>
                   )}
                   <button
+                    className="sc-panel-close-btn"
                     onClick={dismissMicrosite}
                     style={{
                       background: "none",
@@ -4664,19 +4696,33 @@ export default function SuperClientPage() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   flexShrink: 0,
+                  gap: 8,
                 }}
               >
+                <button
+                  className="chat-v2-back-btn sc-panel-back-btn"
+                  onClick={dismissProposal}
+                  aria-label="Close proposal panel"
+                >
+                  <ArrowLeft size={16} />
+                </button>
                 <p
                   style={{
                     fontSize: 14,
                     fontWeight: 600,
                     color: "var(--text)",
                     margin: 0,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
                   }}
                 >
                   {lastProposalRef.current!.title}
                 </p>
                 <button
+                  className="sc-panel-close-btn"
                   onClick={dismissProposal}
                   style={{
                     background: "none",

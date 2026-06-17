@@ -27,8 +27,10 @@ export default function WelcomePage() {
           <Icon icon={Menu} size="md" />
         </button>
         <span className="welcome-mobile-brand">ProDeck</span>
+        <div style={{ flex: 1 }} />
+        <ThemeToggle />
       </div>
-      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+      <div className="welcome-desktop-toggle">
         <ThemeToggle />
       </div>
       <div
@@ -82,8 +84,7 @@ export default function WelcomePage() {
             maxWidth: 440,
           }}
         >
-          Create a namespace to get started. Each one is an isolated workspace where you can ingest documents, generate
-          proposals, and chat with your knowledge base.
+          Add a client to get started. Ingest documents, generate proposals, and chat with their knowledge base.
         </p>
 
         {/* CTA */}
