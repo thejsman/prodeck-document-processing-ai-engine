@@ -2090,9 +2090,10 @@ export default function SuperClientPage() {
   // Derives 1-3 uppercase initials from a company name and wraps them in a
   // rounded-rect SVG that can be injected into the navbar logo slot.
   function getInitials(name: string): string {
+    // Split on spaces AND hyphens so "Lyman-Morse" → ["Lyman","Morse"] → "LM"
     const words = name
       .trim()
-      .split(/\s+/)
+      .split(/[\s\-]+/)
       .filter(
         (w) => w.length > 1 && !/^(the|and|of|for|in|a|an|&|--)$/i.test(w),
       );
@@ -2376,9 +2377,9 @@ export default function SuperClientPage() {
               };
               if (section.customHtml) {
                 const companyName =
-                  proposalTitle ||
                   ((ast.brand as unknown as Record<string, unknown>)
                     ?.companyName as string) ||
+                  proposalTitle ||
                   "";
                 const patchedHtml = proposalLogo
                   ? injectLogoIntoHtml(section.customHtml, proposalLogo)
