@@ -7,4 +7,4 @@ WORKDIR /app
 COPY package.json index.js ./
 
 EXPOSE 3002
-CMD ["node", "index.js"]
+ENTRYPOINT ["node", "index.js"]
