@@ -2108,12 +2108,66 @@ export async function analyzeProposalV2(
 
 // ── V2 Generate Stream ───────────────────────────────────────────────────────
 
+export interface V2StreamContextImage {
+  url: string;
+  analysis: {
+    index: number;
+    source: unknown;
+    metadata: {
+      description: string;
+      objects: string[];
+      dominantColors: string[];
+      readableText: string;
+      formatHint: string;
+      tags: string[];
+      sentiment: string;
+      dimensions: { width: number; height: number } | null;
+    };
+  };
+  placementHint?: string;
+}
+
+// PreparedImage is the output of the /images/prepare skill
+export type PreparedImage = V2StreamContextImage;
+
+export interface PrepareImagesOptions {
+  images: Array<{ base64: string; mediaType: string }>;
+  proposalMarkdown?: string;
+  userInstructions?: string;
+}
+
+export async function prepareImages(
+  apiKey: string,
+  namespace: string,
+  opts: PrepareImagesOptions,
+): Promise<PreparedImage[]> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/images/prepare`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        images: opts.images,
+        ...(opts.proposalMarkdown ? { proposalMarkdown: opts.proposalMarkdown } : {}),
+        ...(opts.userInstructions ? { userInstructions: opts.userInstructions } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'unknown error');
+    throw new Error(`Image prepare failed (${res.status}): ${text}`);
+  }
+  const data = await res.json() as { images: PreparedImage[] };
+  return data.images;
+}
+
 export interface V2StreamOptions {
   proposalMarkdown: string;
   userPrompt?: string;
   designPrompt?: string;
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
+  contextImages?: V2StreamContextImage[];
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -2133,6 +2187,7 @@ export async function generateMicrositeV2Stream(
       ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
+      ...(opts.contextImages?.length ? { contextImages: opts.contextImages } : {}),
     }),
     signal: opts.signal,
   });

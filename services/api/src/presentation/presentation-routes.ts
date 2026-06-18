@@ -2297,6 +2297,24 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       referenceImage?: { base64: string; mediaType: string }; // screenshot for vision
       coldStart?: boolean;       // bypass proposal — generate content from scratch
       motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive'; // explicit motion override
+      contextImages?: Array<{   // client-pasted images — prepared by the /images/prepare skill
+        url: string;
+        analysis: {
+          index: number;
+          source: unknown;
+          metadata: {
+            description: string;
+            objects: string[];
+            dominantColors: string[];
+            readableText: string;
+            formatHint: string;
+            tags: string[];
+            sentiment: string;
+            dimensions: { width: number; height: number } | null;
+          };
+        };
+        placementHint?: string; // LLM-generated brief for where this image fits in the microsite
+      }>;
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2317,14 +2335,48 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
 
     const hasPexels = !!(env.PEXELS_API_KEY?.trim());
 
-    const imageInstructions = hasPexels
-      ? `For images, always follow the user's instructions first.
+    const contextImgs = body?.contextImages ?? [];
+
+    const imageInstructions = contextImgs.length > 0
+      ? (() => {
+          const lines: string[] = [
+            'CLIENT-PROVIDED IMAGES — MANDATORY INCLUSION',
+            `Every one of the ${contextImgs.length} image(s) listed below MUST appear somewhere in the final microsite. Do NOT use image:// URLs for these. Do NOT substitute them with stock photos.`,
+            '',
+            'IMAGE CONTEXT (from visual analysis):',
+            ...contextImgs.flatMap((img, i) => {
+              const m = img.analysis?.metadata ?? {};
+              const dims = m.dimensions ? `${m.dimensions.width}×${m.dimensions.height}` : '';
+              const imgLines = [
+                `Image ${i + 1} — src="${img.url}"`,
+                `  Description: ${m.description ?? ''}`,
+                `  Objects: ${(m.objects ?? []).slice(0, 5).join(', ')}`,
+                `  Tags: ${(m.tags ?? []).slice(0, 6).join(', ')}`,
+                `  Mood: ${m.sentiment ?? ''}${dims ? ` | Dimensions: ${dims}` : ''}`,
+              ];
+              if ((img as { placementHint?: string }).placementHint) {
+                imgLines.push(`  Placement brief: ${(img as { placementHint?: string }).placementHint}`);
+              }
+              imgLines.push('');
+              return imgLines;
+            }),
+            'You have full creative freedom on how to use these images. Think like a creative director: place them as heroes, full-bleed backgrounds, parallax layers, inline section images, gallery grids, team/about photos — whatever amplifies the proposal narrative and design. Cross-reference the proposal document to place each image where it most powerfully serves the story.',
+            'On mobile, all images must be responsive (max-width:100%; height:auto or object-fit:cover with a bounded height).',
+            '',
+            hasPexels
+              ? 'For any additional decorative images beyond the above, use: <img src="image://descriptive+query" alt="...">'
+              : 'For any additional decorative images beyond the above, use real Unsplash URLs from your training data.',
+          ];
+          return lines.join('\n');
+        })()
+      : hasPexels
+        ? `For images, always follow the user's instructions first.
 If the user says no images, use CSS gradients and SVGs only.
 Otherwise use this exact format for every image:
   <img src="image://descriptive+search+query+subject+mood+setting" alt="brief description">
   background-image: url('image://descriptive+search+query+subject+mood+setting')
 Write specific queries — subject, setting, mood, lighting, style. Never generic. These are replaced with real professional photography by the server.`
-      : `For images, always follow the user's instructions first.
+        : `For images, always follow the user's instructions first.
 If the user says no images, use CSS gradients and SVGs only.
 Otherwise use real Unsplash photo URLs from your training data:
   https://images.unsplash.com/photo-{id}?w=1920&q=80&fit=crop&auto=format
@@ -2397,6 +2449,18 @@ MOTION BASELINE — when no explicit MOTION override is present:
 - Buttons: scale(1.04) + box-shadow lift on :hover, transition 0.18s ease
 - Cards: translateY(-4px) + shadow deepen on :hover, transition 0.2s ease
 - This is the floor — exceed it whenever the brand mood warrants it
+
+LAYOUT INTEGRITY — outcome constraints only. Achieve these however best fits your design:
+- Content must never be hidden under the fixed navbar — anchor scroll targets and first-section top spacing must account for navbar height
+- Sections must not visually bleed into each other — absolutely-positioned decorative elements (blobs, shapes, gradients) must stay within their section's bounds
+- The navbar must always sit above all other elements — no section card, parallax layer, or overlay may appear in front of it
+- Flex and grid children that contain text must not overflow their container at any viewport width
+- Scroll-reveal animations must not leave any content permanently invisible — include a fallback that ensures visibility if the animation observer never fires
+- Parallax backgrounds must always fully cover their container at every scroll position — no gaps at top or bottom edges
+- Multi-column layouts must collapse gracefully — no column may become unreadably narrow; wrap or stack before that happens
+- Cards must size to their content — a fixed height that clips text at different screen sizes is a bug
+- The mobile hamburger menu must open on tap and close when a link is selected
+- No horizontal scrollbar at any viewport width
 
 ${imageInstructions}`;
 
@@ -2566,6 +2630,12 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
         ? 'MOTION: Maximum cinematic motion. Load GSAP + ScrollTrigger from jsdelivr CDN. Include: deep parallax scrub on backgrounds, canvas particle system in hero section, split-text headline reveals (animate each word), 3D perspective card tilts, staggered section entrances, smooth magnetic cursor effect on CTAs. Use requestAnimationFrame for all continuous animations.'
         : null;
       if (motionHint) parts.push(motionHint);
+
+      // Remind the LLM about client images (full spec is already in the system prompt via imageInstructions)
+      if (contextImgs.length > 0) {
+        parts.push(`Reminder: embed all ${contextImgs.length} client-provided image(s) listed in your system instructions using their exact src URLs.`);
+      }
+
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 
@@ -3297,6 +3367,227 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
     const url = `/presentation-images/${namespace}/${logoFilename}`;
     return reply.send({ url });
+  });
+
+  // POST /presentations/:namespace/images/upload
+  // Accepts up to 11 base64-encoded images, saves them to the presentation images
+  // directory, and returns their persistent root-relative URLs.
+  // Body: { images: Array<{ base64: string; mediaType: string }> }
+  // Returns: { urls: string[] }
+  app.post('/presentations/:namespace/images/upload', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { images?: Array<{ base64: string; mediaType: string }> } | undefined;
+    const images = body?.images;
+
+    if (!Array.isArray(images) || images.length === 0) {
+      return reply.code(400).send({ error: 'images must be a non-empty array' });
+    }
+    if (images.length > 11) {
+      return reply.code(400).send({ error: 'Maximum 11 images allowed per upload' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    for (const img of images) {
+      if (!img.base64 || typeof img.base64 !== 'string') {
+        return reply.code(400).send({ error: 'Each image must have a base64 field' });
+      }
+      if (!allowedTypes.includes(img.mediaType)) {
+        return reply.code(400).send({ error: `Unsupported mediaType: ${img.mediaType}` });
+      }
+    }
+
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    };
+    const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+    await mkdir(imagesDir, { recursive: true });
+
+    const urls = await Promise.all(images.map(async (img) => {
+      const ext = extMap[img.mediaType] ?? 'jpg';
+      const filename = `upload-${crypto.randomUUID().slice(0, 12)}.${ext}`;
+      const destPath = path.join(imagesDir, filename);
+      await writeFile(destPath, Buffer.from(img.base64, 'base64'));
+      return `/presentation-images/${namespace}/${filename}`;
+    }));
+
+    return reply.send({ urls });
+  });
+
+  // POST /presentations/:namespace/images/prepare
+  // Skill that runs when the user uploads images for microsite generation.
+  // 1. Uploads images to disk (same as /upload)
+  // 2. Analyzes all images via Claude Vision in a single batch call
+  // 3. If proposalMarkdown or userInstructions provided, generates a per-image placement brief
+  // Returns: { images: Array<{ url, analysis, placementHint? }> }
+  // Body: { images: [{base64, mediaType}], proposalMarkdown?: string, userInstructions?: string }
+  app.post('/presentations/:namespace/images/prepare', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as {
+      images?: Array<{ base64: string; mediaType: string }>;
+      proposalMarkdown?: string;
+      userInstructions?: string;
+    } | undefined;
+
+    const images = body?.images;
+    const proposalMarkdown = body?.proposalMarkdown?.trim() ?? '';
+    const userInstructions = body?.userInstructions?.trim() ?? '';
+
+    if (!Array.isArray(images) || images.length === 0) {
+      return reply.code(400).send({ error: 'images must be a non-empty array' });
+    }
+    if (images.length > 11) {
+      return reply.code(400).send({ error: 'Maximum 11 images allowed' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    for (const img of images) {
+      if (!img.base64 || typeof img.base64 !== 'string') {
+        return reply.code(400).send({ error: 'Each image must have a base64 field' });
+      }
+      if (!allowedTypes.includes(img.mediaType)) {
+        return reply.code(400).send({ error: `Unsupported mediaType: ${img.mediaType}` });
+      }
+    }
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    if (!apiKey) return reply.code(503).send({ error: 'ANTHROPIC_API_KEY not configured' });
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    };
+    const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+    await mkdir(imagesDir, { recursive: true });
+
+    // Step 1: Upload all images in parallel
+    const urls = await Promise.all(images.map(async (img) => {
+      const ext = extMap[img.mediaType] ?? 'jpg';
+      const filename = `upload-${crypto.randomUUID().slice(0, 12)}.${ext}`;
+      const destPath = path.join(imagesDir, filename);
+      await writeFile(destPath, Buffer.from(img.base64, 'base64'));
+      return `/presentation-images/${namespace}/${filename}`;
+    }));
+
+    // Step 2: Vision analysis — batch all images in a single Claude call
+    type VisionMeta = {
+      description: string;
+      objects: string[];
+      tags: string[];
+      sentiment: string;
+      dominantColors: string[];
+      readableText: string;
+    };
+
+    const visionContent: Array<
+      | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+      | { type: 'text'; text: string }
+    > = [
+      ...images.map((img) => ({
+        type: 'image' as const,
+        source: { type: 'base64' as const, media_type: img.mediaType, data: img.base64 },
+      })),
+      {
+        type: 'text' as const,
+        text: `Analyze each of the ${images.length} image(s) above and return a JSON array with exactly ${images.length} objects. Each object must have: description (1-2 sentences), objects (string[]), tags (5-8 keywords), sentiment (one word: warm/cool/neutral/professional/energetic/calm/bold/minimal), dominantColors (2-3 color names), readableText (visible text or empty string). Return ONLY the JSON array.`,
+      },
+    ];
+
+    const visionRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model, max_tokens: 2048, messages: [{ role: 'user', content: visionContent }] }),
+    });
+
+    if (!visionRes.ok) {
+      const errText = await visionRes.text().catch(() => '?');
+      return reply.code(502).send({ error: `Vision analysis failed: ${errText.slice(0, 200)}` });
+    }
+
+    const visionJson = await visionRes.json() as { content: Array<{ type: string; text?: string }> };
+    const rawVisionText = visionJson.content.find((b) => b.type === 'text')?.text ?? '[]';
+    // Strip markdown code fences Claude sometimes wraps around JSON
+    const visionText = rawVisionText
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim();
+
+    let analysisResults: VisionMeta[];
+    try {
+      const parsed = JSON.parse(visionText);
+      if (!Array.isArray(parsed)) throw new Error('not an array');
+      // Pad or trim to match image count (Claude occasionally miscounts)
+      while (parsed.length < images.length) {
+        parsed.push({ description: '', objects: [], tags: [], sentiment: 'neutral', dominantColors: [], readableText: '' });
+      }
+      analysisResults = parsed.slice(0, images.length) as VisionMeta[];
+    } catch (e) {
+      return reply.code(502).send({ error: `Vision analysis returned unexpected format: ${String(e).slice(0, 100)}` });
+    }
+
+    // Step 3: Placement brief — one LLM call to contextualise each image within the proposal
+    let placementHints: string[] = [];
+    if (proposalMarkdown || userInstructions) {
+      const briefParts: string[] = [];
+      if (userInstructions) briefParts.push(`User's instructions for image usage: ${userInstructions}`);
+      if (proposalMarkdown) briefParts.push(`Proposal content (excerpt):\n${proposalMarkdown.slice(0, 2500)}`);
+      briefParts.push('');
+      briefParts.push('Images to place:');
+      analysisResults.forEach((r, i) => {
+        briefParts.push(`  Image ${i + 1}: ${r.description} — tags: ${r.tags.join(', ')} — mood: ${r.sentiment}`);
+      });
+      briefParts.push('');
+      briefParts.push(`For each of the ${images.length} image(s), write ONE sentence: which section of the microsite it fits best and why, being specific to this proposal's content. Return a JSON array of ${images.length} strings.`);
+
+      try {
+        const briefRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 512,
+            messages: [{ role: 'user', content: briefParts.join('\n') }],
+          }),
+        });
+        if (briefRes.ok) {
+          const briefJson = await briefRes.json() as { content: Array<{ type: string; text?: string }> };
+          const briefText = briefJson.content.find((b) => b.type === 'text')?.text ?? '[]';
+          const hints = JSON.parse(briefText);
+          if (Array.isArray(hints) && hints.length === images.length) placementHints = hints as string[];
+        }
+      } catch {
+        // Placement hints are optional — don't fail the whole skill
+      }
+    }
+
+    const result = urls.map((url, i) => ({
+      url,
+      analysis: {
+        index: i,
+        source: 'base64',
+        metadata: {
+          ...analysisResults[i],
+          formatHint: images[i].mediaType,
+          dimensions: null as { width: number; height: number } | null,
+        },
+      },
+      ...(placementHints[i] ? { placementHint: placementHints[i] } : {}),
+    }));
+
+    return reply.send({ images: result });
   });
 
   // POST /presentations/:namespace/:proposalId/regenerate-section

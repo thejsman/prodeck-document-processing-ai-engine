@@ -8,12 +8,14 @@ import {
   ArrowLeft,
   ArrowUp,
   X,
+  Check,
   CheckCircle,
   Loader,
   Sparkles,
   Globe,
   FileText,
   ImagePlus,
+  ImageIcon,
   MoreHorizontal,
   Trash2,
   ChevronRight,
@@ -67,6 +69,8 @@ import {
   revertSuperClientMicrosite,
   patchSuperClientMicrositeHtml,
   generateMicrositeV2Stream,
+  prepareImages,
+  type PreparedImage,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
   type SuperClientChatEvent,
@@ -793,6 +797,21 @@ export default function SuperClientPage() {
   const [composerMessage, setComposerMessage] = useState("");
   const composerImageInputRef = useRef<HTMLInputElement | null>(null);
   const composerLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const composerContextImageInputRef = useRef<HTMLInputElement | null>(null);
+  const [composerContextImages, setComposerContextImages] = useState<
+    Array<{ id: string; base64: string; mediaType: string; preview: string }>
+  >([]);
+  const [composerPreparedImages, setComposerPreparedImages] = useState<PreparedImage[]>([]);
+  const [composerImagesPreparing, setComposerImagesPreparing] = useState(false);
+  // IDs of images that were already ready before the current prepare cycle — these keep full opacity
+  const [readyImageIds, setReadyImageIds] = useState<Set<string>>(new Set());
+  const [composerAttachMenuOpen, setComposerAttachMenuOpen] = useState(false);
+  // Holds latest name/apiKey/proposalMarkdown for the prepare effect without being effect deps
+  const prepareParamsRef = useRef<{ name: string; apiKey: string; proposalMarkdown: string }>({
+    name: "",
+    apiKey: "",
+    proposalMarkdown: "",
+  });
 
   const [toastMsg, setToastMsg] = useState<{
     text: string;
@@ -2048,6 +2067,10 @@ export default function SuperClientPage() {
     setComposerLogoUrl("");
     setShowLogoUrlInput(false);
     setComposerMessage("");
+    setComposerContextImages([]);
+    setComposerPreparedImages([]);
+    setComposerImagesPreparing(false);
+    setReadyImageIds(new Set());
   }
 
   function compressLogoFile(
@@ -2107,11 +2130,30 @@ export default function SuperClientPage() {
   }
 
   function extractAccentColor(html: string): string {
-    // Try common CSS variable patterns that LLM-generated microsites use
-    const m = html.match(
-      /--(?:c-accent|accent|primary|brand-color|color-accent)\s*:\s*(#[0-9a-fA-F]{3,8})/i,
+    // 1. Named accent variables first
+    const named = html.match(
+      /--(?:c-accent|accent|primary|brand(?:-color)?|color-accent|highlight|key-color)\s*:\s*(#[0-9a-fA-F]{3,8})/i,
     );
-    return m?.[1] ?? "#1e3a5f"; // neutral navy fallback
+    if (named) return named[1];
+
+    // 2. Collect all CSS variable hex values from the first 6000 chars and pick
+    //    the first one that is clearly non-neutral (not near-black, near-white, or gray).
+    const snippet = html.slice(0, 6000);
+    const allVars = [...snippet.matchAll(/--[\w-]+\s*:\s*(#[0-9a-fA-F]{6})\b/gi)];
+    for (const hit of allVars) {
+      const hex = hit[1];
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const lightness = (max + min) / 2 / 255;
+      const saturation = max === min ? 0 : (max - min) / (255 - Math.abs(2 * (max + min) / 2 - 255));
+      // Skip near-black (<15% lightness), near-white (>85%), or near-gray (<20% saturation)
+      if (lightness < 0.15 || lightness > 0.85 || saturation < 0.20) continue;
+      return hex;
+    }
+
+    return "#1e3a5f"; // neutral navy fallback
   }
 
   function generateInitialsSvg(initials: string, bgColor: string): string {
@@ -2302,6 +2344,114 @@ export default function SuperClientPage() {
     reader.readAsDataURL(file);
   }
 
+  // Keep prepareParamsRef current on every render so the effect callback can read
+  // the latest values without them being listed as effect deps (which would cause
+  // unnecessary re-runs when unrelated state changes).
+  prepareParamsRef.current = {
+    name: name ?? "",
+    apiKey: apiKey ?? "",
+    proposalMarkdown: composerProposal?.markdown ?? "",
+  };
+
+  // Trigger the prepare skill whenever images or instructions change.
+  // Debounces 400 ms so rapid pastes of multiple images collapse into one call.
+  useEffect(() => {
+    if (composerContextImages.length === 0) {
+      setComposerPreparedImages([]);
+      setComposerImagesPreparing(false);
+      setReadyImageIds(new Set());
+      return;
+    }
+
+    setComposerImagesPreparing(true);
+    const abort = new AbortController();
+    // Snapshot IDs at effect-start so the closure captures the current list
+    const currentIds = composerContextImages.map((img) => img.id);
+
+    const timer = setTimeout(async () => {
+      const { name: ns, apiKey: key, proposalMarkdown } = prepareParamsRef.current;
+      try {
+        const prepared = await prepareImages(key, ns, {
+          images: composerContextImages.map((img) => ({
+            base64: img.base64,
+            mediaType: img.mediaType,
+          })),
+          ...(proposalMarkdown ? { proposalMarkdown } : {}),
+          ...(composerInstructions.trim()
+            ? { userInstructions: composerInstructions.trim() }
+            : {}),
+        });
+        if (!abort.signal.aborted) {
+          setComposerPreparedImages(prepared);
+          setReadyImageIds(new Set(currentIds));
+          setComposerImagesPreparing(false);
+        }
+      } catch (err) {
+        if (!abort.signal.aborted) {
+          console.warn("[prepare] image prepare skill failed:", err);
+          setComposerPreparedImages([]);
+          setReadyImageIds(new Set());
+          setComposerImagesPreparing(false);
+        }
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
+  }, [composerContextImages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleComposerPaste(e: React.ClipboardEvent<HTMLElement>) {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imageItems = items.filter(
+      (item) => item.kind === "file" && item.type.startsWith("image/"),
+    );
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Capture File objects synchronously — clipboard items are only valid
+    // during the event handler; getAsFile() must not be deferred.
+    const files = imageItems
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+
+    files.forEach((file) => {
+      if (file.type === "image/avif") {
+        // Claude Vision doesn't accept AVIF — convert to JPEG via canvas
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext("2d")!.drawImage(img, 0, 0);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          URL.revokeObjectURL(objectUrl);
+          const base64 = dataUrl.split(",")[1];
+          setComposerContextImages((current) => {
+            if (current.length >= 11) return current;
+            return [...current, { id: genId(), base64, mediaType: "image/jpeg", preview: dataUrl }];
+          });
+        };
+        img.src = objectUrl;
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target?.result as string;
+          const base64 = dataUrl.split(",")[1];
+          const mediaType = file.type as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+          setComposerContextImages((current) => {
+            if (current.length >= 11) return current;
+            return [...current, { id: genId(), base64, mediaType, preview: dataUrl }];
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
   async function generateComposerMicrosite() {
     if (!composerProposal || !name) return;
 
@@ -2319,6 +2469,11 @@ export default function SuperClientPage() {
       composerLogo ??
       (composerLogoUrl.trim() ? { url: composerLogoUrl.trim() } : undefined);
     const proposalId = composerProposal.proposal.fileName.replace(/\.md$/, "");
+    // Capture all image state NOW before resetComposer clears it
+    const preparedImagesSnapshot = [...composerPreparedImages];
+    const rawImagesSnapshot = [...composerContextImages];
+    const imageInstructionsSnapshot = composerInstructions;
+    const stillPreparing = composerImagesPreparing;
 
     // Start in the module store (survives navigation)
     generationStore.start({
@@ -2344,11 +2499,36 @@ export default function SuperClientPage() {
     resetComposer();
 
     try {
+      // Use pre-prepared images if ready; otherwise run the prepare skill inline now.
+      // (The eager prepare might still be running if the user clicked Generate quickly.)
+      let contextImages = preparedImagesSnapshot;
+      if (contextImages.length === 0 && rawImagesSnapshot.length > 0) {
+        generationStore.addStep(msGenId, stillPreparing ? "Finishing image analysis…" : "Preparing images…");
+        try {
+          contextImages = await prepareImages(apiKey, name, {
+            images: rawImagesSnapshot.map((img) => ({
+              base64: img.base64,
+              mediaType: img.mediaType,
+            })),
+            ...(proposalMarkdown ? { proposalMarkdown } : {}),
+            ...(imageInstructionsSnapshot.trim()
+              ? { userInstructions: imageInstructionsSnapshot.trim() }
+              : {}),
+          });
+          generationStore.addStep(msGenId, `✓ ${contextImages.length} image(s) ready`);
+        } catch (imgErr) {
+          const errMsg = imgErr instanceof Error ? imgErr.message : String(imgErr);
+          console.warn("[generate] inline image prepare failed:", errMsg);
+          generationStore.addStep(msGenId, `⚠ Image preparation failed: ${errMsg.slice(0, 200)} — generating without images`);
+        }
+      }
+
       let partialCharCount = 0;
       await generateMicrositeV2Stream(apiKey, name, proposalId, {
         proposalMarkdown,
         userPrompt: proposalInstructions,
         referenceImage: proposalImage,
+        ...(contextImages.length > 0 ? { contextImages } : {}),
         signal: msAbort.signal,
         onEvent: (evt) => {
           if (evt.type === "html_chunk") {
@@ -2380,9 +2560,14 @@ export default function SuperClientPage() {
                   ((ast.brand as unknown as Record<string, unknown>)
                     ?.companyName as string) ||
                   "";
+                // When a real logo is provided inject it; otherwise just hide the
+                // placeholder img — the LLM already wrote the brand name as text.
                 const patchedHtml = proposalLogo
                   ? injectLogoIntoHtml(section.customHtml, proposalLogo)
-                  : injectInitialsFallback(section.customHtml, companyName);
+                  : section.customHtml.replace(
+                      /<img\b([^>]*)id="__site-logo__"([^>]*)\/?>/i,
+                      '<img$1id="__site-logo__"$2 style="display:none">',
+                    );
                 const patched = {
                   ...(ast.sections[0] as object),
                   customHtml: patchedHtml,
@@ -3260,50 +3445,82 @@ export default function SuperClientPage() {
 
             {/* Composer expansion — configure */}
             {composerStage === "configure" && composerProposal && (
-              <div
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: 12,
-                  background: "var(--panel-soft)",
-                }}
-              >
+              <>
+                {/* Proposal header — same style as Edit microsite strip */}
                 <div
                   style={{
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    marginBottom: 10,
+                    padding: "0 10px 0 14px",
+                    height: 44,
+                    borderRadius: "16px 16px 0 0",
+                    background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                    marginBottom: -6,
+                    position: "relative",
+                    zIndex: 0,
                   }}
                 >
-                  <p
+                  <span
                     style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--text)",
-                      margin: 0,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "var(--primary)",
                       display: "flex",
                       alignItems: "center",
-                      gap: 6,
+                      gap: 5,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
                     }}
                   >
-                    <Sparkles size={13} /> {composerProposal.proposal.title}
-                  </p>
+                    <Sparkles size={14} style={{ flexShrink: 0 }} />
+                    {composerProposal.proposal.title}
+                  </span>
                   <button
                     onClick={resetComposer}
                     style={{
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      color: "var(--muted)",
+                      color: "var(--primary)",
                       display: "flex",
+                      alignItems: "center",
                       padding: 0,
+                      opacity: 0.6,
+                      flexShrink: 0,
                     }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                    title="Dismiss"
                   >
-                    <X size={13} />
+                    <X size={16} />
                   </button>
                 </div>
+
+                <div
+                  className="chat-v2-composer"
+                  onPaste={(e) => handleComposerPaste(e as React.ClipboardEvent<HTMLElement>)}
+                  tabIndex={-1}
+                  style={{ outline: "none", position: "relative", zIndex: 1 }}
+                >
+                {/* Shimmer CSS */}
+                <style>{`
+                  @keyframes composerWave {
+                    0% { background-position: -200% 0; }
+                    100% { background-position: 200% 0; }
+                  }
+                  .composer-thumb-shimmer {
+                    position: absolute; inset: 0; border-radius: 7px; pointer-events: none;
+                    background: linear-gradient(90deg, transparent 20%, rgba(255,255,255,0.22) 50%, transparent 80%);
+                    background-size: 200% 100%;
+                    animation: composerWave 1.4s ease-in-out infinite;
+                  }
+                `}</style>
+
+                {/* Textarea */}
                 <textarea
+                  className="chat-v2-input"
                   value={composerInstructions}
                   onChange={(e) => setComposerInstructions(e.target.value)}
                   onInput={(e) => {
@@ -3311,162 +3528,234 @@ export default function SuperClientPage() {
                     el.style.height = "auto";
                     el.style.height = `${el.scrollHeight}px`;
                   }}
-                  placeholder="Optional: any design direction or focus areas…"
-                  rows={2}
-                  style={{
-                    width: "100%",
-                    resize: "none",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1px solid var(--border)",
-                    background: "var(--panel)",
-                    color: "var(--text)",
-                    fontSize: 13,
-                    outline: "none",
-                    fontFamily: "inherit",
-                    lineHeight: 1.5,
-                    boxSizing: "border-box",
-                    overflow: "hidden",
-                    minHeight: 60,
-                  }}
+                  onPaste={handleComposerPaste}
+                  placeholder={
+                    composerContextImages.length > 0
+                      ? "Add more direction or paste more images…"
+                      : "Describe the vibe, brand, or focus. Paste images to guide the style."
+                  }
+                  style={{ fontFamily: "inherit" }}
                 />
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginTop: 8,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 6 }}>
+
+                {/* Thumbnail strip — only when images present */}
+                {composerContextImages.length > 0 && (
+                  <div style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", padding: "6px 14px", display: "flex", alignItems: "center", gap: 6 }}>
+                    {composerContextImages.map((img, i) => (
+                      <div key={img.id} style={{ position: "relative", width: 36, height: 36, flexShrink: 0 }}>
+                        <img
+                          src={img.preview}
+                          alt="pasted"
+                          style={{
+                            width: 36, height: 36,
+                            objectFit: "cover",
+                            borderRadius: 6,
+                            display: "block",
+                            opacity: composerImagesPreparing && !readyImageIds.has(img.id) ? 0.38 : 1,
+                            transition: "opacity 0.5s ease",
+                            border: "1px solid var(--border)",
+                          }}
+                        />
+                        {composerImagesPreparing && !readyImageIds.has(img.id) && (
+                          <div className="composer-thumb-shimmer" style={{ animationDelay: `${i * 0.18}s` }} />
+                        )}
+                        <button
+                          onClick={() => setComposerContextImages((prev) => prev.filter((x) => x.id !== img.id))}
+                          style={{ position: "absolute", top: -4, right: -4, background: "rgba(0,0,0,0.75)", color: "#fff", border: "none", borderRadius: "50%", width: 14, height: 14, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+                        >
+                          <X size={7} />
+                        </button>
+                      </div>
+                    ))}
+                    <span style={{ fontSize: 11, color: "var(--muted)", flexShrink: 0, marginLeft: 2, display: "flex", alignItems: "center", gap: 4 }}>
+                      {composerContextImages.length}/11
+                      {composerImagesPreparing && (
+                        <span style={{ color: "var(--primary)", animation: "pulse 1.2s infinite" }}>· analyzing…</span>
+                      )}
+                    </span>
+                  </div>
+                )}
+
+                {/* Bottom bar */}
+                <div className="chat-v2-composer-bottom">
+                  {/* Left: + attach menu */}
+                  <div style={{ position: "relative" }}>
                     <button
-                      onClick={() => composerImageInputRef.current?.click()}
-                      style={{
-                        background: "none",
-                        border: "1px solid var(--border)",
-                        borderRadius: 6,
-                        padding: "5px 10px",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: composerImage
-                          ? "var(--primary)"
-                          : "var(--muted)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                      }}
+                      className={`chat-v2-attach-btn${composerAttachMenuOpen ? " active" : ""}`}
+                      onClick={() => setComposerAttachMenuOpen((v) => !v)}
+                      title="Attach"
                     >
-                      <ImagePlus size={12} />
-                      {composerImage ? "Image attached ✓" : "Reference image"}
+                      <Plus size={16} />
                     </button>
-                    <button
-                      onClick={() => composerLogoInputRef.current?.click()}
-                      style={{
-                        background: "none",
-                        border: "1px solid var(--border)",
-                        borderRadius: 6,
-                        padding: "5px 10px",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: composerLogo ? "var(--primary)" : "var(--muted)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                      }}
-                    >
-                      <ImagePlus size={12} />
-                      {composerLogo ? "Logo attached ✓" : "Choose logo"}
-                    </button>
-                    {!composerLogo &&
-                      (showLogoUrlInput ? (
+                    {composerAttachMenuOpen && (
+                      <>
+                        <div
+                          style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+                          onClick={() => setComposerAttachMenuOpen(false)}
+                        />
                         <div
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
+                            position: "absolute",
+                            bottom: "calc(100% + 6px)",
+                            left: 0,
+                            zIndex: 9999,
+                            background: "var(--panel)",
+                            border: "1px solid var(--border)",
+                            borderRadius: 10,
+                            padding: 4,
+                            minWidth: 192,
+                            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
                           }}
                         >
-                          <input
-                            autoFocus
-                            type="url"
-                            value={composerLogoUrl}
-                            onChange={(e) => setComposerLogoUrl(e.target.value)}
-                            placeholder="Paste logo URL…"
-                            style={{
-                              fontSize: 12,
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              border: "1px solid var(--border)",
-                              background: "var(--panel)",
-                              color: "var(--text)",
-                              outline: "none",
-                              width: 180,
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") setShowLogoUrlInput(false);
-                              if (e.key === "Escape") {
-                                setComposerLogoUrl("");
-                                setShowLogoUrlInput(false);
-                              }
-                            }}
-                          />
-                          {composerLogoUrl.trim() && (
+                          {[
+                            {
+                              icon: <ImageIcon size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: "var(--muted)" }} />,
+                              label: composerContextImages.length > 0 ? `Add more images (${composerContextImages.length}/11)` : "Add images",
+                              action: () => { setComposerAttachMenuOpen(false); composerContextImageInputRef.current?.click(); },
+                              disabled: composerContextImages.length >= 11,
+                            },
+                            {
+                              icon: <ImagePlus size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: composerImage ? "var(--primary)" : "var(--muted)" }} />,
+                              label: composerImage ? "Design inspiration ✓" : "Design inspiration",
+                              action: () => { setComposerAttachMenuOpen(false); composerImageInputRef.current?.click(); },
+                              disabled: false,
+                            },
+                            {
+                              icon: <ImagePlus size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: composerLogo ? "var(--primary)" : "var(--muted)" }} />,
+                              label: composerLogo ? "Logo attached ✓" : "Choose logo",
+                              action: () => { setComposerAttachMenuOpen(false); composerLogoInputRef.current?.click(); },
+                              disabled: false,
+                            },
+                            ...(!composerLogo ? [{
+                              icon: <LinkIcon size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: composerLogoUrl.trim() ? "var(--primary)" : "var(--muted)" }} />,
+                              label: composerLogoUrl.trim() ? "Logo URL set ✓" : "Logo URL",
+                              action: () => { setComposerAttachMenuOpen(false); setShowLogoUrlInput(true); },
+                              disabled: false,
+                            }] : []),
+                          ].map((item, idx) => (
                             <button
-                              onClick={() => setShowLogoUrlInput(false)}
+                              key={idx}
+                              onClick={item.action}
+                              disabled={item.disabled}
                               style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 9,
+                                width: "100%",
                                 background: "none",
                                 border: "none",
-                                cursor: "pointer",
-                                color: "var(--primary)",
-                                fontSize: 11,
-                                padding: "4px 6px",
+                                cursor: item.disabled ? "not-allowed" : "pointer",
+                                padding: "8px 10px",
+                                borderRadius: 7,
+                                fontSize: 13,
+                                color: item.disabled ? "var(--muted)" : "var(--foreground)",
+                                textAlign: "left",
+                                opacity: item.disabled ? 0.5 : 1,
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!item.disabled) (e.currentTarget as HTMLButtonElement).style.background = "var(--panel-soft)";
+                              }}
+                              onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.background = "none";
                               }}
                             >
-                              ✓
+                              {item.icon}
+                              {item.label}
                             </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              setComposerLogoUrl("");
-                              setShowLogoUrlInput(false);
-                            }}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              cursor: "pointer",
-                              color: "var(--muted)",
-                              display: "flex",
-                              padding: 4,
-                            }}
-                          >
-                            <X size={11} />
-                          </button>
+                          ))}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => setShowLogoUrlInput(true)}
-                          style={{
-                            background: "none",
-                            border: "1px solid var(--border)",
-                            borderRadius: 6,
-                            padding: "5px 10px",
-                            cursor: "pointer",
-                            fontSize: 12,
-                            color: composerLogoUrl.trim()
-                              ? "var(--primary)"
-                              : "var(--muted)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 5,
-                          }}
-                        >
-                          <LinkIcon size={12} />
-                          {composerLogoUrl.trim()
-                            ? "Logo URL set ✓"
-                            : "Logo URL"}
-                        </button>
-                      ))}
+                      </>
+                    )}
                   </div>
+
+                  {/* Logo URL inline input */}
+                  {showLogoUrlInput && !composerLogo && (
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 4 }}>
+                      <input
+                        autoFocus
+                        type="url"
+                        value={composerLogoUrl}
+                        onChange={(e) => setComposerLogoUrl(e.target.value)}
+                        placeholder="Paste logo URL…"
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          border: "1px solid var(--border)",
+                          background: "var(--panel)",
+                          color: "var(--text)",
+                          outline: "none",
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") setShowLogoUrlInput(false);
+                          if (e.key === "Escape") {
+                            setComposerLogoUrl("");
+                            setShowLogoUrlInput(false);
+                          }
+                        }}
+                      />
+                      {composerLogoUrl.trim() && (
+                        <button
+                          onClick={() => setShowLogoUrlInput(false)}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--primary)", fontSize: 11, padding: "4px 6px" }}
+                        >
+                          ✓
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setComposerLogoUrl(""); setShowLogoUrlInput(false); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", display: "flex", padding: 4 }}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Hidden file inputs */}
+                  <input
+                    ref={composerContextImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length === 0) return;
+                      e.target.value = "";
+                      files.forEach((file) => {
+                        if (file.type === "image/avif") {
+                          const objectUrl = URL.createObjectURL(file);
+                          const img = new Image();
+                          img.onload = () => {
+                            const canvas = document.createElement("canvas");
+                            canvas.width = img.naturalWidth;
+                            canvas.height = img.naturalHeight;
+                            canvas.getContext("2d")!.drawImage(img, 0, 0);
+                            const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+                            URL.revokeObjectURL(objectUrl);
+                            const base64 = dataUrl.split(",")[1];
+                            setComposerContextImages((current) => {
+                              if (current.length >= 11) return current;
+                              return [...current, { id: genId(), base64, mediaType: "image/jpeg", preview: dataUrl }];
+                            });
+                          };
+                          img.src = objectUrl;
+                        } else {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const dataUrl = ev.target?.result as string;
+                            const base64 = dataUrl.split(",")[1];
+                            const mediaType = file.type as "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+                            setComposerContextImages((current) => {
+                              if (current.length >= 11) return current;
+                              return [...current, { id: genId(), base64, mediaType, preview: dataUrl }];
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      });
+                    }}
+                  />
                   <input
                     ref={composerImageInputRef}
                     type="file"
@@ -3488,25 +3777,18 @@ export default function SuperClientPage() {
                       e.target.value = "";
                     }}
                   />
+
+                  {/* Right: Generate button */}
                   <button
+                    className="chat-v2-send-btn"
                     onClick={() => void generateComposerMicrosite()}
-                    style={{
-                      padding: "7px 14px",
-                      borderRadius: 8,
-                      background: "var(--primary)",
-                      color: "#fff",
-                      border: "none",
-                      cursor: "pointer",
-                      fontSize: 13,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
+                    style={{ width: "auto", padding: "0 14px", gap: 6, fontSize: 13, borderRadius: 10 }}
                   >
-                    <Sparkles size={13} /> Generate Microsite
+                    <Sparkles size={13} /> Generate
                   </button>
                 </div>
-              </div>
+                </div>{/* end chat-v2-composer */}
+              </>
             )}
 
             {/* Textarea row — hidden while composer expansion is active */}

@@ -37,6 +37,10 @@ const nextConfig = {
       afterFiles: [],
       fallback: [
         {
+          source: "/presentation-images/:path*",
+          destination: `${process.env.API_URL ?? "http://localhost:3000"}/presentation-images/:path*`,
+        },
+        {
           source: "/api/:path*",
           destination: `${process.env.API_URL ?? "http://localhost:3000"}/:path*`,
         },
