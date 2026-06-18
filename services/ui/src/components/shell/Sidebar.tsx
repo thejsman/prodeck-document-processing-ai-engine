@@ -37,16 +37,22 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  const sidebarClass = [
-    'sidebar',
-    mobileOpen ? 'sidebar--mobile-open' : '',
-    collapsed ? 'sidebar--collapsed' : '',
-  ].filter(Boolean).join(' ');
+  const sidebarClass = ['sidebar', mobileOpen ? 'sidebar--mobile-open' : '', collapsed ? 'sidebar--collapsed' : '']
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <aside className={sidebarClass}>
       {/* ── Header ── */}
-      <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', padding: collapsed ? '0 8px' : undefined }}>
+      <div
+        className="sidebar-header"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: collapsed ? 'center' : 'space-between',
+          padding: collapsed ? '0 8px' : undefined,
+        }}
+      >
         {!collapsed && (
           <Link href="/" className="sidebar-brand" style={{ textDecoration: 'none' }}>
             ProDeck
@@ -67,8 +73,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             flexShrink: 0,
             transition: 'color 0.15s, background 0.15s',
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)'; (e.currentTarget as HTMLButtonElement).style.background = 'var(--panel-soft)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'; (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'var(--panel-soft)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'none';
+          }}
         >
           <Icon icon={collapsed ? ChevronsRight : ChevronsLeft} size="md" />
         </button>
@@ -93,14 +105,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <Icon icon={Globe} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Microsites</span>
           </Link>
-          <Link
+          {/* <Link
             href="/inspiration-context"
             className={`sidebar-link${pathname?.startsWith('/inspiration-context') ? ' sidebar-link--active' : ''}`}
             onClick={onMobileClose}
           >
             <Icon icon={Sparkles} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Inspiration &amp; Context</span>
-          </Link>
+          </Link> */}
           {/* TEMP: Skills section hidden
           <Link
             href="/skills"
