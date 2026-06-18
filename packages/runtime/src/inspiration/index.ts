@@ -6,3 +6,4 @@ export {
   DEFAULT_ORG_CONTEXT_SETTINGS,
 } from './org-settings.js';
 export type { OrgContextSettings } from './org-settings.js';
+export { OrgAssetStore } from './org-asset-store.js';
