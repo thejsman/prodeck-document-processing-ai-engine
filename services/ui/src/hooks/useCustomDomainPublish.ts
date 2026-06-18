@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useRef } from 'react';
 import type { LayoutAST } from '@/types/presentation';
-import { savePublishMeta } from '@/lib/api';
 
 export type CustomDomainPublishStatus =
   | 'idle'
@@ -100,8 +99,11 @@ export function useCustomDomainPublish(): UseCustomDomainPublish {
       try {
         const res = await fetch('/api/publish-custom-domain', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ namespace: ns, ast, domain: domainName, password }),
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify({ namespace: ns, proposalId, ast, domain: domainName, password }),
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => null)) as ErrorResponse | null;
@@ -112,12 +114,6 @@ export function useCustomDomainPublish(): UseCustomDomainPublish {
         setDomain(data.domain);
         setPublishedAt(data.publishedAt);
         setPasswordProtected(!!data.passwordProtected);
-
-        savePublishMeta(apiKey, ns, proposalId, {
-          customDomain: data.domain,
-          url: data.url,
-          publishedAt: data.publishedAt,
-        } as Parameters<typeof savePublishMeta>[3]).catch(() => { /* non-fatal */ });
 
         if (data.sslPending) {
           setStatus('polling-ssl');
