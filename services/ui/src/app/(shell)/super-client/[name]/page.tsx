@@ -2560,14 +2560,21 @@ export default function SuperClientPage() {
                   ((ast.brand as unknown as Record<string, unknown>)
                     ?.companyName as string) ||
                   "";
-                // When a real logo is provided inject it; otherwise just hide the
-                // placeholder img — the LLM already wrote the brand name as text.
+                // When a real logo is provided inject it; otherwise strip the
+                // placeholder entirely — removes broken-image icon from navbar.
                 const patchedHtml = proposalLogo
                   ? injectLogoIntoHtml(section.customHtml, proposalLogo)
-                  : section.customHtml.replace(
-                      /<img\b([^>]*)id="__site-logo__"([^>]*)\/?>/i,
-                      '<img$1id="__site-logo__"$2 style="display:none">',
-                    );
+                  : section.customHtml
+                      // Remove the flex wrapper div that contains only the logo img
+                      .replace(
+                        /<div[^>]*flex-shrink:0[^>]*>\s*<img\b[^>]*id="__site-logo__"[^>]*\/?>\s*<\/div>/gi,
+                        '',
+                      )
+                      // Fallback: remove bare logo img if not wrapped
+                      .replace(
+                        /<img\b[^>]*id="__site-logo__"[^>]*\/?>/gi,
+                        '',
+                      );
                 const patched = {
                   ...(ast.sections[0] as object),
                   customHtml: patchedHtml,
