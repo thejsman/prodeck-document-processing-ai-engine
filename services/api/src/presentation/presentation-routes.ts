@@ -31,6 +31,7 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
+import { OrgAssetStore, readOrgContextSettings } from '@ai-engine/runtime';
 import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, buildDesignPromptFromSkill, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
 import { getDesignSkill } from '../skills/design-skill.service.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
@@ -1914,16 +1915,36 @@ ${layoutSummary}`;
 
     const _generationStart = Date.now();
 
-    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs.
+    // Phase 2 — Design Kit gap-fill: load org design kit and merge with body
+    // (body values always win — kit provides defaults only).
+    const _orgSettings = await readOrgContextSettings(workdir).catch(() => null);
+    const _designKit = _orgSettings?.applyDesignKit !== false
+      ? await new OrgAssetStore(workdir).getDesignKit().catch(() => null)
+      : null;
+    const _effectiveBrand: Record<string, unknown> = {
+      ...(_designKit?.primaryColor ? { primaryColor: _designKit.primaryColor } : {}),
+      ...(body?.brand ?? {}),
+    };
+    const _effectiveDesignBrief = body?.designBrief ?? _designKit?.designBrief ?? undefined;
+    const _effectiveReferenceFile = body?.referenceFile ?? (
+      _designKit?.heroBase64 ? {
+        base64: _designKit.heroBase64,
+        mediaType: _designKit.heroMediaType ?? 'image/jpeg',
+        fileName: 'design-kit-hero',
+        ...(_designKit.dominantColors.length >= 2 ? { dominantColors: _designKit.dominantColors } : {}),
+      } : undefined
+    );
+
+    // Design skill — enrich metadata with frontend-design directives before agent runs.
     const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
       'microsite-generator-agent',
       {
         proposalMarkdown: markdown,
         plugin: body?.plugin ?? 'cobalt',
-        brand: body?.brand ?? {},
+        brand: _effectiveBrand,
         clientIndustry: streamClientIndustry,
         ...(streamEffectiveInstructions ? { customInstructions: streamEffectiveInstructions } : {}),
-        ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
+        ...(_effectiveDesignBrief ? { designBrief: _effectiveDesignBrief } : {}),
       },
     );
 
@@ -1972,10 +1993,10 @@ ${layoutSummary}`;
         metadata: {
           ...skillMetadata,
           ...(body?.fullDesignPrompt ? { fullDesignPrompt: body.fullDesignPrompt } : {}),
-          ...(body?.designBrief ? { designBrief: body.designBrief } : {}),
+          ...(_effectiveDesignBrief ? { designBrief: _effectiveDesignBrief } : {}),
           ...(body?.preSynthesizedDesignSystem ? { preSynthesizedDesignSystem: body.preSynthesizedDesignSystem } : {}),
           ...(body?.pdfFriendly ? { pdfFriendly: true } : {}),
-          ...(body?.referenceFile ? { referenceFile: body.referenceFile } : {}),
+          ...(_effectiveReferenceFile ? { referenceFile: _effectiveReferenceFile } : {}),
           ...(body?.urlReferenceDesign ? { urlReferenceDesign: body.urlReferenceDesign } : {}),
           ...(body?.urlLayout ? { urlLayout: body.urlLayout } : {}),
           ...(body?.urlImages?.length ? { urlImages: body.urlImages } : {}),

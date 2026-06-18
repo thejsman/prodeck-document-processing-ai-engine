@@ -19,7 +19,7 @@ import {
 import type { AgentInput, Planner } from '@ai-engine/core';
 import { generatePlan, executePlan } from '@ai-engine/planner';
 import type { GenerateFn } from '@ai-engine/planner';
-import { createNodeConfigLoader, FileMemoryStore, queryKnowledgeBase, getStorageProvider } from '@ai-engine/runtime';
+import { createNodeConfigLoader, FileMemoryStore, queryKnowledgeBase, getStorageProvider, OrgAssetStore, readOrgContextSettings } from '@ai-engine/runtime';
 import { ProposalSectionAgent } from '@ai-engine/agent-proposal-section';
 import { MicrositeGeneratorAgent } from '@ai-engine/agent-microsite-generator';
 import { ExtractSectionTool } from '@ai-engine/tool-extract-section';
@@ -525,7 +525,28 @@ export function registerAgentRoutes(
         },
       };
 
-    // Design skill Phase 1 — enrich metadata with frontend-design directives before agent runs
+    // Phase 2 — Design Kit gap-fill for microsite-generator-agent (body values always win)
+    if (agentName === 'microsite-generator-agent') {
+      const _orgSettings = await readOrgContextSettings(workdir).catch(() => null);
+      if (_orgSettings?.applyDesignKit !== false) {
+        const _kit = await new OrgAssetStore(workdir).getDesignKit().catch(() => null);
+        if (_kit) {
+          const meta = agentInput.metadata as Record<string, unknown>;
+          if (!meta.brand && _kit.primaryColor) meta.brand = { primaryColor: _kit.primaryColor };
+          if (!meta.designBrief && _kit.designBrief) meta.designBrief = _kit.designBrief;
+          if (!meta.referenceFile && _kit.heroBase64) {
+            meta.referenceFile = {
+              base64: _kit.heroBase64,
+              mediaType: _kit.heroMediaType ?? 'image/jpeg',
+              fileName: 'design-kit-hero',
+              ...(_kit.dominantColors.length >= 2 ? { dominantColors: _kit.dominantColors } : {}),
+            };
+          }
+        }
+      }
+    }
+
+    // Design skill — enrich metadata with frontend-design directives before agent runs
     const { metadata: skillMetadata, tone: designTone } = applyDesignSkill(
       agentName,
       agentInput.metadata as Record<string, unknown>,
