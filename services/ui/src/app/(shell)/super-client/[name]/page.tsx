@@ -44,7 +44,6 @@ import {
   buildInstruction,
 } from "@/lib/microsite-bridge";
 import { generationStore, type Generation } from "@/lib/generation-store";
-import { generateCapturePDF } from "@/lib/pdfCaptureRenderer";
 import { uploadStore, type UploadEntry } from "@/lib/upload-store";
 // UploadEntry is used inside UploadMessageCard only
 import {
@@ -69,6 +68,7 @@ import {
   revertSuperClientMicrosite,
   patchSuperClientMicrositeHtml,
   generateMicrositeV2Stream,
+  exportSuperClientMicrositeAsPdf,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
   type SuperClientChatEvent,
@@ -1338,8 +1338,7 @@ export default function SuperClientPage() {
     if (!name) return;
     try {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
-      const html =
-        (ast.sections?.[0] as { customHtml?: string })?.customHtml ?? "";
+      const html = buildHtml(ast);
       const rk = `${m.id}-${Date.now()}`;
       const srcDoc = computeSrcDoc(html);
 
@@ -1399,30 +1398,19 @@ export default function SuperClientPage() {
   }
 
   async function handleDownloadPresentationPDF() {
-    const iframe = (activeSlotRef.current === "A" ? iframeARef : iframeBRef).current;
-    if (!iframe?.contentDocument) {
-      showToast("Microsite not ready — try again in a moment", "error");
-      return;
-    }
+    if (!viewingMicrosite || !apiKey) return;
     setPdfDownloading(true);
     showToast("Generating PDF…");
-
-    const iframeDoc = iframe.contentDocument;
-
     try {
-      const slideW = 1280;
-      const slideH = Math.round(slideW * 9 / 16);
-
-      const result = await generateCapturePDF(iframeDoc.body, iframeDoc.documentElement, {
-        title: (viewingMicrosite?.ast?.meta as { title?: string } | undefined)?.title ?? "presentation",
-        slideModeHeight: slideH,
-        onProgress: ({ pct }) => {
-          if (pct >= 100) showToast("PDF downloaded");
-        },
-      });
-      if (!result.success) {
-        showToast(result.error ?? "PDF generation failed", "error");
-      }
+      const blob = await exportSuperClientMicrositeAsPdf(apiKey, name, viewingMicrosite.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const title = (viewingMicrosite.ast?.meta as { title?: string } | undefined)?.title ?? name;
+      a.download = `${title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()}-presentation.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("PDF downloaded");
     } catch (err) {
       showToast((err as Error).message ?? "PDF generation failed", "error");
     } finally {
@@ -2439,8 +2427,7 @@ export default function SuperClientPage() {
             // Open panel immediately with the stream AST — don't block on save
             if (isPdfMode) ast = { ...ast, pdfPresentation: true };
             const tempId = `preview-${msGenId}`;
-            const genHtml =
-              (ast.sections?.[0] as { customHtml?: string })?.customHtml ?? "";
+            const genHtml = buildHtml(ast);
             setActiveSrcDoc(computeSrcDoc(genHtml, false));
             setViewingMicrosite({
               id: tempId,
@@ -3385,30 +3372,50 @@ export default function SuperClientPage() {
                     minHeight: 60,
                   }}
                 />
-                {/* PDF mode toggle */}
-                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                  {([
-                    { val: false, label: "Web Microsite" },
-                    { val: true,  label: "PDF Presentation (16:9)" },
-                  ] as const).map(({ val, label }) => (
-                    <button
-                      key={String(val)}
-                      onClick={() => setComposerPresentationMode(val)}
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 6,
-                        border: `1px solid ${composerPresentationMode === val ? "var(--primary)" : "var(--border)"}`,
-                        background: composerPresentationMode === val ? "color-mix(in srgb, var(--primary) 12%, var(--panel))" : "var(--panel)",
-                        color: composerPresentationMode === val ? "var(--primary)" : "var(--muted)",
-                        fontSize: 11,
-                        fontWeight: composerPresentationMode === val ? 600 : 400,
-                        cursor: "pointer",
-                        transition: "border-color 0.15s, background 0.15s",
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                {/* Output format — segmented control */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "var(--muted)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    flexShrink: 0,
+                  }}>
+                    Output
+                  </span>
+                  <div style={{
+                    display: "inline-flex",
+                    background: "var(--bg, #0d1117)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: 2,
+                    gap: 2,
+                  }}>
+                    {([
+                      { val: false, label: "Web Microsite" },
+                      { val: true,  label: "PDF (16:9)" },
+                    ] as const).map(({ val, label }) => (
+                      <button
+                        key={String(val)}
+                        onClick={() => setComposerPresentationMode(val)}
+                        style={{
+                          padding: "3px 10px",
+                          borderRadius: 6,
+                          border: "none",
+                          background: composerPresentationMode === val ? "var(--primary)" : "transparent",
+                          color: composerPresentationMode === val ? "#fff" : "var(--muted)",
+                          fontSize: 11,
+                          fontWeight: composerPresentationMode === val ? 600 : 400,
+                          cursor: "pointer",
+                          transition: "background 0.15s, color 0.15s",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div
@@ -3416,10 +3423,14 @@ export default function SuperClientPage() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    marginTop: 8,
+                    flexWrap: "wrap",
+                    gap: 6,
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTop: "1px solid var(--border)",
                   }}
                 >
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button
                       onClick={() => composerImageInputRef.current?.click()}
                       style={{
@@ -3570,21 +3581,34 @@ export default function SuperClientPage() {
                     }}
                   />
                   <button
-                    onClick={() => void generateComposerMicrosite()}
+                    onClick={() => {
+                      // PDF mode + existing microsite → export via server-side Puppeteer.
+                      // PDF mode + no microsite yet → generate fresh slide HTML via LLM.
+                      if (composerPresentationMode && viewingMicrosite) {
+                        void handleDownloadPresentationPDF();
+                      } else {
+                        void generateComposerMicrosite();
+                      }
+                    }}
+                    disabled={pdfDownloading}
                     style={{
                       padding: "7px 14px",
                       borderRadius: 8,
                       background: "var(--primary)",
                       color: "#fff",
                       border: "none",
-                      cursor: "pointer",
+                      cursor: pdfDownloading ? "not-allowed" : "pointer",
                       fontSize: 13,
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
+                      opacity: pdfDownloading ? 0.7 : 1,
                     }}
                   >
-                    <Sparkles size={13} /> {composerPresentationMode ? "Generate PDF Presentation" : "Generate Microsite"}
+                    <Sparkles size={13} />
+                    {composerPresentationMode
+                      ? (viewingMicrosite ? (pdfDownloading ? "Generating…" : "Export as PDF") : "Generate PDF Presentation")
+                      : "Generate Microsite"}
                   </button>
                 </div>
               </div>
@@ -3931,10 +3955,7 @@ export default function SuperClientPage() {
                         }
                         setViewingMicrosite((prev) => {
                           if (!prev) return null;
-                          const html =
-                            (prev.ast.sections?.[0] as { customHtml?: string })
-                              ?.customHtml ?? "";
-                          setActiveSrcDoc(computeSrcDoc(html, next));
+                          setActiveSrcDoc(computeSrcDoc(buildHtml(prev.ast), next));
                           return {
                             ...prev,
                             renderKey: `${prev.id}-${Date.now()}`,

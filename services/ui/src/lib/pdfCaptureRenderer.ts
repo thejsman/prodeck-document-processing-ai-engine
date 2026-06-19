@@ -292,16 +292,52 @@ export async function generateCapturePDF(
     const host = captureDoc.createElement('div');
     host.style.cssText = [
       `position:fixed`,
-      `left:-${CAPTURE_W + 200}px`,
+      `left:0`,
       `top:0`,
       `width:${CAPTURE_W}px`,
       `height:9999px`,
       `overflow:visible`,
       `pointer-events:none`,
-      `z-index:-1`,
+      `z-index:99999`,
     ].join(';');
     copyCustomProps(rootEl, host, captureWin);
     captureDoc.body.appendChild(host);
+
+    // Wait for all web fonts declared in the document to finish loading.
+    // Without this, fonts that aren't yet decoded at capture time fall back to
+    // the system sans-serif, giving wrong text rendering in the PDF.
+    try { await (captureDoc as Document & { fonts?: FontFaceSet }).fonts?.ready; } catch { /* ignore */ }
+
+    // Inject global capture-time overrides:
+    //   1. Pause animations (pseudo-element glitch text is frozen mid-frame without this).
+    //   2. Remove backdrop-filter globally — html2canvas has zero support for it; keeping it
+    //      causes glass cards to render as broken opaque rectangles. CSS-class backdrop-filters
+    //      can't be removed per-element via inline style, so a global rule is needed.
+    //   3. Hooks ([data-pdf-nb]/[data-pdf-na]) hide detected glitch pseudo-elements.
+    const glitchFixStyle = captureDoc.createElement('style');
+    glitchFixStyle.id = 'pdf-capture-glitch-fix';
+    glitchFixStyle.textContent = [
+      '*, *::before, *::after { animation-play-state: paused !important; transition: none !important; }',
+      '* { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }',
+      // Single AND doubled selectors for html2canvas compatibility.
+      // content:"" clears attr(data-text) clones even when opacity/display are overridden by higher-specificity rules.
+      '[data-pdf-nb]::before, [data-pdf-nb][data-pdf-nb]::before { content: "" !important; opacity: 0 !important; display: none !important; visibility: hidden !important; }',
+      '[data-pdf-na]::after,  [data-pdf-na][data-pdf-na]::after  { content: "" !important; opacity: 0 !important; display: none !important; visibility: hidden !important; }',
+    ].join('\n');
+    captureDoc.head.appendChild(glitchFixStyle);
+
+    // PDF slide mode: the server injects height:calc(100vw * 9/16)!important on
+    // [data-section-id] elements. At capture time 100vw = the iframe's panel viewport
+    // width (~800px), not the 1280px capture width — so every slide is ~450px tall
+    // instead of 720px. Override with a fixed pixel height so slides fill the canvas.
+    if (slideModeHeight && slideModeHeight > 0) {
+      const slideSizeStyle = captureDoc.createElement('style');
+      slideSizeStyle.id = 'pdf-capture-slide-size';
+      // justify-content/align-content: center keeps content vertically centred when
+      // the LLM-generated section used flex/grid with content in the lower portion.
+      slideSizeStyle.textContent = `[data-section-id]{height:${slideModeHeight}px!important;max-height:${slideModeHeight}px!important;min-height:${slideModeHeight}px!important;justify-content:center!important;align-content:center!important;}`;
+      captureDoc.head.appendChild(slideSizeStyle);
+    }
 
     const pdf = new JsPDF({
       orientation: 'landscape',
@@ -311,7 +347,31 @@ export async function generateCapturePDF(
     });
     pdf.setProperties({ title, creator: 'Prodeck' });
 
+    // Temporarily widen the host iframe to CAPTURE_W so that vw-based CSS (font-sizes,
+    // padding, max-widths, etc.) resolves at 1280 px during all DOM measurements.
+    // Without this the panel's ~800 px display width produces smaller computed font
+    // sizes in the captureWin — the word-span fix then incorrectly classifies headings
+    // as single-line and skips them. In html2canvas's internal 1280 px clone those same
+    // headings wrap, producing multi-line text nodes whose lines all land at y=0
+    // (the heading container top), causing the visible overlap.
+    const captureIframe = captureWin.frameElement as HTMLElement | null;
+    const savedIframeWidth = captureIframe?.style.width ?? '';
+
     try {
+      if (captureIframe && captureWin.innerWidth < CAPTURE_W) {
+        captureIframe.style.width = `${CAPTURE_W}px`;
+        await nextFrame();
+      }
+      // After the iframe-widening attempt: if viewport is STILL narrower than CAPTURE_W
+      // (no parent iframe, or iframe unavailable), vw-based font-sizes during DOM
+      // measurement will be too small. Heading heights will read as single-line, the
+      // word-span fix skips them, and html2canvas (which renders at windowWidth=1280)
+      // wraps them — putting every line at y=0 = the visible text-overlap bug.
+      // Solution: scale heading font-sizes by (1280 / current viewport width) before
+      // measuring, so the word-span fix sees the same wrap behaviour as html2canvas.
+      const viewportScaleFactor = captureWin.innerWidth < CAPTURE_W
+        ? CAPTURE_W / captureWin.innerWidth
+        : 1;
       for (let i = 0; i < sections.length; i++) {
         progress(
           Math.round(5 + (i / sections.length) * 90),
@@ -319,18 +379,20 @@ export async function generateCapturePDF(
         );
 
         // ── Step 1: Clone with auto height to measure natural size ────────────
-        // Check if the section has a real image background (url(...)) BEFORE cloning
-        // so we can preserve it. Pure CSS gradients (no url) are stripped — they
-        // caused a coloured rectangle above the heading in earlier captures.
-        //
-        // [data-section-id] wrappers hold the background on their inner <section>
-        // child (typed React components). customHtml sections manage backgrounds
-        // via scoped CSS — no inline style to detect, so sectionHasImageBg stays false
-        // and the rendered content handles its own background.
+        // Check section background BEFORE cloning while bgEl is still in the live DOM.
+        // We need BOTH inline style checks (for typed React sections that set backgrounds
+        // via style=) AND computed style checks (for HTML microsites that use CSS classes).
         const bgEl = sections[i].querySelector<HTMLElement>('section') ?? sections[i];
         const origBg = bgEl.style.background + ' ' + bgEl.style.backgroundImage;
         const sectionHasImageBg = origBg.includes('url(');
-        const sectionHasCssGradient = !sectionHasImageBg && origBg.includes('gradient');
+
+        // Computed check: catches CSS-class gradients and solid colors that don't appear
+        // in inline styles. bgEl is still in the live DOM here, so getComputedStyle is real.
+        const bgComp = captureWin.getComputedStyle(bgEl);
+        const sectionHasRealBg =
+          sectionHasImageBg ||
+          (bgComp.backgroundImage !== 'none') ||
+          (bgComp.backgroundColor !== 'rgba(0, 0, 0, 0)' && bgComp.backgroundColor !== 'transparent');
 
         // In PDF slide mode the caller passes slideModeHeight; each section is captured
         // at that fixed height so decorative overflows don't bleed into adjacent pages.
@@ -353,21 +415,47 @@ export async function generateCapturePDF(
           `transform:none`,
           `transition:none`,
           `animation:none`,
-          // Only override to rootBg when section uses a CSS gradient (no real image).
-          // If it has a real image URL we preserve it so the photo shows in the PDF.
-          ...(!sectionHasImageBg ? [`background:${rootBg}`] : []),
+          // Only inject rootBg when the section has NO real background at all.
+          // CSS-class gradients/colors are detected via sectionHasRealBg (computed style).
+          ...(!sectionHasRealBg ? [`background:${rootBg}`] : []),
         ].join(';');
 
-        // Restore the image background on the clone when the section has one.
-        // For [data-section-id] wrappers the background lives on the inner <section>;
-        // cloneNode(true) already preserved those inline styles, so we only need to
-        // re-apply when bgEl is the wrapper itself (cssText reset cleared it).
-        if (sectionHasImageBg && bgEl === sections[i]) {
+        // ── Force computed background from original onto the clone ──────────────
+        // We read bgComp from the live DOM BEFORE cloning, so it reflects the true
+        // background (whether set via inline style, CSS class, or CSS variable).
+        // After cloning and cssText reset, the clone is placed in an off-screen host
+        // where ancestor-dependent CSS selectors (e.g. "body > section") no longer
+        // match. Setting the computed value as an explicit inline style guarantees
+        // the correct background is rendered regardless of DOM context.
+        if (bgEl === sections[i]) {
+          const cBgImg = bgComp.backgroundImage;
+          const cBgColor = bgComp.backgroundColor;
+          if (cBgImg && cBgImg !== 'none') {
+            clone.style.backgroundImage = cBgImg;
+            const bsz = bgComp.backgroundSize;
+            const bpos = bgComp.backgroundPosition;
+            const brep = bgComp.backgroundRepeat;
+            if (bsz && bsz !== 'auto') clone.style.backgroundSize = bsz;
+            if (bpos && bpos !== '0% 0%') clone.style.backgroundPosition = bpos;
+            if (brep && brep !== 'repeat') clone.style.backgroundRepeat = brep;
+          }
+          if (cBgColor && cBgColor !== 'rgba(0, 0, 0, 0)' && cBgColor !== 'transparent') {
+            clone.style.backgroundColor = cBgColor;
+          }
+        }
+
+        // Also restore any inline background shorthand that cssText reset cleared.
+        // (Computed copy above uses expanded properties; this preserves the original
+        // shorthand for inline-styled sections so the intent is exactly preserved.)
+        if (bgEl === sections[i]) {
           if (bgEl.style.background) clone.style.background = bgEl.style.background;
           if (bgEl.style.backgroundImage) clone.style.backgroundImage = bgEl.style.backgroundImage;
-          clone.style.backgroundSize = bgEl.style.backgroundSize || 'cover';
-          clone.style.backgroundPosition = bgEl.style.backgroundPosition || 'center center';
-          clone.style.backgroundRepeat = bgEl.style.backgroundRepeat || 'no-repeat';
+          if (bgEl.style.backgroundColor) clone.style.backgroundColor = bgEl.style.backgroundColor;
+          if (bgEl.style.backgroundSize) clone.style.backgroundSize = bgEl.style.backgroundSize;
+          else if (sectionHasImageBg) clone.style.backgroundSize = 'cover';
+          if (bgEl.style.backgroundPosition) clone.style.backgroundPosition = bgEl.style.backgroundPosition;
+          else if (sectionHasImageBg) clone.style.backgroundPosition = 'center center';
+          if (bgEl.style.backgroundRepeat) clone.style.backgroundRepeat = bgEl.style.backgroundRepeat;
         }
 
         // ── Strip decorative elements using INLINE style checks ──────────────
@@ -375,7 +463,6 @@ export async function generateCapturePDF(
         // React sets all component styles inline, so el.style.xxx is reliable here.
         clone.querySelectorAll<HTMLElement>('*').forEach(el => {
           const inlinePos = el.style.position;
-          const inlineBg  = el.style.background + ' ' + el.style.backgroundImage;
           const isGradientText =
             (el.style.webkitBackgroundClip === 'text' || el.style.backgroundClip === 'text') &&
             (el.style.color === 'transparent' || (el.style as unknown as Record<string,string>).webkitTextFillColor === 'transparent');
@@ -397,26 +484,16 @@ export async function generateCapturePDF(
             return;
           }
 
-          // Hide absolute/fixed overlays with no text (scrim div, noise SVG, parallax bg).
-          // Keep the scrim when the section has a real image — it provides text legibility.
-          const isScrim = (inlinePos === 'absolute' || inlinePos === 'fixed') && !el.textContent?.trim();
+          // Hide absolute/fixed overlays that have NO text AND no inline background AND
+          // no image descendants. Elements with <img> children are photo panels or content
+          // assets, not decorative scrims — hiding them removes real slide imagery.
+          const isScrim = (inlinePos === 'absolute' || inlinePos === 'fixed') &&
+            !el.textContent?.trim() &&
+            !el.querySelector('img') &&
+            !el.style.background && !el.style.backgroundImage && !el.style.backgroundColor;
           if (isScrim && !sectionHasImageBg) {
             el.style.display = 'none';
             return;
-          }
-
-          // Strip CSS gradient backgrounds from child elements (decorative gradient boxes).
-          // Preserve url() backgrounds — those are real content images.
-          if (inlineBg.includes('gradient') && !inlineBg.includes('url(')) {
-            el.style.background = 'transparent';
-            el.style.backgroundImage = 'none';
-          }
-
-          // Strip pure CSS gradient on the section itself if it had one (already handled
-          // via cssText, but belt-and-suspenders for backgroundImage property).
-          if (sectionHasCssGradient && el === clone) {
-            el.style.background = rootBg;
-            el.style.backgroundImage = 'none';
           }
 
           // Neutralise backdrop-filter — html2canvas doesn't support it and it
@@ -451,9 +528,45 @@ export async function generateCapturePDF(
         await inlineCloneImages(clone);
 
         // Reduce excessive section padding (microsite uses clamp(4rem,8vw,7rem) ≈ 100px
-        // per side = 200px wasted). Tighten to 40px top/bottom for slide capture.
-        clone.style.paddingTop = '40px';
-        clone.style.paddingBottom = '40px';
+        // per side = 200px wasted). Only in web (non-slide) mode — slide mode preserves
+        // the original padding so the design layout is not altered.
+        if (!isSlideMode) {
+          clone.style.paddingTop = '40px';
+          clone.style.paddingBottom = '40px';
+        }
+
+        // html2canvas 1.4.x does not advance the y-cursor after <br> — every line after
+        // the first renders at y=0 and visually overlaps the preceding text. Replace each
+        // direct-child <br> with a block-level <div> so html2canvas sees proper block
+        // boundaries and positions each line at the correct y-offset.
+        clone.querySelectorAll<HTMLElement>('*').forEach(el => {
+          const children = Array.from(el.childNodes);
+          if (!children.some(n => n.nodeName === 'BR')) return;
+          const lines: Node[][] = [[]];
+          children.forEach(n => {
+            if (n.nodeName === 'BR') lines.push([]);
+            else lines[lines.length - 1].push(n);
+          });
+          if (lines.length < 2) return;
+          el.innerHTML = '';
+          lines.forEach(lineNodes => {
+            const div = captureDoc.createElement('div');
+            div.style.cssText = 'display:block;margin:0;padding:0';
+            lineNodes.forEach(n => {
+              // Wrap bare text nodes in spans so html2canvas uses each span's
+              // getBoundingClientRect for y-placement (text nodes have no position).
+              if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) {
+                const sp = captureDoc.createElement('span');
+                sp.style.display = 'inline';
+                sp.textContent = n.textContent;
+                div.appendChild(sp);
+              } else {
+                div.appendChild(n);
+              }
+            });
+            el.appendChild(div);
+          });
+        });
 
 
         const measureWrapper = captureDoc.createElement('div');
@@ -470,12 +583,52 @@ export async function generateCapturePDF(
 
         await nextFrame();
 
-        // ── Margin-tightening AFTER DOM insertion so getComputedStyle is accurate ──
+        // ── Detect glitch pseudo-elements ──────────────────────────────────────────
+        // LLM-generated microsites create duplicate text overlays via ::before/::after
+        // pseudo-elements that are position:absolute with content (e.g. attr(data-text)).
+        // html2canvas freezes these at their current paint state — without hiding them
+        // every headline gets doubled/tripled glitch copies in the PDF.
+        // Trigger: (position absolute/fixed AND non-empty content/animation)
+        //       OR content uses attr() — the canonical glitch-text pattern regardless of position.
         clone.querySelectorAll<HTMLElement>('*').forEach(el => {
-          const mt = parseFloat(captureWin.getComputedStyle(el).marginTop);
+          try {
+            const bCs = captureWin.getComputedStyle(el, '::before');
+            const bContent = bCs.content;
+            const bHasContent = bContent && bContent !== 'none' && bContent !== '""' && bContent !== "''";
+            const bUsesAttr = typeof bContent === 'string' && bContent.includes('attr(');
+            const bAbsolute = bCs.position === 'absolute' || bCs.position === 'fixed';
+            const bHasAnim = bCs.animationName && bCs.animationName !== 'none';
+            if (bUsesAttr || (bAbsolute && (bHasContent || bHasAnim))) el.setAttribute('data-pdf-nb', '');
+
+            const aCs = captureWin.getComputedStyle(el, '::after');
+            const aContent = aCs.content;
+            const aHasContent = aContent && aContent !== 'none' && aContent !== '""' && aContent !== "''";
+            const aUsesAttr = typeof aContent === 'string' && aContent.includes('attr(');
+            const aAbsolute = aCs.position === 'absolute' || aCs.position === 'fixed';
+            const aHasAnim = aCs.animationName && aCs.animationName !== 'none';
+            if (aUsesAttr || (aAbsolute && (aHasContent || aHasAnim))) el.setAttribute('data-pdf-na', '');
+          } catch { /* ignore – getComputedStyle can fail on some nodes */ }
+        });
+
+        // ── Margin/padding/minHeight tightening ──────────────────────────────────────
+        clone.querySelectorAll<HTMLElement>('*').forEach(el => {
+          const cs = captureWin.getComputedStyle(el);
+          const mt = parseFloat(cs.marginTop);
           if (mt > 40) el.style.marginTop = '24px';
-          const mb = parseFloat(captureWin.getComputedStyle(el).marginBottom);
+          const mb = parseFloat(cs.marginBottom);
           if (mb > 40) el.style.marginBottom = '16px';
+          if (!isSlideMode) {
+            const pt = parseFloat(cs.paddingTop);
+            if (pt > 60) el.style.paddingTop = '32px';
+            const mh = parseFloat(cs.minHeight);
+            if (mh > 100) el.style.minHeight = '0';
+          } else {
+            // Slide mode: only strip extreme top padding (> 200px) — these come from
+            // scroll-reveal designs that push content below the visible viewport fold,
+            // leaving a large empty black area at the top of the captured slide.
+            const pt = parseFloat(cs.paddingTop);
+            if (pt > 200) el.style.paddingTop = '48px';
+          }
         });
 
         // ── Fix CSS-class gradient text (bg-clip-text / text-transparent) ─────────
@@ -486,12 +639,188 @@ export async function generateCapturePDF(
           const computed = captureWin.getComputedStyle(el);
           const c = computed.color;
           if (c === 'rgba(0, 0, 0, 0)' || c === 'transparent') {
-            el.style.color = '#e6edf3';
+            // Try to pick the first real color from the gradient rather than a fixed fallback
+            const bgImg = computed.backgroundImage;
+            const solidColor =
+              (bgImg && bgImg !== 'none')
+                ? (bgImg.match(/#[0-9a-fA-F]{3,8}/)?.[0] ?? bgImg.match(/rgba?\([^)]+\)/)?.[0] ?? '#e6edf3')
+                : '#e6edf3';
+            el.style.color = solidColor;
             el.style.backgroundClip = '';
             el.style.webkitBackgroundClip = '';
             (el.style as unknown as Record<string, string>).webkitTextFillColor = '';
           }
         });
+
+        // ── Simulate 1280px viewport for heading measurement when viewport is narrow ──
+        // When the captureWin viewport is narrower than CAPTURE_W (e.g. standalone view
+        // with no parent iframe to widen), vw-based font-sizes resolve too small. This
+        // makes headings appear single-line during measurement → the word-span fix below
+        // skips them → html2canvas renders at windowWidth=1280 where they wrap → all
+        // wrapped lines land at y=0 = the visible text-overlap bug.
+        // Fix: temporarily inline-scale heading font-sizes to (computed × CAPTURE_W/viewport),
+        // let the word-span fix detect and split them correctly, then restore before capture
+        // so html2canvas uses its own internal vw resolution.
+        interface FontRestore { el: HTMLElement; savedFs: string }
+        const fontRestores: FontRestore[] = [];
+        if (viewportScaleFactor > 1) {
+          clone.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6').forEach(h => {
+            const fsPx = parseFloat(captureWin.getComputedStyle(h).fontSize);
+            if (!isNaN(fsPx) && fsPx > 0) {
+              fontRestores.push({ el: h, savedFs: h.style.fontSize });
+              h.style.fontSize = `${fsPx * viewportScaleFactor}px`;
+            }
+          });
+          if (fontRestores.length > 0) await nextFrame();
+        }
+
+        // ── Absolute-position heading line divs for html2canvas ──────────────────
+        // The <br>-split fix (above, before DOM placement) creates display:block divs
+        // inside headings. Html2canvas may compute those divs' height as 0 when they
+        // contain inline spans (its block-layout engine doesn't measure inline content
+        // height correctly), causing ALL lines to land at y=0 and overlap.
+        // Fix: convert each block div to position:absolute with an explicit top value
+        // measured from the live DOM, bypassing html2canvas's block-stacking entirely.
+        clone.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6').forEach(heading => {
+          const blockDivs = Array.from(heading.children).filter(
+            c => (c as HTMLElement).style.display === 'block'
+          ) as HTMLElement[];
+          if (blockDivs.length < 2) return;
+
+          const headingRect = heading.getBoundingClientRect();
+          if (!headingRect.height) return;
+
+          // Replace each block div's inline-span content with a direct text node.
+          // html2canvas computes block div height as 0 when children are inline spans;
+          // a text node forces it to derive height from font metrics instead, so the
+          // next sibling div is placed below (not at the same y).
+          blockDivs.forEach(div => {
+            const lineText = (div.textContent ?? '').trimEnd();
+            div.innerHTML = '';
+            div.textContent = lineText;
+            div.style.overflow = 'visible';
+            div.style.whiteSpace = 'nowrap';
+          });
+        });
+
+        // ── Fix multi-line headings: html2canvas uses the parent element's top y-offset
+        // for every text node it encounters, so text from line 2 renders at y=0 (same as
+        // line 1) causing all wrapped lines to visually overlap. Slide 1 works only because
+        // its second visual line is in a <span> element with its own getBoundingClientRect.
+        // Fix: after DOM placement, detect headings that wrap, split their text into
+        // per-word spans, group words by y-position, then rebuild as per-line block <div>s
+        // so html2canvas sees one element per line with the correct y-coordinate.
+        clone.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6').forEach(heading => {
+          // Skip headings already split into block lines by the <br> fix above
+          if (Array.from(heading.children).some(c =>
+            captureWin.getComputedStyle(c).display === 'block')) return;
+
+          const hcs = captureWin.getComputedStyle(heading);
+          let lineH = parseFloat(hcs.lineHeight);
+          if (!lineH || isNaN(lineH)) lineH = parseFloat(hcs.fontSize) * 1.2;
+          if (!lineH || isNaN(lineH)) return;
+
+          const headingH = heading.getBoundingClientRect().height;
+          if (headingH <= lineH * 1.3) return; // single-line heading, nothing to fix
+
+          // Save original child nodes before we begin measuring
+          const origNodes = Array.from(heading.childNodes);
+          heading.innerHTML = '';
+
+          // Convert text nodes to per-word spans for y-position measurement;
+          // keep element children (e.g. <span class="hi">) intact as single units.
+          type WordItem = { span: HTMLElement; isText: boolean; text: string };
+          const items: WordItem[] = [];
+
+          origNodes.forEach(n => {
+            if (n.nodeType === Node.TEXT_NODE) {
+              (n.textContent ?? '').split(/\s+/).filter(Boolean).forEach(word => {
+                const sp = captureDoc.createElement('span');
+                sp.style.display = 'inline';
+                sp.textContent = word + ' ';
+                heading.appendChild(sp);
+                items.push({ span: sp, isText: true, text: word + ' ' });
+              });
+            } else if (n.nodeType === Node.ELEMENT_NODE) {
+              const el = n as HTMLElement;
+              heading.appendChild(el);
+              items.push({ span: el, isText: false, text: '' });
+            }
+          });
+
+          if (!items.length) {
+            heading.innerHTML = '';
+            origNodes.forEach(n => heading.appendChild(n));
+            return;
+          }
+
+          // Group word spans by visual line (same getBoundingClientRect().top = same line)
+          const lines: WordItem[][] = [[]];
+          let lastTop = items[0].span.getBoundingClientRect().top;
+          items.forEach(item => {
+            const t = item.span.getBoundingClientRect().top;
+            if (Math.abs(t - lastTop) > lineH * 0.4) { lines.push([]); lastTop = t; }
+            lines[lines.length - 1].push(item);
+          });
+
+          if (lines.length < 2) {
+            // Turned out single-line — restore and skip
+            heading.innerHTML = '';
+            origNodes.forEach(n => heading.appendChild(n));
+            return;
+          }
+
+          // Measure each line's y-offset BEFORE clearing the DOM.
+          // Use absolute positioning — html2canvas may compute display:block div heights as 0
+          // for inline content, collapsing all lines to y=0. Explicit position:absolute+top
+          // bypasses html2canvas's block-layout engine entirely.
+          //
+          // Use the first visible line's top as the reference (not the heading's own rect.top)
+          // so that line[0] is always at offset 0 and no line gets a negative top value,
+          // which could be clipped by html2canvas's element bounds.
+          const firstLineTop = lines[0]?.[0]?.span.getBoundingClientRect().top
+            ?? heading.getBoundingClientRect().top;
+          const lastLineItems = lines[lines.length - 1];
+          const lastLineBottom = lastLineItems.length
+            ? Math.max(...lastLineItems.map(i => i.span.getBoundingClientRect().bottom))
+            : firstLineTop + lineH;
+          const headingAbsH = lastLineBottom - firstLineTop;
+          const lineTopOffsets = lines.map(lineItems =>
+            lineItems.length ? lineItems[0].span.getBoundingClientRect().top - firstLineTop : 0
+          );
+          const lineHeights = lines.map(lineItems => {
+            if (!lineItems.length) return lineH;
+            const bots = lineItems.map(item => item.span.getBoundingClientRect().bottom);
+            const tops = lineItems.map(item => item.span.getBoundingClientRect().top);
+            return Math.max(...bots) - Math.min(...tops);
+          });
+
+          heading.innerHTML = '';
+          // Block-flow divs with DIRECT TEXT NODES.
+          // html2canvas ignores explicit CSS `height` when computing where to place
+          // the next sibling block — it uses its own content-height, which it computes
+          // as 0 for divs whose only children are inline <span> elements.
+          // A text node (no sub-element) forces html2canvas to compute height from the
+          // inherited font metrics (font-size × line-height), which gives the correct
+          // non-zero value, so div[1] is placed below div[0] rather than on top of it.
+          lines.forEach((lineItems) => {
+            const div = captureDoc.createElement('div');
+            div.style.cssText = [
+              `display:block`,
+              `overflow:visible`,
+              `margin:0`,
+              `padding:0`,
+              `white-space:nowrap`,
+            ].join(';');
+            // Reconstruct line text; each item.span.textContent is "word " (with trailing space)
+            div.textContent = lineItems.map(item => (item.span.textContent ?? '')).join('').trimEnd();
+            heading.appendChild(div);
+          });
+        });
+
+        // Restore original heading font-sizes — html2canvas resolves vw units internally
+        // via windowWidth:CAPTURE_W, so inline px overrides must be removed before capture.
+        fontRestores.forEach(({ el, savedFs }) => el.style.fontSize = savedFs);
 
         // Measure from the clone itself (not wrapper) so SVG/diagram children are included.
         // scrollHeight misses SVG height; getBoundingClientRect is reliable for rendered height.
@@ -526,7 +855,9 @@ export async function generateCapturePDF(
 
         if (naturalH <= CAPTURE_H) {
           // ── Case A: short section — one page with breathing room ─────────────
-          const topPad = sectionHasImageBg ? 0 : Math.round((CAPTURE_H - naturalH) * 0.25);
+          // In slide mode or when section has its own real background, don't add extra top-padding —
+          // the section already handles its own vertical rhythm.
+          const topPad = (sectionHasImageBg || sectionHasRealBg || isSlideMode) ? 0 : Math.round((CAPTURE_H - naturalH) * 0.25);
           const wrapper = captureDoc.createElement('div');
           wrapper.style.cssText = [
             `width:${CAPTURE_W}px`,
@@ -536,7 +867,7 @@ export async function generateCapturePDF(
             `justify-content:flex-start`,
             `padding-top:${topPad}px`,
             `overflow:hidden`,
-            `background:${sectionHasImageBg ? 'transparent' : rootBg}`,
+            `background:${rootBg}`,
             `position:relative`,
             `box-sizing:border-box`,
           ].join(';');
@@ -549,6 +880,10 @@ export async function generateCapturePDF(
             scale: 1.5,
             width: CAPTURE_W,
             height: CAPTURE_H,
+            windowWidth: CAPTURE_W,
+            windowHeight: CAPTURE_H,
+            scrollX: 0,
+            scrollY: 0,
             useCORS: true,
             logging: false,
             backgroundColor: rootBg,
@@ -566,7 +901,7 @@ export async function generateCapturePDF(
             `width:${CAPTURE_W}px`,
             `height:${captureH}px`,
             `overflow:visible`,
-            `background:${sectionHasImageBg ? 'transparent' : rootBg}`,
+            `background:${rootBg}`,
             `position:relative`,
           ].join(';');
           wrapper.appendChild(clone);
@@ -578,6 +913,10 @@ export async function generateCapturePDF(
             scale: 1.5,
             width: CAPTURE_W,
             height: captureH,
+            windowWidth: CAPTURE_W,
+            windowHeight: captureH,
+            scrollX: 0,
+            scrollY: 0,
             useCORS: true,
             logging: false,
             backgroundColor: rootBg,
@@ -609,6 +948,10 @@ export async function generateCapturePDF(
             scale: 1.5,
             width: CAPTURE_W,
             height: captureH,
+            windowWidth: CAPTURE_W,
+            windowHeight: captureH,
+            scrollX: 0,
+            scrollY: 0,
             useCORS: true,
             logging: false,
             backgroundColor: rootBg,
@@ -624,6 +967,9 @@ export async function generateCapturePDF(
       }
     } finally {
       captureDoc.body.removeChild(host);
+      captureDoc.getElementById('pdf-capture-glitch-fix')?.remove();
+      captureDoc.getElementById('pdf-capture-slide-size')?.remove();
+      if (captureIframe) captureIframe.style.width = savedIframeWidth;
     }
 
     progress(98, 'Saving PDF…');

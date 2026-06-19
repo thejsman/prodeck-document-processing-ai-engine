@@ -2359,6 +2359,17 @@ export async function getSuperClientMicrosite(apiKey: string, name: string, id: 
   return json.ast;
 }
 
+export async function exportSuperClientMicrositeAsPdf(apiKey: string, name: string, id: string): Promise<Blob> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/export-pdf`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error ?? `PDF export failed: ${res.status}`);
+  }
+  return res.blob();
+}
+
 export async function saveSuperClientMicrosite(
   apiKey: string,
   name: string,
