@@ -3800,35 +3800,31 @@ export default function SuperClientPage() {
                       minHeight: 60,
                     }}
                   />
+                  {/* Mode toggle row — sits between textarea and action bar */}
+                  <div className="composer-mode-row">
+                    {([
+                      { label: "Web Microsite", value: false },
+                      { label: "PDF 16:9", value: true },
+                    ] as { label: string; value: boolean }[]).map(({ label, value }) => (
+                      <button
+                        key={label}
+                        onClick={() => setComposerPresentationMode(value)}
+                        className={`composer-mode-btn${composerPresentationMode === value ? " composer-mode-btn--active" : ""}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      marginTop: 8,
+                      padding: "8px 14px",
                     }}
                   >
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button
-                        onClick={() => composerImageInputRef.current?.click()}
-                        style={{
-                          background: "none",
-                          border: "1px solid var(--border)",
-                          borderRadius: 6,
-                          padding: "5px 10px",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          color: composerImage
-                            ? "var(--primary)"
-                            : "var(--muted)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <ImagePlus size={12} />
-                        {composerImage ? "Image attached ✓" : "Reference image"}
-                      </button>
+                    <div style={{ position: "relative", display: "flex", gap: 6 }}>
                       <button
                         className={`chat-v2-attach-btn${composerAttachMenuOpen ? " active" : ""}`}
                         onClick={() => setComposerAttachMenuOpen((v) => !v)}
