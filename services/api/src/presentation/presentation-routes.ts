@@ -2315,7 +2315,8 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
         };
         placementHint?: string; // LLM-generated brief for where this image fits in the microsite
       }>;
-      pdfPresentation?: boolean; // each section is a 16:9 slide for PDF download
+      pdfPresentation?: boolean; // each section is a fixed-aspect slide for PDF download
+      pdfOrientation?: 'landscape' | 'portrait'; // landscape = 16:9 (default), portrait = 9:16
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2620,9 +2621,78 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       }
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
-      // PDF presentation directive — overrides motion and enforces 16:9 slide layout
+      // PDF presentation directive — overrides motion and enforces fixed-aspect slide layout
       if (body?.pdfPresentation) {
-        parts.push(`PDF SLIDE CONSTRAINT — apply ONLY these structural changes on top of your normal web microsite design. Do NOT change colors, fonts, gradients, visual style, tone, or design language. The result must look exactly like the web microsite, just split into fixed-height 16:9 slides.
+        const isPortrait = body?.pdfOrientation === 'portrait';
+        if (isPortrait) {
+          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall. Every slide must feel COMPLETE — content spread across the full height with no dead zones. Think of it like a high-quality Instagram story or mobile app screen.
+
+═══ SLIDE WRAPPER (copy exactly for every section) ═══
+<section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:space-between;width:100%;box-sizing:border-box;padding:52px 40px 48px">
+
+justify-content:space-between distributes content from top → bottom, naturally filling 1280px. Use it on the section itself. Inside, add a middle "body" div with flex:1;display:flex;flex-direction:column;justify-content:center;gap:24px to absorb remaining space.
+
+═══ TYPOGRAPHY — always px, never vw/rem ═══
+Display headline ............. 42–48px, line-height:1.15, font-weight:800
+Section title ................ 28–32px, line-height:1.25, font-weight:700
+Subheading / eyebrow ......... 16–18px, line-height:1.4
+Body paragraph ............... 15px, line-height:1.8
+List item / card body ........ 14px, line-height:1.65
+Label / tag / caption ........ 11–12px, uppercase, letter-spacing:0.07em
+
+═══ SLIDE LAYOUT PATTERNS ═══
+HERO SLIDE
+  Top zone (≈15%): logo or eyebrow tag
+  Middle zone (≈55%): display headline (3–4 lines) + tagline + short description
+  Bottom zone (≈30%): CTA button + supporting social proof or stat
+  Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
+
+FEATURE SLIDE
+  Top zone: section title + short intro sentence
+  Middle zone (flex:1): 2-column icon card grid (grid-template-columns:1fr 1fr; gap:16px)
+    Each card ≈160px tall: icon (40px) + bold title + 2-line description
+  Bottom zone: short closing tagline or brand accent
+
+STATS SLIDE
+  Top zone: section title
+  Middle zone: 2×2 big-number grid (font-size:52px bold) each with unit + label below
+  Bottom zone: context sentence or CTA
+
+TEXT / STORY SLIDE
+  Top zone: eyebrow tag + section title
+  Middle zone: 3–4 paragraphs (gap:20px) OR a large pull-quote (font-size:22px, italic, bordered left)
+  Bottom zone: highlighted callout box (background accent, padding:20px, border-radius:12px)
+
+IMAGE + TEXT SLIDE
+  Top zone: full-width image (height:42%, object-fit:cover, border-radius:12px)
+  Below image: title (28px) + 3 bullet points with check icons + CTA link
+
+LIST SLIDE
+  Top zone: section title + brief intro
+  Middle zone: 5–7 items, each row = icon + bold label + short description (padding:16px 0, border-bottom:1px solid rgba(255,255,255,0.08))
+  Bottom zone: summary statement
+
+═══ SPACING RULES ═══
+- Gap between top/middle/bottom zones: handled by justify-content:space-between on the section
+- Gap within middle content area: 24–32px
+- Gap between list items / cards: 16–20px
+- Never use <div style="height:Xpx"> empty spacers — use gap and flex instead
+- Each card / row / item should have enough padding (16–20px) to feel substantial
+
+═══ NARROW ROW LAYOUTS (allowed for small elements) ═══
+- Navbar: logo ← → links (flex-direction:row, ok)
+- Icon + label within a card (flex-direction:row, ok)
+- Big stat + unit on same line (flex-direction:row, ok)
+- Button group side by side (flex-direction:row, ok)
+
+═══ FORBIDDEN ═══
+- 3-column or 4-column grids for main content
+- 50/50 or 60/40 side-by-side full-text panels
+- Empty containers taller than 40px
+- fixed / sticky positioned children
+- CSS animations, JS transitions, IntersectionObserver, scroll effects`);
+        } else {
+          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — apply ONLY these structural changes on top of your normal web microsite design. Do NOT change colors, fonts, gradients, visual style, tone, or design language. The result must look exactly like the web microsite, just split into fixed-height 16:9 slides.
 
 STRUCTURE (only change from normal microsite):
 - Wrap every logical section in <section data-section-id="slide-N"> where N is 1, 2, 3…
@@ -2641,6 +2711,7 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
 - Images: max-height 42% of section height (use style="max-height:42%;object-fit:cover")
 - Max 5–6 bullet points per section; trim body copy to fit the 720px height
 - No sticky/fixed children, no scroll animations, no IntersectionObserver — content must be fully visible on load`);
+        }
       }
 
       // Motion level hint — tells Claude what animation approach to use
@@ -2729,10 +2800,17 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
 
       // Inject hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
       // Only constrains layout/overflow; does NOT change colors, fonts, or visual style.
+      const isPortrait = body?.pdfPresentation && body?.pdfOrientation === 'portrait';
       const finalHtml = body?.pdfPresentation
         ? html.replace(
             /(<head[^>]*>)/i,
-            `$1<style id="__pdf-slide-constraints__">[data-section-id]{aspect-ratio:16/9!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:calc(100vw * 9 / 16)!important;max-height:calc(100vw * 9 / 16)!important;width:100%!important;box-sizing:border-box!important;}[data-section-id] svg{max-height:140px;max-width:140px;}[data-section-id] img{max-height:42%;object-fit:cover;}</style>`,
+            isPortrait
+              ? `$1<style id="__pdf-slide-constraints__">
+[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;display:flex!important;flex-direction:column!important;}
+[data-section-id] img{max-height:380px!important;width:100%!important;object-fit:cover!important;}
+[data-section-id] svg{max-height:120px!important;max-width:120px!important;}
+</style>`
+              : `$1<style id="__pdf-slide-constraints__">[data-section-id]{aspect-ratio:16/9!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:calc(100vw * 9 / 16)!important;max-height:calc(100vw * 9 / 16)!important;width:100%!important;box-sizing:border-box!important;}[data-section-id] svg{max-height:140px;max-width:140px;}[data-section-id] img{max-height:42%;object-fit:cover;}</style>`,
           )
         : html;
 
@@ -2754,6 +2832,7 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
       const ast = {
         generationMode: 'v2',
         ...(body?.pdfPresentation ? { pdfPresentation: true } : {}),
+        ...(body?.pdfPresentation && body?.pdfOrientation ? { pdfOrientation: body.pdfOrientation } : {}),
         sections: [{
           id: 'microsite',
           heading: 'microsite',

@@ -4,17 +4,18 @@ import type { FastifyInstance } from 'fastify';
 import puppeteer from 'puppeteer';
 import { PDFDocument } from 'pdf-lib';
 
-// Match the dimensions used by the existing client-side PDF renderer
-const PDF_W_PT = 841.89;
-const PDF_H_PT = 473.56;
-const SLIDE_W = 1280;
-const SLIDE_H = 720;
+const DIMS = {
+  landscape: { pdfW: 841.89, pdfH: 473.56, vpW: 1280, vpH: 720 },
+  portrait:  { pdfW: 473.56, pdfH: 841.89, vpW: 720,  vpH: 1280 },
+};
 
 export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): void {
-  app.get<{ Params: { name: string; id: string } }>(
+  app.get<{ Params: { name: string; id: string }; Querystring: { orientation?: string } }>(
     '/super-clients/:name/microsites/:id/export-pdf',
     async (req, reply) => {
       const { name, id } = req.params;
+      const orientation = req.query.orientation === 'portrait' ? 'portrait' : 'landscape';
+      const { pdfW, pdfH, vpW, vpH } = DIMS[orientation];
 
       const superClientsRoot = path.join(workdir, 'super-clients');
       const filePath = path.join(superClientsRoot, name, 'microsites', `${id}.json`);
@@ -45,7 +46,7 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
 
       try {
         const page = await browser.newPage();
-        await page.setViewport({ width: SLIDE_W, height: SLIDE_H, deviceScaleFactor: 1 });
+        await page.setViewport({ width: vpW, height: vpH, deviceScaleFactor: 1 });
 
         // Load the full self-contained HTML — wait for network to idle so fonts/images resolve
         await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
@@ -80,8 +81,8 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           // screenshot() on an ElementHandle captures the element's full bounding box
           const screenshot = await handle.screenshot({ type: 'jpeg', quality: 92 }) as Buffer;
           const img = await pdfDoc.embedJpg(screenshot);
-          const pdfPage = pdfDoc.addPage([PDF_W_PT, PDF_H_PT]);
-          pdfPage.drawImage(img, { x: 0, y: 0, width: PDF_W_PT, height: PDF_H_PT });
+          const pdfPage = pdfDoc.addPage([pdfW, pdfH]);
+          pdfPage.drawImage(img, { x: 0, y: 0, width: pdfW, height: pdfH });
         }
 
         const pdfBytes = await pdfDoc.save();

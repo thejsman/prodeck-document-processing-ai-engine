@@ -2168,6 +2168,7 @@ export interface V2StreamOptions {
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
   pdfPresentation?: boolean;
+  pdfOrientation?: "landscape" | "portrait";
   contextImages?: V2StreamContextImage[];
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
@@ -2189,6 +2190,7 @@ export async function generateMicrositeV2Stream(
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
       ...(opts.pdfPresentation ? { pdfPresentation: true } : {}),
+      ...(opts.pdfOrientation ? { pdfOrientation: opts.pdfOrientation } : {}),
       ...(opts.contextImages?.length ? { contextImages: opts.contextImages } : {}),
     }),
     signal: opts.signal,
@@ -2405,6 +2407,7 @@ export interface SuperClientMicrosite {
   proposalTitle: string;
   savedAt: string;
   pdfPresentation?: boolean;
+  pdfOrientation?: 'landscape' | 'portrait';
 }
 
 export async function listSuperClientMicrosites(apiKey: string, name: string): Promise<SuperClientMicrosite[]> {
@@ -2421,8 +2424,8 @@ export async function getSuperClientMicrosite(apiKey: string, name: string, id: 
   return json.ast;
 }
 
-export async function exportSuperClientMicrositeAsPdf(apiKey: string, name: string, id: string): Promise<Blob> {
-  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/export-pdf`, {
+export async function exportSuperClientMicrositeAsPdf(apiKey: string, name: string, id: string, orientation: "landscape" | "portrait" = "landscape"): Promise<Blob> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/export-pdf?orientation=${orientation}`, {
     headers: authHeadersNoBody(apiKey),
   });
   if (!res.ok) {
