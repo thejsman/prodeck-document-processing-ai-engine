@@ -2625,62 +2625,80 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       if (body?.pdfPresentation) {
         const isPortrait = body?.pdfOrientation === 'portrait';
         if (isPortrait) {
-          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall. Every slide must feel COMPLETE — content spread across the full height with no dead zones. Think of it like a high-quality Instagram story or mobile app screen.
+          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall. Every slide must feel COMPLETE and DENSE — content spread across the full height with NO dead zones, NO empty sections, NO placeholder text.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
 <section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:space-between;width:100%;box-sizing:border-box;padding:52px 40px 48px">
 
 justify-content:space-between distributes content from top → bottom, naturally filling 1280px. Use it on the section itself. Inside, add a middle "body" div with flex:1;display:flex;flex-direction:column;justify-content:center;gap:24px to absorb remaining space.
 
+═══ LOGO — CRITICAL RULES ═══
+- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in slide-1's top zone
+- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:36px;width:auto;max-width:140px;object-fit:contain;display:block;flex-shrink:0;">
+- id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
+- Slides 2 through N: use a styled text brand name instead of any <img> logo element
+- NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
+
 ═══ TYPOGRAPHY — always px, never vw/rem ═══
-Display headline ............. 42–48px, line-height:1.15, font-weight:800
-Section title ................ 28–32px, line-height:1.25, font-weight:700
-Subheading / eyebrow ......... 16–18px, line-height:1.4
-Body paragraph ............... 15px, line-height:1.8
-List item / card body ........ 14px, line-height:1.65
-Label / tag / caption ........ 11–12px, uppercase, letter-spacing:0.07em
+Display headline ............. 44–52px, line-height:1.1, font-weight:800 — must be bold and large
+Section title ................ 30–36px, line-height:1.2, font-weight:700
+Subheading / eyebrow ......... 16–18px, font-weight:600, letter-spacing:0.04em
+Body paragraph ............... 16px, line-height:1.75 — must be readable, not tiny
+List item / card body ........ 14–15px, line-height:1.65
+Label / tag / caption ........ 12px, uppercase, letter-spacing:0.07em, font-weight:600
+Stats / big numbers .......... 52–64px, font-weight:900, line-height:1.0
+
+CRITICAL: These font sizes are minimums. Every slide MUST use them. Small text = rejected output.
+
+═══ CONTENT DENSITY — non-negotiable ═══
+Every slide MUST contain at minimum:
+- 1 headline (30px+)
+- 2+ supporting content blocks (paragraphs, cards, list items, or stats)
+- 1 bottom anchor (tagline, CTA, stat strip, or pull-quote)
+Content must fill the visible area. If a zone feels empty, add more content. Aim for 70% content density per slide.
 
 ═══ SLIDE LAYOUT PATTERNS ═══
-HERO SLIDE
-  Top zone (≈15%): logo or eyebrow tag
-  Middle zone (≈55%): display headline (3–4 lines) + tagline + short description
-  Bottom zone (≈30%): CTA button + supporting social proof or stat
+HERO SLIDE (slide-1)
+  Top zone (≈12%): logo img placeholder + slide counter or eyebrow label
+  Middle zone (≈58%): display headline (2–3 lines, 44-52px) + 2-line tagline (18px) + 60-word description (16px)
+  Bottom zone (≈30%): large CTA button + 3 social-proof stats in a row (big number + label)
   Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
 
 FEATURE SLIDE
-  Top zone: section title + short intro sentence
-  Middle zone (flex:1): 2-column icon card grid (grid-template-columns:1fr 1fr; gap:16px)
-    Each card ≈160px tall: icon (40px) + bold title + 2-line description
-  Bottom zone: short closing tagline or brand accent
+  Top zone (≈15%): eyebrow label (12px uppercase) + section title (32px)
+  Middle zone (flex:1): 2×2 icon card grid (grid-template-columns:1fr 1fr; gap:16px)
+    Each card: padding:20px; icon (40px SVG); bold title (16px); 2–3 line description (14px)
+  Bottom zone (≈10%): accent tagline or brand strip
 
 STATS SLIDE
-  Top zone: section title
-  Middle zone: 2×2 big-number grid (font-size:52px bold) each with unit + label below
-  Bottom zone: context sentence or CTA
+  Top zone (≈15%): eyebrow + section title (32px)
+  Middle zone: 2×2 big-number grid — each cell: big number (56px, font-weight:900) + unit + 2-line label (14px)
+  Bottom zone: context sentence (16px) + CTA or accent bar
 
 TEXT / STORY SLIDE
-  Top zone: eyebrow tag + section title
-  Middle zone: 3–4 paragraphs (gap:20px) OR a large pull-quote (font-size:22px, italic, bordered left)
-  Bottom zone: highlighted callout box (background accent, padding:20px, border-radius:12px)
+  Top zone: eyebrow tag (12px) + section title (32px) + 1-line intro (16px)
+  Middle zone (flex:1): 3–4 body paragraphs (16px, line-height:1.75, gap:20px) OR large pull-quote (22px italic, left border 4px accent)
+  Bottom zone: highlighted callout box (background:accent at 15% opacity, padding:20px 24px, border-radius:12px, border-left:4px solid accent, 16px bold text)
 
 IMAGE + TEXT SLIDE
-  Top zone: full-width image (height:42%, object-fit:cover, border-radius:12px)
-  Below image: title (28px) + 3 bullet points with check icons + CTA link
+  Top zone: full-width image (height:38%, object-fit:cover, border-radius:12px) with overlaid eyebrow tag
+  Below image: title (30px, margin-top:24px) + 3 bullet points (icon + 15px text, gap:12px) + CTA link (16px bold, accent color)
 
 LIST SLIDE
-  Top zone: section title + brief intro
-  Middle zone: 5–7 items, each row = icon + bold label + short description (padding:16px 0, border-bottom:1px solid rgba(255,255,255,0.08))
-  Bottom zone: summary statement
+  Top zone (≈12%): eyebrow + section title (30px)
+  Middle zone (flex:1): 5–7 items, each row = colored icon (32px) + bold label (15px) + description (14px, 2 lines), padding:14px 0, border-bottom:1px solid rgba(255,255,255,0.1)
+  Bottom zone: summary statement (16px italic) or accent pill
 
 ═══ SPACING RULES ═══
 - Gap between top/middle/bottom zones: handled by justify-content:space-between on the section
 - Gap within middle content area: 24–32px
 - Gap between list items / cards: 16–20px
 - Never use <div style="height:Xpx"> empty spacers — use gap and flex instead
-- Each card / row / item should have enough padding (16–20px) to feel substantial
+- Each card / row / item must have enough padding (16–20px) to feel substantial
+- Section padding: 52px top, 40px sides, 48px bottom — do not reduce
 
 ═══ NARROW ROW LAYOUTS (allowed for small elements) ═══
-- Navbar: logo ← → links (flex-direction:row, ok)
+- Logo row in slide-1 header (flex-direction:row, ok)
 - Icon + label within a card (flex-direction:row, ok)
 - Big stat + unit on same line (flex-direction:row, ok)
 - Button group side by side (flex-direction:row, ok)
@@ -2690,7 +2708,21 @@ LIST SLIDE
 - 50/50 or 60/40 side-by-side full-text panels
 - Empty containers taller than 40px
 - fixed / sticky positioned children
-- CSS animations, JS transitions, IntersectionObserver, scroll effects`);
+- CSS animations, JS transitions, IntersectionObserver, scroll effects
+- Any <img> with id containing "__site-logo" in slides 2–N
+- Small font sizes below 14px for body content
+- Sparse slides with only a headline and no supporting content
+
+═══ CONTRAST & READABILITY — non-negotiable ═══
+Text MUST be clearly readable against its background at all times:
+- Dark background slides: use white (#fff) or very near-white (rgba 255,255,255,≥0.92) for all text
+- Never use rgba text color with opacity below 0.85
+- Card/surface backgrounds: minimum 18% luminance difference from slide background — avoid near-identical tones
+- Use rgba(255,255,255,0.10) to rgba(255,255,255,0.18) for card backgrounds on dark slides — never below 0.08
+- Card border: always add 1px solid rgba(255,255,255,0.18) so cards are visible even on similar-colored backgrounds
+- If a card has a colored tinted background (blue, green tint), ensure text is solid white, not muted
+- Pull-quote or callout boxes: use border-left:4px solid accent + background:rgba(accent,0.15) + white text
+- NEVER create a card where the text blends into the background — every word must be immediately legible`);
         } else {
           parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — apply ONLY these structural changes on top of your normal web microsite design. Do NOT change colors, fonts, gradients, visual style, tone, or design language. The result must look exactly like the web microsite, just split into fixed-height 16:9 slides.
 
@@ -2790,8 +2822,8 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
 
       const html = (await resolveImagePlaceholders(rawHtml))
         .replace(
-          // Skip imgs that already have onerror AND skip __site-logo__ (replaced client-side)
-          /<img\b(?![^>]*\bonerror\b)(?![^>]*\bid="__site-logo__")([^>]*\balt="([^"]*)"[^>]*)>/gi,
+          // Skip imgs that already have onerror AND skip __site-logo* (replaced client-side)
+          /<img\b(?![^>]*\bonerror\b)(?![^>]*\bid="__site-logo)([^>]*\balt="([^"]*)"[^>]*)>/gi,
           (_m, attrs: string, alt: string) => {
             const keyword = (alt || 'abstract').trim().split(/\s+/).slice(0, 3).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '');
             return `<img${attrs} onerror="this.onerror=null;this.src='https://picsum.photos/seed/${keyword}/1920/1080'">`;
@@ -2806,8 +2838,8 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
             /(<head[^>]*>)/i,
             isPortrait
               ? `$1<style id="__pdf-slide-constraints__">
-[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;display:flex!important;flex-direction:column!important;}
-[data-section-id] img{max-height:380px!important;width:100%!important;object-fit:cover!important;}
+[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;}
+[data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
               : `$1<style id="__pdf-slide-constraints__">[data-section-id]{aspect-ratio:16/9!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:calc(100vw * 9 / 16)!important;max-height:calc(100vw * 9 / 16)!important;width:100%!important;box-sizing:border-box!important;}[data-section-id] svg{max-height:140px;max-width:140px;}[data-section-id] img{max-height:42%;object-fit:cover;}</style>`,

@@ -2285,8 +2285,9 @@ export default function SuperClientPage() {
 
     // Strategy 0 — replace __site-logo__ img placeholder (LLM-generated pattern).
     // Replaces the entire <img> tag (including its onerror scenery fallback) with the SVG.
-    if (html.includes('id="__site-logo__"')) {
-      return html.replace(/<img\b[^>]*id="__site-logo__"[^>]*\/?>/i, svg);
+    // Matches any variant: __site-logo__, __site-logo-2__, __site-logo-N__, etc.
+    if (/__site-logo[^"]*"/.test(html)) {
+      return html.replace(/<img\b[^>]*id="__site-logo[^"]*"[^>]*\/?>/i, svg);
     }
 
     // Strategy 1 — replace __site-logo-slot__ text div content (new prompt pattern)
@@ -2346,14 +2347,15 @@ export default function SuperClientPage() {
 
     // Strategy 1 — replace the __site-logo__ img placeholder the LLM emits.
     // Also removes the onerror="" scenery fallback so it can never fire.
-    if (out.includes('id="__site-logo__"')) {
+    // Matches any variant: __site-logo__, __site-logo-2__, __site-logo-N__, etc.
+    if (/__site-logo[^"]*"/.test(out)) {
       out = out.replace(
-        /(<img\b[^>]*id="__site-logo__"[^>]*)\bsrc="[^"]*"/i,
+        /(<img\b[^>]*id="__site-logo[^"]*"[^>]*)\bsrc="[^"]*"/i,
         `$1src="${src}"`,
       );
       // Strip onerror — prevents the picsum scenery fallback from ever loading
       out = out.replace(
-        /(<img\b[^>]*id="__site-logo__"[^>]*?)\s*\bonerror="[^"]*"/i,
+        /(<img\b[^>]*id="__site-logo[^"]*"[^>]*?)\s*\bonerror="[^"]*"/i,
         "$1",
       );
       return out;
@@ -2709,11 +2711,11 @@ export default function SuperClientPage() {
                   : section.customHtml
                       // Remove the flex wrapper div that contains only the logo img
                       .replace(
-                        /<div[^>]*flex-shrink:0[^>]*>\s*<img\b[^>]*id="__site-logo__"[^>]*\/?>\s*<\/div>/gi,
+                        /<div[^>]*flex-shrink:0[^>]*>\s*<img\b[^>]*id="__site-logo[^"]*"[^>]*\/?>\s*<\/div>/gi,
                         "",
                       )
-                      // Fallback: remove bare logo img if not wrapped
-                      .replace(/<img\b[^>]*id="__site-logo__"[^>]*\/?>/gi, "");
+                      // Fallback: remove bare logo img if not wrapped (catches __site-logo-N__ variants too)
+                      .replace(/<img\b[^>]*id="__site-logo[^"]*"[^>]*\/?>/gi, "");
                 const patched = {
                   ...(ast.sections[0] as object),
                   customHtml: patchedHtml,
