@@ -836,7 +836,7 @@ export default function SuperClientPage() {
   } | null>(null);
   const [composerInstructions, setComposerInstructions] = useState("");
   const [composerPresentationMode, setComposerPresentationMode] =
-    useState(false);
+    useState<"web" | "pdf-landscape" | "pdf-portrait">("web");
   const [composerImage, setComposerImage] = useState<{
     base64: string;
     mediaType: string;
@@ -1479,10 +1479,12 @@ export default function SuperClientPage() {
     setPdfDownloading(true);
     showToast("Generating PDF…");
     try {
+      const orientation = viewingMicrosite.ast?.pdfOrientation === "portrait" ? "portrait" : "landscape";
       const blob = await exportSuperClientMicrositeAsPdf(
         apiKey,
         name,
         viewingMicrosite.id,
+        orientation,
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -2159,7 +2161,7 @@ export default function SuperClientPage() {
     setComposerStage(null);
     setComposerProposal(null);
     setComposerInstructions("");
-    setComposerPresentationMode(false);
+    setComposerPresentationMode("web");
     setComposerImage(null);
     setComposerLogo(null);
     setComposerLogoUrl("");
@@ -2660,13 +2662,15 @@ export default function SuperClientPage() {
       }
 
       let partialCharCount = 0;
-      const isPdfMode = composerPresentationMode;
+      const isPdfMode = composerPresentationMode !== "web";
+      const pdfOrientation = composerPresentationMode === "pdf-portrait" ? "portrait" : "landscape";
       await generateMicrositeV2Stream(apiKey, name, proposalId, {
         proposalMarkdown,
         userPrompt: proposalInstructions,
         referenceImage: proposalImage,
         ...(contextImages.length > 0 ? { contextImages } : {}),
         pdfPresentation: isPdfMode || undefined,
+        pdfOrientation: isPdfMode ? pdfOrientation : undefined,
         signal: msAbort.signal,
         onEvent: (evt) => {
           if (evt.type === "html_chunk") {
@@ -2724,7 +2728,7 @@ export default function SuperClientPage() {
               }
             }
             // Open panel immediately with the stream AST — don't block on save
-            if (isPdfMode) ast = { ...ast, pdfPresentation: true };
+            if (isPdfMode) ast = { ...ast, pdfPresentation: true, pdfOrientation };
             const tempId = `preview-${msGenId}`;
             const genHtml = buildHtml(ast);
             setActiveSrcDoc(computeSrcDoc(genHtml, false));
@@ -2774,7 +2778,7 @@ export default function SuperClientPage() {
                 void appendSuperClientHistory(apiKey, name, [
                   {
                     role: "user",
-                    content: `Generate microsite for "${proposalTitle}"${composerPresentationMode ? " (PDF Presentation)" : ""}`,
+                    content: `Generate microsite for "${proposalTitle}"${composerPresentationMode !== "web" ? ` (PDF ${composerPresentationMode === "pdf-portrait" ? "9:16" : "16:9"})` : ""}`,
                     createdAt: generationStartedAt,
                   },
                   {
@@ -3802,16 +3806,13 @@ export default function SuperClientPage() {
                   />
                   {/* Mode toggle row — sits between textarea and action bar */}
                   <div className="composer-mode-row">
-                    {([
-                      { label: "Web Microsite", value: false },
-                      { label: "PDF 16:9", value: true },
-                    ] as { label: string; value: boolean }[]).map(({ label, value }) => (
+                    {(["web", "pdf-landscape", "pdf-portrait"] as const).map((value) => (
                       <button
-                        key={label}
+                        key={value}
                         onClick={() => setComposerPresentationMode(value)}
                         className={`composer-mode-btn${composerPresentationMode === value ? " composer-mode-btn--active" : ""}`}
                       >
-                        {label}
+                        {value === "web" ? "Web Microsite" : value === "pdf-landscape" ? "PDF 16:9" : "PDF 9:16"}
                       </button>
                     ))}
                   </div>
@@ -4996,7 +4997,7 @@ export default function SuperClientPage() {
                         </>
                       ) : (
                         <>
-                          <Download size={12} /> Download PDF
+                          <Download size={12} /> Download PDF {lastMicrositeRef.current?.ast?.pdfOrientation === "portrait" ? "9:16" : "16:9"}
                         </>
                       )}
                     </button>
@@ -6056,7 +6057,7 @@ export default function SuperClientPage() {
                               </span>
                               {m.pdfPresentation && (
                                 <span
-                                  title="PDF Presentation (16:9)"
+                                  title={`PDF Presentation (${m.pdfOrientation === "portrait" ? "9:16" : "16:9"})`}
                                   style={{
                                     flexShrink: 0,
                                     fontSize: 9,
@@ -6069,7 +6070,7 @@ export default function SuperClientPage() {
                                     letterSpacing: "0.04em",
                                   }}
                                 >
-                                  PDF
+                                  {m.pdfOrientation === "portrait" ? "PDF 9:16" : "PDF 16:9"}
                                 </span>
                               )}
                             </div>

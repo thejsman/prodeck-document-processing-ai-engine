@@ -70,6 +70,7 @@ interface ScMicrosite {
   savedAt: string;
   version: number;
   pdfPresentation?: boolean;
+  pdfOrientation?: 'landscape' | 'portrait';
 }
 
 interface GenerationEntry {
@@ -1121,6 +1122,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       savedAt: now.toISOString(),
       version,
       ...(astObj?.pdfPresentation ? { pdfPresentation: true } : {}),
+      ...(astObj?.pdfOrientation ? { pdfOrientation: astObj.pdfOrientation as 'landscape' | 'portrait' } : {}),
     };
 
     await writeFile(path.join(micrositesDir, `${id}.json`), JSON.stringify(body.ast, null, 2));
