@@ -2167,11 +2167,8 @@ export interface V2StreamOptions {
   designPrompt?: string;
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
-<<<<<<< HEAD
   pdfPresentation?: boolean;
-=======
   contextImages?: V2StreamContextImage[];
->>>>>>> d946696df1eafb0f0d522d1b37fcfb69bb65f574
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -2191,11 +2188,8 @@ export async function generateMicrositeV2Stream(
       ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
-<<<<<<< HEAD
       ...(opts.pdfPresentation ? { pdfPresentation: true } : {}),
-=======
       ...(opts.contextImages?.length ? { contextImages: opts.contextImages } : {}),
->>>>>>> d946696df1eafb0f0d522d1b37fcfb69bb65f574
     }),
     signal: opts.signal,
   });
