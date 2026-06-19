@@ -698,22 +698,29 @@ export async function publishMicrosite(
   return handleResponse<{ downloadUrl: string; size: number }>(res);
 }
 
+export interface PublishMeta {
+  subdomain?: string;
+  customDomain?: string;
+  url: string;
+  publishedAt: string;
+}
+
 export async function fetchPublishMeta(
   namespace: string,
   proposalId: string,
-): Promise<{ subdomain: string; url: string; publishedAt: string } | null> {
+): Promise<PublishMeta | null> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
   );
   if (!res.ok) return null;
-  return res.json() as Promise<{ subdomain: string; url: string; publishedAt: string } | null>;
+  return res.json() as Promise<PublishMeta | null>;
 }
 
 export async function savePublishMeta(
   apiKey: string,
   namespace: string,
   proposalId: string,
-  meta: { subdomain: string; url: string; publishedAt: string },
+  meta: PublishMeta,
 ): Promise<void> {
   await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
@@ -2101,13 +2108,70 @@ export async function analyzeProposalV2(
 
 // ── V2 Generate Stream ───────────────────────────────────────────────────────
 
+export interface V2StreamContextImage {
+  url: string;
+  analysis: {
+    index: number;
+    source: unknown;
+    metadata: {
+      description: string;
+      objects: string[];
+      dominantColors: string[];
+      readableText: string;
+      formatHint: string;
+      tags: string[];
+      sentiment: string;
+      dimensions: { width: number; height: number } | null;
+    };
+  };
+  placementHint?: string;
+}
+
+// PreparedImage is the output of the /images/prepare skill
+export type PreparedImage = V2StreamContextImage;
+
+export interface PrepareImagesOptions {
+  images: Array<{ base64: string; mediaType: string }>;
+  proposalMarkdown?: string;
+  userInstructions?: string;
+}
+
+export async function prepareImages(
+  apiKey: string,
+  namespace: string,
+  opts: PrepareImagesOptions,
+): Promise<PreparedImage[]> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/images/prepare`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        images: opts.images,
+        ...(opts.proposalMarkdown ? { proposalMarkdown: opts.proposalMarkdown } : {}),
+        ...(opts.userInstructions ? { userInstructions: opts.userInstructions } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'unknown error');
+    throw new Error(`Image prepare failed (${res.status}): ${text}`);
+  }
+  const data = await res.json() as { images: PreparedImage[] };
+  return data.images;
+}
+
 export interface V2StreamOptions {
   proposalMarkdown: string;
   userPrompt?: string;
   designPrompt?: string;
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
+<<<<<<< HEAD
   pdfPresentation?: boolean;
+=======
+  contextImages?: V2StreamContextImage[];
+>>>>>>> d946696df1eafb0f0d522d1b37fcfb69bb65f574
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -2127,7 +2191,11 @@ export async function generateMicrositeV2Stream(
       ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
+<<<<<<< HEAD
       ...(opts.pdfPresentation ? { pdfPresentation: true } : {}),
+=======
+      ...(opts.contextImages?.length ? { contextImages: opts.contextImages } : {}),
+>>>>>>> d946696df1eafb0f0d522d1b37fcfb69bb65f574
     }),
     signal: opts.signal,
   });
@@ -2521,4 +2589,117 @@ export async function streamSuperClientChat(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Org-level Inspiration & Global Context — Author Voice (Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface AuthorVoiceWeightedItem {
+  value: string;
+  weight: number;
+}
+
+export interface AuthorVoice {
+  version: number;
+  updatedAt: string;
+  docCount: number;
+  tone: string[];
+  formality: 'casual' | 'neutral' | 'formal' | 'highly-formal';
+  sectionPatterns: string[];
+  openingStyle: string;
+  closingStyle: string;
+  recurringPhrases: AuthorVoiceWeightedItem[];
+  vocabulary: AuthorVoiceWeightedItem[];
+  persuasionPatterns: AuthorVoiceWeightedItem[];
+  formatting: string[];
+  sourceProfileIds: string[];
+}
+
+export interface VoiceDocEntry {
+  id: string;
+  sourceDocument: string;
+  size: number;
+  uploadedAt: string;
+  status: 'processing' | 'extracted' | 'failed';
+  error?: string;
+}
+
+export interface OrgContextSettings {
+  applyAuthorVoice: boolean;
+  applyDesignKit: boolean;
+}
+
+export async function fetchAuthorVoice(apiKey: string): Promise<AuthorVoice | null> {
+  const res = await fetch('/api/org-context/voice', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ voice: AuthorVoice | null }>(res);
+  return data.voice;
+}
+
+export async function fetchVoiceDocuments(apiKey: string): Promise<VoiceDocEntry[]> {
+  const res = await fetch('/api/org-context/voice/documents', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ documents: VoiceDocEntry[] }>(res);
+  return data.documents;
+}
+
+export async function uploadVoiceDocument(
+  apiKey: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/org-context/voice/documents/upload');
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteVoiceDocument(apiKey: string, id: string): Promise<AuthorVoice> {
+  const res = await fetch(`/api/org-context/voice/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function recomputeAuthorVoice(apiKey: string): Promise<AuthorVoice> {
+  const res = await fetch('/api/org-context/voice/regenerate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function fetchOrgContextSettings(apiKey: string): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
+}
+
+export async function saveOrgContextSettings(
+  apiKey: string,
+  patch: Partial<OrgContextSettings>,
+): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(patch),
+  });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
 }

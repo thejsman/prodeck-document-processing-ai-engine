@@ -31,15 +31,17 @@ export interface PublishedAst {
   ast: LayoutAST;
   namespace: string;
   publishedAt: string;
+  passwordHash?: string;
 }
 
 export async function putAst(
   subdomain: string,
   ast: LayoutAST,
-  meta: { namespace: string },
+  meta: { namespace: string; passwordHash?: string },
 ): Promise<{ publishedAt: string }> {
   const publishedAt = new Date().toISOString();
   const body: PublishedAst = { ast, namespace: meta.namespace, publishedAt };
+  if (meta.passwordHash !== undefined) body.passwordHash = meta.passwordHash;
 
   await client().send(
     new PutObjectCommand({

@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger }
 import { llmGenerateFn } from './agent-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
+import { OrgVoiceStore, readOrgContextSettings } from '@ai-engine/runtime';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -693,11 +694,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     };
 
     try {
-      const [contextMd, history, memResult, scFiles] = await Promise.all([
+      const [contextMd, history, memResult, scFiles, authorVoiceBlock, orgSettings] = await Promise.all([
         readContext(dir),
         readHistory(dir),
         new ClientMemoryService(workdir).prepopulate(name),
         readScFiles(dir),
+        new OrgVoiceStore(workdir).getRendered(),
+        readOrgContextSettings(workdir),
       ]);
 
       const extractedFiles = scFiles.filter((f) => f.status === 'extracted');
@@ -768,6 +771,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       if (contextMd.trim()) {
         promptParts.push(`\n## Client Intelligence\n\n${contextMd.trim()}`);
+      }
+
+      // Org-level Author Voice — STYLE ONLY (no client facts). Injected when the
+      // org has learned a voice from past proposals and the toggle is on.
+      if (orgSettings.applyAuthorVoice && authorVoiceBlock) {
+        promptParts.push(`\n${authorVoiceBlock}`);
       }
 
       if (memResult.found && (Object.keys(memResult.stableFields).length > 0 || memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {

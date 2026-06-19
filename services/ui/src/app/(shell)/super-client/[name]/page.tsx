@@ -8,12 +8,14 @@ import {
   ArrowLeft,
   ArrowUp,
   X,
+  Check,
   CheckCircle,
   Loader,
   Sparkles,
   Globe,
   FileText,
   ImagePlus,
+  ImageIcon,
   MoreHorizontal,
   Trash2,
   ChevronRight,
@@ -27,7 +29,10 @@ import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useSidebar } from "@/lib/sidebar-store";
-import { MemorySection, ClientProfileFields } from "@/components/chat/MemorySection";
+import {
+  MemorySection,
+  ClientProfileFields,
+} from "@/components/chat/MemorySection";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { GenerateV2Modal } from "@/components/microsite/GenerateV2Modal";
@@ -68,6 +73,8 @@ import {
   revertSuperClientMicrosite,
   patchSuperClientMicrositeHtml,
   generateMicrositeV2Stream,
+  prepareImages,
+  type PreparedImage,
   exportSuperClientMicrositeAsPdf,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
@@ -129,7 +136,10 @@ function ArtifactCard({
       {/* Check icon — top right when complete */}
       {isComplete && (
         <span style={{ position: "absolute", top: 9, right: 10 }}>
-          <CheckCircle size={13} style={{ color: "#22c55e", display: "block" }} />
+          <CheckCircle
+            size={13}
+            style={{ color: "#22c55e", display: "block" }}
+          />
         </span>
       )}
 
@@ -194,7 +204,14 @@ function ArtifactCard({
       {/* Loader — absolute top-right while generating */}
       {isGenerating && (
         <span style={{ position: "absolute", top: 9, right: 10 }}>
-          <Loader size={13} style={{ color: "var(--primary)", animation: "spin 1s linear infinite", display: "block" }} />
+          <Loader
+            size={13}
+            style={{
+              color: "var(--primary)",
+              animation: "spin 1s linear infinite",
+              display: "block",
+            }}
+          />
         </span>
       )}
 
@@ -202,7 +219,15 @@ function ArtifactCard({
       {isGenerating && isMicrosite && (
         <div style={{ padding: "0 10px 10px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
+            <div
+              style={{
+                flex: 1,
+                height: 3,
+                borderRadius: 2,
+                background: "var(--border)",
+                overflow: "hidden",
+              }}
+            >
               <div
                 style={{
                   height: "100%",
@@ -213,7 +238,14 @@ function ArtifactCard({
                 }}
               />
             </div>
-            <span style={{ fontSize: 10, color: "var(--muted)", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+            <span
+              style={{
+                fontSize: 10,
+                color: "var(--muted)",
+                fontVariantNumeric: "tabular-nums",
+                flexShrink: 0,
+              }}
+            >
               {Math.round(progressPct)}%
             </span>
           </div>
@@ -221,7 +253,14 @@ function ArtifactCard({
       )}
       {/* Steps — hide once complete */}
       {gen.steps.length > 0 && isGenerating && (
-        <div style={{ padding: "0 10px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+        <div
+          style={{
+            padding: "0 10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 3,
+          }}
+        >
           {gen.steps.slice(-4).map((step, i, arr) => {
             const isLast = i === arr.length - 1;
             const isActive = isLast && isGenerating;
@@ -237,9 +276,16 @@ function ArtifactCard({
                 }}
               >
                 {isActive ? (
-                  <span className="status-glyph" style={{ width: 6, height: 6, flexShrink: 0 }} />
+                  <span
+                    className="status-glyph"
+                    style={{ width: 6, height: 6, flexShrink: 0 }}
+                  />
                 ) : (
-                  <span style={{ color: "#22c55e", fontSize: 9, flexShrink: 0 }}>✓</span>
+                  <span
+                    style={{ color: "#22c55e", fontSize: 9, flexShrink: 0 }}
+                  >
+                    ✓
+                  </span>
                 )}
                 <span style={{ flex: 1 }}>{step}</span>
               </div>
@@ -248,7 +294,13 @@ function ArtifactCard({
         </div>
       )}
       {gen.phase === "error" && (
-        <div style={{ padding: "0 10px 12px", fontSize: 11, color: "var(--danger)" }}>
+        <div
+          style={{
+            padding: "0 10px 12px",
+            fontSize: 11,
+            color: "var(--danger)",
+          }}
+        >
           {gen.error ?? "Generation failed"}
         </div>
       )}
@@ -546,7 +598,7 @@ export default function SuperClientPage() {
     setIframeContainerH(el.offsetHeight);
     setIframeContainerW(el.offsetWidth);
     return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Clamp chatPanelWidth whenever the container resizes (e.g. left nav opens/closes)
@@ -783,7 +835,8 @@ export default function SuperClientPage() {
     markdown: string;
   } | null>(null);
   const [composerInstructions, setComposerInstructions] = useState("");
-  const [composerPresentationMode, setComposerPresentationMode] = useState(false);
+  const [composerPresentationMode, setComposerPresentationMode] =
+    useState(false);
   const [composerImage, setComposerImage] = useState<{
     base64: string;
     mediaType: string;
@@ -797,6 +850,27 @@ export default function SuperClientPage() {
   const [composerMessage, setComposerMessage] = useState("");
   const composerImageInputRef = useRef<HTMLInputElement | null>(null);
   const composerLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const composerContextImageInputRef = useRef<HTMLInputElement | null>(null);
+  const [composerContextImages, setComposerContextImages] = useState<
+    Array<{ id: string; base64: string; mediaType: string; preview: string }>
+  >([]);
+  const [composerPreparedImages, setComposerPreparedImages] = useState<
+    PreparedImage[]
+  >([]);
+  const [composerImagesPreparing, setComposerImagesPreparing] = useState(false);
+  // IDs of images that were already ready before the current prepare cycle — these keep full opacity
+  const [readyImageIds, setReadyImageIds] = useState<Set<string>>(new Set());
+  const [composerAttachMenuOpen, setComposerAttachMenuOpen] = useState(false);
+  // Holds latest name/apiKey/proposalMarkdown for the prepare effect without being effect deps
+  const prepareParamsRef = useRef<{
+    name: string;
+    apiKey: string;
+    proposalMarkdown: string;
+  }>({
+    name: "",
+    apiKey: "",
+    proposalMarkdown: "",
+  });
 
   const [toastMsg, setToastMsg] = useState<{
     text: string;
@@ -1108,12 +1182,12 @@ export default function SuperClientPage() {
   // Reset strip visibility when a new microsite/proposal is opened
   useEffect(() => {
     if (viewingMicrosite) setMicrositeStripVisible(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingMicrosite?.id]);
 
   useEffect(() => {
     if (viewingProposal) setProposalStripVisible(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingProposal?.fileName]);
 
   useEffect(() => {
@@ -1124,10 +1198,13 @@ export default function SuperClientPage() {
       if (msg.type === "hover") setHoveredElement(msg);
       else if (msg.type === "leave") setHoveredElement(null);
       else if (msg.type === "track-update" && msg.rect) {
-        setSelectedElement(prev => prev ? { ...prev, rect: msg.rect } : prev);
-        setHoveredElement(prev => prev ? { ...prev, rect: msg.rect } : prev);
-      }
-      else if (msg.type === "select") setSelectedElement(msg);
+        setSelectedElement((prev) =>
+          prev ? { ...prev, rect: msg.rect } : prev,
+        );
+        setHoveredElement((prev) =>
+          prev ? { ...prev, rect: msg.rect } : prev,
+        );
+      } else if (msg.type === "select") setSelectedElement(msg);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -1402,12 +1479,21 @@ export default function SuperClientPage() {
     setPdfDownloading(true);
     showToast("Generating PDF…");
     try {
-      const blob = await exportSuperClientMicrositeAsPdf(apiKey, name, viewingMicrosite.id);
+      const blob = await exportSuperClientMicrositeAsPdf(
+        apiKey,
+        name,
+        viewingMicrosite.id,
+      );
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      const title = (viewingMicrosite.ast?.meta as { title?: string } | undefined)?.title ?? name;
-      a.download = `${title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()}-presentation.pdf`;
+      const title =
+        (viewingMicrosite.ast?.meta as { title?: string } | undefined)?.title ??
+        name;
+      a.download = `${title
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase()}-presentation.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       showToast("PDF downloaded");
@@ -1484,10 +1570,16 @@ export default function SuperClientPage() {
         // __BG_IMAGE_PATCH__ would set a CSS background-image that's invisible
         // because the real <img> element sits on top. Use __IMAGE_INJECT_SCOPED__
         // instead — it finds and replaces the <img src> inside the container.
-        const hasWrappedImg = selectedTag !== "img" &&
+        const hasWrappedImg =
+          selectedTag !== "img" &&
           /<img\b/i.test(selectedElement?.outerHtml ?? "");
 
-        if (selectedElement?.path && isBgIntent && selectedTag !== "img" && !hasWrappedImg) {
+        if (
+          selectedElement?.path &&
+          isBgIntent &&
+          selectedTag !== "img" &&
+          !hasWrappedImg
+        ) {
           // "add/set/change background image on a section/div" with no img child
           // Use __BG_IMAGE_PATCH__ which sets background-image in the inline style.
           instruction = `__BG_IMAGE_PATCH__:${selectedElement.path}||${url}`;
@@ -1541,7 +1633,7 @@ export default function SuperClientPage() {
     setMicrositeEditBanner("");
     try {
       let finalHtml: string;
-      let editSummary: string = '';
+      let editSummary: string = "";
 
       if (hasText && activeLogo) {
         // Text edit first, then inject logo via deterministic server bypass
@@ -1586,7 +1678,7 @@ export default function SuperClientPage() {
           `__LOGO_INJECT__:${logoSrc}`,
         );
         finalHtml = html;
-        editSummary = 'Logo updated';
+        editSummary = "Logo updated";
       }
 
       setMicrositeEditInput("");
@@ -2073,6 +2165,10 @@ export default function SuperClientPage() {
     setComposerLogoUrl("");
     setShowLogoUrlInput(false);
     setComposerMessage("");
+    setComposerContextImages([]);
+    setComposerPreparedImages([]);
+    setComposerImagesPreparing(false);
+    setReadyImageIds(new Set());
   }
 
   function compressLogoFile(
@@ -2132,11 +2228,36 @@ export default function SuperClientPage() {
   }
 
   function extractAccentColor(html: string): string {
-    // Try common CSS variable patterns that LLM-generated microsites use
-    const m = html.match(
-      /--(?:c-accent|accent|primary|brand-color|color-accent)\s*:\s*(#[0-9a-fA-F]{3,8})/i,
+    // 1. Named accent variables first
+    const named = html.match(
+      /--(?:c-accent|accent|primary|brand(?:-color)?|color-accent|highlight|key-color)\s*:\s*(#[0-9a-fA-F]{3,8})/i,
     );
-    return m?.[1] ?? "#1e3a5f"; // neutral navy fallback
+    if (named) return named[1];
+
+    // 2. Collect all CSS variable hex values from the first 6000 chars and pick
+    //    the first one that is clearly non-neutral (not near-black, near-white, or gray).
+    const snippet = html.slice(0, 6000);
+    const allVars = [
+      ...snippet.matchAll(/--[\w-]+\s*:\s*(#[0-9a-fA-F]{6})\b/gi),
+    ];
+    for (const hit of allVars) {
+      const hex = hit[1];
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      const max = Math.max(r, g, b),
+        min = Math.min(r, g, b);
+      const lightness = (max + min) / 2 / 255;
+      const saturation =
+        max === min
+          ? 0
+          : (max - min) / (255 - Math.abs((2 * (max + min)) / 2 - 255));
+      // Skip near-black (<15% lightness), near-white (>85%), or near-gray (<20% saturation)
+      if (lightness < 0.15 || lightness > 0.85 || saturation < 0.2) continue;
+      return hex;
+    }
+
+    return "#1e3a5f"; // neutral navy fallback
   }
 
   function generateInitialsSvg(initials: string, bgColor: string): string {
@@ -2327,6 +2448,133 @@ export default function SuperClientPage() {
     reader.readAsDataURL(file);
   }
 
+  // Keep prepareParamsRef current on every render so the effect callback can read
+  // the latest values without them being listed as effect deps (which would cause
+  // unnecessary re-runs when unrelated state changes).
+  prepareParamsRef.current = {
+    name: name ?? "",
+    apiKey: apiKey ?? "",
+    proposalMarkdown: composerProposal?.markdown ?? "",
+  };
+
+  // Trigger the prepare skill whenever images or instructions change.
+  // Debounces 400 ms so rapid pastes of multiple images collapse into one call.
+  useEffect(() => {
+    if (composerContextImages.length === 0) {
+      setComposerPreparedImages([]);
+      setComposerImagesPreparing(false);
+      setReadyImageIds(new Set());
+      return;
+    }
+
+    setComposerImagesPreparing(true);
+    const abort = new AbortController();
+    // Snapshot IDs at effect-start so the closure captures the current list
+    const currentIds = composerContextImages.map((img) => img.id);
+
+    const timer = setTimeout(async () => {
+      const {
+        name: ns,
+        apiKey: key,
+        proposalMarkdown,
+      } = prepareParamsRef.current;
+      try {
+        const prepared = await prepareImages(key, ns, {
+          images: composerContextImages.map((img) => ({
+            base64: img.base64,
+            mediaType: img.mediaType,
+          })),
+          ...(proposalMarkdown ? { proposalMarkdown } : {}),
+          ...(composerInstructions.trim()
+            ? { userInstructions: composerInstructions.trim() }
+            : {}),
+        });
+        if (!abort.signal.aborted) {
+          setComposerPreparedImages(prepared);
+          setReadyImageIds(new Set(currentIds));
+          setComposerImagesPreparing(false);
+        }
+      } catch (err) {
+        if (!abort.signal.aborted) {
+          console.warn("[prepare] image prepare skill failed:", err);
+          setComposerPreparedImages([]);
+          setReadyImageIds(new Set());
+          setComposerImagesPreparing(false);
+        }
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
+  }, [composerContextImages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleComposerPaste(e: React.ClipboardEvent<HTMLElement>) {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imageItems = items.filter(
+      (item) => item.kind === "file" && item.type.startsWith("image/"),
+    );
+    if (imageItems.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Capture File objects synchronously — clipboard items are only valid
+    // during the event handler; getAsFile() must not be deferred.
+    const files = imageItems
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+
+    files.forEach((file) => {
+      if (file.type === "image/avif") {
+        // Claude Vision doesn't accept AVIF — convert to JPEG via canvas
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext("2d")!.drawImage(img, 0, 0);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          URL.revokeObjectURL(objectUrl);
+          const base64 = dataUrl.split(",")[1];
+          setComposerContextImages((current) => {
+            if (current.length >= 11) return current;
+            return [
+              ...current,
+              {
+                id: genId(),
+                base64,
+                mediaType: "image/jpeg",
+                preview: dataUrl,
+              },
+            ];
+          });
+        };
+        img.src = objectUrl;
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target?.result as string;
+          const base64 = dataUrl.split(",")[1];
+          const mediaType = file.type as
+            | "image/jpeg"
+            | "image/png"
+            | "image/webp"
+            | "image/gif";
+          setComposerContextImages((current) => {
+            if (current.length >= 11) return current;
+            return [
+              ...current,
+              { id: genId(), base64, mediaType, preview: dataUrl },
+            ];
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
   async function generateComposerMicrosite() {
     if (!composerProposal || !name) return;
 
@@ -2334,7 +2582,9 @@ export default function SuperClientPage() {
     const msAbort = new AbortController();
     const generationStartedAt = new Date().toISOString();
     const proposalTitle = composerProposal.proposal.title;
-    const micrositeTitle = proposalTitle.replace(/\bProposal\b/g, "Microsite").replace(/\bproposal\b/g, "microsite");
+    const micrositeTitle = proposalTitle
+      .replace(/\bProposal\b/g, "Microsite")
+      .replace(/\bproposal\b/g, "microsite");
     const proposalMarkdown = composerProposal.markdown;
     const proposalInstructions = composerInstructions || undefined;
     const proposalImage = composerImage ?? undefined;
@@ -2345,6 +2595,11 @@ export default function SuperClientPage() {
       composerLogo ??
       (composerLogoUrl.trim() ? { url: composerLogoUrl.trim() } : undefined);
     const proposalId = composerProposal.proposal.fileName.replace(/\.md$/, "");
+    // Capture all image state NOW before resetComposer clears it
+    const preparedImagesSnapshot = [...composerPreparedImages];
+    const rawImagesSnapshot = [...composerContextImages];
+    const imageInstructionsSnapshot = composerInstructions;
+    const stillPreparing = composerImagesPreparing;
 
     // Start in the module store (survives navigation)
     generationStore.start({
@@ -2370,12 +2625,47 @@ export default function SuperClientPage() {
     resetComposer();
 
     try {
+      // Use pre-prepared images if ready; otherwise run the prepare skill inline now.
+      // (The eager prepare might still be running if the user clicked Generate quickly.)
+      let contextImages = preparedImagesSnapshot;
+      if (contextImages.length === 0 && rawImagesSnapshot.length > 0) {
+        generationStore.addStep(
+          msGenId,
+          stillPreparing ? "Finishing image analysis…" : "Preparing images…",
+        );
+        try {
+          contextImages = await prepareImages(apiKey, name, {
+            images: rawImagesSnapshot.map((img) => ({
+              base64: img.base64,
+              mediaType: img.mediaType,
+            })),
+            ...(proposalMarkdown ? { proposalMarkdown } : {}),
+            ...(imageInstructionsSnapshot.trim()
+              ? { userInstructions: imageInstructionsSnapshot.trim() }
+              : {}),
+          });
+          generationStore.addStep(
+            msGenId,
+            `✓ ${contextImages.length} image(s) ready`,
+          );
+        } catch (imgErr) {
+          const errMsg =
+            imgErr instanceof Error ? imgErr.message : String(imgErr);
+          console.warn("[generate] inline image prepare failed:", errMsg);
+          generationStore.addStep(
+            msGenId,
+            `⚠ Image preparation failed: ${errMsg.slice(0, 200)} — generating without images`,
+          );
+        }
+      }
+
       let partialCharCount = 0;
       const isPdfMode = composerPresentationMode;
       await generateMicrositeV2Stream(apiKey, name, proposalId, {
         proposalMarkdown,
         userPrompt: proposalInstructions,
         referenceImage: proposalImage,
+        ...(contextImages.length > 0 ? { contextImages } : {}),
         pdfPresentation: isPdfMode || undefined,
         signal: msAbort.signal,
         onEvent: (evt) => {
@@ -2408,9 +2698,18 @@ export default function SuperClientPage() {
                   ((ast.brand as unknown as Record<string, unknown>)
                     ?.companyName as string) ||
                   "";
+                // When a real logo is provided inject it; otherwise strip the
+                // placeholder entirely — removes broken-image icon from navbar.
                 const patchedHtml = proposalLogo
                   ? injectLogoIntoHtml(section.customHtml, proposalLogo)
-                  : injectInitialsFallback(section.customHtml, companyName);
+                  : section.customHtml
+                      // Remove the flex wrapper div that contains only the logo img
+                      .replace(
+                        /<div[^>]*flex-shrink:0[^>]*>\s*<img\b[^>]*id="__site-logo__"[^>]*\/?>\s*<\/div>/gi,
+                        "",
+                      )
+                      // Fallback: remove bare logo img if not wrapped
+                      .replace(/<img\b[^>]*id="__site-logo__"[^>]*\/?>/gi, "");
                 const patched = {
                   ...(ast.sections[0] as object),
                   customHtml: patchedHtml,
@@ -2872,10 +3171,11 @@ export default function SuperClientPage() {
         <div
           style={{
             flex: 1,
-            maxWidth:
-              editModeActive ? CHAT_MIN_WIDTH
-              : (viewingProposal || viewingMicrosite) ? chatPanelWidth
-              : "100%",
+            maxWidth: editModeActive
+              ? CHAT_MIN_WIDTH
+              : viewingProposal || viewingMicrosite
+                ? chatPanelWidth
+                : "100%",
             display: "flex",
             flexDirection: "column",
             minWidth: 0,
@@ -2946,16 +3246,16 @@ export default function SuperClientPage() {
                   // Strip LLM artifact markup. During streaming cut at the first open tag;
                   // on completed messages remove all self-closing and block artifact tags.
                   const visibleContent = (() => {
-                    if (msg.role !== 'assistant') return msg.content;
+                    if (msg.role !== "assistant") return msg.content;
                     if (msg.streaming) {
                       return msg.content
-                        .replace(/<(proposal|section-update)[^>]*>[\s\S]*$/, '')
+                        .replace(/<(proposal|section-update)[^>]*>[\s\S]*$/, "")
                         .trim();
                     }
                     return msg.content
-                      .replace(/<text-replace\b[^>]*?\/?>/gi, '')
-                      .replace(/<\/?(?:proposal|section-update)\b[^>]*>/gi, '')
-                      .replace(/\n{3,}/g, '\n\n')
+                      .replace(/<text-replace\b[^>]*?\/?>/gi, "")
+                      .replace(/<\/?(?:proposal|section-update)\b[^>]*>/gi, "")
+                      .replace(/\n{3,}/g, "\n\n")
                       .trim();
                   })();
                   const hasContent = !!visibleContent;
@@ -2974,23 +3274,45 @@ export default function SuperClientPage() {
                         </div>
                       );
                     }
-                    if (msg.editContext === 'microsite' || msg.editContext === 'proposal') {
-                      const EyebrowIcon = msg.editContext === 'microsite' ? Globe : FileText;
-                      const eyebrowLabel = msg.editContext === 'microsite' ? 'Edit microsite' : 'Edit proposal';
+                    if (
+                      msg.editContext === "microsite" ||
+                      msg.editContext === "proposal"
+                    ) {
+                      const EyebrowIcon =
+                        msg.editContext === "microsite" ? Globe : FileText;
+                      const eyebrowLabel =
+                        msg.editContext === "microsite"
+                          ? "Edit microsite"
+                          : "Edit proposal";
                       return (
-                        <div key={msg.id} className="chat-v2-message chat-v2-message--user">
-                          <div className="chat-v2-bubble" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                            <span style={{
-                              fontSize: 11,
-                              fontWeight: 500,
-                              color: '#706F6B',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 5,
-                              lineHeight: 1,
-                              marginBottom: 0,
-                            }}>
-                              <EyebrowIcon size={16} style={{ flexShrink: 0 }} />
+                        <div
+                          key={msg.id}
+                          className="chat-v2-message chat-v2-message--user"
+                        >
+                          <div
+                            className="chat-v2-bubble"
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 0,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: "#706F6B",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
+                                lineHeight: 1,
+                                marginBottom: 0,
+                              }}
+                            >
+                              <EyebrowIcon
+                                size={16}
+                                style={{ flexShrink: 0 }}
+                              />
                               {eyebrowLabel}
                             </span>
                             {visibleContent}
@@ -3009,25 +3331,47 @@ export default function SuperClientPage() {
                   }
 
                   // Microsite edit confirmation — eyebrow above normal assistant bubble
-                  if (msg.editContext === 'microsite') {
-                    const isError = visibleContent.startsWith('Edit failed');
+                  if (msg.editContext === "microsite") {
+                    const isError = visibleContent.startsWith("Edit failed");
                     return (
-                      <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 2 }}>
-                          <Icon icon={isError ? X : CheckCircle} size="xs" style={{ color: isError ? '#ef4444' : '#22c55e' }} />
-                          <span style={{
-                            fontSize: 11,
-                            fontWeight: 500,
-                            color: isError ? '#ef4444' : '#22c55e',
-                          }}>
-                            {isError ? 'Edit failed' : 'Microsite updated'}
+                      <div
+                        key={msg.id}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                            paddingLeft: 2,
+                          }}
+                        >
+                          <Icon
+                            icon={isError ? X : CheckCircle}
+                            size="xs"
+                            style={{ color: isError ? "#ef4444" : "#22c55e" }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: isError ? "#ef4444" : "#22c55e",
+                            }}
+                          >
+                            {isError ? "Edit failed" : "Microsite updated"}
                           </span>
                         </div>
                         <div className="chat-v2-message chat-v2-message--assistant">
                           <div className="chat-v2-avatar">AI</div>
                           <div className="chat-v2-bubble">
                             <div className="prose">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleContent}</ReactMarkdown>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {visibleContent}
+                              </ReactMarkdown>
                             </div>
                           </div>
                         </div>
@@ -3036,125 +3380,158 @@ export default function SuperClientPage() {
                   }
 
                   // Assistant message — column wrapper needed to stack bubble + artifact card
-                  const isProposalDone = msg.editContext === 'proposal' && !msg.streaming &&
-                    /\b(updated|changed|saved|applied|modified|revised|replaced|rewritten|regenerated)\b/i.test(visibleContent) &&
-                    !/\?|for example[:\s]|what (would|do|changes)|give me (the )?direction|let me know|tell me|could you|can you/i.test(visibleContent);
+                  const isProposalDone =
+                    msg.editContext === "proposal" &&
+                    !msg.streaming &&
+                    /\b(updated|changed|saved|applied|modified|revised|replaced|rewritten|regenerated)\b/i.test(
+                      visibleContent,
+                    ) &&
+                    !/\?|for example[:\s]|what (would|do|changes)|give me (the )?direction|let me know|tell me|could you|can you/i.test(
+                      visibleContent,
+                    );
                   return (
-                    <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: isProposalDone ? 4 : 0 }}>
+                    <div
+                      key={msg.id}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: isProposalDone ? 4 : 0,
+                      }}
+                    >
                       {isProposalDone && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 2 }}>
-                          <Icon icon={CheckCircle} size="xs" style={{ color: '#22c55e' }} />
-                          <span style={{
-                            fontSize: 11,
-                            fontWeight: 500,
-                            color: '#22c55e',
-                          }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                            paddingLeft: 2,
+                          }}
+                        >
+                          <Icon
+                            icon={CheckCircle}
+                            size="xs"
+                            style={{ color: "#22c55e" }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: "#22c55e",
+                            }}
+                          >
                             Proposal updated
                           </span>
                         </div>
                       )}
-                    <div
-                      className="chat-v2-message chat-v2-message--assistant"
-                    >
-                      <div className="chat-v2-avatar">AI</div>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 8,
-                          minWidth: 0,
-                          flex: 1,
-                        }}
-                      >
-                        {msg.editContext === 'proposal' && msg.streaming && (
-                          <span style={{
-                            fontSize: 10,
-                            letterSpacing: '0.08em',
-                            textTransform: 'uppercase',
-                            color: 'var(--text-secondary)',
-                            opacity: 0.5,
-                          }}>
-                            Proposal Edit
-                          </span>
-                        )}
-                        {/* Text bubble — hidden for pure artifact messages */}
-                        {(hasContent || (msg.streaming && !hasArtifact)) && (
-                          <div className="chat-v2-bubble">
-                            {msg.streaming && !visibleContent && (
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                }}
-                              >
-                                <span
-                                  className="status-glyph"
-                                  aria-hidden="true"
-                                />
-                                <em className="chat-status-text">Thinking…</em>
-                              </div>
-                            )}
-                            {visibleContent && (
-                              <>
-                                <div className="prose">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {visibleContent}
-                                  </ReactMarkdown>
+                      <div className="chat-v2-message chat-v2-message--assistant">
+                        <div className="chat-v2-avatar">AI</div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                            minWidth: 0,
+                            flex: 1,
+                          }}
+                        >
+                          {msg.editContext === "proposal" && msg.streaming && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                color: "var(--text-secondary)",
+                                opacity: 0.5,
+                              }}
+                            >
+                              Proposal Edit
+                            </span>
+                          )}
+                          {/* Text bubble — hidden for pure artifact messages */}
+                          {(hasContent || (msg.streaming && !hasArtifact)) && (
+                            <div className="chat-v2-bubble">
+                              {msg.streaming && !visibleContent && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                  }}
+                                >
+                                  <span
+                                    className="status-glyph"
+                                    aria-hidden="true"
+                                  />
+                                  <em className="chat-status-text">
+                                    Thinking…
+                                  </em>
                                 </div>
-                                {msg.streaming && (
-                                  <span className="chat-cursor" />
-                                )}
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {/* Artifact card */}
-                        {hasArtifact && (
-                          <ArtifactCard
-                            gid={msg.generationId!}
-                            generations={generations}
-                            version={(() => {
-                              const g = generations.find((x) => x.id === msg.generationId);
-                              if (!g) return undefined;
-                              if (g.type === "microsite" && g.result?.micrositeId)
-                                return msVersionMap.get(g.result.micrositeId);
-                              if (g.type === "proposal" && g.result?.fileName)
-                                return propVersionMap.get(g.result.fileName);
-                              return undefined;
-                            })()}
-                            onView={(gen) => {
-                              if (
-                                gen.type === "microsite" &&
-                                gen.result?.micrositeId
-                              ) {
-                                // Always fetch from server so edits made after generation are reflected
-                                const found = microsites.find(
-                                  (m) => m.id === gen.result!.micrositeId,
+                              )}
+                              {visibleContent && (
+                                <>
+                                  <div className="prose">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                      {visibleContent}
+                                    </ReactMarkdown>
+                                  </div>
+                                  {msg.streaming && (
+                                    <span className="chat-cursor" />
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {/* Artifact card */}
+                          {hasArtifact && (
+                            <ArtifactCard
+                              gid={msg.generationId!}
+                              generations={generations}
+                              version={(() => {
+                                const g = generations.find(
+                                  (x) => x.id === msg.generationId,
                                 );
-                                if (!found) {
-                                  showToast(
-                                    "This microsite has been deleted",
-                                    "error",
+                                if (!g) return undefined;
+                                if (
+                                  g.type === "microsite" &&
+                                  g.result?.micrositeId
+                                )
+                                  return msVersionMap.get(g.result.micrositeId);
+                                if (g.type === "proposal" && g.result?.fileName)
+                                  return propVersionMap.get(g.result.fileName);
+                                return undefined;
+                              })()}
+                              onView={(gen) => {
+                                if (
+                                  gen.type === "microsite" &&
+                                  gen.result?.micrositeId
+                                ) {
+                                  // Always fetch from server so edits made after generation are reflected
+                                  const found = microsites.find(
+                                    (m) => m.id === gen.result!.micrositeId,
                                   );
-                                } else {
-                                  void handleOpenMicrosite(found);
+                                  if (!found) {
+                                    showToast(
+                                      "This microsite has been deleted",
+                                      "error",
+                                    );
+                                  } else {
+                                    void handleOpenMicrosite(found);
+                                  }
+                                } else if (
+                                  gen.type === "proposal" &&
+                                  gen.result?.fileName
+                                ) {
+                                  void openProposal({
+                                    fileName: gen.result.fileName,
+                                    title: gen.title,
+                                    savedAt: "",
+                                  });
                                 }
-                              } else if (
-                                gen.type === "proposal" &&
-                                gen.result?.fileName
-                              ) {
-                                void openProposal({
-                                  fileName: gen.result.fileName,
-                                  title: gen.title,
-                                  savedAt: "",
-                                });
-                              }
-                            }}
-                          />
-                        )}
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
                     </div>
                   );
                 })}
@@ -3228,10 +3605,12 @@ export default function SuperClientPage() {
                         gap: 6,
                       }}
                       onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLButtonElement).style.opacity = "0.8";
+                        (e.currentTarget as HTMLButtonElement).style.opacity =
+                          "0.8";
                       }}
                       onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+                        (e.currentTarget as HTMLButtonElement).style.opacity =
+                          "1";
                       }}
                     >
                       <span
@@ -3240,7 +3619,8 @@ export default function SuperClientPage() {
                           width: 26,
                           height: 26,
                           borderRadius: "50%",
-                          background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                          background:
+                            "var(--primary-soft, rgba(99,102,241,0.12))",
                           color: "var(--primary)",
                           display: "flex",
                           alignItems: "center",
@@ -3251,7 +3631,13 @@ export default function SuperClientPage() {
                         <FileText size={13} strokeWidth={1.5} />
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
                           <span
                             style={{
                               flex: 1,
@@ -3270,7 +3656,8 @@ export default function SuperClientPage() {
                               fontSize: 10,
                               fontWeight: 600,
                               color: "var(--primary)",
-                              background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                              background:
+                                "var(--primary-soft, rgba(99,102,241,0.12))",
                               borderRadius: 4,
                               padding: "1px 5px",
                               lineHeight: 1.5,
@@ -3302,316 +3689,494 @@ export default function SuperClientPage() {
 
             {/* Composer expansion — configure */}
             {composerStage === "configure" && composerProposal && (
-              <div
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: 12,
-                  background: "var(--panel-soft)",
-                }}
-              >
+              <>
+                {/* Proposal header — same style as Edit microsite strip */}
                 <div
                   style={{
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    marginBottom: 10,
+                    padding: "0 10px 0 14px",
+                    height: 44,
+                    borderRadius: "16px 16px 0 0",
+                    background:
+                      "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                    marginBottom: -6,
+                    position: "relative",
+                    zIndex: 0,
                   }}
                 >
-                  <p
+                  <span
                     style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--text)",
-                      margin: 0,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "var(--primary)",
                       display: "flex",
                       alignItems: "center",
-                      gap: 6,
+                      gap: 5,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
                     }}
                   >
-                    <Sparkles size={13} /> {composerProposal.proposal.title}
-                  </p>
+                    <Sparkles size={14} style={{ flexShrink: 0 }} />
+                    {composerProposal.proposal.title}
+                  </span>
                   <button
                     onClick={resetComposer}
                     style={{
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      color: "var(--muted)",
+                      color: "var(--primary)",
                       display: "flex",
+                      alignItems: "center",
                       padding: 0,
+                      opacity: 0.6,
+                      flexShrink: 0,
                     }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.opacity =
+                        "1";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.opacity =
+                        "0.6";
+                    }}
+                    title="Dismiss"
                   >
-                    <X size={13} />
+                    <X size={16} />
                   </button>
-                </div>
-                <textarea
-                  value={composerInstructions}
-                  onChange={(e) => setComposerInstructions(e.target.value)}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = "auto";
-                    el.style.height = `${el.scrollHeight}px`;
-                  }}
-                  placeholder="Optional: any design direction or focus areas…"
-                  rows={2}
-                  style={{
-                    width: "100%",
-                    resize: "none",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1px solid var(--border)",
-                    background: "var(--panel)",
-                    color: "var(--text)",
-                    fontSize: 13,
-                    outline: "none",
-                    fontFamily: "inherit",
-                    lineHeight: 1.5,
-                    boxSizing: "border-box",
-                    overflow: "hidden",
-                    minHeight: 60,
-                  }}
-                />
-                {/* Output format — segmented control */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: "var(--muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    flexShrink: 0,
-                  }}>
-                    Output
-                  </span>
-                  <div style={{
-                    display: "inline-flex",
-                    background: "var(--bg, #0d1117)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    padding: 2,
-                    gap: 2,
-                  }}>
-                    {([
-                      { val: false, label: "Web Microsite" },
-                      { val: true,  label: "PDF (16:9)" },
-                    ] as const).map(({ val, label }) => (
-                      <button
-                        key={String(val)}
-                        onClick={() => setComposerPresentationMode(val)}
-                        style={{
-                          padding: "3px 10px",
-                          borderRadius: 6,
-                          border: "none",
-                          background: composerPresentationMode === val ? "var(--primary)" : "transparent",
-                          color: composerPresentationMode === val ? "#fff" : "var(--muted)",
-                          fontSize: 11,
-                          fontWeight: composerPresentationMode === val ? 600 : 400,
-                          cursor: "pointer",
-                          transition: "background 0.15s, color 0.15s",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    marginTop: 10,
-                    paddingTop: 10,
-                    borderTop: "1px solid var(--border)",
-                  }}
+                  className="chat-v2-composer"
+                  onPaste={(e) =>
+                    handleComposerPaste(e as React.ClipboardEvent<HTMLElement>)
+                  }
+                  tabIndex={-1}
+                  style={{ outline: "none", position: "relative", zIndex: 1 }}
                 >
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <button
-                      onClick={() => composerImageInputRef.current?.click()}
-                      style={{
-                        background: "none",
-                        border: "1px solid var(--border)",
-                        borderRadius: 6,
-                        padding: "5px 10px",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: composerImage
-                          ? "var(--primary)"
-                          : "var(--muted)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                      }}
-                    >
-                      <ImagePlus size={12} />
-                      {composerImage ? "Image attached ✓" : "Reference image"}
-                    </button>
-                    <button
-                      onClick={() => composerLogoInputRef.current?.click()}
-                      style={{
-                        background: "none",
-                        border: "1px solid var(--border)",
-                        borderRadius: 6,
-                        padding: "5px 10px",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: composerLogo ? "var(--primary)" : "var(--muted)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                      }}
-                    >
-                      <ImagePlus size={12} />
-                      {composerLogo ? "Logo attached ✓" : "Choose logo"}
-                    </button>
-                    {!composerLogo &&
-                      (showLogoUrlInput ? (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                          }}
-                        >
-                          <input
-                            autoFocus
-                            type="url"
-                            value={composerLogoUrl}
-                            onChange={(e) => setComposerLogoUrl(e.target.value)}
-                            placeholder="Paste logo URL…"
+                  {/* Shimmer CSS */}
+                  <style>{`
+                  @keyframes composerWave {
+                    0% { background-position: -200% 0; }
+                    100% { background-position: 200% 0; }
+                  }
+                  .composer-thumb-shimmer {
+                    position: absolute; inset: 0; border-radius: 7px; pointer-events: none;
+                    background: linear-gradient(90deg, transparent 20%, rgba(255,255,255,0.22) 50%, transparent 80%);
+                    background-size: 200% 100%;
+                    animation: composerWave 1.4s ease-in-out infinite;
+                  }
+                `}</style>
+
+                  {/* Textarea */}
+                  <textarea
+                    className="chat-v2-input"
+                    value={composerInstructions}
+                    onChange={(e) => setComposerInstructions(e.target.value)}
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      el.style.height = "auto";
+                      el.style.height = `${el.scrollHeight}px`;
+                    }}
+                    placeholder="Optional: any design direction or focus areas…"
+                    rows={2}
+                    style={{
+                      width: "100%",
+                      resize: "none",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--panel)",
+                      color: "var(--text)",
+                      fontSize: 13,
+                      outline: "none",
+                      fontFamily: "inherit",
+                      lineHeight: 1.5,
+                      boxSizing: "border-box",
+                      overflow: "hidden",
+                      minHeight: 60,
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginTop: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        onClick={() => composerImageInputRef.current?.click()}
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          padding: "5px 10px",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          color: composerImage
+                            ? "var(--primary)"
+                            : "var(--muted)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <ImagePlus size={12} />
+                        {composerImage ? "Image attached ✓" : "Reference image"}
+                      </button>
+                      <button
+                        className={`chat-v2-attach-btn${composerAttachMenuOpen ? " active" : ""}`}
+                        onClick={() => setComposerAttachMenuOpen((v) => !v)}
+                        title="Attach"
+                      >
+                        <Plus size={16} />
+                      </button>
+                      {composerAttachMenuOpen && (
+                        <>
+                          <div
                             style={{
-                              fontSize: 12,
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              border: "1px solid var(--border)",
-                              background: "var(--panel)",
-                              color: "var(--text)",
-                              outline: "none",
-                              width: 180,
+                              position: "fixed",
+                              inset: 0,
+                              zIndex: 9998,
                             }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") setShowLogoUrlInput(false);
-                              if (e.key === "Escape") {
-                                setComposerLogoUrl("");
-                                setShowLogoUrlInput(false);
-                              }
-                            }}
+                            onClick={() => setComposerAttachMenuOpen(false)}
                           />
-                          {composerLogoUrl.trim() && (
-                            <button
-                              onClick={() => setShowLogoUrlInput(false)}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                color: "var(--primary)",
-                                fontSize: 11,
-                                padding: "4px 6px",
-                              }}
-                            >
-                              ✓
-                            </button>
-                          )}
-                          <button
-                            onClick={() => {
+                          <div
+                            style={{
+                              position: "absolute",
+                              bottom: "calc(100% + 6px)",
+                              left: 0,
+                              zIndex: 9999,
+                              background: "var(--panel)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 10,
+                              padding: 4,
+                              minWidth: 192,
+                              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                            }}
+                          >
+                            {[
+                              {
+                                icon: (
+                                  <ImageIcon
+                                    size={14}
+                                    strokeWidth={1.5}
+                                    style={{
+                                      flexShrink: 0,
+                                      color: "var(--muted)",
+                                    }}
+                                  />
+                                ),
+                                label:
+                                  composerContextImages.length > 0
+                                    ? `Add more images (${composerContextImages.length}/11)`
+                                    : "Add images",
+                                action: () => {
+                                  setComposerAttachMenuOpen(false);
+                                  composerContextImageInputRef.current?.click();
+                                },
+                                disabled: composerContextImages.length >= 11,
+                              },
+                              {
+                                icon: (
+                                  <ImagePlus
+                                    size={14}
+                                    strokeWidth={1.5}
+                                    style={{
+                                      flexShrink: 0,
+                                      color: composerImage
+                                        ? "var(--primary)"
+                                        : "var(--muted)",
+                                    }}
+                                  />
+                                ),
+                                label: composerImage
+                                  ? "Design inspiration ✓"
+                                  : "Design inspiration",
+                                action: () => {
+                                  setComposerAttachMenuOpen(false);
+                                  composerImageInputRef.current?.click();
+                                },
+                                disabled: false,
+                              },
+                              {
+                                icon: (
+                                  <ImagePlus
+                                    size={14}
+                                    strokeWidth={1.5}
+                                    style={{
+                                      flexShrink: 0,
+                                      color: composerLogo
+                                        ? "var(--primary)"
+                                        : "var(--muted)",
+                                    }}
+                                  />
+                                ),
+                                label: composerLogo
+                                  ? "Logo attached ✓"
+                                  : "Choose logo",
+                                action: () => {
+                                  setComposerAttachMenuOpen(false);
+                                  composerLogoInputRef.current?.click();
+                                },
+                                disabled: false,
+                              },
+                              ...(!composerLogo
+                                ? [
+                                    {
+                                      icon: (
+                                        <LinkIcon
+                                          size={14}
+                                          strokeWidth={1.5}
+                                          style={{
+                                            flexShrink: 0,
+                                            color: composerLogoUrl.trim()
+                                              ? "var(--primary)"
+                                              : "var(--muted)",
+                                          }}
+                                        />
+                                      ),
+                                      label: composerLogoUrl.trim()
+                                        ? "Logo URL set ✓"
+                                        : "Logo URL",
+                                      action: () => {
+                                        setComposerAttachMenuOpen(false);
+                                        setShowLogoUrlInput(true);
+                                      },
+                                      disabled: false,
+                                    },
+                                  ]
+                                : []),
+                            ].map((item, idx) => (
+                              <button
+                                key={idx}
+                                onClick={item.action}
+                                disabled={item.disabled}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 9,
+                                  width: "100%",
+                                  background: "none",
+                                  border: "none",
+                                  cursor: item.disabled
+                                    ? "not-allowed"
+                                    : "pointer",
+                                  padding: "8px 10px",
+                                  borderRadius: 7,
+                                  fontSize: 13,
+                                  color: item.disabled
+                                    ? "var(--muted)"
+                                    : "var(--foreground)",
+                                  textAlign: "left",
+                                  opacity: item.disabled ? 0.5 : 1,
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!item.disabled)
+                                    (
+                                      e.currentTarget as HTMLButtonElement
+                                    ).style.background = "var(--panel-soft)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  (
+                                    e.currentTarget as HTMLButtonElement
+                                  ).style.background = "none";
+                                }}
+                              >
+                                {item.icon}
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Logo URL inline input */}
+                    {showLogoUrlInput && !composerLogo && (
+                      <div
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          type="url"
+                          value={composerLogoUrl}
+                          onChange={(e) => setComposerLogoUrl(e.target.value)}
+                          placeholder="Paste logo URL…"
+                          style={{
+                            flex: 1,
+                            fontSize: 12,
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid var(--border)",
+                            background: "var(--panel)",
+                            color: "var(--text)",
+                            outline: "none",
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") setShowLogoUrlInput(false);
+                            if (e.key === "Escape") {
                               setComposerLogoUrl("");
                               setShowLogoUrlInput(false);
-                            }}
+                            }
+                          }}
+                        />
+                        {composerLogoUrl.trim() && (
+                          <button
+                            onClick={() => setShowLogoUrlInput(false)}
                             style={{
                               background: "none",
                               border: "none",
                               cursor: "pointer",
-                              color: "var(--muted)",
-                              display: "flex",
-                              padding: 4,
+                              color: "var(--primary)",
+                              fontSize: 11,
+                              padding: "4px 6px",
                             }}
                           >
-                            <X size={11} />
+                            ✓
                           </button>
-                        </div>
-                      ) : (
+                        )}
                         <button
-                          onClick={() => setShowLogoUrlInput(true)}
+                          onClick={() => {
+                            setComposerLogoUrl("");
+                            setShowLogoUrlInput(false);
+                          }}
                           style={{
                             background: "none",
-                            border: "1px solid var(--border)",
-                            borderRadius: 6,
-                            padding: "5px 10px",
+                            border: "none",
                             cursor: "pointer",
-                            fontSize: 12,
-                            color: composerLogoUrl.trim()
-                              ? "var(--primary)"
-                              : "var(--muted)",
+                            color: "var(--muted)",
                             display: "flex",
-                            alignItems: "center",
-                            gap: 5,
+                            padding: 4,
                           }}
                         >
-                          <LinkIcon size={12} />
-                          {composerLogoUrl.trim()
-                            ? "Logo URL set ✓"
-                            : "Logo URL"}
+                          <X size={11} />
                         </button>
-                      ))}
+                      </div>
+                    )}
+
+                    {/* Hidden file inputs */}
+                    <input
+                      ref={composerContextImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files ?? []);
+                        if (files.length === 0) return;
+                        e.target.value = "";
+                        files.forEach((file) => {
+                          if (file.type === "image/avif") {
+                            const objectUrl = URL.createObjectURL(file);
+                            const img = new Image();
+                            img.onload = () => {
+                              const canvas = document.createElement("canvas");
+                              canvas.width = img.naturalWidth;
+                              canvas.height = img.naturalHeight;
+                              canvas.getContext("2d")!.drawImage(img, 0, 0);
+                              const dataUrl = canvas.toDataURL(
+                                "image/jpeg",
+                                0.92,
+                              );
+                              URL.revokeObjectURL(objectUrl);
+                              const base64 = dataUrl.split(",")[1];
+                              setComposerContextImages((current) => {
+                                if (current.length >= 11) return current;
+                                return [
+                                  ...current,
+                                  {
+                                    id: genId(),
+                                    base64,
+                                    mediaType: "image/jpeg",
+                                    preview: dataUrl,
+                                  },
+                                ];
+                              });
+                            };
+                            img.src = objectUrl;
+                          } else {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const dataUrl = ev.target?.result as string;
+                              const base64 = dataUrl.split(",")[1];
+                              const mediaType = file.type as
+                                | "image/jpeg"
+                                | "image/png"
+                                | "image/webp"
+                                | "image/gif";
+                              setComposerContextImages((current) => {
+                                if (current.length >= 11) return current;
+                                return [
+                                  ...current,
+                                  {
+                                    id: genId(),
+                                    base64,
+                                    mediaType,
+                                    preview: dataUrl,
+                                  },
+                                ];
+                              });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        });
+                      }}
+                    />
+                    <input
+                      ref={composerImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleComposerImageUpload(f);
+                      }}
+                    />
+                    <input
+                      ref={composerLogoInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleComposerLogoUpload(f);
+                        e.target.value = "";
+                      }}
+                    />
+
+                    {/* Right: Generate button */}
+                    <button
+                      onClick={() => void generateComposerMicrosite()}
+                      style={{
+                        padding: "7px 14px",
+                        borderRadius: 8,
+                        background: "var(--primary)",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: 13,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <Sparkles size={13} /> Generate Microsite
+                    </button>
                   </div>
-                  <input
-                    ref={composerImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleComposerImageUpload(f);
-                    }}
-                  />
-                  <input
-                    ref={composerLogoInputRef}
-                    type="file"
-                    accept="image/*"
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleComposerLogoUpload(f);
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      // PDF mode + existing microsite → export via server-side Puppeteer.
-                      // PDF mode + no microsite yet → generate fresh slide HTML via LLM.
-                      if (composerPresentationMode && viewingMicrosite) {
-                        void handleDownloadPresentationPDF();
-                      } else {
-                        void generateComposerMicrosite();
-                      }
-                    }}
-                    disabled={pdfDownloading}
-                    style={{
-                      padding: "7px 14px",
-                      borderRadius: 8,
-                      background: "var(--primary)",
-                      color: "#fff",
-                      border: "none",
-                      cursor: pdfDownloading ? "not-allowed" : "pointer",
-                      fontSize: 13,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      opacity: pdfDownloading ? 0.7 : 1,
-                    }}
-                  >
-                    <Sparkles size={13} />
-                    {composerPresentationMode
-                      ? (viewingMicrosite ? (pdfDownloading ? "Generating…" : "Export as PDF") : "Generate PDF Presentation")
-                      : "Generate Microsite"}
-                  </button>
                 </div>
-              </div>
+                {/* end chat-v2-composer */}
+              </>
             )}
 
             {/* Textarea row — hidden while composer expansion is active */}
@@ -3627,7 +4192,8 @@ export default function SuperClientPage() {
                       padding: "0 10px 0 14px",
                       height: 44,
                       borderRadius: "16px 16px 0 0",
-                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      background:
+                        "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
                       marginBottom: -6,
                       position: "relative",
                       zIndex: 0,
@@ -3647,7 +4213,10 @@ export default function SuperClientPage() {
                       Edit proposal
                     </span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setProposalStripVisible(false); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setProposalStripVisible(false);
+                      }}
                       style={{
                         background: "none",
                         border: "none",
@@ -3659,8 +4228,14 @@ export default function SuperClientPage() {
                         opacity: 0.6,
                         flexShrink: 0,
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity =
+                          "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity =
+                          "0.6";
+                      }}
                       title="Dismiss"
                     >
                       <X size={16} />
@@ -3677,7 +4252,8 @@ export default function SuperClientPage() {
                       padding: "0 10px 0 14px",
                       height: 44,
                       borderRadius: "16px 16px 0 0",
-                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      background:
+                        "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
                       marginBottom: -6,
                       position: "relative",
                       zIndex: 0,
@@ -3695,8 +4271,16 @@ export default function SuperClientPage() {
                       }}
                     >
                       <Pencil size={16} style={{ flexShrink: 0 }} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {selectedElement.sectionType ? `${selectedElement.sectionType} › ` : ""}
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {selectedElement.sectionType
+                          ? `${selectedElement.sectionType} › `
+                          : ""}
                         {selectedElement.label}
                       </span>
                     </span>
@@ -3713,8 +4297,14 @@ export default function SuperClientPage() {
                         opacity: 0.6,
                         flexShrink: 0,
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity =
+                          "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity =
+                          "0.6";
+                      }}
                       title="Clear selection"
                     >
                       <X size={16} />
@@ -3722,308 +4312,355 @@ export default function SuperClientPage() {
                   </div>
                 )}
                 {/* Microsite editing strip — sits above composer with 4px sliding behind it */}
-                {viewingMicrosite && micrositeStripVisible && !(editModeActive && selectedElement) && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "0 10px 0 14px",
-                      height: 44,
-                      borderRadius: "16px 16px 0 0",
-                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
-                      marginBottom: -6,
-                      position: "relative",
-                      zIndex: 0,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 500,
-                        color: "var(--primary)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                      }}
-                    >
-                      <Globe size={16} style={{ flexShrink: 0 }} />
-                      Edit microsite
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMicrositeStripVisible(false); setEditModeActive(false); clearBridgeSelection(); }}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        color: "var(--primary)",
-                        display: "flex",
-                        alignItems: "center",
-                        padding: 0,
-                        opacity: 0.6,
-                        flexShrink: 0,
-                      }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
-                      title="Dismiss"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                )}
-              <div
-                className="chat-v2-composer"
-                style={{
-                  position: "relative",
-                  zIndex: 1,
-                  ...(viewingProposal || viewingMicrosite
-                    ? { flexDirection: "column", alignItems: "stretch", gap: 0 }
-                    : {}),
-                }}
-              >
-                {/* Microsite edit result banner */}
                 {viewingMicrosite &&
-                  micrositeEditBanner.startsWith("Error:") && (
-                    <span
-                      onClick={() => setMicrositeEditBanner("")}
+                  micrositeStripVisible &&
+                  !(editModeActive && selectedElement) && (
+                    <div
                       style={{
-                        display: "block",
-                        fontSize: 12,
-                        color: "var(--destructive, #ef4444)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        padding: "4px 12px 0",
-                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "0 10px 0 14px",
+                        height: 44,
+                        borderRadius: "16px 16px 0 0",
+                        background:
+                          "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                        marginBottom: -6,
+                        position: "relative",
+                        zIndex: 0,
                       }}
-                      title="Click to dismiss"
                     >
-                      {micrositeEditBanner}
-                    </span>
-                  )}
-                {/* Textarea */}
-                <textarea
-                  ref={textareaRef}
-                  className="chat-v2-input"
-                  value={micrositeEditActive ? micrositeEditInput : input}
-                  onChange={(e) =>
-                    micrositeEditActive
-                      ? setMicrositeEditInput(e.target.value)
-                      : setInput(e.target.value)
-                  }
-                  onKeyDown={
-                    micrositeEditActive
-                      ? (e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            void handleMicrositeEdit();
-                          }
-                        }
-                      : handleKeyDown
-                  }
-                  placeholder={
-                    micrositeEditActive && editModeActive && selectedElement
-                      ? selectedElement.tag === "img"
-                        ? "Paste URL or describe the change…"
-                        : `Describe the edit…`
-                      : micrositeEditActive
-                        ? editModeActive
-                          ? "Tap an element to select it"
-                          : "Describe your edit…"
-                        : proposalEditActive
-                          ? "Ask to edit this proposal…"
-                          : `Ask about ${meta.displayName}…`
-                  }
-                  disabled={micrositeEditActive ? micrositeEditing : false}
-                  rows={1}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = "auto";
-                    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-                  }}
-                />
-                {/* Horizontal separator — hidden */}
-                <div style={{ height: 1, margin: "0 2px" }} />
-                {/* Bottom bar: attach left, send right — same padding as textarea */}
-                <div className="chat-v2-composer-bottom">
-                  {/* Attach (+) button */}
-                  {!micrositeEditActive ? (
-                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 500,
+                          color: "var(--primary)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        <Globe size={16} style={{ flexShrink: 0 }} />
+                        Edit microsite
+                      </span>
                       <button
-                        onClick={() => setAttachMenuOpen((v) => !v)}
-                        title="Attach"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMicrositeStripVisible(false);
+                          setEditModeActive(false);
+                          clearBridgeSelection();
+                        }}
                         style={{
                           background: "none",
                           border: "none",
                           cursor: "pointer",
-                          color: "var(--muted)",
+                          color: "var(--primary)",
                           display: "flex",
                           alignItems: "center",
-                          padding: "4px",
-                          borderRadius: 4,
-                          lineHeight: 1,
+                          padding: 0,
+                          opacity: 0.6,
+                          flexShrink: 0,
                         }}
+                        onMouseEnter={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.opacity =
+                            "1";
+                        }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.opacity =
+                            "0.6";
+                        }}
+                        title="Dismiss"
                       >
-                        <Plus size={16} />
+                        <X size={16} />
                       </button>
-                      {attachMenuOpen && (
-                        <>
-                          <div
-                            style={{ position: "fixed", inset: 0, zIndex: 9998 }}
-                            onClick={() => setAttachMenuOpen(false)}
-                          />
-                          <div
-                            style={{
-                              position: "absolute",
-                              bottom: "calc(100% + 6px)",
-                              left: 0,
-                              zIndex: 9999,
-                              background: "var(--panel)",
-                              border: "1px solid var(--border)",
-                              borderRadius: 10,
-                              padding: "4px",
-                              minWidth: 172,
-                              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-                            }}
-                          >
-                            <button
-                              onClick={() => {
-                                setAttachMenuOpen(false);
-                                composerFileInputRef.current?.click();
-                              }}
+                    </div>
+                  )}
+                <div
+                  className="chat-v2-composer"
+                  style={{
+                    position: "relative",
+                    zIndex: 1,
+                    ...(viewingProposal || viewingMicrosite
+                      ? {
+                          flexDirection: "column",
+                          alignItems: "stretch",
+                          gap: 0,
+                        }
+                      : {}),
+                  }}
+                >
+                  {/* Microsite edit result banner */}
+                  {viewingMicrosite &&
+                    micrositeEditBanner.startsWith("Error:") && (
+                      <span
+                        onClick={() => setMicrositeEditBanner("")}
+                        style={{
+                          display: "block",
+                          fontSize: 12,
+                          color: "var(--destructive, #ef4444)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          padding: "4px 12px 0",
+                          cursor: "pointer",
+                        }}
+                        title="Click to dismiss"
+                      >
+                        {micrositeEditBanner}
+                      </span>
+                    )}
+                  {/* Textarea */}
+                  <textarea
+                    ref={textareaRef}
+                    className="chat-v2-input"
+                    value={micrositeEditActive ? micrositeEditInput : input}
+                    onChange={(e) =>
+                      micrositeEditActive
+                        ? setMicrositeEditInput(e.target.value)
+                        : setInput(e.target.value)
+                    }
+                    onKeyDown={
+                      micrositeEditActive
+                        ? (e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              void handleMicrositeEdit();
+                            }
+                          }
+                        : handleKeyDown
+                    }
+                    placeholder={
+                      micrositeEditActive && editModeActive && selectedElement
+                        ? selectedElement.tag === "img"
+                          ? "Paste URL or describe the change…"
+                          : `Describe the edit…`
+                        : micrositeEditActive
+                          ? editModeActive
+                            ? "Tap an element to select it"
+                            : "Describe your edit…"
+                          : proposalEditActive
+                            ? "Ask to edit this proposal…"
+                            : `Ask about ${meta.displayName}…`
+                    }
+                    disabled={micrositeEditActive ? micrositeEditing : false}
+                    rows={1}
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      el.style.height = "auto";
+                      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+                    }}
+                  />
+                  {/* Horizontal separator — hidden */}
+                  <div style={{ height: 1, margin: "0 2px" }} />
+                  {/* Bottom bar: attach left, send right — same padding as textarea */}
+                  <div className="chat-v2-composer-bottom">
+                    {/* Attach (+) button */}
+                    {!micrositeEditActive ? (
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        <button
+                          onClick={() => setAttachMenuOpen((v) => !v)}
+                          title="Attach"
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            color: "var(--muted)",
+                            display: "flex",
+                            alignItems: "center",
+                            padding: "4px",
+                            borderRadius: 4,
+                            lineHeight: 1,
+                          }}
+                        >
+                          <Plus size={16} />
+                        </button>
+                        {attachMenuOpen && (
+                          <>
+                            <div
                               style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 9,
-                                width: "100%",
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                padding: "8px 10px",
-                                borderRadius: 7,
-                                fontSize: 13,
-                                color: "var(--foreground)",
-                                textAlign: "left",
+                                position: "fixed",
+                                inset: 0,
+                                zIndex: 9998,
                               }}
-                              onMouseEnter={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = "var(--panel-soft)";
-                              }}
-                              onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLButtonElement).style.background = "none";
+                              onClick={() => setAttachMenuOpen(false)}
+                            />
+                            <div
+                              style={{
+                                position: "absolute",
+                                bottom: "calc(100% + 6px)",
+                                left: 0,
+                                zIndex: 9999,
+                                background: "var(--panel)",
+                                border: "1px solid var(--border)",
+                                borderRadius: 10,
+                                padding: "4px",
+                                minWidth: 172,
+                                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
                               }}
                             >
-                              <FileText
-                                size={14}
-                                strokeWidth={1.5}
-                                style={{ flexShrink: 0, color: "var(--muted)" }}
-                              />
-                              Upload document
-                            </button>
-                          </div>
-                        </>
+                              <button
+                                onClick={() => {
+                                  setAttachMenuOpen(false);
+                                  composerFileInputRef.current?.click();
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 9,
+                                  width: "100%",
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  padding: "8px 10px",
+                                  borderRadius: 7,
+                                  fontSize: 13,
+                                  color: "var(--foreground)",
+                                  textAlign: "left",
+                                }}
+                                onMouseEnter={(e) => {
+                                  (
+                                    e.currentTarget as HTMLButtonElement
+                                  ).style.background = "var(--panel-soft)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  (
+                                    e.currentTarget as HTMLButtonElement
+                                  ).style.background = "none";
+                                }}
+                              >
+                                <FileText
+                                  size={14}
+                                  strokeWidth={1.5}
+                                  style={{
+                                    flexShrink: 0,
+                                    color: "var(--muted)",
+                                  }}
+                                />
+                                Upload document
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+                    {/* Right-side group: edit icons + send */}
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 6 }}
+                    >
+                      {viewingProposal && (
+                        <button
+                          onClick={() => setProposalStripVisible(true)}
+                          title="Edit proposal"
+                          className="theme-toggle"
+                          style={{
+                            background: proposalEditActive
+                              ? "color-mix(in srgb, var(--primary) 12%, transparent)"
+                              : "transparent",
+                            border: "1px solid transparent",
+                            color: proposalEditActive
+                              ? "var(--primary)"
+                              : undefined,
+                            transition:
+                              "background 0.15s, color 0.15s, border-color 0.15s",
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
                       )}
-                    </div>
-                  ) : (
-                    <div />
-                  )}
-                  {/* Right-side group: edit icons + send */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {viewingProposal && (
-                    <button
-                      onClick={() => setProposalStripVisible(true)}
-                      title="Edit proposal"
-                      className="theme-toggle"
-                      style={{
-                        background: proposalEditActive ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
-                        border: "1px solid transparent",
-                        color: proposalEditActive ? "var(--primary)" : undefined,
-                        transition: "background 0.15s, color 0.15s, border-color 0.15s",
-                      }}
-                    >
-                      <Pencil size={16} />
-                    </button>
-                  )}
-                  {viewingMicrosite && (
-                    <button
-                      onClick={() => {
-                        const next = !editModeActive;
-                        setEditModeActive(next);
-                        if (next) {
-                          setMicrositeStripVisible(true);
-                        } else {
-                          clearBridgeSelection();
+                      {viewingMicrosite && (
+                        <button
+                          onClick={() => {
+                            const next = !editModeActive;
+                            setEditModeActive(next);
+                            if (next) {
+                              setMicrositeStripVisible(true);
+                            } else {
+                              clearBridgeSelection();
+                            }
+                            setViewingMicrosite((prev) => {
+                              if (!prev) return null;
+                              setActiveSrcDoc(
+                                computeSrcDoc(buildHtml(prev.ast), next),
+                              );
+                              return {
+                                ...prev,
+                                renderKey: `${prev.id}-${Date.now()}`,
+                              };
+                            });
+                          }}
+                          title={
+                            editModeActive
+                              ? "Exit smart edit mode"
+                              : "Smart edit — click any element to target it"
+                          }
+                          className="theme-toggle"
+                          style={{
+                            background: editModeActive
+                              ? "color-mix(in srgb, var(--primary) 12%, transparent)"
+                              : "transparent",
+                            border: "1px solid transparent",
+                            color: editModeActive
+                              ? "var(--primary)"
+                              : undefined,
+                            transition:
+                              "background 0.15s, color 0.15s, border-color 0.15s",
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {/* Send button */}
+                      <button
+                        className="chat-v2-send-btn"
+                        onClick={() =>
+                          micrositeEditActive
+                            ? void handleMicrositeEdit()
+                            : void sendMessage()
                         }
-                        setViewingMicrosite((prev) => {
-                          if (!prev) return null;
-                          setActiveSrcDoc(computeSrcDoc(buildHtml(prev.ast), next));
-                          return {
-                            ...prev,
-                            renderKey: `${prev.id}-${Date.now()}`,
-                          };
-                        });
+                        disabled={
+                          micrositeEditActive
+                            ? micrositeEditing ||
+                              (!micrositeEditInput.trim() &&
+                                !editingLogo &&
+                                !editingLogoUrl.trim())
+                            : streaming || !input.trim()
+                        }
+                      >
+                        <Icon
+                          icon={
+                            micrositeEditActive && micrositeEditing
+                              ? Loader
+                              : ArrowUp
+                          }
+                          size="md"
+                          style={
+                            micrositeEditActive && micrositeEditing
+                              ? { animation: "spin 1s linear infinite" }
+                              : undefined
+                          }
+                        />
+                      </button>
+                    </div>
+                    {/* Hidden file input for composer attach */}
+                    <input
+                      ref={composerFileInputRef}
+                      type="file"
+                      accept=".pdf,.txt,.md"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          void handleFileUploadFromComposer(f);
+                          e.target.value = "";
+                        }
                       }}
-                      title={
-                        editModeActive
-                          ? "Exit smart edit mode"
-                          : "Smart edit — click any element to target it"
-                      }
-                      className="theme-toggle"
-                      style={{
-                        background: editModeActive ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
-                        border: "1px solid transparent",
-                        color: editModeActive ? "var(--primary)" : undefined,
-                        transition: "background 0.15s, color 0.15s, border-color 0.15s",
-                      }}
-                    >
-                      <Pencil size={16} />
-                    </button>
-                  )}
-                  {/* Send button */}
-                  <button
-                    className="chat-v2-send-btn"
-                    onClick={() =>
-                      micrositeEditActive
-                        ? void handleMicrositeEdit()
-                        : void sendMessage()
-                    }
-                    disabled={
-                      micrositeEditActive
-                        ? micrositeEditing ||
-                          (!micrositeEditInput.trim() &&
-                            !editingLogo &&
-                            !editingLogoUrl.trim())
-                        : streaming || !input.trim()
-                    }
-                  >
-                    <Icon
-                      icon={micrositeEditActive && micrositeEditing ? Loader : ArrowUp}
-                      size="md"
-                      style={
-                        micrositeEditActive && micrositeEditing
-                          ? { animation: "spin 1s linear infinite" }
-                          : undefined
-                      }
                     />
-                  </button>
+                  </div>
                 </div>
-                {/* Hidden file input for composer attach */}
-                <input
-                  ref={composerFileInputRef}
-                  type="file"
-                  accept=".pdf,.txt,.md"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      void handleFileUploadFromComposer(f);
-                      e.target.value = "";
-                    }
-                  }}
-                />
-              </div>
-            </div>
-            </>
-          )}
+              </>
+            )}
           </div>
         </div>
 
@@ -4049,8 +4686,12 @@ export default function SuperClientPage() {
             >
               {/* Drag handle — hidden in edit mode so microsite stays maximised */}
               <div
-                onMouseDown={editModeActive ? undefined : handleMicrositeDragStart}
-                onMouseEnter={() => !editModeActive && setMicrositeDragHover(true)}
+                onMouseDown={
+                  editModeActive ? undefined : handleMicrositeDragStart
+                }
+                onMouseEnter={() =>
+                  !editModeActive && setMicrositeDragHover(true)
+                }
                 onMouseLeave={() => setMicrositeDragHover(false)}
                 title={editModeActive ? undefined : "Drag to resize"}
                 style={{
@@ -4166,15 +4807,20 @@ export default function SuperClientPage() {
                   {(lastMicrositeRef.current!.ast.meta as { title?: string })
                     ?.title ?? "Microsite"}
                   {msVersionMap.get(lastMicrositeRef.current!.id) != null && (
-                    <span style={{
-                      fontSize: 10, fontWeight: 600,
-                      color: "rgba(var(--primary-rgb, 99,102,241), 0.85)",
-                      background: "rgba(99,102,241,0.1)",
-                      border: "1px solid rgba(99,102,241,0.25)",
-                      borderRadius: 999, padding: "1px 6px",
-                      letterSpacing: "0.04em", flexShrink: 0,
-                      lineHeight: "16px",
-                    }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "rgba(var(--primary-rgb, 99,102,241), 0.85)",
+                        background: "rgba(99,102,241,0.1)",
+                        border: "1px solid rgba(99,102,241,0.25)",
+                        borderRadius: 999,
+                        padding: "1px 6px",
+                        letterSpacing: "0.04em",
+                        flexShrink: 0,
+                        lineHeight: "16px",
+                      }}
+                    >
                       v{msVersionMap.get(lastMicrositeRef.current!.id)}
                     </span>
                   )}
@@ -4256,7 +4902,9 @@ export default function SuperClientPage() {
                       onClick={() => void handleMicrositeSave()}
                       disabled={micrositeEditing || !hasUnsavedChanges}
                       title={
-                        hasUnsavedChanges ? "Save changes" : "No unsaved changes"
+                        hasUnsavedChanges
+                          ? "Save changes"
+                          : "No unsaved changes"
                       }
                       style={{
                         background:
@@ -4329,7 +4977,9 @@ export default function SuperClientPage() {
                       disabled={pdfDownloading}
                       title="Download as PDF Presentation"
                       style={{
-                        background: pdfDownloading ? "none" : "color-mix(in srgb, var(--primary) 12%, transparent)",
+                        background: pdfDownloading
+                          ? "none"
+                          : "color-mix(in srgb, var(--primary) 12%, transparent)",
                         border: "1px solid var(--primary)",
                         borderRadius: 6,
                         padding: "4px 10px",
@@ -4343,10 +4993,16 @@ export default function SuperClientPage() {
                         transition: "background 0.15s, opacity 0.15s",
                       }}
                     >
-                      {pdfDownloading
-                        ? <><Loader size={12} className="animate-spin" /> Generating…</>
-                        : <><Download size={12} /> Download PDF</>
-                      }
+                      {pdfDownloading ? (
+                        <>
+                          <Loader size={12} className="animate-spin" />{" "}
+                          Generating…
+                        </>
+                      ) : (
+                        <>
+                          <Download size={12} /> Download PDF
+                        </>
+                      )}
                     </button>
                   )}
                   <button
@@ -4440,23 +5096,38 @@ export default function SuperClientPage() {
                 {videoLoading && (
                   <>
                     <style>{`@keyframes __vl-spin{to{transform:rotate(360deg)}}`}</style>
-                    <div style={{
-                      position: 'absolute', inset: 0, zIndex: 25,
-                      background: 'rgba(0,0,0,0.55)',
-                      display: 'flex', flexDirection: 'column',
-                      alignItems: 'center', justifyContent: 'center',
-                      pointerEvents: 'none',
-                    }}>
-                      <div style={{
-                        width: 44, height: 44, borderRadius: '50%',
-                        border: '3px solid rgba(255,255,255,0.2)',
-                        borderTopColor: '#fff',
-                        animation: '__vl-spin 0.75s linear infinite',
-                      }} />
-                      <p style={{
-                        color: 'rgba(255,255,255,0.85)', marginTop: 14,
-                        fontSize: 13, fontWeight: 500, letterSpacing: '0.02em',
-                      }}>
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        zIndex: 25,
+                        background: "rgba(0,0,0,0.55)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: "50%",
+                          border: "3px solid rgba(255,255,255,0.2)",
+                          borderTopColor: "#fff",
+                          animation: "__vl-spin 0.75s linear infinite",
+                        }}
+                      />
+                      <p
+                        style={{
+                          color: "rgba(255,255,255,0.85)",
+                          marginTop: 14,
+                          fontSize: 13,
+                          fontWeight: 500,
+                          letterSpacing: "0.02em",
+                        }}
+                      >
                         Loading video…
                       </p>
                     </div>
@@ -4898,7 +5569,12 @@ export default function SuperClientPage() {
                   {/* Client identity */}
                   <div
                     className="client-panel-list"
-                    style={{ paddingTop: 8, paddingLeft: 12, paddingRight: 12, paddingBottom: 4 }}
+                    style={{
+                      paddingTop: 8,
+                      paddingLeft: 12,
+                      paddingRight: 12,
+                      paddingBottom: 4,
+                    }}
                   >
                     <div
                       className="brief-panel-section-header"
@@ -5044,7 +5720,10 @@ export default function SuperClientPage() {
                         >
                           {meta.url.replace(/^https?:\/\//, "")}
                         </a>
-                        <div className="brief-field-actions" style={{ marginLeft: "auto" }}>
+                        <div
+                          className="brief-field-actions"
+                          style={{ marginLeft: "auto" }}
+                        >
                           <button
                             className="brief-knowledge-icon-btn"
                             onClick={() => {
@@ -5071,7 +5750,11 @@ export default function SuperClientPage() {
                         <Plus
                           size={13}
                           strokeWidth={1.5}
-                          style={{ flexShrink: 0, color: "var(--muted)", opacity: 0.5 }}
+                          style={{
+                            flexShrink: 0,
+                            color: "var(--muted)",
+                            opacity: 0.5,
+                          }}
                         />
                         <span
                           style={{
