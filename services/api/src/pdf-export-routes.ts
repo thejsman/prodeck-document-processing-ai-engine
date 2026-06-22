@@ -39,19 +39,52 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         return reply.code(400).send({ error: 'Microsite has no HTML content' });
       }
 
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-      });
+      let browser;
+      try {
+        browser = await puppeteer.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        });
+      } catch (err) {
+        req.log.error({ err }, 'Puppeteer launch failed');
+        return reply.code(500).send({ error: `Puppeteer launch failed: ${(err as Error).message}` });
+      }
 
       try {
         const page = await browser.newPage();
         await page.setViewport({ width: vpW, height: vpH, deviceScaleFactor: 1 });
 
-        // Load the full self-contained HTML — wait for network to idle so fonts/images resolve
-        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+        // Strip CSS @import rules that point to external font CDNs.
+        // Google Fonts' @import blocks DOMContentLoaded in headless Chrome when the
+        // TLS/DNS handshake is slow; removing it lets Chrome use system-font fallbacks
+        // and avoids Puppeteer's 30s navigation lifecycle timeout entirely.
+        const exportHtml = html.replace(/@import\s+url\([^)]+\)\s*;/g, '');
 
-        // Extra settle time for web fonts and CSS transitions
+        // Inject HTML via document.write() instead of page.setContent() to bypass
+        // Puppeteer 24.x's navigation lifecycle tracking — setContent() can hang
+        // for the full 30s timeout when HTML references slow external resources.
+        await page.goto('about:blank', { waitUntil: 'load', timeout: 10000 });
+        await page.evaluate((h: string) => {
+          document.open('text/html', 'replace');
+          document.write(h);
+          document.close();
+        }, exportHtml);
+
+        // After DOM is ready, wait up to 10s for images to finish loading so screenshots
+        // show real photos rather than broken placeholders. Errors are swallowed so a
+        // single slow/missing image doesn't block the whole export.
+        await Promise.race([
+          page.evaluate(() =>
+            Promise.all(
+              Array.from(document.images)
+                .filter((img) => !img.complete)
+                .map((img) => new Promise<void>((resolve) => { img.onload = img.onerror = () => resolve(); }))
+            )
+          ).catch(() => {}),
+          new Promise<void>((r) => setTimeout(r, 10_000)),
+        ]);
+
+        // Extra settle for web fonts and CSS transitions
         await new Promise<void>(r => setTimeout(r, 1500));
 
         // Hide fixed-position elements (nav bars, cookie banners) so they don't overlay
@@ -65,11 +98,12 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           });
         });
 
-        // Collect slide handles — microsite slides are direct <section> children of <body>
-        const sectionHandles = await page.$$('body > section');
+        // Collect slide handles — match sections by data-section-id so the selector works
+        // regardless of whether sections are direct <body> children or wrapped in a container div.
+        const sectionHandles = await page.$$('section[data-section-id]');
         const handles = sectionHandles.length > 0
           ? sectionHandles
-          : await page.$$('body');
+          : await page.$$('body > section').then(r => r.length ? r : page.$$('body'));
 
         if (handles.length === 0) {
           return reply.code(500).send({ error: 'No slide sections found in microsite' });
@@ -78,7 +112,6 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         const pdfDoc = await PDFDocument.create();
 
         for (const handle of handles) {
-          // screenshot() on an ElementHandle captures the element's full bounding box
           const screenshot = await handle.screenshot({ type: 'jpeg', quality: 92 }) as Buffer;
           const img = await pdfDoc.embedJpg(screenshot);
           const pdfPage = pdfDoc.addPage([pdfW, pdfH]);
@@ -92,6 +125,9 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         void reply.header('Content-Disposition', `attachment; filename="${safeName}-presentation.pdf"`);
         return reply.send(Buffer.from(pdfBytes));
 
+      } catch (err) {
+        req.log.error({ err }, 'PDF export failed');
+        return reply.code(500).send({ error: `PDF export failed: ${(err as Error).message}` });
       } finally {
         await browser.close();
       }

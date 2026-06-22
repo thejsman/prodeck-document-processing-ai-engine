@@ -1489,6 +1489,7 @@ export default function SuperClientPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
+      a.style.display = "none";
       const title =
         (viewingMicrosite.ast?.meta as { title?: string } | undefined)?.title ??
         name;
@@ -1496,8 +1497,11 @@ export default function SuperClientPage() {
         .replace(/[^a-z0-9]+/gi, "-")
         .replace(/^-|-$/g, "")
         .toLowerCase()}-presentation.pdf`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      // Delay revoke so the browser has time to start reading the blob
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
       showToast("PDF downloaded");
     } catch (err) {
       showToast((err as Error).message ?? "PDF generation failed", "error");

@@ -2838,7 +2838,7 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
             /(<head[^>]*>)/i,
             isPortrait
               ? `$1<style id="__pdf-slide-constraints__">
-[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;}
+[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:calc(100vw * 16 / 9)!important;max-height:calc(100vw * 16 / 9)!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;}
 [data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
