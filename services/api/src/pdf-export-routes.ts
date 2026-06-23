@@ -15,7 +15,7 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
     async (req, reply) => {
       const { name, id } = req.params;
       const orientation = req.query.orientation === 'portrait' ? 'portrait' : 'landscape';
-      const { pdfW, pdfH, vpW, vpH } = DIMS[orientation];
+      const { pdfW, vpW, vpH } = DIMS[orientation];
 
       const superClientsRoot = path.join(workdir, 'super-clients');
       const filePath = path.join(superClientsRoot, name, 'microsites', `${id}.json`);
@@ -98,6 +98,20 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           });
         });
 
+        // Expand viewport to the tallest section so content-dense slides render fully.
+        // Without this, browser rendering culls off-screen content and screenshots
+        // of sections taller than vpH capture blank space at the bottom.
+        const maxSectionH = await page.evaluate(() => {
+          const sections = document.querySelectorAll<HTMLElement>('section[data-section-id]');
+          return sections.length > 0
+            ? Math.max(...Array.from(sections).map(s => Math.ceil(s.getBoundingClientRect().height)))
+            : 0;
+        });
+        if (maxSectionH > vpH) {
+          await page.setViewport({ width: vpW, height: maxSectionH, deviceScaleFactor: 1 });
+          await new Promise<void>(r => setTimeout(r, 400));
+        }
+
         // Collect slide handles — match sections by data-section-id so the selector works
         // regardless of whether sections are direct <body> children or wrapped in a container div.
         const sectionHandles = await page.$$('section[data-section-id]');
@@ -114,8 +128,12 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         for (const handle of handles) {
           const screenshot = await handle.screenshot({ type: 'jpeg', quality: 92 }) as Buffer;
           const img = await pdfDoc.embedJpg(screenshot);
-          const pdfPage = pdfDoc.addPage([pdfW, pdfH]);
-          pdfPage.drawImage(img, { x: 0, y: 0, width: pdfW, height: pdfH });
+          // Derive PDF page height from actual screenshot aspect ratio so content-dense
+          // slides (taller than 16:9) are never squished to fit a hardcoded page size.
+          const scale = pdfW / img.width;
+          const pageH = img.height * scale;
+          const pdfPage = pdfDoc.addPage([pdfW, pageH]);
+          pdfPage.drawImage(img, { x: 0, y: 0, width: pdfW, height: pageH });
         }
 
         const pdfBytes = await pdfDoc.save();

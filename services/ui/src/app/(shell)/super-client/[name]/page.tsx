@@ -922,7 +922,10 @@ export default function SuperClientPage() {
     setLoading(true);
     Promise.all([
       getSuperClient(apiKey, name),
-      getSuperClientGenerations(apiKey, name),
+      // Non-fatal: if generations.json is being written during active generation,
+      // the request may fail transiently. Continue with empty list rather than
+      // blocking the whole page with "Network error".
+      getSuperClientGenerations(apiKey, name).catch(() => [] as Awaited<ReturnType<typeof getSuperClientGenerations>>),
     ])
       .then(([{ meta: m, contextMd: ctx, history }, serverGens]) => {
         setMeta(m);
@@ -3512,21 +3515,34 @@ export default function SuperClientPage() {
                                 return undefined;
                               })()}
                               onView={(gen) => {
-                                if (
-                                  gen.type === "microsite" &&
-                                  gen.result?.micrositeId
-                                ) {
-                                  // Always fetch from server so edits made after generation are reflected
-                                  const found = microsites.find(
-                                    (m) => m.id === gen.result!.micrositeId,
-                                  );
-                                  if (!found) {
-                                    showToast(
-                                      "This microsite has been deleted",
-                                      "error",
+                                if (gen.type === "microsite") {
+                                  if (gen.result?.micrositeId) {
+                                    // micrositeId known — prefer local list for speed, fall back to
+                                    // server fetch when local state hasn't caught up yet (race: save
+                                    // completed but setMicrosites hasn't re-rendered).
+                                    const found = microsites.find(
+                                      (m) => m.id === gen.result!.micrositeId,
                                     );
-                                  } else {
-                                    void handleOpenMicrosite(found);
+                                    if (found) {
+                                      void handleOpenMicrosite(found);
+                                    } else {
+                                      void handleOpenMicrosite(
+                                        { id: gen.result.micrositeId } as SuperClientMicrosite,
+                                      );
+                                    }
+                                  } else if (gen.result?.ast) {
+                                    // Save still in-flight — open from the cached AST so the tap
+                                    // is never a no-op. Will be replaced by the real ID once save lands.
+                                    const ast = gen.result.ast as LayoutAST;
+                                    const html = buildHtml(ast);
+                                    setActiveSrcDoc(computeSrcDoc(html));
+                                    setViewingMicrosite({
+                                      id: `preview-${gen.id}`,
+                                      ast,
+                                      renderKey: `preview-${gen.id}-tap`,
+                                    });
+                                    setActiveRightTab("artifacts");
+                                    collapseForPanel();
                                   }
                                 } else if (
                                   gen.type === "proposal" &&
