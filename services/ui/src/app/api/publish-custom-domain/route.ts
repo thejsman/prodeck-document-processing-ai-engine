@@ -2,8 +2,10 @@ import crypto from 'crypto';
 import dns from 'dns/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { putCustomDomainAst } from '@/lib/customDomainStorage';
+import { putCustomDomainAst, getCustomDomainAst } from '@/lib/customDomainStorage';
 import type { LayoutAST } from '@/types/presentation';
+
+const API_URL = process.env.API_URL ?? 'http://localhost:3000';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +45,7 @@ async function verifyDns(domain: string): Promise<boolean> {
 
 interface PublishCustomDomainRequest {
   namespace: string;
+  proposalId?: string;
   ast: LayoutAST;
   domain: string;
   password?: string;
@@ -57,7 +60,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { namespace, ast, domain: rawDomain, password, skipDnsCheck } = body;
+  const { namespace, proposalId, ast, domain: rawDomain, password, skipDnsCheck } = body;
+  const authHeader = req.headers.get('authorization') ?? '';
   const domain = rawDomain?.trim().toLowerCase() ?? '';
 
   if (!namespace || !ast || !domain) {
@@ -78,6 +82,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Reject if the domain is already claimed by a different namespace
+  try {
+    const existing = await getCustomDomainAst(domain);
+    if (existing && existing.namespace !== namespace) {
+      return NextResponse.json(
+        { error: 'This domain is already claimed by another account. Contact support if you own this domain.' },
+        { status: 409 },
+      );
+    }
+  } catch {
+    // S3 error — fail open and let the publish attempt proceed
+  }
+
   const passwordHash = password
     ? crypto.scryptSync(password, domain, 64).toString('hex')
     : undefined;
@@ -89,6 +106,18 @@ export async function POST(req: NextRequest) {
       revalidatePath(`/sites/custom/${domain}`);
     } catch {
       // non-fatal
+    }
+
+    // Persist publish meta to backend so the UI can restore state on next load
+    if (proposalId && authHeader) {
+      fetch(
+        `${API_URL}/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+          body: JSON.stringify({ customDomain: domain, url: `https://${domain}`, publishedAt }),
+        },
+      ).catch(err => console.error('[publish-custom-domain] failed to save publish meta:', err));
     }
 
     // Fire-and-forget SSL provisioning via cert-manager sidecar

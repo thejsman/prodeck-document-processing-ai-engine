@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
+import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { OrgVoiceStore, readOrgContextSettings } from '@ai-engine/runtime';
@@ -2656,17 +2657,79 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // ── Detect element type for specialised prompt guidance ──────────────
       const elTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-      const isImgEl = elTag === 'img';
-      const currentSrc = isImgEl
+      const isImgEl   = elTag === 'img';
+      const hasImgChild = !isImgEl && /<img\b/i.test(targetHtml);
+      const hasImg    = isImgEl || hasImgChild;
+      const currentSrc = hasImg
         ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
         : '';
-      const currentAlt = isImgEl
+      const currentAlt = hasImg
         ? (targetHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
         : '';
 
+      // ── Pexels shortcut — descriptive image replacement (no URL) ─────────
+      // When the user describes the desired image without providing a URL,
+      // search Pexels for a contextually matching photo and inject it directly.
+      // This avoids asking the LLM to recall a valid Unsplash photo ID from
+      // training memory, which reliably produces wrong or stale URLs.
+      if (!isRedesignIntent && hasImg && !(/https?:\/\//.test(editInstruction))) {
+        // Strip "[sectionType] <Element Label>: " prefixes to get raw user text.
+        const stripped = editInstruction
+          .replace(/^\[[^\]]+\]\s*/, '')
+          .replace(/^<[^>]+>:\s*/, '')
+          .trim();
+
+        // Gate: does the instruction mention an image noun at all?
+        // Avoids calling LLM+Pexels for non-image edits (text changes, color tweaks, etc.)
+        const mentionsImage = /\b(?:image|photo|picture|pic|img)\b/i.test(stripped);
+
+        if (mentionsImage) {
+          // Ask the LLM to extract a clean search query — this handles any verb or
+          // phrasing ("use", "take", "grab", "find", etc.) without enumerating them.
+          // The LLM is reliable at understanding intent; only unreliable at picking URLs.
+          const extractPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${stripped}`;
+          let pexelsQuery = '';
+          try {
+            pexelsQuery = (await llmGenerateFn(extractPrompt))
+              .trim()
+              .replace(/^["'`]|["'`]$/g, '')
+              .trim()
+              .slice(0, 80);
+            console.log(`🔍 Image query extracted: "${pexelsQuery}"`);
+          } catch { /* fall through to LLM edit */ }
+
+          if (pexelsQuery) {
+            const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
+            console.log(`📸 Pexels result for "${pexelsQuery}": ${pexelsUrl ?? '(no result — using Unsplash Source fallback)'}`);
+            const imageUrl = pexelsUrl
+              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
+            const injectUrl = (target: string, url: string): string => {
+              let out = target.replace(
+                /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
+                () => `background-image: url('${url}')`,
+              );
+              if (out !== target) return out;
+              out = target.replace(
+                /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+                (_m, pre, _old, post) => `${pre}${url}${post}`,
+              );
+              return out;
+            };
+            const patched = injectUrl(targetHtml, imageUrl);
+            if (patched !== targetHtml) {
+              console.log(`⚡ Image shortcut (${pexelsUrl ? 'pexels' : 'unsplash-source'}): "${pexelsQuery}" → ${imageUrl}`);
+              return saveValidatedEdit(
+                html.slice(0, targetBounds.start) + patched + html.slice(targetBounds.end),
+                'Image updated',
+              );
+            }
+          }
+        }
+      }
+
       // ── Build the LLM prompt (element-edit vs section-redesign) ──────────
-      const imageGuidance = isImgEl ? `
-IMAGE-SPECIFIC RULES (this element is an <img>):
+      const imageGuidance = hasImg ? `
+IMAGE-SPECIFIC RULES (this element contains an image):
 - Current src: ${currentSrc}
 - Current alt: ${currentAlt || '(none)'}
 - If the instruction asks to change/replace/update the image without specifying a URL:
