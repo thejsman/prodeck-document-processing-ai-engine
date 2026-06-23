@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
+import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { OrgVoiceStore, readOrgContextSettings } from '@ai-engine/runtime';
@@ -2656,17 +2657,79 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // ── Detect element type for specialised prompt guidance ──────────────
       const elTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-      const isImgEl = elTag === 'img';
-      const currentSrc = isImgEl
+      const isImgEl   = elTag === 'img';
+      const hasImgChild = !isImgEl && /<img\b/i.test(targetHtml);
+      const hasImg    = isImgEl || hasImgChild;
+      const currentSrc = hasImg
         ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
         : '';
-      const currentAlt = isImgEl
+      const currentAlt = hasImg
         ? (targetHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
         : '';
 
+      // ── Pexels shortcut — descriptive image replacement (no URL) ─────────
+      // When the user describes the desired image without providing a URL,
+      // search Pexels for a contextually matching photo and inject it directly.
+      // This avoids asking the LLM to recall a valid Unsplash photo ID from
+      // training memory, which reliably produces wrong or stale URLs.
+      if (!isRedesignIntent && hasImg && !(/https?:\/\//.test(editInstruction))) {
+        // Strip "[sectionType] <Element Label>: " prefixes to get raw user text.
+        const stripped = editInstruction
+          .replace(/^\[[^\]]+\]\s*/, '')
+          .replace(/^<[^>]+>:\s*/, '')
+          .trim();
+
+        // Gate: does the instruction mention an image noun at all?
+        // Avoids calling LLM+Pexels for non-image edits (text changes, color tweaks, etc.)
+        const mentionsImage = /\b(?:image|photo|picture|pic|img)\b/i.test(stripped);
+
+        if (mentionsImage) {
+          // Ask the LLM to extract a clean search query — this handles any verb or
+          // phrasing ("use", "take", "grab", "find", etc.) without enumerating them.
+          // The LLM is reliable at understanding intent; only unreliable at picking URLs.
+          const extractPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${stripped}`;
+          let pexelsQuery = '';
+          try {
+            pexelsQuery = (await llmGenerateFn(extractPrompt))
+              .trim()
+              .replace(/^["'`]|["'`]$/g, '')
+              .trim()
+              .slice(0, 80);
+            console.log(`🔍 Image query extracted: "${pexelsQuery}"`);
+          } catch { /* fall through to LLM edit */ }
+
+          if (pexelsQuery) {
+            const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
+            console.log(`📸 Pexels result for "${pexelsQuery}": ${pexelsUrl ?? '(no result — using Unsplash Source fallback)'}`);
+            const imageUrl = pexelsUrl
+              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
+            const injectUrl = (target: string, url: string): string => {
+              let out = target.replace(
+                /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
+                () => `background-image: url('${url}')`,
+              );
+              if (out !== target) return out;
+              out = target.replace(
+                /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+                (_m, pre, _old, post) => `${pre}${url}${post}`,
+              );
+              return out;
+            };
+            const patched = injectUrl(targetHtml, imageUrl);
+            if (patched !== targetHtml) {
+              console.log(`⚡ Image shortcut (${pexelsUrl ? 'pexels' : 'unsplash-source'}): "${pexelsQuery}" → ${imageUrl}`);
+              return saveValidatedEdit(
+                html.slice(0, targetBounds.start) + patched + html.slice(targetBounds.end),
+                'Image updated',
+              );
+            }
+          }
+        }
+      }
+
       // ── Build the LLM prompt (element-edit vs section-redesign) ──────────
-      const imageGuidance = isImgEl ? `
-IMAGE-SPECIFIC RULES (this element is an <img>):
+      const imageGuidance = hasImg ? `
+IMAGE-SPECIFIC RULES (this element contains an image):
 - Current src: ${currentSrc}
 - Current alt: ${currentAlt || '(none)'}
 - If the instruction asks to change/replace/update the image without specifying a URL:
@@ -2873,36 +2936,18 @@ Strict rules:
       let applied = 0, missed = 0;
       for (const p of patches) {
         if (!p.find || p.replace === undefined) continue;
-        if (!result.includes(p.find)) { missed++; continue; }
+        if (!result.includes(p.find)) {
+          console.warn(`⚠️  Patch MISS: find="${p.find.slice(0, 80)}" → replace="${p.replace.slice(0, 40)}"`);
+          missed++;
+          continue;
+        }
+        console.log(`✅ Patch HIT:  find="${p.find.slice(0, 80)}" → replace="${p.replace.slice(0, 40)}"`);
         result = result.split(p.find).join(p.replace);
         applied++;
       }
       return { html: result, applied, missed };
     }
 
-    function parseJsonPatches(rawText: string): { patches: Array<{ find: string; replace: string }>; summary: string } | null {
-      const start = rawText.indexOf('{');
-      if (start === -1) return null;
-      // Use brace-depth tracking to find the END of the first complete JSON object.
-      // lastIndexOf('}') would include any LLM reasoning text appended after the JSON.
-      let depth = 0, end = -1, inString = false, escaped = false;
-      for (let i = start; i < rawText.length; i++) {
-        const c = rawText[i];
-        if (escaped) { escaped = false; continue; }
-        if (c === '\\' && inString) { escaped = true; continue; }
-        if (c === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (c === '{') depth++;
-        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
-      }
-      if (end === -1) return null;
-      try {
-        const slice = rawText.slice(start, end + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
-        const parsed = JSON.parse(slice) as { patches?: Array<{ find: string; replace: string }>; summary?: string };
-        return { patches: parsed.patches ?? [], summary: parsed.summary ?? 'Applied edit' };
-      } catch { return null; }
-    }
 
     function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
       // Reject JSON responses — LLM "find" values contain HTML tags that would be
@@ -2925,21 +2970,16 @@ Strict rules:
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
 
-    const LARGE_HTML = 15000;
-    const isLarge = html.length > LARGE_HTML;
-
-    // "regenerate/rewrite/rebuild/redesign" → skip patches, go straight to section rewrite
+    // "regenerate/redesign" with explicit intent → still uses single-section regen
     const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
-
-    // For logo/header/nav instructions on large HTML, prefer to extract the header block
     const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
 
     let sectionCtx: SectionSlice | null = null;
-    if (isLarge) {
+    if (isRegenIntent) {
       sectionCtx = (isHeaderInstruction ? extractHeaderBlock(html) : null) ?? extractBestSection(html, instruction);
     }
 
-    // ── Section regeneration helper (used by regen intent + fallback) ─────────
+    // ── Section regeneration helper (explicit regen intent only) ─────────────
     async function regenSection(ctx: SectionSlice): Promise<string> {
       const regenPrompt = `You are rewriting one section of an HTML microsite.
 
@@ -2957,158 +2997,132 @@ ${ctx.section}`;
       if (!block) throw new Error('LLM did not return a valid HTML block');
       return ctx.before + block.block + ctx.after;
     }
-    // ──────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
-    const EDIT_TYPE_HINT = `
-Edit type examples (all supported):
-- Text/content  : "change heading to X", "update body copy", "add bullet point"
-- Color         : "make background dark blue", "change primary color to #e05", "update button color"
-- Font/typography: "use Inter font", "make headings bold", "increase font size to 18px"
-- Images        : "replace hero image with X", "add logo", "change background image"
-- Layout/spacing: "add more padding", "make two columns", "center the text"
-- Style         : "make it more modern", "add a gradient background", "remove border"
-- Regeneration  : "regenerate this section", "rewrite with dark theme"`;
+    // Build a human-readable section list so the LLM can reference sections by name
+    const allSecs = extractAllTopLevelSections(html);
+    const sectionList = allSecs.map((s, i) => {
+      const snippet = html.slice(s.start, Math.min(s.start + 300, s.end));
+      return snippet.match(/\bid="([^"]+)"/)?.[1]
+        ?? snippet.match(/\bdata-section="([^"]+)"/)?.[1]
+        ?? snippet.match(/\bclass="([^"\s]+)/)?.[1]
+        ?? snippet.match(/<h[1-3][^>]*>([^<]{1,40})<\/h[1-3]>/i)?.[1]?.trim()
+        ?? `section-${i + 1}`;
+    }).join(', ');
 
-    let combinedPrompt: string;
+    // ── Structured-operation prompt ───────────────────────────────────────────
+    // The LLM always receives the FULL HTML (so it sees every section) but
+    // responds with a small typed JSON object — never the whole page back.
+    // This works for any HTML size and handles every edit type in one pass.
+    type MicrositeOp =
+      | { op: 'patches'; patches: Array<{ find: string; replace: string }>; summary: string }
+      | { op: 'section_replace'; anchor: string; html: string; summary: string }
+      | { op: 'section_insert'; anchor: string; position: 'before' | 'after'; html: string; summary: string }
+      | { op: 'section_delete'; anchor: string; summary: string };
 
-    if (isLarge && sectionCtx && !isRegenIntent) {
-      combinedPrompt = `You are editing a section of an HTML microsite. Apply the instruction using the lightest format that works.
-${EDIT_TYPE_HINT}
-
-OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
-Output ONLY a JSON object, no preamble:
-{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
-Patch rules:
-- Copy "find" strings EXACTLY from the HTML/CSS below — character-for-character, no rewording
-- Include 15–30 chars of surrounding context so each "find" is unique in the full document
-- NEVER put newlines inside "find" or "replace" — single-line strings only
-- For COLORS: patch the CSS variable value → find "--color-primary: #aabbcc", replace "--color-primary: #112233"
-- For FONTS: patch font variable → find "--font-heading: 'OldFont'", replace "--font-heading: 'NewFont'" OR patch font-family in a style attribute
-- For TEXT: patch the exact text node or attribute value with enough surrounding markup to be unique
-- For IMAGES: patch src="old-url" with src="new-url"
-- For INLINE STYLES: patch the specific style property string
-- Use 1–8 patches; use multiple patches for the same change across multiple places
-
-OPTION 2 — full section rewrite (use for: add/remove elements, major layout change, section restructure):
-Output ONLY the complete replacement HTML block — start with the opening tag, end with closing tag. No preamble, no code fences.
-
-CSS DESIGN TOKENS (patch these variables for color/font/spacing changes):
-${cssVarsBlock}
-
-SECTION HTML (copy "find" strings EXACTLY from this text):
-${sectionCtx.section}
-
-EDIT INSTRUCTION: ${instruction}`;
-    } else if (!isLarge) {
-      combinedPrompt = `You are an HTML microsite editor. Apply the edit instruction with minimal, surgical changes.
-${EDIT_TYPE_HINT}
-
-OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
-Respond with ONLY a JSON object (no preamble, start with {, end with }):
-{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
-Patch rules:
-- Copy "find" strings EXACTLY from the HTML below — character-for-character
-- Include enough surrounding context to make each "find" unique in the document
-- NEVER put newlines inside "find" or "replace" — single-line strings only
-- For COLORS: patch CSS variable → find "--color-bg: #fff", replace "--color-bg: #1a1a2e"
-- For FONTS: patch font variable or font-family in style attribute
-- For TEXT: patch the exact visible text with surrounding markup for uniqueness
-- For IMAGES: patch src="old" with src="new"
-- For STYLES: patch specific inline style property strings
-- Use 1–8 patches
-
-OPTION 2 — full HTML rewrite (for: adding/removing entire sections, major structural redesign, complete regeneration):
-Output the sentinel line then a complete valid HTML document:
-REWRITE
-<!DOCTYPE html>
-...complete new HTML...
-
-EDIT INSTRUCTION: ${instruction}
-
-CURRENT HTML:
-${html}`;
-    } else {
-      combinedPrompt = ''; // handled by isRegenIntent path
+    function parseOp(raw: string): MicrositeOp | null {
+      const start = raw.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0, end = -1, inStr = false, esc = false;
+      for (let i = start; i < raw.length; i++) {
+        const c = raw[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\' && inStr) { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) return null;
+      try {
+        const slice = raw.slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/gs, m => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        return JSON.parse(slice) as MicrositeOp;
+      } catch { return null; }
     }
 
-    const raw = combinedPrompt ? await llmGenerateFn(combinedPrompt) : '';
+    const opPrompt = isRegenIntent ? '' : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
+
+OPERATION TYPES:
+
+OP patches — targeted changes to existing content (text, values, colors, images, styles).
+Works across ALL sections in one pass. Use multiple patches for values repeated in different sections.
+{ "op": "patches", "patches": [{ "find": "exact substring", "replace": "new value" }], "summary": "..." }
+Rules:
+- Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
+- Include 15–40 chars of surrounding context so each "find" is unique in the document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- Up to 12 patches
+
+OP section_replace — redesign or restructure an existing section completely:
+{ "op": "section_replace", "anchor": "section-id-or-keyword", "html": "<section>...</section>", "summary": "..." }
+
+OP section_insert — add a brand-new section before or after an existing one:
+{ "op": "section_insert", "anchor": "section-id-or-keyword", "position": "before|after", "html": "<section>...</section>", "summary": "..." }
+
+OP section_delete — remove an existing section entirely:
+{ "op": "section_delete", "anchor": "section-id-or-keyword", "summary": "..." }
+
+KNOWN SECTIONS: ${sectionList}
+${cssVarsBlock ? `\nCSS DESIGN TOKENS:\n${cssVarsBlock}\n` : ''}
+INSTRUCTION: ${instruction}
+
+FULL HTML:
+${html}`;
+
+    console.log(`\n┌─ GLOBAL EDIT ── regenIntent=${isRegenIntent} sections=[${sectionList}] ──`);
+    console.log(`│ instruction: ${instruction.slice(0, 120)}`);
+
+    const raw = opPrompt ? await llmGenerateFn(opPrompt) : '';
+
+    if (raw) console.log(`│ LLM raw (first 500): ${raw.slice(0, 500)}`);
+    console.log(`└──────────────────────────────────────────────────────────────`);
 
     let updatedHtml = html;
     let summary = 'Applied edit';
     let changedTexts: string[] = [];
 
-    if (isLarge && sectionCtx) {
-      if (isRegenIntent) {
-        // User explicitly asked for regeneration — skip patches entirely
-        try {
-          updatedHtml = await regenSection(sectionCtx);
-          summary = 'Section regenerated';
-        } catch {
-          return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
-        }
-      } else {
-        // Try OPTION 1 patches first
-        const parsed = parseJsonPatches(raw);
-        if (parsed && parsed.patches.length > 0) {
-          const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
-          if (applied > 0) {
-            updatedHtml = patched;
-            summary = parsed.summary;
-            changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
-            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
-          } else {
-            // All patches missed — fall back to section rewrite
-            const blockResult = extractBlockFromResponse(raw);
-            if (blockResult) {
-              updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
-              summary = 'Section rewritten';
-            } else {
-              try {
-                updatedHtml = await regenSection(sectionCtx);
-                summary = 'Section regenerated (patch fallback)';
-              } catch {
-                return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
-              }
-            }
-          }
-        } else {
-          // No JSON patches — try block extraction (LLM may have chosen OPTION 2 directly)
-          const blockResult = extractBlockFromResponse(raw);
-          if (blockResult) {
-            updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
-            summary = 'Section updated';
-          } else {
-            // Empty patches or unparseable — fall back to regen
-            try {
-              updatedHtml = await regenSection(sectionCtx);
-              summary = 'Section regenerated';
-            } catch {
-              return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
-            }
-          }
-        }
+    if (isRegenIntent && sectionCtx) {
+      try {
+        updatedHtml = await regenSection(sectionCtx);
+        summary = 'Section regenerated';
+      } catch {
+        return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
       }
     } else {
-      // Small HTML: try patches, then REWRITE sentinel
-      const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
-      if (rewriteMatch) {
-        const candidate = extractHtmlFromResponse(rewriteMatch[1]);
-        if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
-          return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
-        }
-        updatedHtml = candidate;
-        summary = 'Full rewrite applied';
-      } else {
-        const parsed = parseJsonPatches(raw);
-        if (!parsed) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
-        const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
-        if (applied === 0) {
-          return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-        }
+      const op = parseOp(raw);
+      if (!op) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+
+      if (op.op === 'patches') {
+        const { html: patched, applied, missed } = applyPatches(html, op.patches);
+        if (applied === 0) return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
         updatedHtml = patched;
-        summary = parsed.summary;
-        changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+        summary = op.summary;
+        changedTexts = op.patches.filter(p => p.replace !== undefined).map(p => p.replace);
         if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+
+      } else if (op.op === 'section_replace') {
+        const ctx = extractBestSection(html, op.anchor);
+        if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
+        updatedHtml = ctx.before + op.html + ctx.after;
+        summary = op.summary;
+
+      } else if (op.op === 'section_insert') {
+        const ctx = extractBestSection(html, op.anchor);
+        if (!ctx) return reply.code(502).send({ error: `Anchor section "${op.anchor}" not found` });
+        updatedHtml = op.position === 'before'
+          ? ctx.before + op.html + ctx.section + ctx.after
+          : ctx.before + ctx.section + op.html + ctx.after;
+        summary = op.summary;
+
+      } else if (op.op === 'section_delete') {
+        const ctx = extractBestSection(html, op.anchor);
+        if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
+        updatedHtml = ctx.before + ctx.after;
+        summary = op.summary;
+
+      } else {
+        return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
       }
     }
 
