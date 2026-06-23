@@ -90,11 +90,16 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         // Hide fixed-position elements (nav bars, cookie banners) so they don't overlay
         // every slide screenshot — fixed elements follow scroll and land inside each section's
         // clip rect when Puppeteer scrolls the page before capturing.
+        // Also hide elements marked data-pdf-hide (e.g. portrait top/bottom nav bars that
+        // are browser-only UI and should not appear in the exported PDF).
         await page.evaluate(() => {
           document.querySelectorAll<HTMLElement>('*').forEach(el => {
             if (getComputedStyle(el).position === 'fixed') {
               el.style.setProperty('display', 'none', 'important');
             }
+          });
+          document.querySelectorAll<HTMLElement>('[data-pdf-hide]').forEach(el => {
+            el.style.setProperty('display', 'none', 'important');
           });
         });
 

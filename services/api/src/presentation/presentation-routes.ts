@@ -2628,15 +2628,36 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
           parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall. Every slide must feel COMPLETE and DENSE — content spread across the full height with NO dead zones, NO empty sections, NO placeholder text.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
-<section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:space-between;width:100%;box-sizing:border-box;padding:52px 40px 48px">
+<section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding:0">
 
-justify-content:space-between distributes content from top → bottom, naturally filling 1280px. Use it on the section itself. Inside, add a middle "body" div with flex:1;display:flex;flex-direction:column;justify-content:center;gap:24px to absorb remaining space.
+The section has NO padding. Three direct children only: top nav bar (52px) → content area (flex:1) → bottom bar (52px). Content area height = 1280 − 104 = 1176px.
+
+═══ TOP NAV BAR (first child, required on every slide) ═══
+<div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
+  Left: slide-1 only → logo img placeholder. Slides 2–N → company name as styled text (font-size:14px;font-weight:700;letter-spacing:0.03em;color:#fff or dark ink)
+  Right: slide counter "01 / N" — replace N with the total slide count (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;opacity:0.5;)
+</div>
+On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
+IMPORTANT: the data-pdf-hide="true" attribute is required on this div — it hides the bar in PDF export so the slide content fills the full page cleanly.
+
+═══ CONTENT AREA (second child, flex:1) ═══
+<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:28px 36px;overflow:hidden;position:relative;z-index:1;">
+  Place all slide content here. Use justify-content:space-between + a middle body div with flex:1 to fill the 1176px.
+</div>
+
+═══ BOTTOM BAR (third child, required on every slide) ═══
+<div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-top:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
+  Left: current phase or section category (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:accent — e.g. "Phase 1 · Crawl" or "Services")
+  Right: CTA or contact (font-size:13px;font-weight:600;) e.g. "Get Started →" or website URL
+</div>
+On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
+IMPORTANT: the data-pdf-hide="true" attribute is required on this div — hidden in PDF export.
 
 ═══ LOGO — CRITICAL RULES ═══
-- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in slide-1's top zone
-- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:36px;width:auto;max-width:140px;object-fit:contain;display:block;flex-shrink:0;">
+- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in the TOP NAV BAR of slide-1 only
+- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:30px;width:auto;max-width:120px;object-fit:contain;display:block;flex-shrink:0;">
 - id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
-- Slides 2 through N: use a styled text brand name instead of any <img> logo element
+- Slides 2 through N: use styled text brand name in the top nav bar instead of any <img> logo element
 - NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
 
 ═══ TYPOGRAPHY — always px, never vw/rem ═══
@@ -2651,24 +2672,24 @@ Stats / big numbers .......... 52–64px, font-weight:900, line-height:1.0
 CRITICAL: These font sizes are minimums. Every slide MUST use them. Small text = rejected output.
 
 ═══ CONTENT DENSITY — non-negotiable ═══
-Every slide MUST contain at minimum:
+Every slide content area (1176px tall) MUST contain at minimum:
 - 1 headline (30px+)
 - 2+ supporting content blocks (paragraphs, cards, list items, or stats)
 - 1 bottom anchor (tagline, CTA, stat strip, or pull-quote)
-Content must fill the visible area. If a zone feels empty, add more content. Aim for 70% content density per slide.
+Content must fill the visible area. If a zone feels empty, add more content. Aim for 70% content density.
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Top zone (≈12%): logo img placeholder + slide counter or eyebrow label
-  Middle zone (≈58%): display headline (2–3 lines, 44-52px) + 2-line tagline (18px) + 60-word description (16px)
-  Bottom zone (≈30%): large CTA button + 3 social-proof stats in a row (big number + label)
+  Top zone (≈12% of 1176px ≈ 141px): eyebrow label (12px uppercase) + company tagline (18px)
+  Middle zone (≈58% ≈ 682px): display headline (2–3 lines, 44–52px) + 2-line description (16px)
+  Bottom zone (≈30% ≈ 353px): large CTA button + 3 social-proof stats in a row (big number 52px + label 13px)
   Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
 
 FEATURE SLIDE
-  Top zone (≈15%): eyebrow label (12px uppercase) + section title (32px)
+  Top zone (≈15% ≈ 176px): eyebrow label (12px uppercase) + section title (32px)
   Middle zone (flex:1): 2×2 icon card grid (grid-template-columns:1fr 1fr; gap:16px)
     Each card: padding:20px; icon (40px SVG); bold title (16px); 2–3 line description (14px)
-  Bottom zone (≈10%): accent tagline or brand strip
+  Bottom zone (≈10% ≈ 118px): accent tagline or stat strip
 
 STATS SLIDE
   Top zone (≈15%): eyebrow + section title (32px)
@@ -2690,15 +2711,14 @@ LIST SLIDE
   Bottom zone: summary statement (16px italic) or accent pill
 
 ═══ SPACING RULES ═══
-- Gap between top/middle/bottom zones: handled by justify-content:space-between on the section
-- Gap within middle content area: 24–32px
+- Content area padding: 28px top, 36px sides — do not reduce
+- Gap between top/middle/bottom content zones: handled by justify-content:space-between on content area
+- Gap within middle content: 24–32px
 - Gap between list items / cards: 16–20px
 - Never use <div style="height:Xpx"> empty spacers — use gap and flex instead
 - Each card / row / item must have enough padding (16–20px) to feel substantial
-- Section padding: 52px top, 40px sides, 48px bottom — do not reduce
 
 ═══ NARROW ROW LAYOUTS (allowed for small elements) ═══
-- Logo row in slide-1 header (flex-direction:row, ok)
 - Icon + label within a card (flex-direction:row, ok)
 - Big stat + unit on same line (flex-direction:row, ok)
 - Button group side by side (flex-direction:row, ok)
@@ -2707,11 +2727,12 @@ LIST SLIDE
 - 3-column or 4-column grids for main content
 - 50/50 or 60/40 side-by-side full-text panels
 - Empty containers taller than 40px
-- fixed / sticky positioned children
+- fixed / sticky positioned children (use the flow-based top/bottom bars only)
 - CSS animations, JS transitions, IntersectionObserver, scroll effects
 - Any <img> with id containing "__site-logo" in slides 2–N
 - Small font sizes below 14px for body content
 - Sparse slides with only a headline and no supporting content
+- Adding padding to the <section> itself — all padding belongs inside the content area div
 
 ═══ CONTRAST & READABILITY — non-negotiable ═══
 Text MUST be clearly readable against its background at all times:
@@ -2724,12 +2745,21 @@ Text MUST be clearly readable against its background at all times:
 - Pull-quote or callout boxes: use border-left:4px solid accent + background:rgba(accent,0.15) + white text
 - NEVER create a card where the text blends into the background — every word must be immediately legible`);
         } else {
-          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Every slide must feel COMPLETE and DENSE — content fills the horizontal canvas with NO dead zones, NO empty vertical stretches, NO placeholder text.
+          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Each slide covers ONE idea with generous breathing room. Spread content across more slides rather than cramming onto fewer — aim for 8–12 slides total. A slide with 2–3 well-spaced cards beats a slide with 6 crowded ones.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
-<section data-section-id="slide-N" style="width:1280px;height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:44px 72px 40px">
+<section data-section-id="slide-N" style="width:1280px;height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:68px 72px 60px">
 
-Use justify-content:flex-start so content anchors to the top and fills downward. Padding (44px top, 72px sides, 40px bottom) provides breathing room. Total content height MUST reach at least 80% of 720px — if a slide ends early, add a bottom strip or expand existing blocks.
+Use justify-content:flex-start so content anchors to the top and fills downward. Padding (68px top, 72px sides, 60px bottom) provides generous breathing room. If a proposal section has 5+ items, split them across two slides of 2–3 items each. White space is intentional — do not force extra content to fill a slide.
+
+═══ TOP NAV BAR (required on every slide — microsite only, hidden in PDF) ═══
+Add this as the FIRST child inside every <section>, using position:absolute so it does NOT consume the padded content space:
+<div data-pdf-hide="true" style="position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 72px;z-index:10;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.08);">
+  Left side — slide-1 only: <img id="__site-logo__" style="height:22px;width:auto;object-fit:contain;opacity:0.85">
+  Left side — slides 2–N: <span style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.7);">BRAND NAME</span>
+  Right side always: <span style="font-size:11px;letter-spacing:0.1em;color:rgba(255,255,255,0.4);font-weight:500;">0N / 0T</span>  <!-- replace 0N with zero-padded slide number, 0T with total slide count -->
+</div>
+The nav bar sits within the 68px top padding zone — it is 44px tall with 24px clearance below it before content begins. Do NOT adjust section padding because of this nav bar.
 
 ═══ LOGO — CRITICAL RULES ═══
 - The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in slide-1's top zone
@@ -2749,16 +2779,17 @@ Stats / big numbers .......... 48–60px, font-weight:900, line-height:1.0
 
 CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for font-size, padding, or gap. Small text = rejected output.
 
-═══ CONTENT DENSITY — non-negotiable ═══
+═══ CONTENT DENSITY — breathing room first ═══
 Every slide MUST contain at minimum:
-- 1 headline (28px+) within 80px of slide top
-- 2+ supporting content blocks (cards, list items, stats, or a sub-grid)
-- Content must fill at least 80% of the 720px height
-If a slide feels sparse, add a bottom accent strip (stat bar, CTA row, callout) to complete it.
+- 1 headline (28px+) near the top
+- 2–3 supporting content blocks (cards, list items, stats) — never more than 4 items per slide
+- Content should occupy 50–70% of the 592px content area — gaps and white space are good
+Split rule: if a topic has 5+ items, split into two slides of 2–3 items each with a "(Part 1 / 2)" subtitle.
+Never add filler content to pad a slide — a focused half-full slide is better than a crowded full slide.
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;height:632px — the full content area)
+  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;flex:1 — fills the 592px content area; do NOT set an explicit height)
   Left column (display:flex;flex-direction:column;justify-content:space-between):
     - Logo img placeholder at top
     - Display headline (40–44px, 2–3 lines) + tagline (16px, 1–2 lines)
@@ -2782,14 +2813,14 @@ FEATURE GRID SLIDE
 
 STATS / KPI SLIDE
   Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:grid;grid-template-columns:repeat(4,1fr);gap:18px;flex:1
-    Each stat cell: big number (52–60px weight:900) + unit/label (14px uppercase) + 2-line context (13px) + optional mini progress bar
-    Cells should fill available height — every cell needs a context sentence below the number
+  Content: display:grid;grid-template-columns:repeat(3,1fr);gap:28px;flex:1
+    Each stat cell: big number (52–60px weight:900) + unit/label (14px uppercase) + 2–3 line context (13px) + optional mini progress bar
+    3 stats is the default; use a 2×2 grid only if there are exactly 4 stats and each needs more description
   Bottom: summary insight bar (~40px)
 
 PROCESS / STEPS SLIDE
   Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:flex;gap:12px;flex:1;align-items:stretch — 4–5 horizontal step cards side by side
+  Content: display:flex;gap:20px;flex:1;align-items:stretch — 3–4 horizontal step cards side by side
     Each step card: padding:20px 16px;border-radius:12px; step number (32px accent); icon (28px SVG); bold title (14px); 2–3 line description (13px); connector arrow between cards (position:absolute, right:-14px)
     Step cards must stretch tall (min-height:420px) to fill the content area
   Bottom: outcome strip or investment summary (~50px)
@@ -2801,11 +2832,11 @@ QUOTE / PROOF SLIDE
   Background: rich gradient or full-bleed image with dark overlay (z-index:0), content z-index:1
 
 ═══ SPACING RULES ═══
-- Slide padding: 44px top, 72px left/right, 40px bottom — DO NOT use vw or clamp
+- Slide padding: 68px top, 72px left/right, 60px bottom — DO NOT use vw or clamp
 - Header-to-content gap: 20–28px
 - Card inner padding: 18–24px
 - Grid gap between cards/columns: 16–24px
-- Content must fill the full 636px available height (720 − 84px padding) — use flex:1 on the content area to expand it
+- Content must fill the full 592px available height (720 − 128px padding) — use flex:1 on the content area to expand it
 - NEVER use empty <div> spacers — use gap, flex:1, or min-height to fill space
 
 ═══ IMAGE RULES ═══
@@ -2821,7 +2852,10 @@ QUOTE / PROOF SLIDE
 - Sticky/fixed positioned children
 - CSS animations, transitions, IntersectionObserver, scroll effects
 - Any <img> with id containing "__site-logo" in slides 2–N
-- Sparse slides where main content ends above the 75% height mark with nothing below
+- Slides that try to cover more than one topic — one idea per slide, always
+- Setting width:1280px on body — the constraint CSS handles body sizing; use width:100% or omit
+- Explicit height on inner content wrappers (height:636px, height:592px, height:632px, or any fixed value) — always use flex:1 so section padding defines the available height
+- repeat(4,1fr) or more than 3 columns in any content grid — maximum 3 columns
 
 ═══ CONTRAST & READABILITY — non-negotiable ═══
 - Dark background slides: use white #fff or rgba(255,255,255,0.92+) for all body text
@@ -2928,7 +2962,7 @@ QUOTE / PROOF SLIDE
 [data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
-              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;document.querySelectorAll('[data-section-id]').forEach(function(el){if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
+              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:68px 72px 60px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:592px;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;if(s>=1){document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}else{document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}document.querySelectorAll('[data-section-id]').forEach(function(el){if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
           )
         : html;
 
