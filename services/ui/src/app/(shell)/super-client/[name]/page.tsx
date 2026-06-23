@@ -851,6 +851,7 @@ export default function SuperClientPage() {
   const composerImageInputRef = useRef<HTMLInputElement | null>(null);
   const composerLogoInputRef = useRef<HTMLInputElement | null>(null);
   const composerContextImageInputRef = useRef<HTMLInputElement | null>(null);
+  const prevContextImageIdsRef = useRef<string[]>([]);
   const [composerContextImages, setComposerContextImages] = useState<
     Array<{ id: string; base64: string; mediaType: string; preview: string }>
   >([]);
@@ -2472,6 +2473,26 @@ export default function SuperClientPage() {
   // Trigger the prepare skill whenever images or instructions change.
   // Debounces 400 ms so rapid pastes of multiple images collapse into one call.
   useEffect(() => {
+    const currentIds = composerContextImages.map((img) => img.id);
+    const prevIds = prevContextImageIdsRef.current;
+    const hasNewImages = currentIds.some((id) => !prevIds.includes(id));
+    prevContextImageIdsRef.current = currentIds;
+
+    if (!hasNewImages) {
+      // Pure removal — prune existing prepared state without hitting the API
+      if (composerContextImages.length === 0) {
+        setComposerPreparedImages([]);
+        setComposerImagesPreparing(false);
+        setReadyImageIds(new Set());
+      } else {
+        const currentIdSet = new Set(currentIds);
+        const keptIndices = prevIds.map((id, i) => (currentIdSet.has(id) ? i : -1)).filter((i) => i >= 0);
+        setComposerPreparedImages((prev) => keptIndices.map((i) => prev[i]).filter(Boolean) as typeof prev);
+        setReadyImageIds((prev) => new Set([...prev].filter((id) => currentIdSet.has(id))));
+      }
+      return;
+    }
+
     if (composerContextImages.length === 0) {
       setComposerPreparedImages([]);
       setComposerImagesPreparing(false);
@@ -2482,7 +2503,6 @@ export default function SuperClientPage() {
     setComposerImagesPreparing(true);
     const abort = new AbortController();
     // Snapshot IDs at effect-start so the closure captures the current list
-    const currentIds = composerContextImages.map((img) => img.id);
 
     const timer = setTimeout(async () => {
       const {
@@ -3827,18 +3847,43 @@ export default function SuperClientPage() {
                       minHeight: 60,
                     }}
                   />
-                  {/* Mode toggle row — sits between textarea and action bar */}
-                  <div className="composer-mode-row">
-                    {(["web", "pdf-landscape", "pdf-portrait"] as const).map((value) => (
-                      <button
-                        key={value}
-                        onClick={() => setComposerPresentationMode(value)}
-                        className={`composer-mode-btn${composerPresentationMode === value ? " composer-mode-btn--active" : ""}`}
-                      >
-                        {value === "web" ? "Web Microsite" : value === "pdf-landscape" ? "PDF 16:9" : "PDF 9:16"}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Thumbnail strip — only when images present */}
+                  {composerContextImages.length > 0 && (
+                    <div style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)", padding: "6px 14px", display: "flex", alignItems: "center", gap: 6 }}>
+                      {composerContextImages.map((img, i) => (
+                        <div key={img.id} style={{ position: "relative", width: 36, height: 36, flexShrink: 0 }}>
+                          <img
+                            src={img.preview}
+                            alt="pasted"
+                            style={{
+                              width: 36, height: 36,
+                              objectFit: "cover",
+                              borderRadius: 6,
+                              display: "block",
+                              opacity: composerImagesPreparing && !readyImageIds.has(img.id) ? 0.38 : 1,
+                              transition: "opacity 0.5s ease",
+                              border: "1px solid var(--border)",
+                            }}
+                          />
+                          {composerImagesPreparing && !readyImageIds.has(img.id) && (
+                            <div className="composer-thumb-shimmer" style={{ animationDelay: `${i * 0.18}s` }} />
+                          )}
+                          <button
+                            onClick={() => setComposerContextImages((prev) => prev.filter((x) => x.id !== img.id))}
+                            style={{ position: "absolute", top: -4, right: -4, background: "rgba(0,0,0,0.75)", color: "#fff", border: "none", borderRadius: "50%", width: 14, height: 14, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            <X size={7} />
+                          </button>
+                        </div>
+                      ))}
+                      <span style={{ fontSize: 11, color: "var(--muted)", flexShrink: 0, marginLeft: 2, display: "flex", alignItems: "center", gap: 4 }}>
+                        {composerContextImages.length}/11
+                        {composerImagesPreparing && (
+                          <span style={{ color: "var(--primary)", animation: "pulse 1.2s infinite" }}>· analyzing…</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
 
                   <div
                     style={{
@@ -3848,7 +3893,7 @@ export default function SuperClientPage() {
                       padding: "8px 14px",
                     }}
                   >
-                    <div style={{ position: "relative", display: "flex", gap: 6 }}>
+                    <div style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}>
                       <button
                         className={`chat-v2-attach-btn${composerAttachMenuOpen ? " active" : ""}`}
                         onClick={() => setComposerAttachMenuOpen((v) => !v)}
@@ -4175,8 +4220,53 @@ export default function SuperClientPage() {
                       }}
                     />
 
-                    {/* Right: Generate button */}
-                    <button
+                    {/* Right: PDF chip + Generate button */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        onClick={() =>
+                          setComposerPresentationMode(
+                            composerPresentationMode === "web" ? "pdf-landscape" : "web"
+                          )
+                        }
+                        className={`composer-mode-btn${composerPresentationMode !== "web" ? " composer-mode-btn--active" : ""}`}
+                        style={{ display: "flex", alignItems: "center", gap: 5 }}
+                      >
+                        <span
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 3,
+                            border: `1.5px solid ${composerPresentationMode !== "web" ? "var(--primary)" : "currentColor"}`,
+                            background: composerPresentationMode !== "web" ? "var(--primary)" : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            transition: "background 0.15s, border-color 0.15s",
+                          }}
+                        >
+                          {composerPresentationMode !== "web" && (
+                            <svg width="7" height="5" viewBox="0 0 7 5" fill="none">
+                              <path d="M1 2.5L2.8 4L6 1" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </span>
+                        PDF Friendly
+                      </button>
+                      {composerPresentationMode !== "web" && (
+                        <div className="composer-pdf-orientation">
+                          {(["pdf-landscape", "pdf-portrait"] as const).map((value) => (
+                            <button
+                              key={value}
+                              onClick={() => setComposerPresentationMode(value)}
+                              className={`composer-pdf-orientation-btn${composerPresentationMode === value ? " composer-pdf-orientation-btn--active" : ""}`}
+                            >
+                              {value === "pdf-landscape" ? "16:9" : "9:16"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <button
                       onClick={() => void generateComposerMicrosite()}
                       style={{
                         padding: "7px 14px",
@@ -4191,8 +4281,17 @@ export default function SuperClientPage() {
                         gap: 6,
                       }}
                     >
-                      <Sparkles size={13} /> Generate Microsite
+                      <Sparkles size={13} />
+                      <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                        <span>Generate Microsite</span>
+                        {composerPresentationMode !== "web" && (
+                          <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.8 }}>
+                            PDF Friendly ({composerPresentationMode === "pdf-landscape" ? "16:9" : "9:16"})
+                          </span>
+                        )}
+                      </span>
                     </button>
+                    </div>
                   </div>
                 </div>
                 {/* end chat-v2-composer */}
