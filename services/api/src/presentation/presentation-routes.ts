@@ -2748,25 +2748,26 @@ Text MUST be clearly readable against its background at all times:
           parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Each slide covers ONE idea with generous breathing room. Spread content across more slides rather than cramming onto fewer — aim for 8–12 slides total. A slide with 2–3 well-spaced cards beats a slide with 6 crowded ones.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
-<section data-section-id="slide-N" style="width:1280px;height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:68px 72px 60px">
+<section data-section-id="slide-N" style="width:1280px;height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:48px 72px 40px">
 
-Use justify-content:flex-start so content anchors to the top and fills downward. Padding (68px top, 72px sides, 60px bottom) provides generous breathing room. If a proposal section has 5+ items, split them across two slides of 2–3 items each. White space is intentional — do not force extra content to fill a slide.
+Use justify-content:flex-start so content anchors to the top and fills downward. Padding (48px top, 72px sides, 40px bottom) provides generous breathing room. If a proposal section has 5+ items, split them across two slides of 2–3 items each. White space is intentional — do not force extra content to fill a slide.
 
-═══ TOP NAV BAR (required on every slide — microsite only, hidden in PDF) ═══
-Add this as the FIRST child inside every <section>, using position:absolute so it does NOT consume the padded content space:
-<div data-pdf-hide="true" style="position:absolute;top:0;left:0;right:0;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 72px;z-index:10;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.08);">
-  Left side — slide-1 only: <img id="__site-logo__" style="height:22px;width:auto;object-fit:contain;opacity:0.85">
-  Left side — slides 2–N: <span style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.7);">BRAND NAME</span>
-  Right side always: <span style="font-size:11px;letter-spacing:0.1em;color:rgba(255,255,255,0.4);font-weight:500;">0N / 0T</span>  <!-- replace 0N with zero-padded slide number, 0T with total slide count -->
-</div>
-The nav bar sits within the 68px top padding zone — it is 44px tall with 24px clearance below it before content begins. Do NOT adjust section padding because of this nav bar.
+═══ MICROSITE NAV BAR (once in <body>, before all slides — browser only) ═══
+Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. This is a normal website navigation bar, not part of any slide:
+<nav data-pdf-hide="true" style="position:fixed;top:0;left:0;right:0;height:64px;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:0 48px;box-sizing:border-box;background:rgba(MATCH_SITE_DARK_BG,0.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,0.08);">
+  <img id="__site-logo__" src="data:," alt="Logo" style="height:28px;width:auto;max-width:120px;object-fit:contain;display:block;">
+  <span style="font-size:13px;font-weight:600;letter-spacing:0.05em;color:rgba(255,255,255,0.5);">CLIENT × AGENCY · tagline or proposal title</span>
+  <a href="#" style="font-size:13px;font-weight:700;padding:9px 22px;border-radius:6px;background:[accent-color];color:#fff;text-decoration:none;letter-spacing:0.02em;">Download PDF</a>
+</nav>
+- data-pdf-hide="true" is required — hides this bar automatically in PDF export
+- Place ONCE as the very first child of <body> — never inside any <section>
+- Use the site's primary dark background color for the nav background (matching the slide palette)
 
 ═══ LOGO — CRITICAL RULES ═══
-- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in slide-1's top zone
-- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:32px;width:auto;max-width:140px;object-fit:contain;display:block;flex-shrink:0;">
-- id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
-- Slides 2 through N: use a styled text brand name or eyebrow label instead of any <img> logo element
-- NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
+- The logo img with id="__site-logo__" belongs ONLY in the microsite nav bar above — NEVER inside any <section>
+- id must be EXACTLY "__site-logo__" — never "__site-logo-2__" or any variant
+- Inside slides: use text-only eyebrow labels or styled brand name — never an <img> for the logo
+- NEVER place id="__site-logo__" or any __site-logo* variant inside any <section>
 
 ═══ TYPOGRAPHY — always px, never vw/clamp/rem ═══
 Display headline ............. 36–44px, line-height:1.1, font-weight:800 — must dominate the slide
@@ -2783,15 +2784,15 @@ CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for fo
 Every slide MUST contain at minimum:
 - 1 headline (28px+) near the top
 - 2–3 supporting content blocks (cards, list items, stats) — never more than 4 items per slide
-- Content should occupy 50–70% of the 592px content area — gaps and white space are good
+- Content should occupy 50–70% of the 632px content area — gaps and white space are good
 Split rule: if a topic has 5+ items, split into two slides of 2–3 items each with a "(Part 1 / 2)" subtitle.
 Never add filler content to pad a slide — a focused half-full slide is better than a crowded full slide.
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;flex:1 — fills the 592px content area; do NOT set an explicit height)
+  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;flex:1 — fills the 632px content area; do NOT set an explicit height)
   Left column (display:flex;flex-direction:column;justify-content:space-between):
-    - Logo img placeholder at top
+    - Eyebrow label: client name + agency (12px uppercase, accent color, letter-spacing:0.08em)
     - Display headline (40–44px, 2–3 lines) + tagline (16px, 1–2 lines)
     - 3 social-proof stats in a row (big number 48px weight:900 + label 13px)
     - CTA button row or contact block at bottom
@@ -2832,11 +2833,11 @@ QUOTE / PROOF SLIDE
   Background: rich gradient or full-bleed image with dark overlay (z-index:0), content z-index:1
 
 ═══ SPACING RULES ═══
-- Slide padding: 68px top, 72px left/right, 60px bottom — DO NOT use vw or clamp
+- Slide padding: 48px top, 72px left/right, 40px bottom — DO NOT use vw or clamp
 - Header-to-content gap: 20–28px
 - Card inner padding: 18–24px
 - Grid gap between cards/columns: 16–24px
-- Content must fill the full 592px available height (720 − 128px padding) — use flex:1 on the content area to expand it
+- Content area available height: 632px (720 − 88px padding) — use flex:1 on the content area to expand it
 - NEVER use empty <div> spacers — use gap, flex:1, or min-height to fill space
 
 ═══ IMAGE RULES ═══
@@ -2854,7 +2855,7 @@ QUOTE / PROOF SLIDE
 - Any <img> with id containing "__site-logo" in slides 2–N
 - Slides that try to cover more than one topic — one idea per slide, always
 - Setting width:1280px on body — the constraint CSS handles body sizing; use width:100% or omit
-- Explicit height on inner content wrappers (height:636px, height:592px, height:632px, or any fixed value) — always use flex:1 so section padding defines the available height
+- Explicit height on inner content wrappers (any fixed pixel value) — always use flex:1 so section padding defines the available height
 - repeat(4,1fr) or more than 3 columns in any content grid — maximum 3 columns
 
 ═══ CONTRAST & READABILITY — non-negotiable ═══
@@ -2962,7 +2963,7 @@ QUOTE / PROOF SLIDE
 [data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
-              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:68px 72px 60px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:592px;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;if(s>=1){document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}else{document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}document.querySelectorAll('[data-section-id]').forEach(function(el){if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
+              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:48px 72px 40px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:632px;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;var vh=document.documentElement.clientHeight||window.innerHeight;if(!vw||!vh)return;var sw=vw/1280;var sh=vh/720;var s=Math.min(sw,sh);var la=sw<=sh&&s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
           )
         : html;
 
