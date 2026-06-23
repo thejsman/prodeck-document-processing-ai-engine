@@ -2842,7 +2842,7 @@ SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 7
 [data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
-              : `$1<style id="__pdf-slide-constraints__">[data-section-id]{min-height:calc(100vw * 9 / 16)!important;overflow:hidden!important;position:relative!important;height:auto!important;max-height:none!important;width:100%!important;box-sizing:border-box!important;}[data-section-id] svg{max-height:140px;max-width:140px;}[data-section-id] img{max-height:42%;object-fit:cover;}</style>`,
+              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;document.querySelectorAll('[data-section-id]').forEach(function(el){if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
           )
         : html;
 
