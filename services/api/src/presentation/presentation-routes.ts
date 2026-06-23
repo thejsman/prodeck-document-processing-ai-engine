@@ -2724,25 +2724,111 @@ Text MUST be clearly readable against its background at all times:
 - Pull-quote or callout boxes: use border-left:4px solid accent + background:rgba(accent,0.15) + white text
 - NEVER create a card where the text blends into the background — every word must be immediately legible`);
         } else {
-          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — apply ONLY these structural changes on top of your normal web microsite design. Do NOT change colors, fonts, gradients, visual style, tone, or design language. The result must look exactly like the web microsite, just split into fixed-height 16:9 slides.
+          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Every slide must feel COMPLETE and DENSE — content fills the horizontal canvas with NO dead zones, NO empty vertical stretches, NO placeholder text.
 
-STRUCTURE (only change from normal microsite):
-- Wrap every logical section in <section data-section-id="slide-N"> where N is 1, 2, 3…
-- Each section MUST have this inline style: style="aspect-ratio:16/9;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:center;width:100%;box-sizing:border-box;padding:clamp(28px,3.5vw,56px) clamp(36px,5vw,80px)"
-- Each section is exactly 1280×720px — everything must be visible without scrolling
+═══ SLIDE WRAPPER (copy exactly for every section) ═══
+<section data-section-id="slide-N" style="width:1280px;height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:44px 72px 40px">
 
-KEEP EXACTLY AS IN NORMAL MICROSITE:
-- All colors, gradients, backgrounds, dark/light theme
-- All fonts, font sizes, font weights, letter-spacing
-- All visual decorations: geometric shapes, gradient overlays, color bands, subtle patterns
-- The overall premium/professional visual tone and brand feel
+Use justify-content:flex-start so content anchors to the top and fills downward. Padding (44px top, 72px sides, 40px bottom) provides breathing room. Total content height MUST reach at least 80% of 720px — if a slide ends early, add a bottom strip or expand existing blocks.
 
-SIZE CONSTRAINTS (only these restrictions apply to ensure content stays within 720px height):
-- Headings: max font-size 2.8vw (≈36px). Body text: max font-size 1.3vw (≈17px)
-- Icons/SVG shapes used decoratively: max-height 140px, max-width 140px — keep them as accents not full-bleed fills
-- Images: max-height 42% of section height (use style="max-height:42%;object-fit:cover")
-- Max 5–6 bullet points per section; trim body copy to fit the 720px height
-- No sticky/fixed children, no scroll animations, no IntersectionObserver — content must be fully visible on load`);
+═══ LOGO — CRITICAL RULES ═══
+- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in slide-1's top zone
+- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:32px;width:auto;max-width:140px;object-fit:contain;display:block;flex-shrink:0;">
+- id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
+- Slides 2 through N: use a styled text brand name or eyebrow label instead of any <img> logo element
+- NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
+
+═══ TYPOGRAPHY — always px, never vw/clamp/rem ═══
+Display headline ............. 36–44px, line-height:1.1, font-weight:800 — must dominate the slide
+Section title ................ 28–34px, line-height:1.15, font-weight:700
+Subheading / eyebrow ......... 13–15px, font-weight:600, letter-spacing:0.06em, text-transform:uppercase
+Body paragraph ............... 15–16px, line-height:1.65 — must be readable, not tiny
+List item / card body ........ 13–14px, line-height:1.6
+Label / tag / caption ........ 11–12px, uppercase, letter-spacing:0.07em, font-weight:600
+Stats / big numbers .......... 48–60px, font-weight:900, line-height:1.0
+
+CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for font-size, padding, or gap. Small text = rejected output.
+
+═══ CONTENT DENSITY — non-negotiable ═══
+Every slide MUST contain at minimum:
+- 1 headline (28px+) within 80px of slide top
+- 2+ supporting content blocks (cards, list items, stats, or a sub-grid)
+- Content must fill at least 80% of the 720px height
+If a slide feels sparse, add a bottom accent strip (stat bar, CTA row, callout) to complete it.
+
+═══ SLIDE LAYOUT PATTERNS ═══
+HERO SLIDE (slide-1)
+  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;height:632px — the full content area)
+  Left column (display:flex;flex-direction:column;justify-content:space-between):
+    - Logo img placeholder at top
+    - Display headline (40–44px, 2–3 lines) + tagline (16px, 1–2 lines)
+    - 3 social-proof stats in a row (big number 48px weight:900 + label 13px)
+    - CTA button row or contact block at bottom
+  Right column: full-bleed image (border-radius:14px;overflow:hidden) or rich graphic element with brand color and large bold text
+
+PROBLEM / SOLUTION SLIDE (2-column)
+  Header row: eyebrow (12px uppercase) + section title (30–32px) — height ~70px, margin-bottom:20px
+  Content: display:grid;grid-template-columns:1fr 1fr;gap:28px;flex:1
+    Left: "Challenge" column — 3–4 items, each: bold label (15px) + 2-line desc (13px), padding:14px 16px, border-left:3px solid accent
+    Right: "Solution" column — 3–4 items, each: checkmark icon + bold label (15px) + 2-line desc (13px), padding:14px 16px, background:rgba(accent,0.08)
+  Bottom: insight callout bar (padding:14px 20px;border-radius:10px;background:accent;font-size:14px) full-width
+
+FEATURE GRID SLIDE
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:grid;grid-template-columns:repeat(3,1fr);gap:18px OR repeat(2,1fr);gap:22px;flex:1
+    Each card: padding:20px 22px;border-radius:12px; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
+    Cards must be tall enough to reach the bottom — add description depth or a stat/metric to fill each card
+  Bottom strip (if space): brand tagline or accent bar (~40px)
+
+STATS / KPI SLIDE
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:grid;grid-template-columns:repeat(4,1fr);gap:18px;flex:1
+    Each stat cell: big number (52–60px weight:900) + unit/label (14px uppercase) + 2-line context (13px) + optional mini progress bar
+    Cells should fill available height — every cell needs a context sentence below the number
+  Bottom: summary insight bar (~40px)
+
+PROCESS / STEPS SLIDE
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:flex;gap:12px;flex:1;align-items:stretch — 4–5 horizontal step cards side by side
+    Each step card: padding:20px 16px;border-radius:12px; step number (32px accent); icon (28px SVG); bold title (14px); 2–3 line description (13px); connector arrow between cards (position:absolute, right:-14px)
+    Step cards must stretch tall (min-height:420px) to fill the content area
+  Bottom: outcome strip or investment summary (~50px)
+
+QUOTE / PROOF SLIDE
+  Full-height layout (display:flex;flex-direction:column;justify-content:center;gap:32px)
+  Center: large pull-quote (28–32px, font-style:italic, line-height:1.4, max-width:860px, margin:0 auto, border-left:6px solid accent, padding-left:28px)
+  Below quote: attribution row (name 16px bold + role 13px muted) + 2–3 supporting proof points (13px each)
+  Background: rich gradient or full-bleed image with dark overlay (z-index:0), content z-index:1
+
+═══ SPACING RULES ═══
+- Slide padding: 44px top, 72px left/right, 40px bottom — DO NOT use vw or clamp
+- Header-to-content gap: 20–28px
+- Card inner padding: 18–24px
+- Grid gap between cards/columns: 16–24px
+- Content must fill the full 636px available height (720 − 84px padding) — use flex:1 on the content area to expand it
+- NEVER use empty <div> spacers — use gap, flex:1, or min-height to fill space
+
+═══ IMAGE RULES ═══
+- Full-bleed slide background: position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0 with a gradient overlay on top
+- Column image (in a 2-col layout): width:100%;height:100%;object-fit:cover;border-radius:12px — fills the full column height
+- Inset showcase image: width:100%;object-fit:cover;border-radius:14px;max-height:320px
+- NEVER use max-height:42% — it clips images to an arbitrary fraction
+
+═══ FORBIDDEN ═══
+- justify-content:center on sections — creates dead zones above and below content
+- vw, clamp(), em, rem for font-size, padding, or gap — px only throughout
+- aspect-ratio on sections — width and height are fixed at 1280×720
+- Sticky/fixed positioned children
+- CSS animations, transitions, IntersectionObserver, scroll effects
+- Any <img> with id containing "__site-logo" in slides 2–N
+- Sparse slides where main content ends above the 75% height mark with nothing below
+
+═══ CONTRAST & READABILITY — non-negotiable ═══
+- Dark background slides: use white #fff or rgba(255,255,255,0.92+) for all body text
+- Light background slides: use near-black (e.g. #111827 or #0d1f18) for body text — never mid-gray
+- Never use rgba opacity below 0.85 for body text
+- Card backgrounds on dark slides: rgba(255,255,255,0.08–0.16) with 1px solid rgba(255,255,255,0.15) border
+- NEVER create a card where text blends into the background — every word must be immediately legible`);
         }
       }
 
