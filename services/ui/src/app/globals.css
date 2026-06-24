@@ -2934,6 +2934,87 @@ body {
   margin: 6px 0 0;
 }
 
+.composer-mode-btn {
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.light .composer-mode-btn {
+  border-color: var(--border);
+}
+
+.composer-mode-btn:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--foreground);
+}
+
+.light .composer-mode-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.composer-mode-btn--active {
+  border-color: var(--primary) !important;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary) !important;
+}
+
+.composer-pdf-orientation {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  margin-left: 2px;
+  animation: composer-orientation-in 0.15s ease;
+}
+
+.light .composer-pdf-orientation {
+  border-left-color: var(--border);
+}
+
+@keyframes composer-orientation-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.composer-pdf-orientation-btn {
+  padding: 2px 7px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  font-family: inherit;
+}
+
+.composer-pdf-orientation-btn:hover {
+  color: var(--foreground);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.light .composer-pdf-orientation-btn:hover {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.composer-pdf-orientation-btn--active {
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
 /* ── Context panel ───────────────────────────────────────────────── */
 
 .chat-ctx-panel {

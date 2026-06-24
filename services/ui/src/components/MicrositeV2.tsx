@@ -108,17 +108,14 @@ export function MicrositeV2({ ast, generating, onBack }: Props) {
 }
 
 function V2IframeSection({ html }: { html: string }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  useEffect(() => {
-    const blob = new Blob([normalizeMicrositeHtml(html)], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    setBlobUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [html]);
-  if (!blobUrl) return null;
+  // Use srcDoc + allow-same-origin so root-relative URLs like /presentation-images/
+  // resolve against the UI origin (localhost:3001) and hit the Next.js rewrite.
+  // Blob URL iframes have different URL resolution behaviour and break these paths.
   return (
     <iframe
-      src={blobUrl}
+      srcDoc={normalizeMicrositeHtml(html)}
+      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+      allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
       style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
       title="microsite"
     />

@@ -2108,12 +2108,68 @@ export async function analyzeProposalV2(
 
 // ── V2 Generate Stream ───────────────────────────────────────────────────────
 
+export interface V2StreamContextImage {
+  url: string;
+  analysis: {
+    index: number;
+    source: unknown;
+    metadata: {
+      description: string;
+      objects: string[];
+      dominantColors: string[];
+      readableText: string;
+      formatHint: string;
+      tags: string[];
+      sentiment: string;
+      dimensions: { width: number; height: number } | null;
+    };
+  };
+  placementHint?: string;
+}
+
+// PreparedImage is the output of the /images/prepare skill
+export type PreparedImage = V2StreamContextImage;
+
+export interface PrepareImagesOptions {
+  images: Array<{ base64: string; mediaType: string }>;
+  proposalMarkdown?: string;
+  userInstructions?: string;
+}
+
+export async function prepareImages(
+  apiKey: string,
+  namespace: string,
+  opts: PrepareImagesOptions,
+): Promise<PreparedImage[]> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/images/prepare`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        images: opts.images,
+        ...(opts.proposalMarkdown ? { proposalMarkdown: opts.proposalMarkdown } : {}),
+        ...(opts.userInstructions ? { userInstructions: opts.userInstructions } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'unknown error');
+    throw new Error(`Image prepare failed (${res.status}): ${text}`);
+  }
+  const data = await res.json() as { images: PreparedImage[] };
+  return data.images;
+}
+
 export interface V2StreamOptions {
   proposalMarkdown: string;
   userPrompt?: string;
   designPrompt?: string;
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
+  pdfPresentation?: boolean;
+  pdfOrientation?: "landscape" | "portrait";
+  contextImages?: V2StreamContextImage[];
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -2133,6 +2189,9 @@ export async function generateMicrositeV2Stream(
       ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
+      ...(opts.pdfPresentation ? { pdfPresentation: true } : {}),
+      ...(opts.pdfOrientation ? { pdfOrientation: opts.pdfOrientation } : {}),
+      ...(opts.contextImages?.length ? { contextImages: opts.contextImages } : {}),
     }),
     signal: opts.signal,
   });
@@ -2145,6 +2204,7 @@ export async function generateMicrositeV2Stream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
 
   try {
     while (true) {
@@ -2157,9 +2217,13 @@ export async function generateMicrositeV2Stream(
         if (!line.startsWith('data: ')) continue;
         try {
           const event = JSON.parse(line.slice(6)) as StreamEvent;
+          if (event.type === 'complete' || event.type === 'error') completed = true;
           opts.onEvent(event);
         } catch { /* malformed line — skip */ }
       }
+    }
+    if (!completed) {
+      throw new Error('Generation stream ended without completing — please try again');
     }
   } finally {
     reader.releaseLock();
@@ -2342,6 +2406,8 @@ export interface SuperClientMicrosite {
   title: string;
   proposalTitle: string;
   savedAt: string;
+  pdfPresentation?: boolean;
+  pdfOrientation?: 'landscape' | 'portrait';
 }
 
 export async function listSuperClientMicrosites(apiKey: string, name: string): Promise<SuperClientMicrosite[]> {
@@ -2356,6 +2422,17 @@ export async function getSuperClientMicrosite(apiKey: string, name: string, id: 
   if (!res.ok) throw new Error(`getSuperClientMicrosite failed: ${res.status}`);
   const json = await res.json() as { ast: import('@/types/presentation').LayoutAST };
   return json.ast;
+}
+
+export async function exportSuperClientMicrositeAsPdf(apiKey: string, name: string, id: string, orientation: "landscape" | "portrait" = "landscape"): Promise<Blob> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/export-pdf?orientation=${orientation}`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error ?? `PDF export failed: ${res.status}`);
+  }
+  return res.blob();
 }
 
 export async function saveSuperClientMicrosite(

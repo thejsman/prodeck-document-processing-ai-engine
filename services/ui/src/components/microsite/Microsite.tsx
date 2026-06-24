@@ -1244,7 +1244,7 @@ ${el.innerHTML}
             padding-top: 3rem !important;
             padding-bottom: 3rem !important;
           }
-          h1, h2 { word-break: break-word; }
+          h1, h2 { overflow-wrap: break-word; }
         }
         @container (min-width: 581px) and (max-width: 900px) {
           .ms-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }

@@ -21,6 +21,7 @@ import type { ProviderPolicyConfig } from '../provider-policy.js';
 import { searchKnowledgeChunks } from '@ai-engine/runtime';
 import { logTrace } from '../trace/trace-store.js';
 import { routeIntent, isResetIntent, classifyIntentWithLLM, isDefinitelyNotWorkflow } from './intent-router.js';
+import { detectDomainViolation, buildDomainViolationResponse } from './boundary-response.js';
 import { scanNamespace } from '../namespace/namespace-intelligence.service.js';
 import { deriveInsightSuggestions } from '../namespace/insight-rules.js';
 import {
@@ -355,6 +356,16 @@ export class ChatOrchestrator {
 
   private async _processMessageInner(params: ProcessMessageParams): Promise<OrchestratorResult> {
     const { message, namespace, chatSessionId, apiKeyHash, onPhase = () => {}, onChunk = () => {}, onSection } = params;
+
+    // ── Domain violation guard ────────────────────────────────────
+    // Runs before any LLM call or workflow routing. Deterministic, zero tokens.
+    // Blocks: format injection ("give me html proposal"), prompt injection ("ignore your instructions").
+    const violation = detectDomainViolation(message);
+    if (violation) {
+      const res = buildDomainViolationResponse(violation);
+      void appendChatTurn(this.workdir, namespace, apiKeyHash, chatSessionId, message, res.text);
+      return { message: res.text };
+    }
 
     // ── Load or create workflow instance ─────────────────────────
     let instance = await loadActiveInstance(this.workdir, namespace, chatSessionId);

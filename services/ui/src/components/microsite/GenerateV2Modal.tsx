@@ -26,6 +26,7 @@ export function GenerateV2Modal({
   const [step, setStep] = useState<Step>('configure');
 
   // Step 1 — configure
+  const [presentationMode, setPresentationMode] = useState(false);
   const [instructions, setInstructions] = useState('');
   const [referenceImage, setReferenceImage] = useState<{ base64: string; mediaType: string; preview: string } | null>(null);
   const [imageExtracting, setImageExtracting] = useState(false);
@@ -98,6 +99,7 @@ export function GenerateV2Modal({
         proposalMarkdown,
         userPrompt: instructions.trim() || undefined,
         referenceImage: referenceImage ? { base64: referenceImage.base64, mediaType: referenceImage.mediaType } : undefined,
+        pdfPresentation: presentationMode || undefined,
         signal: abort.signal,
         onEvent(event) {
           if (event.type === 'start') {
@@ -133,6 +135,7 @@ export function GenerateV2Modal({
             if (raw && typeof raw === 'object') {
               astRef.current = raw as LayoutAST;
               (astRef.current as LayoutAST).generationMode = 'v2';
+              if (presentationMode) (astRef.current as LayoutAST).pdfPresentation = true;
             }
             setProgressLines(p => [...p, 'Done ✓']);
             setDone(true);
@@ -272,6 +275,35 @@ ${fonts}
         {/* ── Step 1: Configure ── */}
         {step === 'configure' && (
           <>
+            {/* Mode selector */}
+            <div>
+              <div style={label}>Output format</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {([
+                  { id: false, title: 'Web Microsite', desc: 'Interactive scroll experience' },
+                  { id: true,  title: 'PDF Presentation', desc: '16:9 slides · downloadable PDF' },
+                ] as const).map(({ id, title, desc }) => (
+                  <button
+                    key={String(id)}
+                    onClick={() => setPresentationMode(id)}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      border: `1.5px solid ${presentationMode === id ? 'var(--primary)' : 'var(--color-border)'}`,
+                      borderRadius: 8,
+                      background: presentationMode === id ? 'color-mix(in srgb, var(--primary) 10%, var(--color-bg))' : 'var(--color-bg)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'border-color 0.15s, background 0.15s',
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, color: presentationMode === id ? 'var(--primary)' : 'var(--text)', marginBottom: 2 }}>{title}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div>
               <div style={label}>Instructions (optional)</div>
               <textarea
@@ -349,7 +381,7 @@ ${fonts}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button style={btn('ghost')} onClick={handleClose}>Cancel</button>
               <button style={btn('primary')} onClick={handleGenerate}>
-                Generate Microsite →
+                {presentationMode ? 'Generate PDF Presentation →' : 'Generate Microsite →'}
               </button>
             </div>
           </>

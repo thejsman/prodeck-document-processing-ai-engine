@@ -219,6 +219,44 @@ async function embedImagesAsBase64(
 }
 
 // ---------------------------------------------------------------------------
+// Preview-injection stripping
+// The UI injects ephemeral CSS/JS into the srcdoc iframe for preview purposes.
+// These must never be saved to disk or passed to the LLM — they could cause
+// the model to absorb script code into section content fields, which then
+// renders as visible text when the section is displayed.
+// ---------------------------------------------------------------------------
+
+const PREVIEW_INJECTION_IDS = [
+  '__preview-cursor-reset',
+  '__nav-anchor-fix',
+  '__preview-reveal-fix',
+  '__microsite-iframe-edit',
+  '__scroll-restore',
+];
+
+function stripPreviewInjections(html: string): string {
+  let out = html;
+  for (const id of PREVIEW_INJECTION_IDS) {
+    out = out.replace(
+      new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'),
+      '',
+    );
+  }
+  return out;
+}
+
+/** Strip preview injections from every customHtml field in an AST in-place. */
+function stripAstInjections(ast: Record<string, unknown>): void {
+  const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(sections)) return;
+  for (const sec of sections) {
+    if (typeof sec.customHtml === 'string') {
+      sec.customHtml = stripPreviewInjections(sec.customHtml);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CSS token cache
 // Keyed by a hash of (tone + primaryColor + industry + designPromptOverride).
 // Only used on design-skill-aware paths where the tone is deterministic.
@@ -1453,6 +1491,7 @@ ${layoutSummary}`;
     }
     const { namespace, ast } = body;
     const astObj = ast as Record<string, unknown>;
+    stripAstInjections(astObj);
     const rawMode = typeof astObj?.generationMode === 'string' ? astObj.generationMode : null;
     const type = rawMode === 'classic' ? 'classic' : 'pro';
 
@@ -2318,6 +2357,26 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       referenceImage?: { base64: string; mediaType: string }; // screenshot for vision
       coldStart?: boolean;       // bypass proposal — generate content from scratch
       motionLevel?: 'none' | 'minimal' | 'standard' | 'cinematic' | 'immersive'; // explicit motion override
+      contextImages?: Array<{   // client-pasted images — prepared by the /images/prepare skill
+        url: string;
+        analysis: {
+          index: number;
+          source: unknown;
+          metadata: {
+            description: string;
+            objects: string[];
+            dominantColors: string[];
+            readableText: string;
+            formatHint: string;
+            tags: string[];
+            sentiment: string;
+            dimensions: { width: number; height: number } | null;
+          };
+        };
+        placementHint?: string; // LLM-generated brief for where this image fits in the microsite
+      }>;
+      pdfPresentation?: boolean; // each section is a fixed-aspect slide for PDF download
+      pdfOrientation?: 'landscape' | 'portrait'; // landscape = 16:9 (default), portrait = 9:16
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2338,14 +2397,48 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
 
     const hasPexels = !!(env.PEXELS_API_KEY?.trim());
 
-    const imageInstructions = hasPexels
-      ? `For images, always follow the user's instructions first.
+    const contextImgs = body?.contextImages ?? [];
+
+    const imageInstructions = contextImgs.length > 0
+      ? (() => {
+          const lines: string[] = [
+            'CLIENT-PROVIDED IMAGES — MANDATORY INCLUSION',
+            `Every one of the ${contextImgs.length} image(s) listed below MUST appear somewhere in the final microsite. Do NOT use image:// URLs for these. Do NOT substitute them with stock photos.`,
+            '',
+            'IMAGE CONTEXT (from visual analysis):',
+            ...contextImgs.flatMap((img, i) => {
+              const m = img.analysis?.metadata ?? {};
+              const dims = m.dimensions ? `${m.dimensions.width}×${m.dimensions.height}` : '';
+              const imgLines = [
+                `Image ${i + 1} — src="${img.url}"`,
+                `  Description: ${m.description ?? ''}`,
+                `  Objects: ${(m.objects ?? []).slice(0, 5).join(', ')}`,
+                `  Tags: ${(m.tags ?? []).slice(0, 6).join(', ')}`,
+                `  Mood: ${m.sentiment ?? ''}${dims ? ` | Dimensions: ${dims}` : ''}`,
+              ];
+              if ((img as { placementHint?: string }).placementHint) {
+                imgLines.push(`  Placement brief: ${(img as { placementHint?: string }).placementHint}`);
+              }
+              imgLines.push('');
+              return imgLines;
+            }),
+            'You have full creative freedom on how to use these images. Think like a creative director: place them as heroes, full-bleed backgrounds, parallax layers, inline section images, gallery grids, team/about photos — whatever amplifies the proposal narrative and design. Cross-reference the proposal document to place each image where it most powerfully serves the story.',
+            'On mobile, all images must be responsive (max-width:100%; height:auto or object-fit:cover with a bounded height).',
+            '',
+            hasPexels
+              ? 'For any additional decorative images beyond the above, use: <img src="image://descriptive+query" alt="...">'
+              : 'For any additional decorative images beyond the above, use real Unsplash URLs from your training data.',
+          ];
+          return lines.join('\n');
+        })()
+      : hasPexels
+        ? `For images, always follow the user's instructions first.
 If the user says no images, use CSS gradients and SVGs only.
 Otherwise use this exact format for every image:
   <img src="image://descriptive+search+query+subject+mood+setting" alt="brief description">
   background-image: url('image://descriptive+search+query+subject+mood+setting')
 Write specific queries — subject, setting, mood, lighting, style. Never generic. These are replaced with real professional photography by the server.`
-      : `For images, always follow the user's instructions first.
+        : `For images, always follow the user's instructions first.
 If the user says no images, use CSS gradients and SVGs only.
 Otherwise use real Unsplash photo URLs from your training data:
   https://images.unsplash.com/photo-{id}?w=1920&q=80&fit=crop&auto=format
@@ -2418,6 +2511,18 @@ MOTION BASELINE — when no explicit MOTION override is present:
 - Buttons: scale(1.04) + box-shadow lift on :hover, transition 0.18s ease
 - Cards: translateY(-4px) + shadow deepen on :hover, transition 0.2s ease
 - This is the floor — exceed it whenever the brand mood warrants it
+
+LAYOUT INTEGRITY — outcome constraints only. Achieve these however best fits your design:
+- Content must never be hidden under the fixed navbar — anchor scroll targets and first-section top spacing must account for navbar height
+- Sections must not visually bleed into each other — absolutely-positioned decorative elements (blobs, shapes, gradients) must stay within their section's bounds
+- The navbar must always sit above all other elements — no section card, parallax layer, or overlay may appear in front of it
+- Flex and grid children that contain text must not overflow their container at any viewport width
+- Scroll-reveal animations must not leave any content permanently invisible — include a fallback that ensures visibility if the animation observer never fires
+- Parallax backgrounds must always fully cover their container at every scroll position — no gaps at top or bottom edges
+- Multi-column layouts must collapse gracefully — no column may become unreadably narrow; wrap or stack before that happens
+- Cards must size to their content — a fixed height that clips text at different screen sizes is a bug
+- The mobile hamburger menu must open on tap and close when a link is selected
+- No horizontal scrollbar at any viewport width
 
 ${imageInstructions}`;
 
@@ -2576,17 +2681,291 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       }
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
+      // PDF presentation directive — overrides motion and enforces fixed-aspect slide layout
+      if (body?.pdfPresentation) {
+        const isPortrait = body?.pdfOrientation === 'portrait';
+        if (isPortrait) {
+          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall. Every slide must feel COMPLETE and DENSE — content spread across the full height with NO dead zones, NO empty sections, NO placeholder text.
+
+═══ SLIDE WRAPPER (copy exactly for every section) ═══
+<section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding:0">
+
+The section has NO padding. Children depend on slide position:
+- slide-1 ONLY: top nav bar (52px) → content area (flex:1). Content area height = 1280 − 52 = 1228px.
+- Middle slides (slides 2 through N-1): content area ONLY (flex:1). Content area fills full 1280px.
+- Last slide (slide-N) ONLY: content area (flex:1) → bottom bar (52px). Content area height = 1280 − 52 = 1228px.
+
+═══ TOP NAV BAR (FIRST SLIDE ONLY — slide-1, NOT on any other slide) ═══
+<div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
+  Left: logo img placeholder (slide-1 only)
+  Right: slide counter "01 / N" — replace N with the total slide count (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;opacity:0.5;)
+</div>
+On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
+IMPORTANT: the data-pdf-hide="true" attribute is required on this div — it hides the bar in PDF export so the slide content fills the full page cleanly.
+DO NOT add this top nav bar to slides 2 through N.
+
+═══ CONTENT AREA (the ONLY child on middle slides; first child on last slide) ═══
+<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:28px 36px;overflow:hidden;position:relative;z-index:1;">
+  Place all slide content here. Use justify-content:space-between + a middle body div with flex:1 to fill the available height.
+</div>
+
+═══ BOTTOM BAR (LAST SLIDE ONLY — slide-N, NOT on any other slide) ═══
+<div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-top:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
+  Left: company name or brand tagline (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:accent)
+  Right: CTA or contact (font-size:13px;font-weight:600;) e.g. "Get Started →" or website URL
+</div>
+On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
+IMPORTANT: the data-pdf-hide="true" attribute is required on this div — hidden in PDF export.
+DO NOT add this bottom bar to any slide other than the last slide.
+
+═══ LOGO — CRITICAL RULES ═══
+- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in the TOP NAV BAR of slide-1 only
+- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:30px;width:auto;max-width:120px;object-fit:contain;display:block;flex-shrink:0;">
+- id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
+- Slides 2 through N: NO top nav bar — do not add any navigation bar to these slides
+- NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
+
+═══ TYPOGRAPHY — always px, never vw/rem ═══
+Display headline ............. 44–52px, line-height:1.1, font-weight:800 — must be bold and large
+Section title ................ 30–36px, line-height:1.2, font-weight:700
+Subheading / eyebrow ......... 16–18px, font-weight:600, letter-spacing:0.04em
+Body paragraph ............... 16px, line-height:1.75 — must be readable, not tiny
+List item / card body ........ 14–15px, line-height:1.65
+Label / tag / caption ........ 12px, uppercase, letter-spacing:0.07em, font-weight:600
+Stats / big numbers .......... 52–64px, font-weight:900, line-height:1.0
+
+CRITICAL: These font sizes are minimums. Every slide MUST use them. Small text = rejected output.
+
+═══ CONTENT DENSITY — non-negotiable ═══
+Every slide content area (1228px on slide-1 and last slide; 1280px on middle slides) MUST contain at minimum:
+- 1 headline (30px+)
+- 2+ supporting content blocks (paragraphs, cards, list items, or stats)
+- 1 bottom anchor (tagline, CTA, stat strip, or pull-quote)
+Content must fill the visible area. If a zone feels empty, add more content. Aim for 70% content density.
+
+═══ SLIDE LAYOUT PATTERNS ═══
+HERO SLIDE (slide-1)
+  Top zone (≈12% of 1228px ≈ 147px): eyebrow label (12px uppercase) + company tagline (18px)
+  Middle zone (≈58% ≈ 712px): display headline (2–3 lines, 44–52px) + 2-line description (16px)
+  Bottom zone (≈30% ≈ 369px): large CTA button + 3 social-proof stats in a row (big number 52px + label 13px)
+  Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
+
+FEATURE SLIDE
+  Top zone (≈15% ≈ 176px): eyebrow label (12px uppercase) + section title (32px)
+  Middle zone (flex:1): 2×2 icon card grid (grid-template-columns:1fr 1fr; gap:16px)
+    Each card: padding:20px; icon (40px SVG); bold title (16px); 2–3 line description (14px)
+  Bottom zone (≈10% ≈ 118px): accent tagline or stat strip
+
+STATS SLIDE
+  Top zone (≈15%): eyebrow + section title (32px)
+  Middle zone: 2×2 big-number grid — each cell: big number (56px, font-weight:900) + unit + 2-line label (14px)
+  Bottom zone: context sentence (16px) + CTA or accent bar
+
+TEXT / STORY SLIDE
+  Top zone: eyebrow tag (12px) + section title (32px) + 1-line intro (16px)
+  Middle zone (flex:1): 3–4 body paragraphs (16px, line-height:1.75, gap:20px) OR large pull-quote (22px italic, left border 4px accent)
+  Bottom zone: highlighted callout box (background:accent at 15% opacity, padding:20px 24px, border-radius:12px, border-left:4px solid accent, 16px bold text)
+
+IMAGE + TEXT SLIDE
+  Top zone: full-width image (height:38%, object-fit:cover, border-radius:12px) with overlaid eyebrow tag
+  Below image: title (30px, margin-top:24px) + 3 bullet points (icon + 15px text, gap:12px) + CTA link (16px bold, accent color)
+
+LIST SLIDE
+  Top zone (≈12%): eyebrow + section title (30px)
+  Middle zone (flex:1): 5–7 items, each row = colored icon (32px) + bold label (15px) + description (14px, 2 lines), padding:14px 0, border-bottom:1px solid rgba(255,255,255,0.1)
+  Bottom zone: summary statement (16px italic) or accent pill
+
+═══ SPACING RULES ═══
+- Content area padding: 28px top, 36px sides — do not reduce
+- Gap between top/middle/bottom content zones: handled by justify-content:space-between on content area
+- Gap within middle content: 24–32px
+- Gap between list items / cards: 16–20px
+- Never use <div style="height:Xpx"> empty spacers — use gap and flex instead
+- Each card / row / item must have enough padding (16–20px) to feel substantial
+
+═══ NARROW ROW LAYOUTS (allowed for small elements) ═══
+- Icon + label within a card (flex-direction:row, ok)
+- Big stat + unit on same line (flex-direction:row, ok)
+- Button group side by side (flex-direction:row, ok)
+
+═══ FORBIDDEN ═══
+- 3-column or 4-column grids for main content
+- 50/50 or 60/40 side-by-side full-text panels
+- Empty containers taller than 40px
+- fixed / sticky positioned children (use the flow-based top/bottom bars only)
+- CSS animations, JS transitions, IntersectionObserver, scroll effects
+- Any <img> with id containing "__site-logo" in slides 2–N
+- Small font sizes below 14px for body content
+- Sparse slides with only a headline and no supporting content
+- Adding padding to the <section> itself — all padding belongs inside the content area div
+
+═══ CONTRAST & READABILITY — non-negotiable ═══
+Text MUST be clearly readable against its background at all times:
+- Dark background slides: use white (#fff) or very near-white (rgba 255,255,255,≥0.92) for all text
+- Never use rgba text color with opacity below 0.85
+- Card/surface backgrounds: minimum 18% luminance difference from slide background — avoid near-identical tones
+- Use rgba(255,255,255,0.10) to rgba(255,255,255,0.18) for card backgrounds on dark slides — never below 0.08
+- Card border: always add 1px solid rgba(255,255,255,0.18) so cards are visible even on similar-colored backgrounds
+- If a card has a colored tinted background (blue, green tint), ensure text is solid white, not muted
+- Pull-quote or callout boxes: use border-left:4px solid accent + background:rgba(accent,0.15) + white text
+- NEVER create a card where the text blends into the background — every word must be immediately legible`);
+        } else {
+          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Each slide covers ONE idea with generous breathing room. Spread content across more slides rather than cramming onto fewer — aim for 8–12 slides total. A slide with 2–3 well-spaced cards beats a slide with 6 crowded ones.
+
+═══ SLIDE WRAPPER (copy exactly for every section) ═══
+<section data-section-id="slide-N" style="width:1280px;min-height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:48px 72px 48px">
+
+Use justify-content:flex-start so content anchors to the top and fills downward. Padding (48px top, 72px sides, 48px bottom) provides generous breathing room. White space is intentional — do not force extra content to fill a slide. NEVER put more than 6 items on one slide — if a section has 7+ items, split across two slides.
+
+═══ MICROSITE NAV BAR (once in <body>, before all slides — browser only) ═══
+Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. This is a normal website navigation bar, not part of any slide:
+<nav data-pdf-hide="true" style="position:fixed;top:0;left:0;right:0;height:64px;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:0 48px;box-sizing:border-box;background:rgba(MATCH_SITE_DARK_BG,0.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,0.08);">
+  <img id="__site-logo__" src="data:," alt="Logo" style="height:28px;width:auto;max-width:120px;object-fit:contain;display:block;">
+  <span style="font-size:13px;font-weight:600;letter-spacing:0.05em;color:rgba(255,255,255,0.5);">CLIENT × AGENCY · tagline or proposal title</span>
+</nav>
+- data-pdf-hide="true" is required — hides this bar automatically in PDF export
+- Place ONCE as the very first child of <body> — never inside any <section>
+- Use the site's primary dark background color for the nav background (matching the slide palette)
+- REQUIRED: the <body> tag MUST have style="padding-top:64px" so slides start below the fixed nav bar. Without this the first slide is hidden behind the navbar. Example: <body style="padding-top:64px;margin:0">
+
+═══ LOGO — CRITICAL RULES ═══
+- The logo img with id="__site-logo__" belongs ONLY in the microsite nav bar above — NEVER inside any <section>
+- id must be EXACTLY "__site-logo__" — never "__site-logo-2__" or any variant
+- Inside slides: use text-only eyebrow labels or styled brand name — never an <img> for the logo
+- NEVER place id="__site-logo__" or any __site-logo* variant inside any <section>
+
+═══ TYPOGRAPHY — always px, never vw/clamp/rem ═══
+Display headline ............. 36–44px, line-height:1.1, font-weight:800 — must dominate the slide
+Section title ................ 28–34px, line-height:1.15, font-weight:700
+Subheading / eyebrow ......... 13–15px, font-weight:600, letter-spacing:0.06em, text-transform:uppercase
+Body paragraph ............... 15–16px, line-height:1.65 — must be readable, not tiny
+List item / card body ........ 13–14px, line-height:1.6
+Label / tag / caption ........ 11–12px, uppercase, letter-spacing:0.07em, font-weight:600
+Stats / big numbers .......... 48–60px, font-weight:900, line-height:1.0
+
+CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for font-size, padding, or gap. Small text = rejected output.
+
+═══ CONTENT DENSITY — fit everything within the slide ═══
+LAYOUT CHOICE based on item count (decide BEFORE building):
+- 2–4 items → CARD STYLE: full card with background, border, icon, padding — 2×2 or 1×3 grid
+- 5–6 items → COMPACT LIST: icon-row layout (no card backgrounds) — rows evenly spaced with justify-content:space-between
+- 7+ items → SPLIT across two slides: each slide gets 3–4 items using CARD STYLE
+NEVER mix tall cards with compact rows in the same slide — pick one style for all items
+Every slide MUST have 1 headline (28px+) near the top
+
+═══ SLIDE LAYOUT PATTERNS ═══
+HERO SLIDE (slide-1)
+  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;flex:1 — fills the 624px content area; do NOT set an explicit height)
+  Left column (display:flex;flex-direction:column;justify-content:space-between):
+    - Eyebrow label: client name + agency (12px uppercase, accent color, letter-spacing:0.08em)
+    - Display headline (40–44px, 2–3 lines) + tagline (16px, 1–2 lines)
+    - 3 social-proof stats in a row (big number 48px weight:900 + label 13px)
+    - CTA button row or contact block at bottom
+  Right column: full-bleed image (border-radius:14px;overflow:hidden) or rich graphic element with brand color and large bold text
+
+PROBLEM / SOLUTION SLIDE (2-column)
+  Header row: eyebrow (12px uppercase) + section title (30–32px) — height ~70px, margin-bottom:24px
+  Content: display:grid;grid-template-columns:1fr 1fr;gap:32px;flex:1
+    Left: "Challenge" column — 3 items max, display:flex;flex-direction:column;justify-content:space-between; each item: bold label (15px) + 2-line desc (13px), padding:18px 20px, border-left:3px solid accent
+    Right: "Solution" column — 3 items max, display:flex;flex-direction:column;justify-content:space-between; each item: checkmark icon + bold label (15px) + 2-line desc (13px), padding:18px 20px, background:rgba(accent,0.08)
+  Bottom: insight callout bar (padding:16px 22px;border-radius:10px;background:accent;font-size:14px) full-width
+
+FEATURE GRID SLIDE (2–4 items — card style)
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:grid;grid-template-columns:repeat(2,1fr);gap:22px;flex:1 — max 4 cards (2×2)
+    Each card: padding:22px 24px;border-radius:12px;overflow:hidden; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
+    3 cards: use repeat(3,1fr) single row — taller cards, more impact
+    ALL text inside cards must use word-wrap:break-word and never overflow the card boundary
+  Do NOT use this pattern for 5+ items — use COMPACT LIST instead
+
+COMPACT LIST SLIDE (5–6 items — row style, no card backgrounds)
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:flex;flex-direction:column;justify-content:space-between;flex:1
+    Each row: display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.08)
+      Icon: 32px SVG or colored circle with initial, flex-shrink:0
+      Text block: bold label (14px, font-weight:700) on top + description (13px, 1–2 lines, color:rgba(255,255,255,0.7)) below
+    Last row: no border-bottom
+  For 2-column compact list: display:grid;grid-template-columns:1fr 1fr;gap:0 40px — keeps all items visible with breathing room
+  Each row height ~64–76px — space-between distributes rows evenly across the full 624px content area
+
+STATS / KPI SLIDE
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:grid;grid-template-columns:repeat(3,1fr);gap:28px;flex:1
+    Each stat cell: big number (52–60px weight:900) + unit/label (14px uppercase) + 2–3 line context (13px) + optional mini progress bar
+    3 stats is the default; use a 2×2 grid only if there are exactly 4 stats and each needs more description
+  Bottom: summary insight bar (~40px)
+
+PROCESS / STEPS SLIDE
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:flex;gap:20px;flex:1;align-items:stretch — 3–4 horizontal step cards side by side
+    Each step card: padding:20px 16px;border-radius:12px; step number (32px accent); icon (28px SVG); bold title (14px); 2–3 line description (13px); connector arrow between cards (position:absolute, right:-14px)
+    Step cards must stretch tall (min-height:420px) to fill the content area
+  Bottom: outcome strip or investment summary (~50px)
+
+QUOTE / PROOF SLIDE
+  Full-height layout (display:flex;flex-direction:column;justify-content:center;gap:32px)
+  Center: large pull-quote (28–32px, font-style:italic, line-height:1.4, max-width:860px, margin:0 auto, border-left:6px solid accent, padding-left:28px)
+  Below quote: attribution row (name 16px bold + role 13px muted) + 2–3 supporting proof points (13px each)
+  Background: rich gradient or full-bleed image with dark overlay (z-index:0), content z-index:1
+
+═══ SPACING RULES ═══
+- Slide padding: 48px top, 72px left/right, 48px bottom — equal top/bottom, DO NOT use vw or clamp
+- Content area is defined by section padding — do NOT set explicit widths on content containers; use flex:1 or omit width entirely
+- Grid columns MUST use fr units (1fr 1fr, not fixed px) so they fill the available padded width automatically
+- NEVER set width:1280px or width:100vw on any element inside a section — that bypasses padding and causes overflow
+- Header-to-content gap: 20–28px
+- Card inner padding: 18–24px
+- Grid gap between cards/columns: 16–28px
+- NEVER use empty <div> spacers — use gap, flex:1, or min-height to fill space
+
+═══ IMAGE RULES ═══
+- Full-bleed slide background: position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0 with a gradient overlay on top
+- Column image (in a 2-col layout): width:100%;height:100%;object-fit:cover;border-radius:12px — fills the full column height
+- Inset showcase image: width:100%;object-fit:cover;border-radius:14px;max-height:320px
+- NEVER use max-height:42% — it clips images to an arbitrary fraction
+
+═══ FORBIDDEN ═══
+- justify-content:center on sections — creates dead zones above and below content
+- vw, clamp(), em, rem for font-size, padding, or gap — px only throughout
+- aspect-ratio on sections — width and height are fixed at 1280×720
+- Sticky/fixed positioned children
+- CSS animations, transitions, IntersectionObserver, scroll effects
+- Any <img> with id containing "__site-logo" in slides 2–N
+- Slides that try to cover more than one topic — one idea per slide, always
+- width:1280px or width:100vw on ANY element inside a section — always causes overflow past the padding boundary
+- Fixed pixel widths on grid columns — use fr units only
+- Unbalanced column layouts with dead space — use asymmetric fr splits (e.g. 1.2fr 0.8fr) to fill the full width
+- Setting width:1280px on body — the constraint CSS handles body sizing
+- Explicit height on inner content wrappers (any fixed pixel value) — always use flex:1 so section padding defines the available height
+- repeat(4,1fr) or more than 3 columns in any content grid — maximum 3 columns
+
+═══ CONTRAST & READABILITY — non-negotiable ═══
+- Dark background slides: use white #fff or rgba(255,255,255,0.92+) for all body text
+- Light background slides: use near-black (e.g. #111827 or #0d1f18) for body text — never mid-gray
+- Never use rgba opacity below 0.85 for body text
+- Card backgrounds on dark slides: rgba(255,255,255,0.08–0.16) with 1px solid rgba(255,255,255,0.15) border
+- NEVER create a card where text blends into the background — every word must be immediately legible`);
+        }
+      }
+
       // Motion level hint — tells Claude what animation approach to use
-      const motionHint = body?.motionLevel === 'none'
+      const effectiveMotionLevel = body?.pdfPresentation ? 'none' : body?.motionLevel;
+      const motionHint = effectiveMotionLevel === 'none'
         ? 'MOTION: Generate a fully static site — no CSS animations, no JS animations, no transitions whatsoever.'
-        : body?.motionLevel === 'minimal'
+        : effectiveMotionLevel === 'minimal'
         ? 'MOTION: Use only subtle CSS fade-in transitions on page load. No scroll animations.'
-        : body?.motionLevel === 'cinematic'
+        : effectiveMotionLevel === 'cinematic'
         ? 'MOTION: Add high-end scroll-driven animations via GSAP loaded from CDN. Include: parallax background layers, 3D card tilt on hover (CSS perspective + JS), staggered fade-up on scroll, animated number counters. Add GSAP + ScrollTrigger scripts in <head> from https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/'
-        : body?.motionLevel === 'immersive'
+        : effectiveMotionLevel === 'immersive'
         ? 'MOTION: Maximum cinematic motion. Load GSAP + ScrollTrigger from jsdelivr CDN. Include: deep parallax scrub on backgrounds, canvas particle system in hero section, split-text headline reveals (animate each word), 3D perspective card tilts, staggered section entrances, smooth magnetic cursor effect on CTAs. Use requestAnimationFrame for all continuous animations.'
         : null;
       if (motionHint) parts.push(motionHint);
+
+      // Remind the LLM about client images (full spec is already in the system prompt via imageInstructions)
+      if (contextImgs.length > 0) {
+        parts.push(`Reminder: embed all ${contextImgs.length} client-provided image(s) listed in your system instructions using their exact src URLs.`);
+      }
+
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
       const prompt = parts.join('\n\n');
 
@@ -2645,13 +3024,29 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       const html = (await resolveImagePlaceholders(rawHtml))
         .replace(
-          // Skip imgs that already have onerror AND skip __site-logo__ (replaced client-side)
-          /<img\b(?![^>]*\bonerror\b)(?![^>]*\bid="__site-logo__")([^>]*\balt="([^"]*)"[^>]*)>/gi,
+          // Skip imgs that already have onerror AND skip __site-logo* (replaced client-side)
+          /<img\b(?![^>]*\bonerror\b)(?![^>]*\bid="__site-logo)([^>]*\balt="([^"]*)"[^>]*)>/gi,
           (_m, attrs: string, alt: string) => {
             const keyword = (alt || 'abstract').trim().split(/\s+/).slice(0, 3).join('-').toLowerCase().replace(/[^a-z0-9-]/g, '');
             return `<img${attrs} onerror="this.onerror=null;this.src='https://picsum.photos/seed/${keyword}/1920/1080'">`;
           },
         );
+
+      // Inject hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
+      // Only constrains layout/overflow; does NOT change colors, fonts, or visual style.
+      const isPortrait = body?.pdfPresentation && body?.pdfOrientation === 'portrait';
+      const finalHtml = body?.pdfPresentation
+        ? html.replace(
+            /(<head[^>]*>)/i,
+            isPortrait
+              ? `$1<style id="__pdf-slide-constraints__">
+[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:auto!important;max-height:none!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;}
+[data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
+[data-section-id] svg{max-height:120px!important;max-width:120px!important;}
+</style>`
+              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:48px 72px 48px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:624px;overflow:hidden;min-height:0;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;var la=s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
+          )
+        : html;
 
       send({ type: 'plan', totalSections: 1, sectionTypes: ['overview'] });
 
@@ -2660,7 +3055,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
         id: 'microsite',
         heading: 'microsite',
         sectionType: 'overview',
-        customHtml: html,
+        customHtml: finalHtml,
         content: { headline: 'microsite' },
         index: 0,
         image: { source: 'gradient', query: '', url: null, fallback: '' },
@@ -2670,11 +3065,13 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
       const ast = {
         generationMode: 'v2',
+        ...(body?.pdfPresentation ? { pdfPresentation: true } : {}),
+        ...(body?.pdfPresentation && body?.pdfOrientation ? { pdfOrientation: body.pdfOrientation } : {}),
         sections: [{
           id: 'microsite',
           heading: 'microsite',
           sectionType: 'overview',
-          customHtml: html,
+          customHtml: finalHtml,
           content: { headline: 'microsite' },
           image: { source: 'gradient', query: '', url: null, fallback: '' },
           editable: true,
@@ -3245,6 +3642,10 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
     const body = req.body as { ast?: Record<string, unknown> } | undefined;
     if (!body?.ast) return reply.code(400).send({ error: 'ast is required' });
 
+    // Strip preview injections before persisting — the UI injects ephemeral
+    // scripts into the srcdoc iframe for display; they must never reach disk.
+    stripAstInjections(body.ast);
+
     const base = path.join(workdir, 'assets', 'presentations', namespace);
     await mkdir(base, { recursive: true });
 
@@ -3318,6 +3719,227 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 
     const url = `/presentation-images/${namespace}/${logoFilename}`;
     return reply.send({ url });
+  });
+
+  // POST /presentations/:namespace/images/upload
+  // Accepts up to 11 base64-encoded images, saves them to the presentation images
+  // directory, and returns their persistent root-relative URLs.
+  // Body: { images: Array<{ base64: string; mediaType: string }> }
+  // Returns: { urls: string[] }
+  app.post('/presentations/:namespace/images/upload', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as { images?: Array<{ base64: string; mediaType: string }> } | undefined;
+    const images = body?.images;
+
+    if (!Array.isArray(images) || images.length === 0) {
+      return reply.code(400).send({ error: 'images must be a non-empty array' });
+    }
+    if (images.length > 11) {
+      return reply.code(400).send({ error: 'Maximum 11 images allowed per upload' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    for (const img of images) {
+      if (!img.base64 || typeof img.base64 !== 'string') {
+        return reply.code(400).send({ error: 'Each image must have a base64 field' });
+      }
+      if (!allowedTypes.includes(img.mediaType)) {
+        return reply.code(400).send({ error: `Unsupported mediaType: ${img.mediaType}` });
+      }
+    }
+
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    };
+    const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+    await mkdir(imagesDir, { recursive: true });
+
+    const urls = await Promise.all(images.map(async (img) => {
+      const ext = extMap[img.mediaType] ?? 'jpg';
+      const filename = `upload-${crypto.randomUUID().slice(0, 12)}.${ext}`;
+      const destPath = path.join(imagesDir, filename);
+      await writeFile(destPath, Buffer.from(img.base64, 'base64'));
+      return `/presentation-images/${namespace}/${filename}`;
+    }));
+
+    return reply.send({ urls });
+  });
+
+  // POST /presentations/:namespace/images/prepare
+  // Skill that runs when the user uploads images for microsite generation.
+  // 1. Uploads images to disk (same as /upload)
+  // 2. Analyzes all images via Claude Vision in a single batch call
+  // 3. If proposalMarkdown or userInstructions provided, generates a per-image placement brief
+  // Returns: { images: Array<{ url, analysis, placementHint? }> }
+  // Body: { images: [{base64, mediaType}], proposalMarkdown?: string, userInstructions?: string }
+  app.post('/presentations/:namespace/images/prepare', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { namespace } = req.params as { namespace: string };
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const body = req.body as {
+      images?: Array<{ base64: string; mediaType: string }>;
+      proposalMarkdown?: string;
+      userInstructions?: string;
+    } | undefined;
+
+    const images = body?.images;
+    const proposalMarkdown = body?.proposalMarkdown?.trim() ?? '';
+    const userInstructions = body?.userInstructions?.trim() ?? '';
+
+    if (!Array.isArray(images) || images.length === 0) {
+      return reply.code(400).send({ error: 'images must be a non-empty array' });
+    }
+    if (images.length > 11) {
+      return reply.code(400).send({ error: 'Maximum 11 images allowed' });
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    for (const img of images) {
+      if (!img.base64 || typeof img.base64 !== 'string') {
+        return reply.code(400).send({ error: 'Each image must have a base64 field' });
+      }
+      if (!allowedTypes.includes(img.mediaType)) {
+        return reply.code(400).send({ error: `Unsupported mediaType: ${img.mediaType}` });
+      }
+    }
+
+    const apiKey = env.ANTHROPIC_API_KEY ?? '';
+    if (!apiKey) return reply.code(503).send({ error: 'ANTHROPIC_API_KEY not configured' });
+    const model = env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    };
+    const imagesDir = path.join(workdir, 'assets', 'presentations', namespace, 'images');
+    await mkdir(imagesDir, { recursive: true });
+
+    // Step 1: Upload all images in parallel
+    const urls = await Promise.all(images.map(async (img) => {
+      const ext = extMap[img.mediaType] ?? 'jpg';
+      const filename = `upload-${crypto.randomUUID().slice(0, 12)}.${ext}`;
+      const destPath = path.join(imagesDir, filename);
+      await writeFile(destPath, Buffer.from(img.base64, 'base64'));
+      return `/presentation-images/${namespace}/${filename}`;
+    }));
+
+    // Step 2: Vision analysis — batch all images in a single Claude call
+    type VisionMeta = {
+      description: string;
+      objects: string[];
+      tags: string[];
+      sentiment: string;
+      dominantColors: string[];
+      readableText: string;
+    };
+
+    const visionContent: Array<
+      | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+      | { type: 'text'; text: string }
+    > = [
+      ...images.map((img) => ({
+        type: 'image' as const,
+        source: { type: 'base64' as const, media_type: img.mediaType, data: img.base64 },
+      })),
+      {
+        type: 'text' as const,
+        text: `Analyze each of the ${images.length} image(s) above and return a JSON array with exactly ${images.length} objects. Each object must have: description (1-2 sentences), objects (string[]), tags (5-8 keywords), sentiment (one word: warm/cool/neutral/professional/energetic/calm/bold/minimal), dominantColors (2-3 color names), readableText (visible text or empty string). Return ONLY the JSON array.`,
+      },
+    ];
+
+    const visionRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model, max_tokens: 2048, messages: [{ role: 'user', content: visionContent }] }),
+    });
+
+    if (!visionRes.ok) {
+      const errText = await visionRes.text().catch(() => '?');
+      return reply.code(502).send({ error: `Vision analysis failed: ${errText.slice(0, 200)}` });
+    }
+
+    const visionJson = await visionRes.json() as { content: Array<{ type: string; text?: string }> };
+    const rawVisionText = visionJson.content.find((b) => b.type === 'text')?.text ?? '[]';
+    // Strip markdown code fences Claude sometimes wraps around JSON
+    const visionText = rawVisionText
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim();
+
+    let analysisResults: VisionMeta[];
+    try {
+      const parsed = JSON.parse(visionText);
+      if (!Array.isArray(parsed)) throw new Error('not an array');
+      // Pad or trim to match image count (Claude occasionally miscounts)
+      while (parsed.length < images.length) {
+        parsed.push({ description: '', objects: [], tags: [], sentiment: 'neutral', dominantColors: [], readableText: '' });
+      }
+      analysisResults = parsed.slice(0, images.length) as VisionMeta[];
+    } catch (e) {
+      return reply.code(502).send({ error: `Vision analysis returned unexpected format: ${String(e).slice(0, 100)}` });
+    }
+
+    // Step 3: Placement brief — one LLM call to contextualise each image within the proposal
+    let placementHints: string[] = [];
+    if (proposalMarkdown || userInstructions) {
+      const briefParts: string[] = [];
+      if (userInstructions) briefParts.push(`User's instructions for image usage: ${userInstructions}`);
+      if (proposalMarkdown) briefParts.push(`Proposal content (excerpt):\n${proposalMarkdown.slice(0, 2500)}`);
+      briefParts.push('');
+      briefParts.push('Images to place:');
+      analysisResults.forEach((r, i) => {
+        briefParts.push(`  Image ${i + 1}: ${r.description} — tags: ${r.tags.join(', ')} — mood: ${r.sentiment}`);
+      });
+      briefParts.push('');
+      briefParts.push(`For each of the ${images.length} image(s), write ONE sentence: which section of the microsite it fits best and why, being specific to this proposal's content. Return a JSON array of ${images.length} strings.`);
+
+      try {
+        const briefRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 512,
+            messages: [{ role: 'user', content: briefParts.join('\n') }],
+          }),
+        });
+        if (briefRes.ok) {
+          const briefJson = await briefRes.json() as { content: Array<{ type: string; text?: string }> };
+          const briefText = briefJson.content.find((b) => b.type === 'text')?.text ?? '[]';
+          const hints = JSON.parse(briefText);
+          if (Array.isArray(hints) && hints.length === images.length) placementHints = hints as string[];
+        }
+      } catch {
+        // Placement hints are optional — don't fail the whole skill
+      }
+    }
+
+    const result = urls.map((url, i) => ({
+      url,
+      analysis: {
+        index: i,
+        source: 'base64',
+        metadata: {
+          ...analysisResults[i],
+          formatHint: images[i].mediaType,
+          dimensions: null as { width: number; height: number } | null,
+        },
+      },
+      ...(placementHints[i] ? { placementHint: placementHints[i] } : {}),
+    }));
+
+    return reply.send({ images: result });
   });
 
   // POST /presentations/:namespace/:proposalId/regenerate-section
@@ -3534,6 +4156,11 @@ Common token names and their roles:
       }
     }
 
+    // Strip preview injections before passing to the LLM — if the client-side
+    // iframe has injected ephemeral scripts into customHtml, the model must
+    // never see them (it can absorb the code into section content fields).
+    stripAstInjections(currentAst);
+
     const generateFn = llmGenerateFn;
 
     const agent = new DesignEditorAgent();
@@ -3551,6 +4178,9 @@ Common token names and their roles:
     if (!editResult) {
       return reply.code(500).send({ error: 'Design editor returned no result' });
     }
+
+    // Strip injections from the returned AST too — belt-and-suspenders.
+    stripAstInjections(editResult.ast);
 
     // Optionally save patched AST back — update the most recent versioned file in place
     if (body.commit !== false) {
