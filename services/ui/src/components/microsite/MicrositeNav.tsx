@@ -212,12 +212,17 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
   const forceHamburger = navLinks.length > 11;
   const useHamburger = isMobileLayout || forceHamburger;
 
-  // How many links fit in available space (logo ~200px, padding 48px, "More" btn ~64px)
+  // How many links fit in available space (logo ~200px, nav padding 48px, "More" btn ~70px)
   const LOGO_RESERVED = 220;
   const MORE_BTN_W = 70;
   const AVG_ITEM_W = 100; // accounts for longer section labels at 11px uppercase
-  const availableW = Math.max(0, navWidth - LOGO_RESERVED - MORE_BTN_W);
-  const maxVisible = Math.max(2, Math.floor(availableW / AVG_ITEM_W));
+  // Two-pass: check if all items fit without the More button first (avoids reserving 70px
+  // for a button that isn't needed, which was causing the last item to go to overflow).
+  const availableWFull = Math.max(0, navWidth - LOGO_RESERVED);
+  const maxVisibleFull = Math.max(2, Math.floor(availableWFull / AVG_ITEM_W));
+  const allFit = navLinks.length <= maxVisibleFull;
+  const availableW = allFit ? availableWFull : Math.max(0, navWidth - LOGO_RESERVED - MORE_BTN_W);
+  const maxVisible = allFit ? navLinks.length : Math.max(2, Math.floor(availableW / AVG_ITEM_W));
   const visibleLinks = navLinks.slice(0, maxVisible);
   const overflowLinks = navLinks.slice(maxVisible);
   const hasOverflow = overflowLinks.length > 0;
@@ -315,7 +320,7 @@ export function MicrositeNav({ tokens, brand, sections, scrollContainerId }: Pro
                     color: isActive ? tokens.accent : navInactiveColor,
                     letterSpacing: '0.08em',
                     textTransform: 'uppercase' as const,
-                    padding: '4px 0 2px',
+                    padding: '4px 8px 2px',
                     whiteSpace: 'nowrap',
                     transition: 'color 0.2s',
                     flexShrink: 0,

@@ -583,7 +583,10 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
   } catch { /* non-fatal */ }
 
   const clientIndustry  = brandHint.industry ?? '';
-  const designOverride  = design.customInstructions || undefined;
+  const pdfSlidePrefix  = design.pdfFriendly
+    ? `PDF PRESENTATION MODE: design each section as a standalone 16:9 slide. Keep all content within the viewport bounds — no overflow, no scroll effects, content must be fully visible without scrolling. Use compact type scales.\n\n`
+    : '';
+  const designOverride  = (pdfSlidePrefix + (design.customInstructions ?? '')) || undefined;
 
   // Tone detection (industry-aware, same as generate-structured-stream)
   const { tone: industryTone } = applyDesignSkill('microsite-generator-agent', {
@@ -715,6 +718,11 @@ export async function handleGeneratingMicrosite(ctx: HandlerContext): Promise<Ha
 
   // Deduplicate sections and normalise headings before persisting
   deduplicateSections(ast as unknown as Record<string, unknown>);
+
+  // Mark as PDF presentation so the viewer shows the download button
+  if (design.pdfFriendly) {
+    (ast as unknown as Record<string, unknown>).pdfPresentation = true;
+  }
 
   // Persist AST to disk so the presentation page can load it
   const astPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-ast.json');

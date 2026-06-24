@@ -123,6 +123,61 @@ function matchBoundaryPattern(message: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// DOMAIN VIOLATION — format injection + prompt injection guard
+// ---------------------------------------------------------------------------
+
+// Patterns where the user tries to get raw artifact output (HTML, JSON, etc.)
+// instead of going through the proper proposal/microsite workflow tools.
+const FORMAT_INJECTION_PATTERNS: RegExp[] = [
+  // "generate/write/output/give me [the] html/json/xml/markdown [for the] proposal/microsite"
+  /\b(generate|create|write|output|give\s+me|show\s+me|produce|export|print)\b.{0,60}\b(html|json|xml|csv|markdown|raw\s+text|plain\s+text|source\s+code)\b.{0,40}\b(proposal|microsite|template|presentation)\b/i,
+  // reversed: "proposal/microsite as/in html/json..."
+  /\b(proposal|microsite|template|presentation)\b.{0,40}\b(as|in|to|into|format|formatted\s+as)\b.{0,20}\b(html|json|xml|csv|markdown|word|docx|pdf|code|raw)\b/i,
+  // "download/export the proposal as html"
+  /\b(download|export|convert)\b.{0,30}\b(proposal|microsite|template)\b.{0,20}\b(to|as|into)\b.{0,20}\b(html|json|xml|csv|word|pdf|docx|code|raw|markdown)\b/i,
+  // direct: "give me the html", "output the json for this microsite"
+  /\b(give\s+me|output|print|show\s+me)\b.{0,20}\b(the\s+)?(html|json|xml|source)\b.{0,30}\b(for|of)\b.{0,20}\b(this|the)?\b.{0,20}\b(proposal|microsite|template)\b/i,
+];
+
+// Patterns that attempt to override system instructions or assume a different persona.
+const PROMPT_INJECTION_PATTERNS: RegExp[] = [
+  /\b(ignore|disregard|forget|override|bypass|skip)\b.{0,30}\b(your\s+)?(instructions?|rules?|guidelines?|system\s+prompt|previous\s+instructions?|constraints?|restrictions?|training)\b/i,
+  /\b(pretend|act|roleplay|behave)\b.{0,20}\b(you\s+are|as\s+if|like\s+you('?re| are)|to\s+be)\b/i,
+  /\byou\s+are\s+now\b/i,
+  /\b(new|different|alternative|another)\s+(persona|personality|mode|identity|character|role|system)\b/i,
+  /\bDAN\b/,  // "Do Anything Now" jailbreak
+  /\bjailbreak\b/i,
+  /\bprompt\s+injection\b/i,
+  /\b(break\s+out|escape|get\s+around|circumvent)\b.{0,20}\b(your\s+)?(rules?|restrictions?|guidelines?|constraints?|safety)\b/i,
+  /\bdo\s+anything\s+now\b/i,
+];
+
+/**
+ * Returns the type of domain violation detected, or null if the message is clean.
+ * Runs deterministically with zero LLM cost.
+ */
+export function detectDomainViolation(message: string): 'format_injection' | 'prompt_injection' | null {
+  for (const pattern of PROMPT_INJECTION_PATTERNS) {
+    if (pattern.test(message)) return 'prompt_injection';
+  }
+  for (const pattern of FORMAT_INJECTION_PATTERNS) {
+    if (pattern.test(message)) return 'format_injection';
+  }
+  return null;
+}
+
+export function buildDomainViolationResponse(kind: 'format_injection' | 'prompt_injection'): ChatResponse {
+  const text =
+    kind === 'format_injection'
+      ? "I don't output proposals, microsites, or templates as raw HTML, JSON, or code — " +
+        'those are generated and saved through the proper workflow. ' +
+        "Say \"Generate a proposal for [client]\" to start, and you'll be able to view and share the result from the proposals page."
+      : "I'm purpose-built for proposal and project work and don't accept instruction overrides. " +
+        'If you have a project to work on — a proposal, template, or microsite — I\'m ready to help.';
+  return { text, actionCards: [], requirementsUpdated: false, toolsCalled: [] };
+}
+
+// ---------------------------------------------------------------------------
 // UNKNOWN — deterministic "didn't understand" response
 // ---------------------------------------------------------------------------
 
