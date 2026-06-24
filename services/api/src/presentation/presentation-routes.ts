@@ -2737,8 +2737,12 @@ Per-pattern content minimums (HARD RULES — not guidelines):
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Header: eyebrow label (12px uppercase) + company tagline (18px); margin-bottom:24px
-  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:flex-end): display headline (3+ lines, 44–52px) + 3-line description (16px, line-height:1.75) + large CTA button (padding:18px 36px;border-radius:8px;font-size:16px;font-weight:700)
+  Header: eyebrow pill + company tagline (18px); margin-bottom:0
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:flex-start): fills the slide top-to-bottom with 4 stacked elements:
+    ① VISUAL FILL BLOCK (flex:1;min-height:220px): A large decorative SVG or abstract geometric shape tied to the brand. Use bold lines, angular shapes, a large logomark outline, radial gradient orb, or grid of small icons. Must visually fill the upper portion — this is the hero "image" when no photo is available. Background: position:absolute;inset:0;z-index:0 for the gradient/color field behind it.
+    ② DISPLAY HEADLINE (44–52px, font-weight:800, 3+ lines, line-height:1.1; margin-top:32px)
+    ③ DESCRIPTION (16px, line-height:1.75, 3–4 sentences; margin-top:16px)
+    ④ CTA BUTTON (margin-top:24px; padding:18px 36px; border-radius:8px; font-size:16px; font-weight:700; display:inline-block; align-self:flex-start)
   Callout (data-portrait-callout="1"): 3 social-proof stats in a row (big number 52px + label 13px)
   Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
 
@@ -2768,9 +2772,13 @@ IMAGE + TEXT SLIDE
   Callout (data-portrait-callout="1"): CTA link or summary accent bar (16px bold, accent color; padding:16px 0)
 
 LIST SLIDE
-  Header: eyebrow + section title (30px); margin-bottom:24px
-  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:space-between): 4–5 items, each row = colored icon (32px) + bold label (15px, font-weight:700) + description (14px, 2–3 lines, minimum 20 words — write full sentences), padding:18px 0, border-bottom:1px solid rgba(255,255,255,0.1)
-  Callout (data-portrait-callout="1"): summary statement (16px italic, 2 lines) or accent pill
+  Header: eyebrow + section title (30px); margin-bottom:20px
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:16px): 4–5 items as full-border card rows — each item is a rounded card (padding:20px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04); display:flex; align-items:flex-start; gap:16px)
+    Left: colored icon box (40px×40px; border-radius:10px; background:accent at 20%; icon SVG 20px centered; flex-shrink:0)
+    Right: display:flex;flex-direction:column; gap:6px
+      bold label (15px; font-weight:700)
+      description (14px; line-height:1.65; minimum 30 words — write 2–3 full sentences that explain the value)
+  Callout (data-portrait-callout="1"): summary statement (16px, 2 lines) or accent pill
 
 ═══ SPACING RULES ═══
 - Content area padding: 28px top, 36px sides — do not reduce
