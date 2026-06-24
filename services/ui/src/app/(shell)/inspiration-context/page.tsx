@@ -22,7 +22,7 @@ import {
   type DesignKit,
 } from '@/lib/api';
 
-const ACCEPTED_VOICE = '.pdf,.txt,.md,.docx';
+const ACCEPTED_VOICE = '.pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.webp';
 const ACCEPTED_ASSETS = '.png,.jpg,.jpeg,.webp,.gif,.svg';
 
 type Tab = 'voice' | 'assets';
@@ -507,7 +507,7 @@ export default function InspirationContextPage() {
             uploading={voiceUploading}
             progress={voiceProgress}
             dragActive={voiceDrag}
-            hint="PDF · DOCX · MD · TXT — no facts stored, only style"
+            hint="PDF · DOCX · MD · TXT · PNG · JPG — no facts stored, only style"
             inputRef={voiceInputRef}
             onDragOver={(e) => { e.preventDefault(); setVoiceDrag(true); }}
             onDragLeave={() => setVoiceDrag(false)}

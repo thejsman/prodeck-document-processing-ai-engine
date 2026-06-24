@@ -14,6 +14,7 @@ export {
 export type { ExtractedStyle } from './style-extraction.js';
 export {
   buildStylePrompt,
+  buildVisionStylePrompt,
   parseStyleResponse,
   looksLikeFact,
   STYLE_EXCERPT_MAX_CHARS,

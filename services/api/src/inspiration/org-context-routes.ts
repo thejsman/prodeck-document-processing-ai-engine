@@ -18,12 +18,18 @@ import {
   writeOrgContextSettings,
   type OrgContextSettings,
 } from '@ai-engine/runtime';
-import { extractProposalStyle } from './style-extractor.js';
+import { extractProposalStyle, extractProposalStyleFromImage } from './style-extractor.js';
 import { tagDesignAsset } from './asset-tagger.js';
 
 type GenerateFn = (prompt: string) => Promise<string>;
 
-const ALLOWED_VOICE_EXT = ['.pdf', '.txt', '.md', '.docx'];
+const ALLOWED_VOICE_EXT = ['.pdf', '.txt', '.md', '.docx', '.png', '.jpg', '.jpeg', '.webp'];
+const VOICE_IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
 const MAX_SIZE = 50 * 1024 * 1024;
 
 const ALLOWED_ASSET_MIME: Record<string, string> = {
@@ -67,7 +73,7 @@ export function registerOrgContextRoutes(
     }
 
     if (added.length === 0) {
-      return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md, .docx' });
+      return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md, .docx, .png, .jpg, .webp' });
     }
 
     // Extract sequentially in the background to avoid concurrent read-modify-write
@@ -75,7 +81,11 @@ export function registerOrgContextRoutes(
     void (async () => {
       for (const f of added) {
         try {
-          const style = await extractProposalStyle(svc.uploadFilePath(f.sourceDocument), f.sourceDocument, generate);
+          const ext = path.extname(f.sourceDocument).toLowerCase();
+          const imageMime = VOICE_IMAGE_MIME[ext];
+          const style = imageMime
+            ? await extractProposalStyleFromImage(svc.uploadFilePath(f.sourceDocument), imageMime)
+            : await extractProposalStyle(svc.uploadFilePath(f.sourceDocument), f.sourceDocument, generate);
           const profile: VoiceStyleProfile = {
             id: f.id,
             sourceDocument: f.sourceDocument,
