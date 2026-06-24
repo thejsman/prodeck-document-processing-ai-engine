@@ -14,8 +14,8 @@
 import { mkdir, writeFile, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { projectDesignKit } from '@ai-engine/core';
-import type { AssetMetadata, ComputedDesignKit, DesignKit } from '@ai-engine/core';
+import { projectDesignKit, projectDesignKitWithSelection } from '@ai-engine/core';
+import type { AssetMetadata, ComputedDesignKit, DesignKit, AssetSelection } from '@ai-engine/core';
 
 export class OrgAssetStore {
   constructor(private readonly workdir: string) {}
@@ -183,5 +183,49 @@ export class OrgAssetStore {
     };
     await this.writeJsonAtomic(this.designKitPath(), kit);
     return kit;
+  }
+
+  /**
+   * Compute a DesignKit for a specific request context without persisting it.
+   * Used when LLM-ranked selection overrides the stored logo/hero choice.
+   */
+  async computeKitForContext(selection: AssetSelection): Promise<DesignKit> {
+    const assets = await this.listAssets();
+    const computed: ComputedDesignKit = projectDesignKitWithSelection(assets, selection);
+
+    let logoBase64: string | undefined;
+    let logoMediaType: string | undefined;
+    let heroBase64: string | undefined;
+    let heroMediaType: string | undefined;
+
+    if (computed.logoAssetId) {
+      const logo = assets.find((a) => a.id === computed.logoAssetId);
+      if (logo) {
+        try {
+          const buf = await readFile(this.assetFilePath(logo.fileName));
+          logoBase64 = buf.toString('base64');
+          logoMediaType = logo.mediaType;
+        } catch { /* file missing — skip */ }
+      }
+    }
+
+    if (computed.heroAssetId) {
+      const hero = assets.find((a) => a.id === computed.heroAssetId);
+      if (hero) {
+        try {
+          const buf = await readFile(this.assetFilePath(hero.fileName));
+          heroBase64 = buf.toString('base64');
+          heroMediaType = hero.mediaType;
+        } catch { /* file missing — skip */ }
+      }
+    }
+
+    return {
+      ...computed,
+      ...(logoBase64 ? { logoBase64, logoMediaType } : {}),
+      ...(heroBase64 ? { heroBase64, heroMediaType } : {}),
+      dominantColors: computed.palette.slice(0, 4),
+      updatedAt: new Date().toISOString(),
+    };
   }
 }

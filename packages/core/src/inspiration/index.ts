@@ -21,3 +21,5 @@ export {
 } from './style-extraction.js';
 export type { AssetType, AssetMetadata, ComputedDesignKit, DesignKit } from './asset-types.js';
 export { projectDesignKit } from './design-kit-project.js';
+export type { AssetSelectionContext, AssetSelection } from './asset-selection.js';
+export { selectBestAssets, projectDesignKitWithSelection } from './asset-selection.js';

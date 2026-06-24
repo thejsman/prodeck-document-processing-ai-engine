@@ -10,6 +10,7 @@ export { OrgAssetStore } from './org-asset-store.js';
 export {
   resolveVoiceBlock,
   resolveDesignKit,
+  resolveDesignKitForContext,
   superClientWorkdir,
   namespaceWorkdir,
 } from './org-context-cascade.js';

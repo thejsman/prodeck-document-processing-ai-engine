@@ -19,7 +19,7 @@ import {
 import type { AgentInput, Planner } from '@ai-engine/core';
 import { generatePlan, executePlan } from '@ai-engine/planner';
 import type { GenerateFn } from '@ai-engine/planner';
-import { createNodeConfigLoader, FileMemoryStore, queryKnowledgeBase, getStorageProvider, readOrgContextSettings, resolveDesignKit, namespaceWorkdir } from '@ai-engine/runtime';
+import { createNodeConfigLoader, FileMemoryStore, queryKnowledgeBase, getStorageProvider, readOrgContextSettings, resolveDesignKitForContext, namespaceWorkdir } from '@ai-engine/runtime';
 import { ProposalSectionAgent } from '@ai-engine/agent-proposal-section';
 import { MicrositeGeneratorAgent } from '@ai-engine/agent-microsite-generator';
 import { ExtractSectionTool } from '@ai-engine/tool-extract-section';
@@ -529,7 +529,16 @@ export function registerAgentRoutes(
     if (agentName === 'microsite-generator-agent') {
       const _orgSettings = await readOrgContextSettings(workdir).catch(() => null);
       if (_orgSettings?.applyDesignKit !== false) {
-        const _kit = await resolveDesignKit(workdir, namespaceWorkdir(workdir, namespace));
+        const _clientName = typeof agentInput.metadata?.['clientName'] === 'string'
+          ? agentInput.metadata['clientName'] : undefined;
+        const _clientIndustry = typeof agentInput.metadata?.['clientIndustry'] === 'string'
+          ? agentInput.metadata['clientIndustry'] : undefined;
+        const _kit = await resolveDesignKitForContext(
+          workdir,
+          namespaceWorkdir(workdir, namespace),
+          { clientName: _clientName, clientIndustry: _clientIndustry },
+          llmGenerateFn,
+        );
         if (_kit) {
           const meta = agentInput.metadata as Record<string, unknown>;
           if (!meta.brand && _kit.primaryColor) meta.brand = { primaryColor: _kit.primaryColor };

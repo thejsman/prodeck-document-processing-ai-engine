@@ -11,7 +11,8 @@
 import path from 'node:path';
 import { OrgVoiceStore } from './org-voice-store.js';
 import { OrgAssetStore } from './org-asset-store.js';
-import type { DesignKit } from '@ai-engine/core';
+import { selectBestAssets } from '@ai-engine/core';
+import type { DesignKit, AssetSelectionContext } from '@ai-engine/core';
 
 /**
  * Resolve the rendered Author Voice prompt block.
@@ -49,6 +50,55 @@ export async function resolveDesignKit(
     if (nsKit) return nsKit;
   }
   return new OrgAssetStore(orgWorkdir).getDesignKit().catch(() => null);
+}
+
+/**
+ * Resolve the Design Kit with optional LLM-ranked asset selection.
+ *
+ * Flow:
+ *   1. Find the right store (namespace → org)
+ *   2. If generateFn + context provided, run selectBestAssets on the raw asset list
+ *   3. If selection changed anything, use computeKitForContext (non-persisting)
+ *   4. Otherwise return the stored kit
+ */
+export async function resolveDesignKitForContext(
+  orgWorkdir: string,
+  nsWorkdir: string | null,
+  context: AssetSelectionContext,
+  generateFn: (prompt: string) => Promise<string>,
+): Promise<DesignKit | null> {
+  // Determine which store to use (namespace-first cascade)
+  let store: OrgAssetStore | null = null;
+  if (nsWorkdir) {
+    const nsStore = new OrgAssetStore(nsWorkdir);
+    const nsKit = await nsStore.getDesignKit().catch(() => null);
+    if (nsKit) store = nsStore;
+  }
+  if (!store) {
+    const orgStore = new OrgAssetStore(orgWorkdir);
+    const orgKit = await orgStore.getDesignKit().catch(() => null);
+    if (!orgKit) return null;
+    store = orgStore;
+  }
+
+  const assets = await store.listAssets().catch(() => []);
+  if (assets.length === 0) return store.getDesignKit().catch(() => null);
+
+  const selection = await selectBestAssets(assets, context, generateFn).catch(() => null);
+  if (!selection) return store.getDesignKit().catch(() => null);
+
+  // Check if LLM selection differs from the stored kit's choices
+  const storedKit = await store.getDesignKit().catch(() => null);
+  if (
+    storedKit &&
+    selection.logoId === storedKit.logoAssetId &&
+    selection.heroId === storedKit.heroAssetId
+  ) {
+    return storedKit;
+  }
+
+  // Selection differs — compute a context-specific kit without persisting
+  return store.computeKitForContext(selection).catch(() => store!.getDesignKit().catch(() => null));
 }
 
 /**
