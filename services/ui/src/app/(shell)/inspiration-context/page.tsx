@@ -577,6 +577,58 @@ export default function InspirationContextPage() {
             onRecompute={() => { void recomputeDesignKit(apiKey!).then(setDesignKit).catch((e: Error) => setError(e.message)); }}
           />
 
+          {/* ── Design Kit detail ────────────────────────────────── */}
+          {designKit && designKit.primaryColor && (
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                Design Kit Preview
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <LabeledField label="Brand palette">
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {designKit.palette.map((hex) => (
+                      <div key={hex} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: hex, border: '1px solid var(--border)' }} />
+                        <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>{hex}</span>
+                      </div>
+                    ))}
+                  </div>
+                </LabeledField>
+                {designKit.fontHints.length > 0 && (
+                  <LabeledField label="Typography hints">
+                    <ChipRow items={designKit.fontHints} />
+                  </LabeledField>
+                )}
+                {designKit.designBrief && (
+                  <LabeledField label="Design brief">
+                    <p style={{ fontSize: 14, margin: 0, lineHeight: 1.6 }}>{designKit.designBrief}</p>
+                  </LabeledField>
+                )}
+                {(designKit.logoAssetId || designKit.heroAssetId) && (
+                  <LabeledField label="Selected assets">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 14 }}>
+                      {designKit.logoAssetId && (
+                        <span>
+                          <strong>Logo:</strong>{' '}
+                          {assets.find((a) => a.id === designKit.logoAssetId)?.fileName ?? designKit.logoAssetId.slice(0, 8)}
+                        </span>
+                      )}
+                      {designKit.heroAssetId && (
+                        <span>
+                          <strong>Hero:</strong>{' '}
+                          {assets.find((a) => a.id === designKit.heroAssetId)?.fileName ?? designKit.heroAssetId.slice(0, 8)}
+                        </span>
+                      )}
+                    </div>
+                  </LabeledField>
+                )}
+              </div>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                Merged from {assets.filter((a) => a.status === 'tagged').length} tagged asset{assets.filter((a) => a.status === 'tagged').length === 1 ? '' : 's'} · primary assets take precedence.
+              </p>
+            </div>
+          )}
+
           <DropZone
             accept={ACCEPTED_ASSETS}
             uploading={assetUploading}
