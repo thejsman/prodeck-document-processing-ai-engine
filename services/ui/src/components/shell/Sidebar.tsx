@@ -105,14 +105,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <Icon icon={Globe} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Microsites</span>
           </Link>
-          {/* <Link
+          <Link
             href="/inspiration-context"
             className={`sidebar-link${pathname?.startsWith('/inspiration-context') ? ' sidebar-link--active' : ''}`}
             onClick={onMobileClose}
           >
             <Icon icon={Sparkles} size="md" className="sidebar-icon" />
-            <span className="sidebar-label">Inspiration &amp; Context</span>
-          </Link> */}
+            <span className="sidebar-label">Inspiration</span>
+          </Link>
           {/* TEMP: Skills section hidden
           <Link
             href="/skills"
