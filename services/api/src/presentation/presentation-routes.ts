@@ -218,6 +218,44 @@ async function embedImagesAsBase64(
 }
 
 // ---------------------------------------------------------------------------
+// Preview-injection stripping
+// The UI injects ephemeral CSS/JS into the srcdoc iframe for preview purposes.
+// These must never be saved to disk or passed to the LLM — they could cause
+// the model to absorb script code into section content fields, which then
+// renders as visible text when the section is displayed.
+// ---------------------------------------------------------------------------
+
+const PREVIEW_INJECTION_IDS = [
+  '__preview-cursor-reset',
+  '__nav-anchor-fix',
+  '__preview-reveal-fix',
+  '__microsite-iframe-edit',
+  '__scroll-restore',
+];
+
+function stripPreviewInjections(html: string): string {
+  let out = html;
+  for (const id of PREVIEW_INJECTION_IDS) {
+    out = out.replace(
+      new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'),
+      '',
+    );
+  }
+  return out;
+}
+
+/** Strip preview injections from every customHtml field in an AST in-place. */
+function stripAstInjections(ast: Record<string, unknown>): void {
+  const sections = ast.sections as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(sections)) return;
+  for (const sec of sections) {
+    if (typeof sec.customHtml === 'string') {
+      sec.customHtml = stripPreviewInjections(sec.customHtml);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CSS token cache
 // Keyed by a hash of (tone + primaryColor + industry + designPromptOverride).
 // Only used on design-skill-aware paths where the tone is deterministic.
@@ -1452,6 +1490,7 @@ ${layoutSummary}`;
     }
     const { namespace, ast } = body;
     const astObj = ast as Record<string, unknown>;
+    stripAstInjections(astObj);
     const rawMode = typeof astObj?.generationMode === 'string' ? astObj.generationMode : null;
     const type = rawMode === 'classic' ? 'classic' : 'pro';
 
@@ -2630,34 +2669,39 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
 <section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding:0">
 
-The section has NO padding. Three direct children only: top nav bar (52px) → content area (flex:1) → bottom bar (52px). Content area height = 1280 − 104 = 1176px.
+The section has NO padding. Children depend on slide position:
+- slide-1 ONLY: top nav bar (52px) → content area (flex:1). Content area height = 1280 − 52 = 1228px.
+- Middle slides (slides 2 through N-1): content area ONLY (flex:1). Content area fills full 1280px.
+- Last slide (slide-N) ONLY: content area (flex:1) → bottom bar (52px). Content area height = 1280 − 52 = 1228px.
 
-═══ TOP NAV BAR (first child, required on every slide) ═══
+═══ TOP NAV BAR (FIRST SLIDE ONLY — slide-1, NOT on any other slide) ═══
 <div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
-  Left: slide-1 only → logo img placeholder. Slides 2–N → company name as styled text (font-size:14px;font-weight:700;letter-spacing:0.03em;color:#fff or dark ink)
+  Left: logo img placeholder (slide-1 only)
   Right: slide counter "01 / N" — replace N with the total slide count (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;opacity:0.5;)
 </div>
 On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
 IMPORTANT: the data-pdf-hide="true" attribute is required on this div — it hides the bar in PDF export so the slide content fills the full page cleanly.
+DO NOT add this top nav bar to slides 2 through N.
 
-═══ CONTENT AREA (second child, flex:1) ═══
+═══ CONTENT AREA (the ONLY child on middle slides; first child on last slide) ═══
 <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:28px 36px;overflow:hidden;position:relative;z-index:1;">
-  Place all slide content here. Use justify-content:space-between + a middle body div with flex:1 to fill the 1176px.
+  Place all slide content here. Use justify-content:space-between + a middle body div with flex:1 to fill the available height.
 </div>
 
-═══ BOTTOM BAR (third child, required on every slide) ═══
+═══ BOTTOM BAR (LAST SLIDE ONLY — slide-N, NOT on any other slide) ═══
 <div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-top:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
-  Left: current phase or section category (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:accent — e.g. "Phase 1 · Crawl" or "Services")
+  Left: company name or brand tagline (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:accent)
   Right: CTA or contact (font-size:13px;font-weight:600;) e.g. "Get Started →" or website URL
 </div>
 On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
 IMPORTANT: the data-pdf-hide="true" attribute is required on this div — hidden in PDF export.
+DO NOT add this bottom bar to any slide other than the last slide.
 
 ═══ LOGO — CRITICAL RULES ═══
 - The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in the TOP NAV BAR of slide-1 only
 - The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:30px;width:auto;max-width:120px;object-fit:contain;display:block;flex-shrink:0;">
 - id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
-- Slides 2 through N: use styled text brand name in the top nav bar instead of any <img> logo element
+- Slides 2 through N: NO top nav bar — do not add any navigation bar to these slides
 - NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
 
 ═══ TYPOGRAPHY — always px, never vw/rem ═══
@@ -2672,7 +2716,7 @@ Stats / big numbers .......... 52–64px, font-weight:900, line-height:1.0
 CRITICAL: These font sizes are minimums. Every slide MUST use them. Small text = rejected output.
 
 ═══ CONTENT DENSITY — non-negotiable ═══
-Every slide content area (1176px tall) MUST contain at minimum:
+Every slide content area (1228px on slide-1 and last slide; 1280px on middle slides) MUST contain at minimum:
 - 1 headline (30px+)
 - 2+ supporting content blocks (paragraphs, cards, list items, or stats)
 - 1 bottom anchor (tagline, CTA, stat strip, or pull-quote)
@@ -2680,9 +2724,9 @@ Content must fill the visible area. If a zone feels empty, add more content. Aim
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Top zone (≈12% of 1176px ≈ 141px): eyebrow label (12px uppercase) + company tagline (18px)
-  Middle zone (≈58% ≈ 682px): display headline (2–3 lines, 44–52px) + 2-line description (16px)
-  Bottom zone (≈30% ≈ 353px): large CTA button + 3 social-proof stats in a row (big number 52px + label 13px)
+  Top zone (≈12% of 1228px ≈ 147px): eyebrow label (12px uppercase) + company tagline (18px)
+  Middle zone (≈58% ≈ 712px): display headline (2–3 lines, 44–52px) + 2-line description (16px)
+  Bottom zone (≈30% ≈ 369px): large CTA button + 3 social-proof stats in a row (big number 52px + label 13px)
   Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
 
 FEATURE SLIDE
@@ -2748,9 +2792,9 @@ Text MUST be clearly readable against its background at all times:
           parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Each slide covers ONE idea with generous breathing room. Spread content across more slides rather than cramming onto fewer — aim for 8–12 slides total. A slide with 2–3 well-spaced cards beats a slide with 6 crowded ones.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
-<section data-section-id="slide-N" style="width:1280px;height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:48px 72px 48px">
+<section data-section-id="slide-N" style="width:1280px;min-height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:48px 72px 48px">
 
-Use justify-content:flex-start so content anchors to the top and fills downward. Padding (48px top, 72px sides, 40px bottom) provides generous breathing room. If a proposal section has 5+ items, split them across two slides of 2–3 items each. White space is intentional — do not force extra content to fill a slide.
+Use justify-content:flex-start so content anchors to the top and fills downward. Padding (48px top, 72px sides, 48px bottom) provides generous breathing room. White space is intentional — do not force extra content to fill a slide. NEVER put more than 6 items on one slide — if a section has 7+ items, split across two slides.
 
 ═══ MICROSITE NAV BAR (once in <body>, before all slides — browser only) ═══
 Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. This is a normal website navigation bar, not part of any slide:
@@ -2761,6 +2805,7 @@ Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. This 
 - data-pdf-hide="true" is required — hides this bar automatically in PDF export
 - Place ONCE as the very first child of <body> — never inside any <section>
 - Use the site's primary dark background color for the nav background (matching the slide palette)
+- REQUIRED: the <body> tag MUST have style="padding-top:64px" so slides start below the fixed nav bar. Without this the first slide is hidden behind the navbar. Example: <body style="padding-top:64px;margin:0">
 
 ═══ LOGO — CRITICAL RULES ═══
 - The logo img with id="__site-logo__" belongs ONLY in the microsite nav bar above — NEVER inside any <section>
@@ -2782,9 +2827,9 @@ CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for fo
 ═══ CONTENT DENSITY — fit everything within the slide ═══
 LAYOUT CHOICE based on item count (decide BEFORE building):
 - 2–4 items → CARD STYLE: full card with background, border, icon, padding — 2×2 or 1×3 grid
-- 5–8 items → COMPACT LIST: icon-row layout (no card backgrounds) — all items as rows, fits within 624px
+- 5–6 items → COMPACT LIST: icon-row layout (no card backgrounds) — rows evenly spaced with justify-content:space-between
+- 7+ items → SPLIT across two slides: each slide gets 3–4 items using CARD STYLE
 NEVER mix tall cards with compact rows in the same slide — pick one style for all items
-If a section naturally has 5–8 items, use compact list layout — do NOT split across slides just to use card style
 Every slide MUST have 1 headline (28px+) near the top
 
 ═══ SLIDE LAYOUT PATTERNS ═══
@@ -2798,28 +2843,29 @@ HERO SLIDE (slide-1)
   Right column: full-bleed image (border-radius:14px;overflow:hidden) or rich graphic element with brand color and large bold text
 
 PROBLEM / SOLUTION SLIDE (2-column)
-  Header row: eyebrow (12px uppercase) + section title (30–32px) — height ~70px, margin-bottom:20px
-  Content: display:grid;grid-template-columns:1fr 1fr;gap:28px;flex:1
-    Left: "Challenge" column — 3–4 items, each: bold label (15px) + 2-line desc (13px), padding:14px 16px, border-left:3px solid accent
-    Right: "Solution" column — 3–4 items, each: checkmark icon + bold label (15px) + 2-line desc (13px), padding:14px 16px, background:rgba(accent,0.08)
-  Bottom: insight callout bar (padding:14px 20px;border-radius:10px;background:accent;font-size:14px) full-width
+  Header row: eyebrow (12px uppercase) + section title (30–32px) — height ~70px, margin-bottom:24px
+  Content: display:grid;grid-template-columns:1fr 1fr;gap:32px;flex:1
+    Left: "Challenge" column — 3 items max, display:flex;flex-direction:column;justify-content:space-between; each item: bold label (15px) + 2-line desc (13px), padding:18px 20px, border-left:3px solid accent
+    Right: "Solution" column — 3 items max, display:flex;flex-direction:column;justify-content:space-between; each item: checkmark icon + bold label (15px) + 2-line desc (13px), padding:18px 20px, background:rgba(accent,0.08)
+  Bottom: insight callout bar (padding:16px 22px;border-radius:10px;background:accent;font-size:14px) full-width
 
 FEATURE GRID SLIDE (2–4 items — card style)
   Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
   Content: display:grid;grid-template-columns:repeat(2,1fr);gap:22px;flex:1 — max 4 cards (2×2)
-    Each card: padding:22px 24px;border-radius:12px; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
+    Each card: padding:22px 24px;border-radius:12px;overflow:hidden; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
     3 cards: use repeat(3,1fr) single row — taller cards, more impact
+    ALL text inside cards must use word-wrap:break-word and never overflow the card boundary
   Do NOT use this pattern for 5+ items — use COMPACT LIST instead
 
-COMPACT LIST SLIDE (5–8 items — row style, no card backgrounds)
-  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:16px
-  Content: display:flex;flex-direction:column;gap:0;flex:1
-    Each row: display:flex;align-items:flex-start;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.08)
-      Icon: 28px SVG or colored circle with initial, flex-shrink:0
+COMPACT LIST SLIDE (5–6 items — row style, no card backgrounds)
+  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
+  Content: display:flex;flex-direction:column;justify-content:space-between;flex:1
+    Each row: display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.08)
+      Icon: 32px SVG or colored circle with initial, flex-shrink:0
       Text block: bold label (14px, font-weight:700) on top + description (13px, 1–2 lines, color:rgba(255,255,255,0.7)) below
     Last row: no border-bottom
-  For 2-column compact list: display:grid;grid-template-columns:1fr 1fr;gap:0 32px — keeps all items visible
-  Each row height ~52–64px — 8 rows × 56px = 448px, comfortably fits in 624px content area
+  For 2-column compact list: display:grid;grid-template-columns:1fr 1fr;gap:0 40px — keeps all items visible with breathing room
+  Each row height ~64–76px — space-between distributes rows evenly across the full 624px content area
 
 STATS / KPI SLIDE
   Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
@@ -2843,9 +2889,9 @@ QUOTE / PROOF SLIDE
 
 ═══ SPACING RULES ═══
 - Slide padding: 48px top, 72px left/right, 48px bottom — equal top/bottom, DO NOT use vw or clamp
-- Content area: 1136px wide (1280 − 144px side padding) × 624px tall (720 − 96px) — content MUST fill this full width
-- All grids and flex containers must stretch to full width — use width:100% or let flex:1 expand them; never set a fixed pixel width on a content container
-- Grid columns must use fr units: grid-template-columns:1fr 1fr fills the full 1136px; never use fixed px column widths
+- Content area is defined by section padding — do NOT set explicit widths on content containers; use flex:1 or omit width entirely
+- Grid columns MUST use fr units (1fr 1fr, not fixed px) so they fill the available padded width automatically
+- NEVER set width:1280px or width:100vw on any element inside a section — that bypasses padding and causes overflow
 - Header-to-content gap: 20–28px
 - Card inner padding: 18–24px
 - Grid gap between cards/columns: 16–28px
@@ -2865,9 +2911,10 @@ QUOTE / PROOF SLIDE
 - CSS animations, transitions, IntersectionObserver, scroll effects
 - Any <img> with id containing "__site-logo" in slides 2–N
 - Slides that try to cover more than one topic — one idea per slide, always
-- Fixed pixel widths on content containers or grid children — use fr units and width:100%
-- Leaving empty columns or dead horizontal space — if a 2-col layout only has content for 1.5 columns, use a 60/40 split or widen the populated columns with fr units
-- Setting width:1280px on body — the constraint CSS handles body sizing; use width:100% or omit
+- width:1280px or width:100vw on ANY element inside a section — always causes overflow past the padding boundary
+- Fixed pixel widths on grid columns — use fr units only
+- Unbalanced column layouts with dead space — use asymmetric fr splits (e.g. 1.2fr 0.8fr) to fill the full width
+- Setting width:1280px on body — the constraint CSS handles body sizing
 - Explicit height on inner content wrappers (any fixed pixel value) — always use flex:1 so section padding defines the available height
 - repeat(4,1fr) or more than 3 columns in any content grid — maximum 3 columns
 
@@ -2976,7 +3023,7 @@ QUOTE / PROOF SLIDE
 [data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
-              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:48px 72px 48px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:624px;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;var la=s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
+              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:48px 72px 48px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:624px;overflow:hidden;min-height:0;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;var la=s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
           )
         : html;
 
@@ -3574,6 +3621,10 @@ QUOTE / PROOF SLIDE
     const body = req.body as { ast?: Record<string, unknown> } | undefined;
     if (!body?.ast) return reply.code(400).send({ error: 'ast is required' });
 
+    // Strip preview injections before persisting — the UI injects ephemeral
+    // scripts into the srcdoc iframe for display; they must never reach disk.
+    stripAstInjections(body.ast);
+
     const base = path.join(workdir, 'assets', 'presentations', namespace);
     await mkdir(base, { recursive: true });
 
@@ -4084,6 +4135,11 @@ Common token names and their roles:
       }
     }
 
+    // Strip preview injections before passing to the LLM — if the client-side
+    // iframe has injected ephemeral scripts into customHtml, the model must
+    // never see them (it can absorb the code into section content fields).
+    stripAstInjections(currentAst);
+
     const generateFn = llmGenerateFn;
 
     const agent = new DesignEditorAgent();
@@ -4101,6 +4157,9 @@ Common token names and their roles:
     if (!editResult) {
       return reply.code(500).send({ error: 'Design editor returned no result' });
     }
+
+    // Strip injections from the returned AST too — belt-and-suspenders.
+    stripAstInjections(editResult.ast);
 
     // Optionally save patched AST back — update the most recent versioned file in place
     if (body.commit !== false) {
