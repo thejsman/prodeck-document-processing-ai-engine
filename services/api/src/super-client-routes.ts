@@ -5,7 +5,7 @@ import { llmGenerateFn } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
-import { OrgVoiceStore, readOrgContextSettings } from '@ai-engine/runtime';
+import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir } from '@ai-engine/runtime';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -701,7 +701,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         readHistory(dir),
         new ClientMemoryService(workdir).prepopulate(name),
         readScFiles(dir),
-        new OrgVoiceStore(workdir).getRendered(),
+        resolveVoiceBlock(workdir, superClientWorkdir(workdir, name)),
         readOrgContextSettings(workdir),
       ]);
 

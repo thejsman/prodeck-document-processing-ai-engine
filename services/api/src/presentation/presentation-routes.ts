@@ -31,7 +31,7 @@ import {
   type PresentationConfig,
 } from './presentation-service.js';
 import { ensureRegistered, buildRunner, llmGenerateFn } from '../agent-routes.js';
-import { OrgAssetStore, readOrgContextSettings } from '@ai-engine/runtime';
+import { readOrgContextSettings, resolveDesignKit, namespaceWorkdir } from '@ai-engine/runtime';
 import { applyDesignSkill, injectThemeCSS, generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES, buildDesignPromptFromSkill, type CSSTheme, type Tone } from '../skills/design-skill-microsite.js';
 import { getDesignSkill } from '../skills/design-skill.service.js';
 import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsite-generator';
@@ -1958,7 +1958,7 @@ ${layoutSummary}`;
     // (body values always win — kit provides defaults only).
     const _orgSettings = await readOrgContextSettings(workdir).catch(() => null);
     const _designKit = _orgSettings?.applyDesignKit !== false
-      ? await new OrgAssetStore(workdir).getDesignKit().catch(() => null)
+      ? await resolveDesignKit(workdir, namespaceWorkdir(workdir, namespace))
       : null;
     const _effectiveBrand: Record<string, unknown> = {
       ...(_designKit?.primaryColor ? { primaryColor: _designKit.primaryColor } : {}),
