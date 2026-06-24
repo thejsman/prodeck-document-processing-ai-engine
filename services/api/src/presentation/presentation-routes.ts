@@ -2664,7 +2664,13 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       if (body?.pdfPresentation) {
         const isPortrait = body?.pdfOrientation === 'portrait';
         if (isPortrait) {
-          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall. Every slide must feel COMPLETE and DENSE — content spread across the full height with NO dead zones, NO empty sections, NO placeholder text.
+          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall.
+
+YOUR ROLE: You are simultaneously a world-class copywriter AND a slide designer. The source document gives you raw facts and bullet points — your job is to TRANSFORM them into rich, fully-written slide content. A one-line fact in the document becomes 3–4 polished sentences on the slide. A bullet point becomes a complete, compelling description. You are crafting presentation copy, NOT summarising the document.
+
+CONTENT RICHNESS — non-negotiable: Every slide's main body zone must be VISUALLY FULL. Imagine the body zone as a physical area on the phone screen — it must be at least 75% filled with text, cards, or visual elements. A half-empty slide is a failed output. Sparse content (short labels, one-liners, nearly empty cards) is rejected regardless of layout correctness.
+
+Every slide must feel COMPLETE and DENSE with information — purposefully written, not extracted snippets.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
 <section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding:0">
@@ -2684,8 +2690,12 @@ IMPORTANT: the data-pdf-hide="true" attribute is required on this div — it hid
 DO NOT add this top nav bar to slides 2 through N.
 
 ═══ CONTENT AREA (the ONLY child on middle slides; first child on last slide) ═══
-<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:28px 36px;overflow:hidden;position:relative;z-index:1;">
-  Place all slide content here. Use justify-content:space-between + a middle body div with flex:1 to fill the available height.
+<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-start;padding:28px 36px;overflow:hidden;position:relative;z-index:1;">
+  EXACTLY 3 direct children — no empty spacers, no extra wrappers:
+  ① HEADER block: eyebrow + title + optional 1-line intro.
+  ② MAIN BODY: add data-portrait-body="1" on this element. CSS forces flex:1 on it — fills all available space between header and callout.
+  ③ CALLOUT BAR: add data-portrait-callout="1" on this element. CSS forces margin-top:auto — pins it to the bottom.
+  data-portrait-body="1" and data-portrait-callout="1" are REQUIRED on every slide without exception.
 </div>
 
 ═══ BOTTOM BAR (LAST SLIDE ONLY — slide-N, NOT on any other slide) ═══
@@ -2716,47 +2726,55 @@ Stats / big numbers .......... 52–64px, font-weight:900, line-height:1.0
 CRITICAL: These font sizes are minimums. Every slide MUST use them. Small text = rejected output.
 
 ═══ CONTENT DENSITY — non-negotiable ═══
-Every slide content area (1228px on slide-1 and last slide; 1280px on middle slides) MUST contain at minimum:
-- 1 headline (30px+)
-- 2+ supporting content blocks (paragraphs, cards, list items, or stats)
-- 1 bottom anchor (tagline, CTA, stat strip, or pull-quote)
-Content must fill the visible area. If a zone feels empty, add more content. Aim for 70% content density.
+Target: 80%+ of the main body zone must be filled. Write as a copywriter — expand every fact into full prose.
+
+Per-pattern content minimums (HARD RULES — not guidelines):
+- FEATURE cards: MINIMUM 5 sentences per card. Write complete, polished sentences. The card is tall — a 2-line description looks broken and empty.
+- LIST items: MINIMUM 30 words per item description. Write 2–3 full sentences per item, not labels.
+- TEXT slide: MINIMUM 4 paragraphs of 4–5 sentences each. Fill the body zone with prose.
+- STATS slide: each stat cell = big number + label + MINIMUM 3-line explanation sentence.
+- HERO slide: headline 3+ lines, description paragraph 3–4 sentences, CTA button.
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Top zone (≈12% of 1228px ≈ 147px): eyebrow label (12px uppercase) + company tagline (18px)
-  Middle zone (≈58% ≈ 712px): display headline (2–3 lines, 44–52px) + 2-line description (16px)
-  Bottom zone (≈30% ≈ 369px): large CTA button + 3 social-proof stats in a row (big number 52px + label 13px)
+  Header: eyebrow label (12px uppercase) + company tagline (18px); margin-bottom:24px
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:flex-end): display headline (3+ lines, 44–52px) + 3-line description (16px, line-height:1.75) + large CTA button (padding:18px 36px;border-radius:8px;font-size:16px;font-weight:700)
+  Callout (data-portrait-callout="1"): 3 social-proof stats in a row (big number 52px + label 13px)
   Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
 
 FEATURE SLIDE
-  Top zone (≈15% ≈ 176px): eyebrow label (12px uppercase) + section title (32px)
-  Middle zone (flex:1): 2×2 icon card grid (grid-template-columns:1fr 1fr; gap:16px)
-    Each card: padding:20px; icon (40px SVG); bold title (16px); 2–3 line description (14px)
-  Bottom zone (≈10% ≈ 118px): accent tagline or stat strip
+  Header: eyebrow label (12px uppercase) + section title (32px); margin-bottom:24px
+  Main body (data-portrait-body="1"; style: display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-content:stretch): 2×2 icon card grid
+    Each card: display:flex;flex-direction:column; padding:24px 28px; min-width:0; border-radius:16px; border:1px solid rgba(255,255,255,0.12)
+      icon (40px SVG; margin-bottom:16px)
+      bold title (16px; font-weight:700; margin-bottom:12px)
+      description (14px; line-height:1.7): MUST be 4–5 full sentences — write every word, never truncate. The card is tall; short text leaves dead space.
+  Callout (data-portrait-callout="1"): accent tagline or stat strip (padding:16px 24px;background:rgba(255,255,255,0.06);border-radius:10px)
 
 STATS SLIDE
-  Top zone (≈15%): eyebrow + section title (32px)
-  Middle zone: 2×2 big-number grid — each cell: big number (56px, font-weight:900) + unit + 2-line label (14px)
-  Bottom zone: context sentence (16px) + CTA or accent bar
+  Header: eyebrow + section title (32px); margin-bottom:24px
+  Main body (data-portrait-body="1"; style: display:grid;grid-template-columns:1fr 1fr;gap:24px;align-content:center): 2×2 big-number grid
+    Each cell: big number (56px, font-weight:900) + unit (16px) + label (14px, font-weight:700; margin-top:8px) + 2–3 line explanation (13px, line-height:1.6, opacity:0.75) — the explanation is required
+  Callout (data-portrait-callout="1"): context sentence (16px, 2–3 lines) + CTA or accent bar
 
 TEXT / STORY SLIDE
-  Top zone: eyebrow tag (12px) + section title (32px) + 1-line intro (16px)
-  Middle zone (flex:1): 3–4 body paragraphs (16px, line-height:1.75, gap:20px) OR large pull-quote (22px italic, left border 4px accent)
-  Bottom zone: highlighted callout box (background:accent at 15% opacity, padding:20px 24px, border-radius:12px, border-left:4px solid accent, 16px bold text)
+  Header: eyebrow tag (12px) + section title (32px) + 1-line intro (16px); margin-bottom:24px
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:20px): MINIMUM 4 body paragraphs, each 3–5 sentences (16px, line-height:1.75). Write full prose. Alternatively: a large pull-quote (22px italic, border-left:4px solid accent, padding-left:24px) followed by 2–3 supporting paragraphs.
+  Callout (data-portrait-callout="1"): highlighted callout box (background:accent at 15% opacity, padding:20px 24px, border-radius:12px, border-left:4px solid accent, 16px bold text, 2 full lines minimum)
 
 IMAGE + TEXT SLIDE
-  Top zone: full-width image (height:38%, object-fit:cover, border-radius:12px) with overlaid eyebrow tag
-  Below image: title (30px, margin-top:24px) + 3 bullet points (icon + 15px text, gap:12px) + CTA link (16px bold, accent color)
+  Header: full-width image (height:36%;object-fit:cover;border-radius:12px;flex-shrink:0) with overlaid eyebrow tag; margin-bottom:20px
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:14px): section title (30px; margin-bottom:8px) + 4–5 bullet points, each = icon (24px) + bold label (15px) + 2-line description (14px, line-height:1.6)
+  Callout (data-portrait-callout="1"): CTA link or summary accent bar (16px bold, accent color; padding:16px 0)
 
 LIST SLIDE
-  Top zone (≈12%): eyebrow + section title (30px)
-  Middle zone (flex:1): 5–7 items, each row = colored icon (32px) + bold label (15px) + description (14px, 2 lines), padding:14px 0, border-bottom:1px solid rgba(255,255,255,0.1)
-  Bottom zone: summary statement (16px italic) or accent pill
+  Header: eyebrow + section title (30px); margin-bottom:24px
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:space-between): 4–5 items, each row = colored icon (32px) + bold label (15px, font-weight:700) + description (14px, 2–3 lines, minimum 20 words — write full sentences), padding:18px 0, border-bottom:1px solid rgba(255,255,255,0.1)
+  Callout (data-portrait-callout="1"): summary statement (16px italic, 2 lines) or accent pill
 
 ═══ SPACING RULES ═══
 - Content area padding: 28px top, 36px sides — do not reduce
-- Gap between top/middle/bottom content zones: handled by justify-content:space-between on content area
+- Gap below header block (before main body): always set via margin-bottom:24px on the header, never use empty spacer divs
 - Gap within middle content: 24–32px
 - Gap between list items / cards: 16–20px
 - Never use <div style="height:Xpx"> empty spacers — use gap and flex instead
@@ -2770,7 +2788,9 @@ LIST SLIDE
 ═══ FORBIDDEN ═══
 - 3-column or 4-column grids for main content
 - 50/50 or 60/40 side-by-side full-text panels
-- Empty containers taller than 40px
+- Empty <div style="flex:1"></div> spacers — NEVER use an empty div as a flex:1 spacer; flex:1 MUST go on the actual content element (list container, card grid, stats grid, body text wrapper)
+- More than 3 direct children inside the content area div — structure is always: [header-block] [content-block with flex:1] [callout-bar with margin-top:auto]
+- Empty or near-empty containers (containers with less than 2 lines of text that are taller than 60px)
 - fixed / sticky positioned children (use the flow-based top/bottom bars only)
 - CSS animations, JS transitions, IntersectionObserver, scroll effects
 - Any <img> with id containing "__site-logo" in slides 2–N
@@ -2851,9 +2871,9 @@ PROBLEM / SOLUTION SLIDE (2-column)
 
 FEATURE GRID SLIDE (2–4 items — card style)
   Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:grid;grid-template-columns:repeat(2,1fr);gap:22px;flex:1 — max 4 cards (2×2)
-    Each card: padding:22px 24px;border-radius:12px;overflow:hidden; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
-    3 cards: use repeat(3,1fr) single row — taller cards, more impact
+  Content: display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;flex:1 — max 4 cards (2×2)
+    Each card: padding:22px 24px;border-radius:12px;min-width:0;word-wrap:break-word;overflow-wrap:break-word; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
+    3 cards: use repeat(3,minmax(0,1fr)) single row — taller cards, more impact
     ALL text inside cards must use word-wrap:break-word and never overflow the card boundary
   Do NOT use this pattern for 5+ items — use COMPACT LIST instead
 
@@ -2876,9 +2896,9 @@ STATS / KPI SLIDE
 
 PROCESS / STEPS SLIDE
   Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:flex;gap:20px;flex:1;align-items:stretch — 3–4 horizontal step cards side by side
-    Each step card: padding:20px 16px;border-radius:12px; step number (32px accent); icon (28px SVG); bold title (14px); 2–3 line description (13px); connector arrow between cards (position:absolute, right:-14px)
-    Step cards must stretch tall (min-height:420px) to fill the content area
+  Content: display:flex;gap:24px;flex:1;align-items:stretch — 3 horizontal step cards maximum (4 cards × min-height overflows 530px content area)
+    Each step card: padding:20px 18px;border-radius:12px;flex:1;min-width:0; step number (32px accent); icon (28px SVG); bold title (14px); 2–3 line description (13px); connector arrow between cards (position:absolute, right:-14px; card must have position:relative;overflow:visible)
+    Step cards use flex:1 to fill the content area naturally — NEVER set min-height or fixed height on step cards
   Bottom: outcome strip or investment summary (~50px)
 
 QUOTE / PROOF SLIDE
@@ -2893,8 +2913,9 @@ QUOTE / PROOF SLIDE
 - Grid columns MUST use fr units (1fr 1fr, not fixed px) so they fill the available padded width automatically
 - NEVER set width:1280px or width:100vw on any element inside a section — that bypasses padding and causes overflow
 - Header-to-content gap: 20–28px
-- Card inner padding: 18–24px
-- Grid gap between cards/columns: 16–28px
+- Card inner padding: 20–24px (minimum 20px — compact list rows at 14px are the only exception)
+- Grid gap between cards/columns: 24–28px minimum
+- Every grid cell that contains text MUST have min-width:0 — without it CSS grid cells refuse to shrink below content width and overflow horizontally
 - NEVER use empty <div> spacers — use gap, flex:1, or min-height to fill space
 
 ═══ IMAGE RULES ═══
@@ -2917,6 +2938,7 @@ QUOTE / PROOF SLIDE
 - Setting width:1280px on body — the constraint CSS handles body sizing
 - Explicit height on inner content wrappers (any fixed pixel value) — always use flex:1 so section padding defines the available height
 - repeat(4,1fr) or more than 3 columns in any content grid — maximum 3 columns
+- Grid children without min-width:0 — every text-containing grid cell MUST have min-width:0 to allow shrinking
 
 ═══ CONTRAST & READABILITY — non-negotiable ═══
 - Dark background slides: use white #fff or rgba(255,255,255,0.92+) for all body text
@@ -3019,7 +3041,10 @@ QUOTE / PROOF SLIDE
             /(<head[^>]*>)/i,
             isPortrait
               ? `$1<style id="__pdf-slide-constraints__">
-[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:auto!important;max-height:none!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;}
+[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:auto!important;max-height:none!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;display:flex!important;flex-direction:column!important;}
+[data-section-id]>div:not([data-pdf-hide]){flex:1!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;min-height:0!important;}
+[data-portrait-body]{flex:1!important;min-height:0!important;overflow:hidden!important;}
+[data-portrait-callout]{margin-top:auto!important;flex-shrink:0!important;}
 [data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
 [data-section-id] svg{max-height:120px!important;max-width:120px!important;}
 </style>`
