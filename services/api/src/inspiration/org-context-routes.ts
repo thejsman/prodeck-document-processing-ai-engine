@@ -23,7 +23,7 @@ import { tagDesignAsset } from './asset-tagger.js';
 
 type GenerateFn = (prompt: string) => Promise<string>;
 
-const ALLOWED_VOICE_EXT = ['.pdf', '.txt', '.md'];
+const ALLOWED_VOICE_EXT = ['.pdf', '.txt', '.md', '.docx'];
 const MAX_SIZE = 50 * 1024 * 1024;
 
 const ALLOWED_ASSET_MIME: Record<string, string> = {
@@ -67,7 +67,7 @@ export function registerOrgContextRoutes(
     }
 
     if (added.length === 0) {
-      return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md' });
+      return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md, .docx' });
     }
 
     // Extract sequentially in the background to avoid concurrent read-modify-write

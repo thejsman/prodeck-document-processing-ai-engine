@@ -10,12 +10,18 @@ import { buildStylePrompt, parseStyleResponse } from '@ai-engine/core';
 import type { ExtractedStyle } from '@ai-engine/core';
 
 async function loadText(filePath: string, fileName: string): Promise<string> {
-  if (fileName.toLowerCase().endsWith('.pdf')) {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.pdf')) {
     const { default: pdfParse } = (await import('pdf-parse')) as {
       default: (buf: Buffer) => Promise<{ text: string }>;
     };
     const buf = await readFile(filePath);
     return (await pdfParse(buf)).text;
+  }
+  if (lower.endsWith('.docx')) {
+    const mammoth = await import('mammoth');
+    const buf = await readFile(filePath);
+    return (await mammoth.extractRawText({ buffer: buf })).value;
   }
   return readFile(filePath, 'utf-8');
 }
