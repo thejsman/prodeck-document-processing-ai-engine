@@ -2737,14 +2737,21 @@ Per-pattern content minimums (HARD RULES — not guidelines):
 
 ═══ SLIDE LAYOUT PATTERNS ═══
 HERO SLIDE (slide-1)
-  Header: eyebrow pill + company tagline (18px); margin-bottom:0
-  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:flex-start): fills the slide top-to-bottom with 4 stacked elements:
-    ① VISUAL FILL BLOCK (flex:1;min-height:220px): A large decorative SVG or abstract geometric shape tied to the brand. Use bold lines, angular shapes, a large logomark outline, radial gradient orb, or grid of small icons. Must visually fill the upper portion — this is the hero "image" when no photo is available. Background: position:absolute;inset:0;z-index:0 for the gradient/color field behind it.
-    ② DISPLAY HEADLINE (44–52px, font-weight:800, 3+ lines, line-height:1.1; margin-top:32px)
-    ③ DESCRIPTION (16px, line-height:1.75, 3–4 sentences; margin-top:16px)
-    ④ CTA BUTTON (margin-top:24px; padding:18px 36px; border-radius:8px; font-size:16px; font-weight:700; display:inline-block; align-self:flex-start)
-  Callout (data-portrait-callout="1"): 3 social-proof stats in a row (big number 52px + label 13px)
-  Background: full-bleed gradient or image (position:absolute;inset:0;z-index:0), content z-index:1
+  BACKGROUND (position:absolute;inset:0;z-index:0;overflow:hidden): MUST use a full-bleed photo from Unsplash + a dark gradient overlay so text is readable:
+    ① Photo layer: <img src="https://source.unsplash.com/720x1280/?[keyword1],[keyword2]" style="width:100%;height:100%;object-fit:cover;display:block;" alt="">
+       Choose 2 relevant keywords from the document topic (e.g. "park,outdoor" / "technology,digital" / "construction,building" / "marketing,creative"). Pick specific, evocative terms.
+    ② Gradient overlay (position:absolute;inset:0): linear-gradient(to top, rgba(0,0,0,0.95) 45%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.25) 100%)
+       This makes the bottom readable for text while letting the photo show through in the upper 40%.
+
+  Header: eyebrow pill (12px uppercase, border:1px solid rgba(255,255,255,0.4), padding:6px 16px, border-radius:20px); margin-bottom:0; z-index:1
+
+  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;justify-content:flex-end;gap:16px): ALL content is anchored to the BOTTOM. The photo fills the upper portion.
+    ① DISPLAY HEADLINE: 3–4 lines, 44–52px, font-weight:800, line-height:1.1, color:#fff
+    ② DESCRIPTION: 3–4 full sentences, 16px, line-height:1.75, color:rgba(255,255,255,0.85)
+    ③ MICRO-STATS ROW (display:flex;gap:24px;margin-top:8px): 2–3 inline facts, each = bold number/word (18px, accent color) + short label (13px, white). e.g. "3 Phases · $2M+ Projects · 452 Leads"
+    ④ CTA BUTTON (margin-top:8px; padding:18px 36px; border-radius:8px; font-size:16px; font-weight:700; align-self:flex-start)
+
+  Callout (data-portrait-callout="1"): 3 social-proof stats in a row (big number 52px + label 13px), separated by vertical dividers
 
 FEATURE SLIDE
   Header: eyebrow label (12px uppercase) + section title (32px); margin-bottom:24px
@@ -2756,8 +2763,12 @@ FEATURE SLIDE
   Callout (data-portrait-callout="1"): accent tagline or stat strip (padding:16px 24px;background:rgba(255,255,255,0.06);border-radius:10px)
 
 STATS SLIDE
-  Header: eyebrow + section title (32px); margin-bottom:24px
-  Main body (data-portrait-body="1"; style: display:grid;grid-template-columns:1fr 1fr;gap:24px;align-content:center): 2×2 big-number grid
+  BACKGROUND (position:absolute;inset:0;z-index:0;overflow:hidden): ambient photo + heavy overlay:
+    ① <img src="https://source.unsplash.com/720x1280/?[keyword]" style="width:100%;height:100%;object-fit:cover;display:block;opacity:0.18;" alt="">
+    ② Gradient overlay (position:absolute;inset:0): the slide's existing dark background color (so the photo is a subtle texture, not dominant)
+    Choose a single keyword relevant to the content metrics (e.g. "data", "growth", "business", "analytics").
+  Header: eyebrow + section title (32px); margin-bottom:24px; z-index:1
+  Main body (data-portrait-body="1"; style: display:grid;grid-template-columns:1fr 1fr;gap:24px;align-content:center;z-index:1): 2×2 big-number grid
     Each cell: big number (56px, font-weight:900) + unit (16px) + label (14px, font-weight:700; margin-top:8px) + 2–3 line explanation (13px, line-height:1.6, opacity:0.75) — the explanation is required
   Callout (data-portrait-callout="1"): context sentence (16px, 2–3 lines) + CTA or accent bar
 
@@ -2767,7 +2778,7 @@ TEXT / STORY SLIDE
   Callout (data-portrait-callout="1"): highlighted callout box (background:accent at 15% opacity, padding:20px 24px, border-radius:12px, border-left:4px solid accent, 16px bold text, 2 full lines minimum)
 
 IMAGE + TEXT SLIDE
-  Header: full-width image (height:36%;object-fit:cover;border-radius:12px;flex-shrink:0) with overlaid eyebrow tag; margin-bottom:20px
+  Header: <img src="https://source.unsplash.com/720x400/?[keyword1],[keyword2]" style="width:100%;height:220px;object-fit:cover;border-radius:16px;flex-shrink:0;display:block;" alt=""> + eyebrow tag (12px uppercase, accent color; margin-top:16px)
   Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:14px): section title (30px; margin-bottom:8px) + 4–5 bullet points, each = icon (24px) + bold label (15px) + 2-line description (14px, line-height:1.6)
   Callout (data-portrait-callout="1"): CTA link or summary accent bar (16px bold, accent color; padding:16px 0)
 
@@ -3053,8 +3064,7 @@ QUOTE / PROOF SLIDE
 [data-section-id]>div:not([data-pdf-hide]){flex:1!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;min-height:0!important;}
 [data-portrait-body]{flex:1!important;min-height:0!important;overflow:hidden!important;}
 [data-portrait-callout]{margin-top:auto!important;flex-shrink:0!important;}
-[data-section-id] img:not([id^="__site-logo"]){max-height:380px!important;}
-[data-section-id] svg{max-height:120px!important;max-width:120px!important;}
+[data-section-id]>div[style*="position:absolute"] img{max-height:none!important;width:100%!important;height:100%!important;object-fit:cover!important;}
 </style>`
               : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:48px 72px 48px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:624px;overflow:hidden;min-height:0;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;var la=s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
           )
