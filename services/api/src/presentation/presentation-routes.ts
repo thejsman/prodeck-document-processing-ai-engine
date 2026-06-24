@@ -2225,7 +2225,7 @@ ${layoutSummary}`;
           designTone,
           (body?.brand?.primaryColor as string | undefined),
           llmGenerateFn,
-          [],
+          (body?.urlImages as string[] | undefined) ?? [],
           cachedTheme ?? undefined,
           streamClientIndustry,
         );
@@ -2356,6 +2356,7 @@ Always include hero and nextsteps. Suggest 5-9 sections based on what's actually
       }>;
       pdfPresentation?: boolean; // each section is a fixed-aspect slide for PDF download
       pdfOrientation?: 'landscape' | 'portrait'; // landscape = 16:9 (default), portrait = 9:16
+      urlImages?: string[]; // raw client photo URLs to embed in slides
     } | undefined;
 
     const isColdStart = body?.coldStart === true;
@@ -2672,6 +2673,28 @@ CONTENT RICHNESS — non-negotiable: Every slide's main body zone must be VISUAL
 
 Every slide must feel COMPLETE and DENSE with information — purposefully written, not extracted snippets.
 
+═══ DESIGN THEME — invent a UNIQUE palette for every generation ═══
+Do NOT reuse a standard palette or default to what you used last time. Read the document's industry, brand name, tone, and mood — then CREATE an original color palette specifically for this presentation. Every generation must look different.
+
+Design rules for your invented palette:
+  1. Choose a DOMINANT BACKGROUND — dark (near-black with a color tint), light (off-white/cream), or gradient-rich — based on industry tone
+  2. Choose ONE ACCENT COLOR that feels native to the brand/industry — not generic green unless the brand is explicitly green
+  3. Choose a SECONDARY ACCENT (15–30% lighter or a complementary hue) for callout bars and highlights
+  4. Apply per-slide background VARIATIONS — slightly shift the hue or lightness across slides so the deck feels dynamic, not monotone
+  5. For dark backgrounds: text is #fff or rgba(255,255,255,0.92+)
+     For light backgrounds: text is #111 or #1a1a2e, cards have box-shadow
+
+Industry palette signals (use as inspiration — do NOT copy verbatim):
+  Tech/SaaS: near-black + electric blue, violet, or cyan
+  Outdoor/parks/construction: deep earthy tone + lime, amber, or emerald
+  Finance/legal/consulting: navy or charcoal + gold, teal, or crimson
+  Healthcare: deep teal or slate + mint or warm white
+  Creative/marketing agencies: bold gradient base + coral, neon, or electric yellow
+  Real estate/luxury: near-black + gold, copper, or warm ivory
+  Education: deep navy or forest + orange or yellow-gold
+
+IMPORTANT: Commit to your invented palette before building slide 1 and apply it CONSISTENTLY throughout.
+
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
 <section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding:0">
 
@@ -2728,14 +2751,38 @@ CRITICAL: These font sizes are minimums. Every slide MUST use them. Small text =
 ═══ CONTENT DENSITY — non-negotiable ═══
 Target: 80%+ of the main body zone must be filled. Write as a copywriter — expand every fact into full prose.
 
-Per-pattern content minimums (HARD RULES — not guidelines):
-- FEATURE cards: MINIMUM 5 sentences per card. Write complete, polished sentences. The card is tall — a 2-line description looks broken and empty.
-- LIST items: MINIMUM 30 words per item description. Write 2–3 full sentences per item, not labels.
-- TEXT slide: MINIMUM 4 paragraphs of 4–5 sentences each. Fill the body zone with prose.
-- STATS slide: each stat cell = big number + label + MINIMUM 3-line explanation sentence.
-- HERO slide: headline 3+ lines, description paragraph 3–4 sentences, CTA button.
+Content minimums (applies regardless of layout structure you choose):
+- Each card / cell MINIMUM 3–5 full sentences — no short labels
+- Each list item MINIMUM 30 words — write 2–3 full sentences
+- Headlines must be 3+ lines at the display size — never a single short line
+- Stats must include a 2–3 line explanation below the number
 
-═══ SLIDE LAYOUT PATTERNS ═══
+═══ FREE-FORM SLIDE DESIGN — no fixed patterns ═══
+Do NOT follow a prescribed structure for each slide. Design each slide as a UNIQUE composition. The ONLY fixed constraints are:
+  • The slide is 720×1280px (9:16), overflow:hidden, all content must stay within bounds
+  • data-portrait-body="1" on the main content element (CSS forces flex:1 to fill space)
+  • data-portrait-callout="1" on the bottom accent/callout bar (CSS forces margin-top:auto)
+  • Font size minimums from the typography table above
+  • No animations, no JS, no fixed/sticky positioning
+
+You are free to design any layout you choose:
+  • Any number of columns (1, 2, asymmetric) — as long as text doesn't overflow
+  • Any card shapes — rounded, pill, sharp corners, glassmorphism, outlined, filled
+  • Any visual hierarchy — giant stat + small text, magazine-style pull quote, horizontal bands, diagonal splits
+  • Photos via <img src="https://source.unsplash.com/[W]x[H]/?[keyword]"> anywhere that adds visual richness
+  • Background treatments — solid, gradient, mesh, noise texture, subtle image
+  • Decorative elements — large muted numbers, geometric shapes, accent lines, dot grids
+  • Each slide should look VISUALLY DISTINCT from the others in the deck — vary the layout composition
+
+SLIDE-1 (hero) REQUIREMENTS (these are structural necessities, not a template):
+  • Full-bleed Unsplash background photo + gradient overlay for text readability
+  • Company/project headline (3+ lines, 44–52px, bold)
+  • Eyebrow pill label at top
+  • CTA button
+  • Social proof stats at bottom (data-portrait-callout="1")
+
+ALL OTHER SLIDES — complete creative freedom. For each section of content, design the most visually compelling way to present it within 720×1280px. Ask yourself: what is the BEST layout for this specific content? A big number with context? Stacked cards? A bold quote? A photo with overlaid text? An icon timeline? Invent it.
+
 HERO SLIDE (slide-1)
   BACKGROUND (position:absolute;inset:0;z-index:0;overflow:hidden): MUST use a full-bleed photo from Unsplash + a dark gradient overlay so text is readable:
     ① Photo layer: <img src="https://source.unsplash.com/720x1280/?[keyword1],[keyword2]" style="width:100%;height:100%;object-fit:cover;display:block;" alt="">
@@ -2753,56 +2800,10 @@ HERO SLIDE (slide-1)
 
   Callout (data-portrait-callout="1"): 3 social-proof stats in a row (big number 52px + label 13px), separated by vertical dividers
 
-FEATURE SLIDE
-  Header: eyebrow label (12px uppercase) + section title (32px); margin-bottom:24px
-  Main body (data-portrait-body="1"; style: display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-content:stretch): 2×2 icon card grid
-    Each card: display:flex;flex-direction:column; padding:24px 28px; min-width:0; border-radius:16px; border:1px solid rgba(255,255,255,0.12)
-      icon (40px SVG; margin-bottom:16px)
-      bold title (16px; font-weight:700; margin-bottom:12px)
-      description (14px; line-height:1.7): MUST be 4–5 full sentences — write every word, never truncate. The card is tall; short text leaves dead space.
-  Callout (data-portrait-callout="1"): accent tagline or stat strip (padding:16px 24px;background:rgba(255,255,255,0.06);border-radius:10px)
-
-STATS SLIDE
-  BACKGROUND (position:absolute;inset:0;z-index:0;overflow:hidden): ambient photo + heavy overlay:
-    ① <img src="https://source.unsplash.com/720x1280/?[keyword]" style="width:100%;height:100%;object-fit:cover;display:block;opacity:0.18;" alt="">
-    ② Gradient overlay (position:absolute;inset:0): the slide's existing dark background color (so the photo is a subtle texture, not dominant)
-    Choose a single keyword relevant to the content metrics (e.g. "data", "growth", "business", "analytics").
-  Header: eyebrow + section title (32px); margin-bottom:24px; z-index:1
-  Main body (data-portrait-body="1"; style: display:grid;grid-template-columns:1fr 1fr;gap:24px;align-content:center;z-index:1): 2×2 big-number grid
-    Each cell: big number (56px, font-weight:900) + unit (16px) + label (14px, font-weight:700; margin-top:8px) + 2–3 line explanation (13px, line-height:1.6, opacity:0.75) — the explanation is required
-  Callout (data-portrait-callout="1"): context sentence (16px, 2–3 lines) + CTA or accent bar
-
-TEXT / STORY SLIDE
-  Header: eyebrow tag (12px) + section title (32px) + 1-line intro (16px); margin-bottom:24px
-  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:20px): MINIMUM 4 body paragraphs, each 3–5 sentences (16px, line-height:1.75). Write full prose. Alternatively: a large pull-quote (22px italic, border-left:4px solid accent, padding-left:24px) followed by 2–3 supporting paragraphs.
-  Callout (data-portrait-callout="1"): highlighted callout box (background:accent at 15% opacity, padding:20px 24px, border-radius:12px, border-left:4px solid accent, 16px bold text, 2 full lines minimum)
-
-IMAGE + TEXT SLIDE
-  Header: <img src="https://source.unsplash.com/720x400/?[keyword1],[keyword2]" style="width:100%;height:220px;object-fit:cover;border-radius:16px;flex-shrink:0;display:block;" alt=""> + eyebrow tag (12px uppercase, accent color; margin-top:16px)
-  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:14px): section title (30px; margin-bottom:8px) + 4–5 bullet points, each = icon (24px) + bold label (15px) + 2-line description (14px, line-height:1.6)
-  Callout (data-portrait-callout="1"): CTA link or summary accent bar (16px bold, accent color; padding:16px 0)
-
-LIST SLIDE
-  Header: eyebrow + section title (30px); margin-bottom:20px
-  Main body (data-portrait-body="1"; style: display:flex;flex-direction:column;gap:16px): 4–5 items as full-border card rows — each item is a rounded card (padding:20px 24px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04); display:flex; align-items:flex-start; gap:16px)
-    Left: colored icon box (40px×40px; border-radius:10px; background:accent at 20%; icon SVG 20px centered; flex-shrink:0)
-    Right: display:flex;flex-direction:column; gap:6px
-      bold label (15px; font-weight:700)
-      description (14px; line-height:1.65; minimum 30 words — write 2–3 full sentences that explain the value)
-  Callout (data-portrait-callout="1"): summary statement (16px, 2 lines) or accent pill
-
-═══ SPACING RULES ═══
-- Content area padding: 28px top, 36px sides — do not reduce
-- Gap below header block (before main body): always set via margin-bottom:24px on the header, never use empty spacer divs
-- Gap within middle content: 24–32px
-- Gap between list items / cards: 16–20px
-- Never use <div style="height:Xpx"> empty spacers — use gap and flex instead
-- Each card / row / item must have enough padding (16–20px) to feel substantial
-
-═══ NARROW ROW LAYOUTS (allowed for small elements) ═══
-- Icon + label within a card (flex-direction:row, ok)
-- Big stat + unit on same line (flex-direction:row, ok)
-- Button group side by side (flex-direction:row, ok)
+═══ SPACING ═══
+- Content area padding: 28px top, 36px sides
+- Minimum card/item padding: 16–20px; gap between items: 14–20px
+- Never use empty height spacers — use gap or flex
 
 ═══ FORBIDDEN ═══
 - 3-column or 4-column grids for main content
@@ -2829,6 +2830,25 @@ Text MUST be clearly readable against its background at all times:
 - NEVER create a card where the text blends into the background — every word must be immediately legible`);
         } else {
           parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Each slide covers ONE idea with generous breathing room. Spread content across more slides rather than cramming onto fewer — aim for 8–12 slides total. A slide with 2–3 well-spaced cards beats a slide with 6 crowded ones.
+
+═══ DESIGN THEME — invent a UNIQUE palette for every generation ═══
+Do NOT reuse a standard palette or default to what you used last time. Read the document's industry, brand, tone, and mood — then CREATE an original color palette for this presentation. Every generation must look visually distinct.
+
+Rules for your invented palette:
+  1. DOMINANT BACKGROUND — dark (near-black with a tint), light (off-white), or gradient-based — match the industry tone
+  2. ONE PRIMARY ACCENT — native to the brand/industry, not generic
+  3. ONE SECONDARY ACCENT — lighter shade or complementary hue for callout elements
+  4. Per-slide BACKGROUND VARIATIONS — slight hue/lightness shifts across slides for visual dynamism
+  5. Dark bg → white text; Light bg → #111 text + card shadows
+
+Industry signals (inspiration only — don't copy verbatim):
+  Tech/SaaS → near-black + electric blue, violet, or cyan
+  Outdoor/parks/construction → deep earthy + lime, amber, or emerald
+  Finance/legal → navy or charcoal + gold, teal, or crimson
+  Creative/events → bold gradient + coral, neon, or electric yellow
+  Real estate/luxury → near-black + gold or warm ivory
+
+Commit to your palette before building slide-1 and apply it consistently throughout.
 
 ═══ SLIDE WRAPPER (copy exactly for every section) ═══
 <section data-section-id="slide-N" style="width:1280px;min-height:720px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:48px 72px 48px">
@@ -2863,108 +2883,45 @@ Stats / big numbers .......... 48–60px, font-weight:900, line-height:1.0
 
 CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for font-size, padding, or gap. Small text = rejected output.
 
-═══ CONTENT DENSITY — fit everything within the slide ═══
-LAYOUT CHOICE based on item count (decide BEFORE building):
-- 2–4 items → CARD STYLE: full card with background, border, icon, padding — 2×2 or 1×3 grid
-- 5–6 items → COMPACT LIST: icon-row layout (no card backgrounds) — rows evenly spaced with justify-content:space-between
-- 7+ items → SPLIT across two slides: each slide gets 3–4 items using CARD STYLE
-NEVER mix tall cards with compact rows in the same slide — pick one style for all items
-Every slide MUST have 1 headline (28px+) near the top
+═══ FREE-FORM SLIDE DESIGN — no fixed patterns ═══
+Do NOT follow a prescribed structure for each slide. Design each slide as a UNIQUE composition that fits the content naturally.
 
-═══ SLIDE LAYOUT PATTERNS ═══
-HERO SLIDE (slide-1)
-  Layout: 2-column side-by-side (display:grid;grid-template-columns:1.1fr 0.9fr;flex:1 — fills the 624px content area; do NOT set an explicit height)
-  Left column (display:flex;flex-direction:column;justify-content:space-between):
-    - Eyebrow label: client name + agency (12px uppercase, accent color, letter-spacing:0.08em)
-    - Display headline (40–44px, 2–3 lines) + tagline (16px, 1–2 lines)
-    - 3 social-proof stats in a row (big number 48px weight:900 + label 13px)
-    - CTA button row or contact block at bottom
-  Right column: full-bleed image (border-radius:14px;overflow:hidden) or rich graphic element with brand color and large bold text
+ONLY fixed constraints:
+  • Slide is 1280×720px (16:9), overflow:hidden, all content must stay within bounds
+  • data-ls-content="1" on the main content element — CSS forces flex:1 (fills available height)
+  • data-ls-callout="1" on the bottom accent/callout bar — CSS forces margin-top:auto + flex-shrink:0 (pinned to bottom)
+  • Font minimums: body text ≥12px, card/row titles ≥14px, section headlines ≥28px
+  • No CSS animations, no transitions, no JS, no fixed/sticky positioned children
+  • Dark background → use white or rgba(255,255,255,0.92+) for all text
+  • Light background → use near-black (#111827 or similar) for text — never mid-gray
+  • Every grid cell containing text MUST have min-width:0 to prevent overflow
+  • Grid columns MUST use fr units (e.g. 1fr 1fr, 1.2fr 0.8fr) — never fixed px widths
+  • No width:1280px or width:100vw on any element inside a section
+  • Do NOT set explicit height on inner content wrappers — use flex:1 so padding defines available height
+  • NEVER use vw, clamp(), em, rem for font-size, padding, or gap — px only
 
-PROBLEM / SOLUTION SLIDE (2-column)
-  Header row: eyebrow (12px uppercase) + section title (30–32px) — height ~70px, margin-bottom:24px
-  Content: display:grid;grid-template-columns:1fr 1fr;gap:32px;flex:1
-    Left: "Challenge" column — 3 items max, display:flex;flex-direction:column;justify-content:space-between; each item: bold label (15px) + 2-line desc (13px), padding:18px 20px, border-left:3px solid accent
-    Right: "Solution" column — 3 items max, display:flex;flex-direction:column;justify-content:space-between; each item: checkmark icon + bold label (15px) + 2-line desc (13px), padding:18px 20px, background:rgba(accent,0.08)
-  Bottom: insight callout bar (padding:16px 22px;border-radius:10px;background:accent;font-size:14px) full-width
+You are free to invent any layout composition:
+  • Any number of columns (1–3), rows, asymmetric splits
+  • Cards, timelines, quote layouts, photo collages, data tables, icon grids
+  • Full-bleed background images (Unsplash), gradient overlays, decorative shapes
+  • Any visual hierarchy — spotlight a single stat, split into two equal halves, use a wide left + narrow right, etc.
 
-FEATURE GRID SLIDE (2–4 items — card style)
-  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;flex:1 — max 4 cards (2×2)
-    Each card: padding:22px 24px;border-radius:12px;min-width:0;word-wrap:break-word;overflow-wrap:break-word; icon (32–36px SVG); bold title (15px); 2–3 line description (13px)
-    3 cards: use repeat(3,minmax(0,1fr)) single row — taller cards, more impact
-    ALL text inside cards must use word-wrap:break-word and never overflow the card boundary
-  Do NOT use this pattern for 5+ items — use COMPACT LIST instead
+Each slide MUST look VISUALLY DISTINCT from every other slide in the deck — vary backgrounds, typography size, layout structure, and color accents.
 
-COMPACT LIST SLIDE (5–6 items — row style, no card backgrounds)
-  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:flex;flex-direction:column;justify-content:space-between;flex:1
-    Each row: display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.08)
-      Icon: 32px SVG or colored circle with initial, flex-shrink:0
-      Text block: bold label (14px, font-weight:700) on top + description (13px, 1–2 lines, color:rgba(255,255,255,0.7)) below
-    Last row: no border-bottom
-  For 2-column compact list: display:grid;grid-template-columns:1fr 1fr;gap:0 40px — keeps all items visible with breathing room
-  Each row height ~64–76px — space-between distributes rows evenly across the full 624px content area
+CONTENT DENSITY — one idea per slide, never overpack:
+  • A slide can hold ONE of: a header + card grid, OR a header + stat block, OR a header + list, OR a hero stat + 2 supporting items — NOT a hero stat AND a card grid AND a description all together
+  • If content requires a large stat block + supporting details, the stat is the hero and the details are 2–3 brief lines beneath it — no second grid below
+  • Max 4 cards in a grid on a single slide; max 4 list rows; max 3 step cards
+  • If the document section has more content than fits, split it across two slides rather than compressing everything into one
 
-STATS / KPI SLIDE
-  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:grid;grid-template-columns:repeat(3,1fr);gap:28px;flex:1
-    Each stat cell: big number (52–60px weight:900) + unit/label (14px uppercase) + 2–3 line context (13px) + optional mini progress bar
-    3 stats is the default; use a 2×2 grid only if there are exactly 4 stats and each needs more description
-  Bottom: summary insight bar (~40px)
+Slide-1 (hero) must have:
+  • A full-bleed Unsplash background image + dark gradient overlay
+  • A large headline (40–48px, 3+ lines)
+  • An eyebrow label / pill tag
+  • A CTA button
+  • Stats row or social proof
 
-PROCESS / STEPS SLIDE
-  Header: eyebrow + section title (30–32px) — ~70px, margin-bottom:20px
-  Content: display:flex;gap:24px;flex:1;align-items:stretch — 3 horizontal step cards maximum (4 cards × min-height overflows 530px content area)
-    Each step card: padding:20px 18px;border-radius:12px;flex:1;min-width:0; step number (32px accent); icon (28px SVG); bold title (14px); 2–3 line description (13px); connector arrow between cards (position:absolute, right:-14px; card must have position:relative;overflow:visible)
-    Step cards use flex:1 to fill the content area naturally — NEVER set min-height or fixed height on step cards
-  Bottom: outcome strip or investment summary (~50px)
-
-QUOTE / PROOF SLIDE
-  Full-height layout (display:flex;flex-direction:column;justify-content:center;gap:32px)
-  Center: large pull-quote (28–32px, font-style:italic, line-height:1.4, max-width:860px, margin:0 auto, border-left:6px solid accent, padding-left:28px)
-  Below quote: attribution row (name 16px bold + role 13px muted) + 2–3 supporting proof points (13px each)
-  Background: rich gradient or full-bleed image with dark overlay (z-index:0), content z-index:1
-
-═══ SPACING RULES ═══
-- Slide padding: 48px top, 72px left/right, 48px bottom — equal top/bottom, DO NOT use vw or clamp
-- Content area is defined by section padding — do NOT set explicit widths on content containers; use flex:1 or omit width entirely
-- Grid columns MUST use fr units (1fr 1fr, not fixed px) so they fill the available padded width automatically
-- NEVER set width:1280px or width:100vw on any element inside a section — that bypasses padding and causes overflow
-- Header-to-content gap: 20–28px
-- Card inner padding: 20–24px (minimum 20px — compact list rows at 14px are the only exception)
-- Grid gap between cards/columns: 24–28px minimum
-- Every grid cell that contains text MUST have min-width:0 — without it CSS grid cells refuse to shrink below content width and overflow horizontally
-- NEVER use empty <div> spacers — use gap, flex:1, or min-height to fill space
-
-═══ IMAGE RULES ═══
-- Full-bleed slide background: position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0 with a gradient overlay on top
-- Column image (in a 2-col layout): width:100%;height:100%;object-fit:cover;border-radius:12px — fills the full column height
-- Inset showcase image: width:100%;object-fit:cover;border-radius:14px;max-height:320px
-- NEVER use max-height:42% — it clips images to an arbitrary fraction
-
-═══ FORBIDDEN ═══
-- justify-content:center on sections — creates dead zones above and below content
-- vw, clamp(), em, rem for font-size, padding, or gap — px only throughout
-- aspect-ratio on sections — width and height are fixed at 1280×720
-- Sticky/fixed positioned children
-- CSS animations, transitions, IntersectionObserver, scroll effects
-- Any <img> with id containing "__site-logo" in slides 2–N
-- Slides that try to cover more than one topic — one idea per slide, always
-- width:1280px or width:100vw on ANY element inside a section — always causes overflow past the padding boundary
-- Fixed pixel widths on grid columns — use fr units only
-- Unbalanced column layouts with dead space — use asymmetric fr splits (e.g. 1.2fr 0.8fr) to fill the full width
-- Setting width:1280px on body — the constraint CSS handles body sizing
-- Explicit height on inner content wrappers (any fixed pixel value) — always use flex:1 so section padding defines the available height
-- repeat(4,1fr) or more than 3 columns in any content grid — maximum 3 columns
-- Grid children without min-width:0 — every text-containing grid cell MUST have min-width:0 to allow shrinking
-
-═══ CONTRAST & READABILITY — non-negotiable ═══
-- Dark background slides: use white #fff or rgba(255,255,255,0.92+) for all body text
-- Light background slides: use near-black (e.g. #111827 or #0d1f18) for body text — never mid-gray
-- Never use rgba opacity below 0.85 for body text
-- Card backgrounds on dark slides: rgba(255,255,255,0.08–0.16) with 1px solid rgba(255,255,255,0.15) border
-- NEVER create a card where text blends into the background — every word must be immediately legible`);
+For all other slides: the content and your creative instinct determine the layout — no default template.`);
         }
       }
 
@@ -2984,6 +2941,12 @@ QUOTE / PROOF SLIDE
       // Remind the LLM about client images (full spec is already in the system prompt via imageInstructions)
       if (contextImgs.length > 0) {
         parts.push(`Reminder: embed all ${contextImgs.length} client-provided image(s) listed in your system instructions using their exact src URLs.`);
+      }
+
+      // For PDF slides — inject urlImages as available photo URLs the LLM can use directly
+      if (body?.pdfPresentation && body?.urlImages?.length) {
+        parts.push(`CLIENT PHOTO URLS — use these real photos in slides instead of Unsplash placeholders wherever a photo is appropriate (hero background, image+text slides, feature card headers). Use them as <img src="..."> or CSS background-image.
+${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: ${url}`).join('\n')}`);
       }
 
       if (markdown) parts.push(`<document>\n${markdown}\n</document>`);
@@ -3065,8 +3028,10 @@ QUOTE / PROOF SLIDE
 [data-portrait-body]{flex:1!important;min-height:0!important;overflow:hidden!important;}
 [data-portrait-callout]{margin-top:auto!important;flex-shrink:0!important;}
 [data-section-id]>div[style*="position:absolute"] img{max-height:none!important;width:100%!important;height:100%!important;object-fit:cover!important;}
+[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}
+[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;}
 </style>`
-              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;transform-origin:top left!important;padding:48px 72px 48px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:624px;overflow:hidden;min-height:0;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;var la=s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
+              : `$1<style id="__pdf-slide-constraints__">body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;display:flex!important;flex-direction:column!important;transform-origin:top left!important;padding:48px 72px 48px!important;}[data-section-id]>*:not([style*="position:absolute"]):not([style*="position: absolute"]){max-height:624px;overflow:hidden;min-height:0;}[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}</style><script id="__slide-scaler__">(function(){function sc(){var vw=document.documentElement.clientWidth||window.innerWidth;if(!vw)return;var s=vw/1280;var la=s<1;if(la){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('transform-origin',la?'top left':'top center','important');if(Math.abs(s-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+s+')';el.style.marginBottom=Math.round(720*(s-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);}());<\/script>`,
           )
         : html;
 
