@@ -24,12 +24,13 @@ function round3(n: number): number {
 
 /**
  * Recency weight by rank in a newest→oldest ordering.
- * Newest (rank 0) = 2.0, oldest (rank N-1) = 1.0, smooth in between.
- * Single profile → 2.0.
+ * Newest (rank 0) = multiplier, oldest (rank N-1) = 1.0, smooth in between.
+ * Single profile → multiplier. Default multiplier = 2.0.
  */
-export function recencyWeight(rank: number, total: number): number {
-  if (total <= 1) return 2.0;
-  return 2 ** (1 - rank / (total - 1));
+export function recencyWeight(rank: number, total: number, multiplier = 2.0): number {
+  const base = Math.max(1.0, multiplier);
+  if (total <= 1) return base;
+  return base ** (1 - rank / (total - 1));
 }
 
 /** Sort profiles newest→oldest; ties broken by id for determinism. */
@@ -110,9 +111,12 @@ function emptyVoice(): ComputedAuthorVoice {
 /**
  * Merge per-document profiles into the org-wide Author Voice.
  * Returns everything except `version`/`updatedAt` (the adapter stamps those).
+ * @param recencyMultiplier  Weight of the newest upload relative to oldest (default 2.0).
+ *                           1.0 = flat (all equal), 4.0 = aggressive recency bias.
  */
 export function mergeVoiceProfiles(
   profiles: VoiceStyleProfile[],
+  recencyMultiplier = 2.0,
 ): ComputedAuthorVoice {
   if (!profiles || profiles.length === 0) return emptyVoice();
 
@@ -120,7 +124,7 @@ export function mergeVoiceProfiles(
   const total = ordered.length;
   const weighted = ordered.map((p, i) => ({
     profile: p,
-    weight: recencyWeight(i, total),
+    weight: recencyWeight(i, total, recencyMultiplier),
   }));
 
   const list = (pick: (p: VoiceStyleProfile) => string[]): WeightedProfileList[] =>

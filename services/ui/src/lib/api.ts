@@ -2625,6 +2625,7 @@ export interface VoiceDocEntry {
 export interface OrgContextSettings {
   applyAuthorVoice: boolean;
   applyDesignKit: boolean;
+  recencyMultiplier: number;
 }
 
 export async function fetchAuthorVoice(apiKey: string): Promise<AuthorVoice | null> {

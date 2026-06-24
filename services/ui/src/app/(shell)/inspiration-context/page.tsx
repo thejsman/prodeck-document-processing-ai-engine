@@ -73,18 +73,28 @@ function ColorSwatch({ hex }: { hex: string }) {
 
 // ── Author Voice context card ─────────────────────────────────────────────────
 
+const RECENCY_PRESETS: Array<{ label: string; value: number; hint: string }> = [
+  { label: '1× Flat', value: 1, hint: 'All proposals weighted equally' },
+  { label: '2× Default', value: 2, hint: 'Recent proposals weighted 2× older ones' },
+  { label: '4× Aggressive', value: 4, hint: 'Recent proposals heavily dominate' },
+];
+
 function VoiceContextCard({
   voice,
   docs,
   applyAuthorVoice,
   onToggle,
   onRecompute,
+  recencyMultiplier,
+  onMultiplierChange,
 }: {
   voice: AuthorVoice | null;
   docs: VoiceDocEntry[];
   applyAuthorVoice: boolean;
   onToggle: (v: boolean) => void;
   onRecompute: () => void;
+  recencyMultiplier: number;
+  onMultiplierChange: (v: number) => void;
 }) {
   const extracted = docs.filter((d) => d.status === 'extracted').length;
   const hasVoice = voice && voice.docCount > 0;
@@ -117,6 +127,33 @@ function VoiceContextCard({
           {hasVoice && (
             <button className="btn btn-sm" onClick={onRecompute} style={{ fontSize: 12 }}>Recompute</button>
           )}
+        </div>
+      </div>
+
+      {/* Recency multiplier presets */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Recency bias</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {RECENCY_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              title={p.hint}
+              onClick={() => onMultiplierChange(p.value)}
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                padding: '3px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                cursor: 'pointer',
+                background: recencyMultiplier === p.value ? 'var(--primary)' : 'var(--panel)',
+                color: recencyMultiplier === p.value ? '#fff' : 'var(--muted)',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -343,6 +380,7 @@ export default function InspirationContextPage() {
   const [voice, setVoice] = useState<AuthorVoice | null>(null);
   const [docs, setDocs] = useState<VoiceDocEntry[]>([]);
   const [applyAuthorVoice, setApplyAuthorVoice] = useState(true);
+  const [recencyMultiplier, setRecencyMultiplier] = useState(2);
   const [voiceUploading, setVoiceUploading] = useState(false);
   const [voiceProgress, setVoiceProgress] = useState(0);
   const [voiceDrag, setVoiceDrag] = useState(false);
@@ -380,7 +418,11 @@ export default function InspirationContextPage() {
     void refreshVoice();
     void refreshAssets();
     fetchOrgContextSettings(apiKey)
-      .then((s) => { setApplyAuthorVoice(s.applyAuthorVoice); setApplyDesignKit(s.applyDesignKit); })
+      .then((s) => {
+        setApplyAuthorVoice(s.applyAuthorVoice);
+        setApplyDesignKit(s.applyDesignKit);
+        setRecencyMultiplier(s.recencyMultiplier ?? 2);
+      })
       .catch(() => {});
   }, [apiKey, refreshVoice, refreshAssets]);
 
@@ -419,6 +461,14 @@ export default function InspirationContextPage() {
     try { await saveOrgContextSettings(apiKey, { applyAuthorVoice: next }); }
     catch (err) { setError((err as Error).message); setApplyAuthorVoice(!next); }
   }, [apiKey]);
+
+  const onMultiplierChange = useCallback(async (next: number) => {
+    if (!apiKey) return;
+    const prev = recencyMultiplier;
+    setRecencyMultiplier(next);
+    try { await saveOrgContextSettings(apiKey, { recencyMultiplier: next }); }
+    catch (err) { setError((err as Error).message); setRecencyMultiplier(prev); }
+  }, [apiKey, recencyMultiplier]);
 
   // Asset handlers
   const handleAssetFiles = useCallback(async (files: FileList | File[]) => {
@@ -500,6 +550,8 @@ export default function InspirationContextPage() {
             applyAuthorVoice={applyAuthorVoice}
             onToggle={(v) => void onToggleVoice(v)}
             onRecompute={() => { void recomputeAuthorVoice(apiKey!).then(setVoice).catch((e: Error) => setError(e.message)); }}
+            recencyMultiplier={recencyMultiplier}
+            onMultiplierChange={(v: number) => void onMultiplierChange(v)}
           />
 
           <DropZone
