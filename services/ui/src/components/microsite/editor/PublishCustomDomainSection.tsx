@@ -332,7 +332,7 @@ export function PublishCustomDomainSection({ ast, namespace, proposalId, onPubli
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => setPassword(e.target.value.replace(/\s/g, ''))}
                   placeholder="Set a password (min. 6 characters)"
                   disabled={publish.status === 'publishing'}
                   autoComplete="new-password"
