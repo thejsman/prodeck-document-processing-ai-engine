@@ -4236,8 +4236,8 @@ export default function SuperClientPage() {
                             width: 12,
                             height: 12,
                             borderRadius: 3,
-                            border: `1.5px solid ${composerPresentationMode !== "web" ? "var(--primary)" : "currentColor"}`,
-                            background: composerPresentationMode !== "web" ? "var(--primary)" : "transparent",
+                            border: `1.5px solid ${composerPresentationMode !== "web" ? "rgba(255,255,255,0.7)" : "currentColor"}`,
+                            background: composerPresentationMode !== "web" ? "rgba(255,255,255,0.25)" : "transparent",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -4266,31 +4266,54 @@ export default function SuperClientPage() {
                           ))}
                         </div>
                       )}
-                      <button
-                      onClick={() => void generateComposerMicrosite()}
-                      style={{
-                        padding: "7px 14px",
-                        borderRadius: 8,
-                        background: "var(--primary)",
-                        color: "#fff",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 13,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      <Sparkles size={13} />
-                      <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                        <span>Generate Microsite</span>
-                        {composerPresentationMode !== "web" && (
-                          <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.8 }}>
-                            PDF Friendly ({composerPresentationMode === "pdf-landscape" ? "16:9" : "9:16"})
+                      {(viewingMicrosite || viewingProposal) ? (
+                        <button
+                          onClick={() => void generateComposerMicrosite()}
+                          title="Generate Microsite"
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 8,
+                            background: "var(--primary)",
+                            color: "#fff",
+                            border: "none",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <ChevronRight size={16} strokeWidth={2.5} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => void generateComposerMicrosite()}
+                          style={{
+                            padding: "7px 14px",
+                            borderRadius: 8,
+                            background: "var(--primary)",
+                            color: "#fff",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <Sparkles size={13} />
+                          <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                            <span>Generate Microsite</span>
+                            {composerPresentationMode !== "web" && (
+                              <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.8 }}>
+                                PDF Friendly ({composerPresentationMode === "pdf-landscape" ? "16:9" : "9:16"})
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                    </button>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
