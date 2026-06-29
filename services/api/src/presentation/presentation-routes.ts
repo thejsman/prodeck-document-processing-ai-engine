@@ -2461,6 +2461,7 @@ When asked to create a website or microsite:
 - For sticky card stacking effects, use position:sticky with GSAP ScrollTrigger scale transforms
 - CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
+- STRICTLY FORBIDDEN: Never include <pre>, <code>, or any element that renders HTML, CSS, or JavaScript source code as visible text on the page. Never wrap any output in markdown code fences (\`\`\`html or \`\`\` of any kind) inside the HTML body. This is a rendered presentation website — source code must NEVER appear as visible text to the viewer under any circumstances.
 
 FRAMEWORK TRANSLATION RULES — apply these when the prompt references any JS framework:
 - React component → vanilla JS function using document.createElement / innerHTML
@@ -2882,15 +2883,35 @@ Commit to your palette before building slide-1 and apply it consistently through
 Use justify-content:flex-start so content anchors to the top and fills downward. Padding (48px top, 72px sides, 48px bottom) provides generous breathing room. White space is intentional — do not force extra content to fill a slide. NEVER put more than 6 items on one slide — if a section has 7+ items, split across two slides.
 
 ═══ MICROSITE NAV BAR (once in <body>, before all slides — browser only) ═══
-Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. This is a normal website navigation bar, not part of any slide:
-<nav data-pdf-hide="true" style="position:fixed;top:0;left:0;right:0;height:64px;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:0 48px;box-sizing:border-box;background:rgba(MATCH_SITE_DARK_BG,0.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,0.08);">
-  <img id="__site-logo__" src="data:," alt="Logo" style="height:28px;width:auto;max-width:120px;object-fit:contain;display:block;">
-  <span style="font-size:13px;font-weight:600;letter-spacing:0.05em;color:rgba(255,255,255,0.5);">CLIENT × AGENCY · tagline or proposal title</span>
+Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. Use this EXACT three-part structure:
+
+<nav data-pdf-hide="true" style="position:fixed;top:0;left:0;right:0;height:64px;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:0 48px;box-sizing:border-box;background:rgba(MATCH_SITE_DARK_BG,0.95);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,0.08);">
+  <!-- LEFT: logo badge + company name -->
+  <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+    <div style="display:flex;align-items:center;flex-shrink:0;">
+      <img id="__site-logo__" src="data:," alt="Company Logo" style="height:36px;width:auto;max-width:160px;object-fit:contain;display:block;flex-shrink:0;">
+    </div>
+    <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.01em;white-space:nowrap;">CLIENT COMPANY NAME</span>
+  </div>
+  <!-- CENTER: section nav links (one per major slide section, derived from the proposal) -->
+  <div style="display:flex;align-items:center;gap:32px;">
+    <a href="#slide-2" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 1</a>
+    <a href="#slide-3" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 2</a>
+    <a href="#slide-4" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 3</a>
+    <a href="#slide-5" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 4</a>
+  </div>
+  <!-- RIGHT: CTA outlined button -->
+  <a href="#slide-last" style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:ACCENT_COLOR;border:1.5px solid ACCENT_COLOR;border-radius:4px;padding:8px 18px;text-decoration:none;white-space:nowrap;flex-shrink:0;">CTA LABEL</a>
 </nav>
-- data-pdf-hide="true" is required — hides this bar automatically in PDF export
+
+NAVBAR RULES:
+- data-pdf-hide="true" is REQUIRED — hides this bar automatically in PDF export
 - Place ONCE as the very first child of <body> — never inside any <section>
-- Use the site's primary dark background color for the nav background (matching the slide palette)
-- REQUIRED: the <body> tag MUST have style="padding-top:64px" so slides start below the fixed nav bar. Without this the first slide is hidden behind the navbar. Example: <body style="padding-top:64px;margin:0">
+- LEFT: logo image placeholder (system replaces src with real logo or SVG initials badge) + client/company name from the proposal
+- CENTER: 4–6 short nav labels derived from the presentation's actual section headings, each linking to the matching slide id (e.g. href="#slide-2")
+- RIGHT: one CTA label from the proposal's call-to-action (e.g. "BEGIN BUILD", "GET STARTED", "VIEW PROPOSAL") — outlined button using the site accent color for both text and border; no fill background
+- Background: use the site's primary dark background color at ~0.95 opacity with backdrop-filter:blur(14px)
+- REQUIRED: the <body> tag MUST have style="padding-top:64px" so slides start below the fixed nav bar. Example: <body style="padding-top:64px;margin:0">
 
 ═══ LOGO — CRITICAL RULES ═══
 - The logo img with id="__site-logo__" belongs ONLY in the microsite nav bar above — NEVER inside any <section>
@@ -3026,7 +3047,17 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
 
       // Strip markdown fences, resolve image:// placeholders with real photos, inject onerror fallback
       const rawHtml = raw
-        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
+        // Strip top-level markdown fence wrapper the LLM sometimes emits
+        .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '')
+        // Strip any embedded markdown code fence blocks (```html ... ```) inside the HTML body.
+        // These show as literal backtick text in the browser — must never reach the viewer.
+        .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+        // Strip <pre> blocks that contain HTML entities — these are code-display blocks showing
+        // raw HTML/CSS/JS as visible text, which must never appear in a presentation microsite.
+        .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) =>
+          /&lt;|&gt;|&amp;lt;/.test(match) ? '' : match,
+        )
+        .trim()
         // Strip em dashes the LLM generates despite being told not to.
         // " — " (spaced) → ", "  |  bare "—" → "-"
         .replace(/ — /g, ', ').replace(/—/g, '-');

@@ -1152,13 +1152,17 @@ export default function SuperClientPage() {
       names.length === 1
         ? `**${names[0]}**`
         : `**${names[0]}** and ${names.length - 1} other file${names.length > 2 ? "s" : ""}`;
+    const indexedContent = `${label} has been indexed and added to the knowledge base. Ask me anything about it, or say "generate proposal" to create one based on this context.`;
     setMessages((prev) => [
       ...prev,
       {
         id: genId(),
         role: "assistant",
-        content: `${label} has been indexed and added to the knowledge base. Ask me anything about it, or say "generate proposal" to create one based on this context.`,
+        content: indexedContent,
       },
+    ]);
+    void appendSuperClientHistory(apiKey, name, [
+      { role: "assistant", content: indexedContent },
     ]);
   }, [docs]);
 
@@ -2834,6 +2838,18 @@ export default function SuperClientPage() {
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         generationStore.error(msGenId, (err as Error).message);
+        void appendSuperClientHistory(apiKey, name, [
+          {
+            role: "user",
+            content: `Generate microsite for "${proposalTitle}"${composerPresentationMode !== "web" ? ` (PDF ${composerPresentationMode === "pdf-portrait" ? "9:16" : "16:9"})` : ""}`,
+            createdAt: generationStartedAt,
+          },
+          {
+            role: "assistant",
+            content: `Microsite generation failed: ${(err as Error).message}`,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
       }
     }
   }
@@ -2853,9 +2869,11 @@ export default function SuperClientPage() {
           : proposals.length === 1
             ? "Pick a proposal below to generate its microsite."
             : "Pick a proposal below to generate its microsite.";
+      const intentNow = new Date().toISOString();
+      const intentAssistantTs = new Date(Date.now() + 1).toISOString();
       setMessages((prev) => [
         ...prev,
-        { id: genId(), role: "user", content: text },
+        { id: genId(), role: "user", content: text, createdAt: intentNow },
       ]);
       setInput("");
       // Extract any context the user included alongside the trigger word and pre-fill instructions
@@ -2875,9 +2893,13 @@ export default function SuperClientPage() {
       } else {
         setMessages((prev) => [
           ...prev,
-          { id: genId(), role: "assistant", content: reply },
+          { id: genId(), role: "assistant", content: reply, createdAt: intentAssistantTs },
         ]);
       }
+      void appendSuperClientHistory(apiKey, name, [
+        { role: "user", content: text, createdAt: intentNow },
+        { role: "assistant", content: reply, createdAt: intentAssistantTs },
+      ]);
       return;
     }
 

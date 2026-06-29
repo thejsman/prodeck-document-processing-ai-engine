@@ -28,6 +28,18 @@ function stripPreviewInjections(html: string): string {
   return out;
 }
 
+// Strip constructs that would render source code as visible text in the microsite.
+// Called on every LLM response before it is written into customHtml.
+function sanitizeHtmlOutput(html: string): string {
+  return html
+    // Embedded markdown code fence blocks inside HTML body → remove entirely
+    .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+    // <pre> blocks containing HTML entities (escaped HTML/CSS/JS code) → remove
+    .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) =>
+      /&lt;|&gt;|&amp;lt;/.test(match) ? '' : match,
+    );
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -2148,7 +2160,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // Prefer content inside a ``` fence (even if it's not at the very start)
       const fenceMatch = s.match(/```(?:html)?\r?\n?([\s\S]+?)\r?\n?```/);
-      if (fenceMatch) return fenceMatch[1].trim();
+      if (fenceMatch) return sanitizeHtmlOutput(fenceMatch[1].trim());
 
       // No fence — strip any prose before the first HTML tag
       const firstTag = s.indexOf('<');
@@ -2159,8 +2171,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const lastTag = result.lastIndexOf('>');
       if (lastTag !== -1) result = result.slice(0, lastTag + 1);
 
-      return result.trim();
+      return sanitizeHtmlOutput(result.trim());
     }
+
 
     // ── Comprehensive background removal ─────────────────────────────────────────
     // Format: __REMOVE_BACKGROUND__:[cssPath]
@@ -3273,7 +3286,7 @@ ${sectionHtml}`;
     const sectionMatch = regenRaw.match(/<section[\s\S]*<\/section>/i);
     if (!sectionMatch) return reply.code(502).send({ error: 'LLM did not return a valid section — try rephrasing' });
 
-    const updatedHtml = html.slice(0, target.start) + sectionMatch[0] + html.slice(target.end);
+    const updatedHtml = html.slice(0, target.start) + sanitizeHtmlOutput(sectionMatch[0]) + html.slice(target.end);
     const updatedAst = { ...ast, sections: [{ ...astSections![0], customHtml: updatedHtml, previousHtml: html }, ...((astSections ?? []).slice(1))] };
     await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
 
