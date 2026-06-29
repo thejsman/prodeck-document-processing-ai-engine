@@ -32,6 +32,7 @@ export type ToolName =
   | 'create_skill'
   | 'list_skills'
   | 'list_design_skills'
+  | 'generate_document'
 
 export type AgentAction =
   | { type: 'ASK'; question: string }
@@ -84,6 +85,8 @@ const CATEGORY_PRIORITY: Record<Intent, KnowledgeCategory[]> = {
   LIST_SKILLS: [],
   LIST_DESIGN_SKILLS: [],
   CLIENT_DATA_COLLECTION: ['context'],
+  GENERATE_DOCUMENT: ['requirement', 'priority', 'problem', 'opportunity', 'context', 'decision'],
+  DOWNLOAD_ARTIFACT: [],
 }
 
 function selectRelevantKnowledge(intent: Intent, knowledge: KnowledgeEntry[]): KnowledgeEntry[] {
@@ -127,6 +130,7 @@ Produce an action plan as strict JSON. Nothing else.
 - create_skill: params { description, industries?, pricingModel?, tone? } — create a reusable proposal skill
 - list_skills: params {} — list available proposal skills
 - list_design_skills: params {} — list available design skills (visual identities for microsites)
+- generate_document: params { userMessage, preferredFormat? } — generate any document (strategy doc, blog post, report, deck, brief) using client context. Pass the user's original message as userMessage. preferredFormat is optional (md|txt|pdf|docx|pptx|notion).
 
 ## Current Requirements
 ${JSON.stringify(nsContext.requirements.fields)}
@@ -233,6 +237,11 @@ export function buildFallbackPlan(
         intent,
         actions: [{ type: 'CALL_TOOL', tool: 'list_design_skills', params: {} }],
       }
+    case 'GENERATE_DOCUMENT':
+      return {
+        intent,
+        actions: [{ type: 'CALL_TOOL', tool: 'generate_document', params: { userMessage: message } }],
+      }
     default:
       return null
   }
@@ -257,6 +266,7 @@ const TOOL_TYPE_ALIASES: Record<string, string> = {
   SET_PROPOSAL_STATUS: 'set_proposal_status',
   RECOMMEND_TEMPLATE: 'recommend_template',
   LIST_DESIGN_SKILLS: 'list_design_skills',
+  GENERATE_DOCUMENT: 'generate_document',
 }
 
 // ---------------------------------------------------------------------------

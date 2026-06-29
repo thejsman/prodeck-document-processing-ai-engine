@@ -110,6 +110,29 @@ const INTENT_RULES: Array<{
     confidence: 0.85,
   },
   // --- CLIENT DATA COLLECTION ---
+  // --- DOCUMENT GENERATION ---
+  {
+    id: 'kw_document_download',
+    test: (msg) =>
+      /\b(download|export|send)\b.*\b(as|in)\s+(a\s+)?(word\s+doc(ument)?|\.docx|pdf|powerpoint|\.pptx|notion|txt|text\s+file|markdown)\b/i.test(msg) ||
+      /\b(as\s+a\s+(pdf|word|docx|pptx|powerpoint|notion|txt))\b/i.test(msg),
+    intent: 'DOWNLOAD_ARTIFACT' as Intent,
+    confidence: 0.92,
+  },
+  {
+    id: 'kw_document_generate',
+    test: (msg) =>
+      // Explicit document type nouns
+      /\b(strategy\s+doc(ument)?|strategic\s+(plan|document)|go[\s-]to[\s-]market|gtm\s+(strategy|plan|doc)|roadmap\s+(doc|plan)?|growth\s+strategy|market\s+(entry|strategy)|competitive\s+analysis)\b/i.test(msg) ||
+      /\b(blog\s+post|blog\s+article|thought\s+leadership|write\s+(a\s+)?blog|content\s+piece|newsletter\s+(draft|content))\b/i.test(msg) ||
+      /\b(marketing\s+brief|campaign\s+brief|one[\s-]pager|brand\s+brief|launch\s+brief|marketing\s+plan)\b/i.test(msg) ||
+      /\b(executive\s+report|stakeholder\s+report|findings\s+report|quarterly\s+report|data\s+report|progress\s+report|status\s+report)\b/i.test(msg) ||
+      /\b(presentation\s+deck|slide\s+deck|pitch\s+deck|investor\s+deck|stakeholder\s+deck|create\s+(a\s+)?slides?|build\s+(a\s+)?deck|write\s+(a\s+)?deck)\b/i.test(msg) ||
+      // Generic "write/create/draft/generate a/an <document>" patterns
+      /\b(write|create|draft|generate|produce|build)\b.{0,30}\b(document|doc|report|brief|article|post|deck|playbook|guide|summary|overview|plan)\b/i.test(msg),
+    intent: 'GENERATE_DOCUMENT' as Intent,
+    confidence: 0.88,
+  },
   {
     id: 'kw_client_data',
     test: (msg) => /\b(client\s+(data|info|details|profile|brief)|collect\s+(data|info|details|requirements)|build\s+(client|brief|profile)|scrape\s+(website|url|site)|client\s+website)\b/i.test(msg),

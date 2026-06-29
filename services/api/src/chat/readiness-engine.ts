@@ -141,6 +141,8 @@ const READINESS_RULES: Record<Intent, ReadinessCheck> = {
   LIST_SKILLS: { required: [], optional: [], customCheck: null },
   LIST_DESIGN_SKILLS: { required: [], optional: [], customCheck: null },
   CLIENT_DATA_COLLECTION: { required: [], optional: [], customCheck: null },
+  GENERATE_DOCUMENT: { required: [], optional: [], customCheck: null },
+  DOWNLOAD_ARTIFACT: { required: [], optional: [], customCheck: null },
 }
 
 // ---------------------------------------------------------------------------

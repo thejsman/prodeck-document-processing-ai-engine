@@ -1,0 +1,48 @@
+{
+  "slug": "marketing-brief",
+  "displayName": "Marketing Brief",
+  "description": "For generating marketing briefs, campaign briefs, and one-pagers — focused, actionable, ready to hand to a team.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["marketing", "campaign", "brief", "one-pager", "brand"],
+  "toneDescription": "Focused and purposeful. Every word justifies the campaign spend. Clarity over creativity in a brief.",
+  "triggers": [
+    "marketing brief",
+    "campaign brief",
+    "one-pager",
+    "marketing one pager",
+    "brand brief",
+    "campaign plan",
+    "launch brief",
+    "product launch brief",
+    "marketing plan",
+    "go to market brief"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "campaign_objective",
+      "question": "What is the primary objective of this campaign or marketing effort?",
+      "required": false
+    },
+    {
+      "id": "target_audience",
+      "question": "Who is the target audience? Include demographics and psychographics if known.",
+      "required": false
+    },
+    {
+      "id": "budget_timeline",
+      "question": "What is the budget range and timeline for this campaign?",
+      "required": false,
+      "contextField": "budget"
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-26T00:00:00.000Z",
+  "updatedAt": "2026-06-26T00:00:00.000Z"
+}

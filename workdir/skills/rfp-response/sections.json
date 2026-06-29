@@ -1,0 +1,103 @@
+{
+  "sections": [
+    {
+      "id": "cover-letter",
+      "title": "Cover Letter",
+      "order": 1,
+      "required": true,
+      "promptHint": "1-page executive cover letter: who you are, why you are uniquely positioned for this engagement (3 specific differentiators), your commitment to the client's success, and a call to action. Address it to the named evaluator if known.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "company background experience credentials relevant past work"
+    },
+    {
+      "id": "executive-summary",
+      "title": "Executive Summary",
+      "order": 2,
+      "required": true,
+      "promptHint": "The key value proposition in 3–5 paragraphs. Mirror the RFP's language. Summarize: your understanding of the need, your approach, your differentiators, and the outcome the client can expect. Senior evaluators read this section most closely.",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "client need problem approach solution outcome value proposition"
+    },
+    {
+      "id": "company-overview",
+      "title": "Company Overview",
+      "order": 3,
+      "required": true,
+      "promptHint": "Company background: founding, size, core capabilities, key industries served, notable clients (if permitted). Focus on what is relevant to this RFP — not a generic boilerplate.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "company overview history capabilities team size clients"
+    },
+    {
+      "id": "requirements-understanding",
+      "title": "Understanding of Requirements",
+      "order": 4,
+      "required": true,
+      "promptHint": "Demonstrate you read and fully understood the RFP. Paraphrase each key requirement in your own words and confirm you meet it. Use the same terminology the RFP uses. If the RFP document was ingested, pull from it directly.",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "RFP requirements specifications criteria evaluation factors objectives"
+    },
+    {
+      "id": "technical-approach",
+      "title": "Technical Approach",
+      "order": 5,
+      "required": true,
+      "promptHint": "Your methodology, tools, and delivery model — specific to this engagement, not generic. Include: how you will approach the work, key phases, your team structure, and how you handle quality assurance.",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "methodology approach tools delivery model process framework"
+    },
+    {
+      "id": "team-credentials",
+      "title": "Team & Credentials",
+      "order": 6,
+      "required": true,
+      "promptHint": "Named team members with titles and directly relevant experience. Explain why each person is right for this engagement, not just their credentials. Note that full CVs are in the appendix.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "team members experience credentials expertise background"
+    },
+    {
+      "id": "project-plan",
+      "title": "Project Plan",
+      "order": 7,
+      "required": true,
+      "promptHint": "Timeline with phases and milestones. Must align to any dates or timeframes specified in the RFP. Include: phase name, deliverables, duration, and key dependencies.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "timeline milestones phases schedule project plan delivery dates"
+    },
+    {
+      "id": "pricing",
+      "title": "Pricing",
+      "order": 8,
+      "required": true,
+      "promptHint": "Pricing in the exact format requested by the RFP. If the format is unknown, use a table with: item, unit, quantity, unit price, total. Include a summary total. Note what is and is not included.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "pricing cost investment budget total fees rates"
+    },
+    {
+      "id": "references",
+      "title": "References",
+      "order": 9,
+      "required": false,
+      "promptHint": "2–3 past client references in a similar context. For each: company name, contact name and title, relationship description, engagement scope. Use [REFERENCE NAME] placeholders if not available in context.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "past clients references case studies similar engagements"
+    },
+    {
+      "id": "appendix",
+      "title": "Appendix",
+      "order": 10,
+      "required": false,
+      "promptHint": "List the appendix items included: team CVs, relevant certifications (SOC 2, ISO, etc.), sample deliverables, and case studies. Output a table of contents for the appendix with a brief description of each item.",
+      "maxWords": 200,
+      "useRagContext": false
+    }
+  ]
+}

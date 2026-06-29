@@ -1,0 +1,47 @@
+{
+  "slug": "blog-post",
+  "displayName": "Blog Post",
+  "description": "For generating blog posts, articles, and thought leadership content — SEO-friendly, engaging, and on-brand.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["blog", "content", "article", "seo", "thought leadership"],
+  "toneDescription": "Engaging and conversational, but authoritative. Hook the reader, deliver value, end with a clear takeaway.",
+  "triggers": [
+    "blog post",
+    "blog article",
+    "write a blog",
+    "thought leadership",
+    "content piece",
+    "article about",
+    "write an article",
+    "linkedin post",
+    "newsletter",
+    "content marketing"
+  ],
+  "outputFormats": ["md", "txt", "notion"],
+  "clarifyingQuestions": [
+    {
+      "id": "topic",
+      "question": "What is the specific topic or angle for this blog post?",
+      "required": false
+    },
+    {
+      "id": "target_audience",
+      "question": "Who is the target reader? (e.g. CTOs, marketing managers, startup founders)",
+      "required": false
+    },
+    {
+      "id": "tone",
+      "question": "What tone would you prefer? (e.g. professional, casual, provocative)",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-26T00:00:00.000Z",
+  "updatedAt": "2026-06-26T00:00:00.000Z"
+}

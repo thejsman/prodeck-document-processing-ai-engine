@@ -2245,7 +2245,7 @@ export interface SuperClientHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
-  editContext?: 'microsite' | 'proposal';
+  editContext?: 'microsite' | 'proposal' | 'document' | 'slide';
 }
 
 export interface SuperClientDetail {
@@ -2305,14 +2305,14 @@ export async function getSuperClient(apiKey: string, name: string): Promise<Supe
 export interface SuperClientGenerationEntry {
   id: string;
   clientSlug: string;
-  type: 'proposal' | 'microsite';
+  type: 'proposal' | 'microsite' | 'document' | 'slide';
   phase: 'generating' | 'complete' | 'error';
   title: string;
   steps: string[];
   createdAt?: string;
   charCount?: number;
   error?: string;
-  result?: { fileName?: string; micrositeId?: string };
+  result?: { fileName?: string; micrositeId?: string; documentId?: string; preferredFormat?: string; downloadUrl?: string; slideId?: string };
 }
 
 export async function getSuperClientGenerations(apiKey: string, name: string): Promise<SuperClientGenerationEntry[]> {
@@ -2502,6 +2502,45 @@ export async function patchSuperClientMicrositeHtml(apiKey: string, name: string
   if (!res.ok) throw new Error(`patchSuperClientMicrositeHtml failed: ${res.status}`);
 }
 
+export async function editSuperClientSlide(
+  apiKey: string,
+  name: string,
+  id: string,
+  instruction: string,
+  currentHtml?: string,
+): Promise<{ html: string; summary: string }> {
+  const res = await fetch(
+    `/api/super-clients/${encodeURIComponent(name)}/slides/${encodeURIComponent(id)}/edit`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction, currentHtml }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Edit failed (${res.status})`);
+  }
+  return res.json() as Promise<{ html: string; summary: string }>;
+}
+
+export async function patchSuperClientSlideHtml(
+  apiKey: string,
+  name: string,
+  id: string,
+  html: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/super-clients/${encodeURIComponent(name)}/slides/${encodeURIComponent(id)}/html`,
+    {
+      method: 'PATCH',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html }),
+    },
+  );
+  if (!res.ok) throw new Error(`patchSuperClientSlideHtml failed: ${res.status}`);
+}
+
 export async function listSuperClientProposals(apiKey: string, name: string): Promise<SuperClientProposal[]> {
   const res = await fetch(`/api/super-clients/${name}/proposals`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`listSuperClientProposals failed: ${res.status}`);
@@ -2524,18 +2563,104 @@ export async function deleteSuperClientProposal(apiKey: string, name: string, fi
   if (!res.ok) throw new Error(`deleteSuperClientProposal failed: ${res.status}`);
 }
 
+// ---------------------------------------------------------------------------
+// Generated documents
+// ---------------------------------------------------------------------------
+
+export interface GeneratedDocument {
+  id: string;
+  title: string;
+  documentType: string;
+  skillSlug?: string;
+  preferredFormat: string;
+  status: 'draft' | 'complete';
+  createdAt: string;
+  updatedAt: string;
+  downloadUrl?: string;
+}
+
+export async function listGeneratedDocuments(apiKey: string, name: string): Promise<GeneratedDocument[]> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/generated-documents`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) return [];
+  return res.json() as Promise<GeneratedDocument[]>;
+}
+
+export async function getGeneratedDocumentContent(apiKey: string, name: string, id: string): Promise<string> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/generated-documents/${encodeURIComponent(id)}`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`getGeneratedDocumentContent failed: ${res.status}`);
+  return res.text();
+}
+
+export function generatedDocumentExportUrl(name: string, id: string, format: string): string {
+  return `/api/super-clients/${encodeURIComponent(name)}/generated-documents/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`;
+}
+
+export async function deleteGeneratedDocument(apiKey: string, name: string, id: string): Promise<void> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/generated-documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) throw new Error(`deleteGeneratedDocument failed: ${res.status}`);
+}
+
+export interface SavedSlide {
+  id: string;
+  title: string;
+  client: string;
+  slideCount: number;
+  savedAt: string;
+}
+
 export interface SuperClientChatEvent {
-  type: 'chunk' | 'done' | 'error';
+  type: 'chunk' | 'done' | 'error' | 'planning';
   text?: string;
   message?: string;
+  artifactType?: 'slide' | 'proposal' | 'document';
   proposalSaved?: SuperClientProposal;
   proposalUpdated?: SuperClientProposal;
+  documentSaved?: GeneratedDocument;
+  documentUpdated?: GeneratedDocument;
+  slideSaved?: SavedSlide;
+}
+
+export async function listSlides(apiKey: string, name: string): Promise<SavedSlide[]> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/slides`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) return [];
+  return res.json() as Promise<SavedSlide[]>;
+}
+
+export function getSlideHtmlUrl(name: string, id: string, token?: string, bg?: string): string {
+  const base = `/api/super-clients/${encodeURIComponent(name)}/slides/${encodeURIComponent(id)}`;
+  const params = new URLSearchParams();
+  if (token) params.set('token', token);
+  if (bg) params.set('bg', bg);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+export function getSlideExportUrl(name: string, id: string, format: 'pdf' | 'pptx', token?: string): string {
+  const params = new URLSearchParams({ format });
+  if (token) params.set('token', token);
+  return `/api/super-clients/${encodeURIComponent(name)}/slides/${encodeURIComponent(id)}/export?${params.toString()}`;
+}
+
+export async function deleteSlide(apiKey: string, name: string, id: string): Promise<void> {
+  await fetch(`/api/super-clients/${encodeURIComponent(name)}/slides/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
 }
 
 export async function appendSuperClientHistory(
   apiKey: string,
   name: string,
-  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: string; editContext?: 'microsite' | 'proposal' }>,
+  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: string; editContext?: 'microsite' | 'proposal' | 'document' | 'slide' }>,
 ): Promise<void> {
   await fetch(`/api/super-clients/${name}/history/append`, {
     method: 'POST',
@@ -2551,11 +2676,16 @@ export async function streamSuperClientChat(
   onEvent: (event: SuperClientChatEvent) => void,
   signal?: AbortSignal,
   activeProposalId?: string,
+  activeDocumentId?: string,
 ): Promise<void> {
   const res = await fetch(`/api/super-clients/${name}/chat`, {
     method: 'POST',
     headers: authHeaders(apiKey),
-    body: JSON.stringify({ message, ...(activeProposalId ? { activeProposalId } : {}) }),
+    body: JSON.stringify({
+      message,
+      ...(activeProposalId ? { activeProposalId } : {}),
+      ...(activeDocumentId ? { activeDocumentId } : {}),
+    }),
     signal,
   });
 
@@ -2797,3 +2927,4 @@ export async function recomputeDesignKit(apiKey: string): Promise<DesignKit> {
   const data = await handleResponse<{ designKit: DesignKit }>(res);
   return data.designKit;
 }
+

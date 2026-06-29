@@ -6,6 +6,12 @@ import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir } from '@ai-engine/runtime';
+import { findBestDocumentSkill, loadSkill } from './skills/skill.service.js';
+import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './documents/document-generator.js';
+import { parseRequestedFormat } from './documents/format-detector.js';
+import { validateSlideHtml, countSlides, extractTitle } from './slides/slide-generator.js';
+import type { SavedSlide } from './slides/slide-generator.js';
+import { patchHtml } from './html-patch.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -36,6 +42,36 @@ function slugify(input: string): string {
     .slice(0, 50);
 }
 
+// Locate the Chrome binary that Puppeteer downloaded to ~/.cache/puppeteer/chrome.
+// Returns null if nothing is found — caller should surface a 503.
+async function findChromeBinary(): Promise<string | null> {
+  const { homedir } = await import('node:os');
+  const cacheDir = path.join(homedir(), '.cache', 'puppeteer', 'chrome');
+  let versions: string[];
+  try {
+    versions = await readdir(cacheDir);
+  } catch {
+    return null;
+  }
+  for (const v of versions.sort().reverse()) {
+    const candidates = [
+      // macOS
+      path.join(cacheDir, v, 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      path.join(cacheDir, v, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      // Linux
+      path.join(cacheDir, v, 'chrome-linux64', 'chrome'),
+      path.join(cacheDir, v, 'chrome-linux', 'chrome'),
+    ];
+    for (const candidate of candidates) {
+      try {
+        await stat(candidate);
+        return candidate;
+      } catch { /* try next */ }
+    }
+  }
+  return null;
+}
+
 interface SuperClientMeta {
   name: string;
   displayName: string;
@@ -47,7 +83,7 @@ interface HistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
-  editContext?: 'microsite' | 'proposal';
+  editContext?: 'microsite' | 'proposal' | 'document';
 }
 
 interface ScFile {
@@ -77,14 +113,14 @@ interface ScMicrosite {
 interface GenerationEntry {
   id: string;
   clientSlug: string;
-  type: 'proposal' | 'microsite';
+  type: 'proposal' | 'microsite' | 'slide';
   phase: 'generating' | 'complete' | 'error';
   title: string;
   steps: string[];
   createdAt?: string;
   charCount?: number;
   error?: string;
-  result?: { fileName?: string; micrositeId?: string };
+  result?: { fileName?: string; micrositeId?: string; slideId?: string };
 }
 
 async function readGenerations(dir: string): Promise<GenerationEntry[]> {
@@ -180,6 +216,30 @@ async function saveProposal(dir: string, title: string, content: string): Promis
   return entry;
 }
 
+async function updateDocumentContent(
+  workdir: string,
+  clientSlug: string,
+  id: string,
+  content: string,
+): Promise<import('./skills/skill.types.js').GeneratedDocumentMeta> {
+  const docsDir = path.join(workdir, 'super-clients', clientSlug, 'documents');
+  await writeFile(path.join(docsDir, `${id}.md`), content, 'utf-8');
+  // Update updatedAt in meta
+  const meta = await getDocumentMeta(workdir, clientSlug, id);
+  const updatedMeta = { ...meta, updatedAt: new Date().toISOString() };
+  await writeFile(path.join(docsDir, `${id}.meta.json`), JSON.stringify(updatedMeta, null, 2), 'utf-8');
+  // Update index entry
+  const indexPath = path.join(workdir, 'super-clients', clientSlug, 'documents.json');
+  try {
+    const raw = await readFile(indexPath, 'utf-8');
+    const index = JSON.parse(raw) as Array<Record<string, unknown>>;
+    const idx = index.findIndex((e) => e['id'] === id);
+    if (idx !== -1) index[idx] = { ...index[idx], updatedAt: updatedMeta.updatedAt };
+    await writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+  } catch { /* index update is best-effort */ }
+  return updatedMeta;
+}
+
 async function updateProposal(dir: string, fileName: string, title: string, content: string): Promise<ScProposal> {
   const proposalsDir = path.join(dir, 'proposals');
   await writeFile(path.join(proposalsDir, fileName), content, 'utf-8');
@@ -202,6 +262,69 @@ function extractProposalTag(text: string): { title: string; content: string } | 
 
 function stripProposalTag(text: string): string {
   return text.replace(/<proposal\s+title="[^"]*">[\s\S]*?<\/proposal>/i, '').trim();
+}
+
+function extractDocumentTag(
+  text: string,
+): { title: string; type: string; format: string; content: string } | null {
+  const match = text.match(
+    /<document\s+title="([^"]+)"(?:\s+type="([^"]*)")?(?:\s+format="([^"]*)")?>([\s\S]*?)<\/document>/i,
+  );
+  if (!match) return null;
+  return {
+    title: match[1].trim(),
+    type: match[2]?.trim() ?? 'document',
+    format: match[3]?.trim() ?? 'md',
+    content: match[4].trim(),
+  };
+}
+
+function stripDocumentTag(text: string): string {
+  return text
+    .replace(/<document\s+title="[^"]*"(?:\s+type="[^"]*")?(?:\s+format="[^"]*")?>[\s\S]*?<\/document>/i, '')
+    .trim();
+}
+
+function extractSlidesTag(text: string): { html: string } | null {
+  const m = text.match(/<slides>([\s\S]*?)<\/slides>/i);
+  if (!m) return null;
+  return { html: m[1].trim() };
+}
+
+function stripSlidesTag(text: string): string {
+  return text.replace(/<slides>[\s\S]*?<\/slides>/i, '').trim();
+}
+
+async function saveSlide(
+  dir: string,
+  clientSlug: string,
+  html: string,
+): Promise<SavedSlide> {
+  const slidesDir = path.join(dir, 'slides');
+  await mkdir(slidesDir, { recursive: true });
+
+  const now = new Date();
+  const id = `${now.toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${Math.random().toString(36).slice(2, 6)}`;
+  const entry: SavedSlide = {
+    id,
+    title: extractTitle(html),
+    client: clientSlug,
+    slideCount: countSlides(html),
+    savedAt: now.toISOString(),
+  };
+
+  await writeFile(path.join(slidesDir, `${id}.html`), html);
+
+  // Update slides index
+  let index: SavedSlide[] = [];
+  try {
+    const raw = await readFile(path.join(dir, 'slides.json'), 'utf-8');
+    index = JSON.parse(raw) as SavedSlide[];
+  } catch { /* first slide */ }
+  index.unshift(entry);
+  await writeFile(path.join(dir, 'slides.json'), JSON.stringify(index, null, 2));
+
+  return entry;
 }
 
 function extractTextReplacements(text: string): Array<{ find: string; replace: string }> {
@@ -666,13 +789,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
   // routes in this codebase). Non-streaming calls (context gen, distillation) use llmGenerateFn.
   app.post('/super-clients/:name/chat', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
-    const body = req.body as { message?: string; activeProposalId?: string } | undefined;
+    const body = req.body as { message?: string; activeProposalId?: string; activeDocumentId?: string } | undefined;
 
     const message = body?.message?.trim();
     const activeProposalId = body?.activeProposalId?.trim() || undefined;
+    const activeDocumentId = body?.activeDocumentId?.trim() || undefined;
     if (!message) {
       return reply.code(400).send({ error: 'Missing required field: message' });
     }
+
+    const detectedFormat = parseRequestedFormat(message);
 
     const dir = path.join(superClientsRoot, name);
 
@@ -707,9 +833,89 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const extractedFiles = scFiles.filter((f) => f.status === 'extracted');
 
+      // Resolve skill match BEFORE building the prompt so we can branch the generation rules.
+      let matchedDocumentSkill: Awaited<ReturnType<typeof findBestDocumentSkill>> = null;
+      let matchedSkillInstructionsMd: string | undefined;
+      try {
+        matchedDocumentSkill = await findBestDocumentSkill(workdir, message);
+        if (matchedDocumentSkill) {
+          const loaded = await loadSkill(workdir, matchedDocumentSkill.slug);
+          matchedSkillInstructionsMd = loaded?.instructionsMd;
+        }
+      } catch {
+        // Non-critical — skill matching failure should not block generation
+      }
+
+      // Detect presentation intent — direct keyword check is the source of truth.
+      // Skill slug match is a secondary signal; keyword check never fails silently.
+      const PRESENTATION_KEYWORDS = [
+        'presentation', 'slide deck', 'slideshow', 'slide show',
+        'make slides', 'create slides', 'build slides', 'write slides',
+        'make a deck', 'create a deck', 'build a deck', 'put together a deck',
+        'powerpoint', 'keynote', 'make a presentation', 'create a presentation',
+        'build a presentation', 'need slides', 'need a deck', 'want slides',
+        'want a deck', 'present to', 'turn this into slides', 'show this as slides',
+      ];
+      const msgLower = message.toLowerCase();
+      const isPresentationRequest =
+        matchedDocumentSkill?.slug === 'presentation' ||
+        PRESENTATION_KEYWORDS.some((kw) => msgLower.includes(kw));
+
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
-      const promptParts: string[] = [
+      const promptParts: string[] = isPresentationRequest ? [
+        // ── PRESENTATION MODE — no proposal/document rules ──────────────────
+        `You are a world-class presentation designer working on behalf of a team that manages the client "${meta.displayName}".`,
+        ``,
+        `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
+        ``,
+        `SLIDES GENERATION RULE — this is the ONLY output format for this request:`,
+        `Output a complete, standalone HTML presentation wrapped in <slides>...</slides>. Do NOT use <proposal> or <document> tags. Do NOT output markdown.`,
+        ``,
+        `HARD CONSTRAINTS:`,
+        `- Full HTML document: <!DOCTYPE html> … </html>`,
+        `- VERTICAL SCROLL LAYOUT: all slides stack top-to-bottom in a single scrollable page. Do NOT use absolute positioning, visibility toggling, or JS navigation to show/hide slides. Every slide is always visible.`,
+        `- Each slide: width:100%, aspect-ratio:16/9 (i.e. height = 56.25vw). Give every slide element the class "slide".`,
+        `- Gap between slides: exactly 12px (use gap:12px on the flex container, or margin-bottom:12px on each slide except the last).`,
+        `- Wrap all slides in a single container div with class "deck" using: display:flex; flex-direction:column; gap:12px;`,
+        `- Body background: always #111111 (near-black). The system enforces this — do not set a body background. Design every slide to have its own solid background so it looks prominent against the dark surround.`,
+        `- Self-contained: inline ALL CSS and JS. No external URLs. System fonts only (-apple-system, Georgia, etc).`,
+        `- <title> tag = presentation title`,
+        `- No keyboard nav, no click zones, no JS slide transitions — scroll is the navigation.`,
+        ``,
+        `VISUAL DESIGN STANDARD — this must look like a premium designed deck, not a web page or document:`,
+        `- Use large, bold typography. Slide titles: 48–80px. Body text: 20–28px. Never smaller.`,
+        `- Every slide has a deliberate background: solid color, gradient, or split. White backgrounds are for content slides only, and even then add visual structure.`,
+        `- Use color intentionally — pick a palette of 2–3 colors and apply consistently. Cover and closing slides use the darkest/richest treatment.`,
+        `- Add real visual hierarchy: eyebrow labels (10–12px uppercase tracked), oversized headlines, supporting body, callout boxes with border-left accents.`,
+        `- Use CSS for visual elements: clip-path for diagonal splits, border-radius for accent shapes, box-shadow for card depth, ::before/::after for decorative lines or dots.`,
+        `- Slide transitions: slides are absolutely positioned, the active one is opacity:1 transform:translateX(0), others are opacity:0 transform:translateX(60px). Transition: 0.4s ease.`,
+        `- Vary layouts across the deck. No two consecutive slides should look identical.`,
+        ``,
+        `EXAMPLE STRUCTURE (adapt fully — this is pattern only):`,
+        `<div class="deck" style="display:flex;flex-direction:column;gap:12px;background:#0a0a0a;padding:0;">`,
+        `  <div class="slide" style="width:100%;aspect-ratio:16/9;background:linear-gradient(135deg,#0f1923 0%,#1a3a5c 100%);display:flex;flex-direction:column;justify-content:center;padding:6% 8%;position:relative;overflow:hidden;">`,
+        `    <div style="font-size:clamp(9px,1vw,13px);letter-spacing:4px;text-transform:uppercase;color:#4fa3e0;margin-bottom:3%;">Confidential — Q3 2025</div>`,
+        `    <h1 style="font-size:clamp(28px,5.5vw,80px);font-weight:800;color:#fff;line-height:1.05;letter-spacing:-1px;max-width:70%;">Scaling to<br>10M Users</h1>`,
+        `    <p style="font-size:clamp(13px,1.8vw,24px);color:rgba(255,255,255,0.6);margin-top:3%;font-weight:300;">A growth infrastructure roadmap for Acme Corp</p>`,
+        `  </div>`,
+        `  <div class="slide" style="width:100%;aspect-ratio:16/9;background:#fff;display:flex;flex-direction:column;justify-content:center;padding:6% 8%;position:relative;">`,
+        `    <div style="font-size:clamp(9px,1vw,12px);letter-spacing:3px;text-transform:uppercase;color:#4fa3e0;margin-bottom:2%;">The Problem</div>`,
+        `    <h2 style="font-size:clamp(20px,3.5vw,52px);font-weight:700;color:#0f1923;line-height:1.15;margin-bottom:4%;">Current infra fails above 2M concurrent users</h2>`,
+        `    <ul style="list-style:none;display:flex;flex-direction:column;gap:1.5%;padding:0;">`,
+        `      <li style="font-size:clamp(12px,1.5vw,20px);color:#444;display:flex;align-items:center;gap:1em;"><span style="color:#4fa3e0;font-weight:700;">—</span>P99 latency spikes to 8s under load</li>`,
+        `    </ul>`,
+        `  </div>`,
+        `</div>`,
+        ``,
+        `CONTENT:`,
+        `- Draw ALL facts from client context, ingested documents, and conversation. Never invent.`,
+        `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth"`,
+        `- Use the slide count the user specified, or 10–12 if not mentioned`,
+        ``,
+        `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, one sentence confirmation.`,
+      ] : [
+        // ── STANDARD MODE — proposal + document rules ────────────────────────
         `You are a senior business development consultant and proposal strategist with 20+ years of experience crafting winning proposals across diverse industries. You are working on behalf of a team that manages the client "${meta.displayName}".`,
         ``,
         `For general questions: respond concisely with strategic insight. Stay focused on this client's world — their business, goals, audience, and brand.`,
@@ -726,6 +932,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `</proposal>`,
         `3. Outside the tag, add only a brief 1-2 sentence confirmation that the proposal was saved.`,
         `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
+        ``,
+        `DOCUMENT GENERATION RULE: When the user asks you to write, create, generate, or draft any document that is NOT a proposal — such as a strategy document, blog post, marketing brief, executive report, press release, competitive analysis, case study, go-to-market plan, one-pager, compliance checklist, or any other standalone document — you MUST:`,
+        `1. Write the full document in rich markdown — use # for the title, ## for section headings, **bold** for key terms, and appropriate structure driven by the content type.`,
+        `2. Wrap the ENTIRE document markdown inside a single XML tag like this:`,
+        `<document title="Descriptive Document Title" type="inferred-type-slug" format="${detectedFormat ?? 'md'}">`,
+        `[full markdown content here]`,
+        `</document>`,
+        `   - title: a descriptive title for the document`,
+        `   - type: a lowercase kebab-case slug inferred from the document's purpose — use any slug that fits (e.g. "blog-post", "press-release", "case-study", "competitive-analysis", "onboarding-guide", "compliance-checklist", "go-to-market-plan") — no fixed list, choose freely`,
+        `   - format: ${detectedFormat ?? 'md'} (use exactly this value — detected from the user's request)`,
+        `3. Outside the tag, add only a brief 1-2 sentence confirmation that the document was saved.`,
+        `Do NOT put any explanation or preamble inside the tag — only the markdown document body.`,
+        `IMPORTANT: Use <proposal> for multi-section consulting proposals. Use <document> for text-based documents (blogs, strategy docs, reports, briefs).`,
       ];
 
       // If the user has a proposal open, load it and inject into the prompt with two-mode editing rule
@@ -761,6 +980,39 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           );
         } catch {
           // Proposal file not found — proceed without it
+        }
+      }
+
+      // If the user has a document open, load it and inject with the same 3-tier editing rule
+      let activeDocumentContent: string | undefined;
+      if (activeDocumentId) {
+        try {
+          activeDocumentContent = await getDocumentContent(workdir, name, activeDocumentId);
+          promptParts.push(
+            `\n## Currently Open Document\n${activeDocumentContent}`,
+            `\nDOCUMENT EDITING RULE (applies only because a document is currently open):`,
+            `When the user requests any change, use the LIGHTEST format that is sufficient:`,
+            ``,
+            `TIER 1 — PINPOINT (fix a word, number, date, rename a heading, replace a phrase):`,
+            `  Use one or more self-closing <text-replace> tags:`,
+            `  <text-replace find="exact original text" replace="new text" />`,
+            `  • "exact original text" must appear verbatim in the document (copy it exactly).`,
+            `  • Outside the tags write a brief 1-sentence confirmation only.`,
+            ``,
+            `TIER 2 — SECTION (reword a paragraph, add/remove bullets, rewrite a section body):`,
+            `  Output one or more <section-update> tags — one per changed section only:`,
+            `  <section-update heading="## Exact Heading Text">`,
+            `  [full replacement body — do NOT include the heading line inside the tag]`,
+            `  </section-update>`,
+            `  Outside the tags write a brief 1-sentence confirmation only.`,
+            ``,
+            `TIER 3 — FULL REWRITE (add new sections, remove a section entirely, restructure):`,
+            `  Use the full <document title="..." type="..." format="...">...</document> tag containing the complete new markdown.`,
+            ``,
+            `NEVER mix formats in one response. Default to Tier 1 for any single-string substitution.`,
+          );
+        } catch {
+          // Document file not found — proceed without it
         }
       }
 
@@ -809,6 +1061,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         promptParts.push(memParts.join('\n'));
       }
 
+      // For non-presentation document requests, inject the matched skill's persona
+      if (matchedDocumentSkill && !isPresentationRequest && matchedSkillInstructionsMd) {
+        promptParts.push(`\n## Document Generation Expertise\n${matchedSkillInstructionsMd.trim()}`);
+      }
+
       const recentHistory = history.slice(-20);
       if (recentHistory.length > 0) {
         promptParts.push('\n## Conversation History');
@@ -817,9 +1074,52 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
+      // Inject format-specific content structuring directive when the user requested a specific format
+      const FORMAT_DIRECTIVES: Partial<Record<import('./skills/skill.types.js').OutputFormat, string>> = {
+        pptx: 'FORMAT DIRECTIVE: The user wants a PowerPoint presentation. Write rich, well-structured content using natural headings (# Title, ## Section Name) and bullet points. Do NOT use "## Slide N:" numbering — the system automatically converts your structured content into beautifully designed slides using a visual layout engine. Focus on compelling, well-organised content.',
+        docx: 'FORMAT DIRECTIVE: The user wants a Microsoft Word document. Use clean heading hierarchy (#, ##, ###), standard paragraphs, and bulleted lists. Avoid complex markdown tables — Word renders them poorly.',
+        txt: 'FORMAT DIRECTIVE: The user wants plain text. Do NOT use any markdown syntax — no **, no #, no dashes for bullets, no backticks. Write in clear prose with section titles as plain uppercase labels followed by a colon.',
+        notion: 'FORMAT DIRECTIVE: The user wants Notion-compatible output. Use > blockquotes for callout blocks, --- horizontal dividers between major sections, and standard heading hierarchy (# ## ###).',
+        pdf: 'FORMAT DIRECTIVE: The user wants a PDF. Use rich markdown — headings, bullets, **bold** key terms, blockquotes for callouts — it will be rendered and typeset to PDF.',
+      };
+      if (!isPresentationRequest && detectedFormat && detectedFormat !== 'md') {
+        const directive = FORMAT_DIRECTIVES[detectedFormat];
+        if (directive) promptParts.push(`\n${directive}`);
+      }
+
       promptParts.push(`\nUser: ${message}`);
 
       const combinedPrompt = promptParts.join('\n');
+
+      // ── Planning announcement ─────────────────────────────────────────────
+      // Send a brief, deterministic description of what is about to be generated
+      // BEFORE making the LLM call so the user sees context immediately.
+      {
+        const PROPOSAL_KWDS = ['proposal', 'write up a proposal', 'draft a proposal', 'create a proposal', 'generate a proposal'];
+        const isExplicitProposal = PROPOSAL_KWDS.some(kw => msgLower.includes(kw));
+        let planText: string | null = null;
+        let artifactType: 'slide' | 'proposal' | 'document' | undefined;
+
+        if (isPresentationRequest) {
+          const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
+          const count = countMatch ? countMatch[1] : null;
+          planText = count
+            ? `Building a ${count}-slide presentation for ${meta.displayName}…`
+            : `Building a presentation for ${meta.displayName}…`;
+          artifactType = 'slide';
+        } else if (isExplicitProposal) {
+          planText = `Drafting a proposal for ${meta.displayName}…`;
+          artifactType = 'proposal';
+        } else if (matchedDocumentSkill) {
+          const label = (matchedDocumentSkill.displayName ?? matchedDocumentSkill.slug.replace(/-/g, ' ')).toLowerCase();
+          planText = `Writing a ${label} for ${meta.displayName}…`;
+          artifactType = 'document';
+        }
+
+        if (planText) {
+          send({ type: 'planning', text: planText, artifactType });
+        }
+      }
 
       // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config
       const fullResponse = await llmGenerateFn(combinedPrompt);
@@ -831,41 +1131,66 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         await new Promise<void>((r) => setTimeout(r, 12));
       }
 
-      // Detect proposal changes — apply the lightest format that fired
+      // Apply the lightest edit format that fired (proposals and documents share the same 3-tier logic)
       let proposalSaved: ScProposal | undefined;
       let proposalUpdated: ScProposal | undefined;
+      let documentSaved: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
+      let documentUpdated: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
+      let slideSaved: SavedSlide | undefined;
       let displayResponse = fullResponse;
 
-      const textReplacements = activeProposalId ? extractTextReplacements(fullResponse) : [];
-      const sectionUpdates = activeProposalId ? extractSectionUpdates(fullResponse) : [];
+      const activeEditId = activeProposalId ?? activeDocumentId;
+      const textReplacements = activeEditId ? extractTextReplacements(fullResponse) : [];
+      const sectionUpdates = activeEditId ? extractSectionUpdates(fullResponse) : [];
 
-      if (textReplacements.length > 0 && activeProposalId && activeProposalContent !== undefined) {
-        // Tier 1: pinpoint string replacements — no section parsing
-        try {
-          const patchedContent = applyTextReplacements(activeProposalContent, textReplacements);
-          const existingProposals = await readProposals(dir);
-          const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
-          const title = existingEntry?.title ?? activeProposalId;
-          proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
-        } catch (err) {
-          app.log.warn({ err }, '[SuperClient] Failed to apply text replacements');
+      if (textReplacements.length > 0 && activeEditId) {
+        // Tier 1: pinpoint string replacements
+        if (activeProposalId && activeProposalContent !== undefined) {
+          try {
+            const patchedContent = applyTextReplacements(activeProposalContent, textReplacements);
+            const existingProposals = await readProposals(dir);
+            const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
+            const title = existingEntry?.title ?? activeProposalId;
+            proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to apply text replacements to proposal');
+          }
+        } else if (activeDocumentId && activeDocumentContent !== undefined) {
+          try {
+            const patchedContent = applyTextReplacements(activeDocumentContent, textReplacements);
+            documentUpdated = await updateDocumentContent(workdir, name, activeDocumentId, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to apply text replacements to document');
+          }
         }
         displayResponse = stripTextReplaceTags(fullResponse);
-      } else if (sectionUpdates.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+      } else if (sectionUpdates.length > 0 && activeEditId) {
         // Tier 2: section-body patches
-        try {
-          const patchedContent = patchProposalSections(activeProposalContent, sectionUpdates);
-          const existingProposals = await readProposals(dir);
-          const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
-          const title = existingEntry?.title ?? activeProposalId;
-          proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
-        } catch (err) {
-          app.log.warn({ err }, '[SuperClient] Failed to patch proposal sections');
+        if (activeProposalId && activeProposalContent !== undefined) {
+          try {
+            const patchedContent = patchProposalSections(activeProposalContent, sectionUpdates);
+            const existingProposals = await readProposals(dir);
+            const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
+            const title = existingEntry?.title ?? activeProposalId;
+            proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to patch proposal sections');
+          }
+        } else if (activeDocumentId && activeDocumentContent !== undefined) {
+          try {
+            const patchedContent = patchProposalSections(activeDocumentContent, sectionUpdates);
+            documentUpdated = await updateDocumentContent(workdir, name, activeDocumentId, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to patch document sections');
+          }
         }
         displayResponse = stripSectionUpdateTags(fullResponse);
       } else {
-        // Tier 3: full proposal tag
+        // Tier 3: full tag rewrite
         const proposalMatch = extractProposalTag(fullResponse);
+        const slidesTagMatch = !proposalMatch ? extractSlidesTag(fullResponse) : null;
+        const documentMatch = !proposalMatch && !slidesTagMatch ? extractDocumentTag(fullResponse) : null;
+
         if (proposalMatch) {
           try {
             if (activeProposalId && activeProposalContent !== undefined) {
@@ -877,15 +1202,47 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
           displayResponse = stripProposalTag(fullResponse);
+        } else if (documentMatch) {
+          try {
+            if (activeDocumentId && activeDocumentContent !== undefined) {
+              documentUpdated = await updateDocumentContent(workdir, name, activeDocumentId, documentMatch.content);
+            } else {
+              documentSaved = await saveDocumentDirect(
+                workdir,
+                name,
+                documentMatch.title,
+                documentMatch.type,
+                // Prefer the format detected from the user's natural language over
+                // the LLM-generated attribute — they should agree, but detectedFormat
+                // is the authoritative source from the user's actual request.
+                (detectedFormat ?? documentMatch.format) as import('./skills/skill.types.js').OutputFormat,
+                documentMatch.content,
+              );
+
+            }
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to save/update document');
+          }
+          displayResponse = stripDocumentTag(fullResponse);
+        } else if (slidesTagMatch) {
+          try {
+            const html = validateSlideHtml(slidesTagMatch.html);
+            slideSaved = await saveSlide(dir, name, html);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to save slides');
+          }
+          displayResponse = stripSlidesTag(fullResponse);
         }
       }
 
       // Persist turn to history.
-      // User and assistant get distinct timestamps (+1 ms apart) so timestamp-
-      // based sort always places the user message before its paired assistant reply.
       const userTs      = new Date().toISOString();
       const assistantTs = new Date(Date.now() + 1).toISOString();
-      const editCtx = activeProposalId ? ({ editContext: 'proposal' } as const) : {};
+      const editCtx = activeProposalId
+        ? ({ editContext: 'proposal' } as const)
+        : activeDocumentId
+          ? ({ editContext: 'document' } as const)
+          : {};
       const updatedHistory: HistoryEntry[] = [
         ...history,
         { role: 'user',      content: message,         createdAt: userTs,      ...editCtx },
@@ -898,6 +1255,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         text: displayResponse,
         ...(proposalSaved ? { proposalSaved } : {}),
         ...(proposalUpdated ? { proposalUpdated } : {}),
+        ...(documentSaved ? { documentSaved } : {}),
+        ...(documentUpdated ? { documentUpdated } : {}),
+        ...(slideSaved ? { slideSaved } : {}),
       });
 
       // Background memory distillation — non-blocking, uses llmGenerateFn
@@ -931,7 +1291,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       role: (m.role === 'user' || m.role === 'assistant' ? m.role : 'user') as 'user' | 'assistant',
       content: String(m.content ?? ''),
       createdAt: m.createdAt ?? now,
-      ...(m.editContext === 'microsite' || m.editContext === 'proposal' ? { editContext: m.editContext } : {}),
+      ...(m.editContext === 'microsite' || m.editContext === 'proposal' || m.editContext === 'document' ? { editContext: m.editContext } : {}),
     }));
     await writeFile(path.join(dir, 'history.json'), JSON.stringify([...history, ...toAppend], null, 2));
     return reply.send({ ok: true });
@@ -3343,6 +3703,384 @@ ${sectionHtml}`;
       return reply.send({ ok: true });
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
+  // ── Slide routes ─────────────────────────────────────────────────────────────
+
+  // GET /super-clients/:name/slides  — list saved presentations
+  app.get('/super-clients/:name/slides', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      const raw = await readFile(path.join(dir, 'slides.json'), 'utf-8');
+      return reply.send(JSON.parse(raw));
+    } catch {
+      return reply.send([]);
+    }
+  });
+
+  // GET /super-clients/:name/slides/:id  — get rendered HTML
+  app.get('/super-clients/:name/slides/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      const html = await readFile(path.join(dir, 'slides', `${id}.html`), 'utf-8');
+      return reply.header('Cache-Control', 'no-store').type('text/html').send(html);
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+  });
+
+  // GET /super-clients/:name/slides/:id/data  — get JSON AST
+  app.get('/super-clients/:name/slides/:id/data', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      const raw = await readFile(path.join(dir, 'slides', `${id}.json`), 'utf-8');
+      return reply.send(JSON.parse(raw));
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+  });
+
+  // DELETE /super-clients/:name/slides/:id
+  app.delete('/super-clients/:name/slides/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await rm(path.join(dir, 'slides', `${id}.json`), { force: true });
+      await rm(path.join(dir, 'slides', `${id}.html`), { force: true });
+      let index: SavedSlide[] = [];
+      try { index = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as SavedSlide[]; } catch { /* ok */ }
+      await writeFile(path.join(dir, 'slides.json'), JSON.stringify(index.filter(s => s.id !== id), null, 2));
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(500).send({ error: 'Delete failed' });
+    }
+  });
+
+  // POST /super-clients/:name/slides/:id/edit — LLM patch edit on slide HTML
+  app.post('/super-clients/:name/slides/:id/edit', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { instruction?: string; currentHtml?: string } | undefined;
+    const instruction = body?.instruction?.trim();
+    if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
+
+    const dir = path.join(superClientsRoot, name);
+    const htmlPath = path.join(dir, 'slides', `${id}.html`);
+    const resolved = path.resolve(htmlPath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'slides')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+
+    let diskHtml: string;
+    try {
+      diskHtml = await readFile(htmlPath, 'utf-8');
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+
+    const html = body?.currentHtml?.trim() || diskHtml;
+
+    // Deterministic patch — no LLM needed for InlineEditPanel operations.
+    // If patchHtml handles this instruction, skip the LLM entirely.
+    const deterministicResult = patchHtml(html, instruction);
+    if (deterministicResult !== null) {
+      if ('error' in deterministicResult) {
+        return reply.code(deterministicResult.statusCode).send({ error: deterministicResult.error });
+      }
+      await writeFile(htmlPath, deterministicResult.html);
+      console.log(`\n╔══ SLIDE EDIT (DETERMINISTIC) ═══════════════════════════`);
+      console.log(`║ Slide  : ${id}`);
+      console.log(`║ Summary: ${deterministicResult.summary}`);
+      console.log(`╚══════════════════════════════════════════════════════════`);
+      return reply.send({ html: deterministicResult.html, summary: deterministicResult.summary });
+    }
+
+    // Parse element-targeted instruction prefixes emitted by the smart-edit bridge.
+    // __ELEMENT_EDIT__:cssPath||outerHtml||userInstruction  → targeted element edit
+    // __REMOVE_BY_PATH__:cssPath                            → remove element by path
+    // __REMOVE_ELEMENT__:outerHtml                          → remove element by html
+    let resolvedInstruction = instruction;
+    let elementContext = '';
+    let displaySummary = instruction;
+
+    if (instruction.startsWith('__ELEMENT_EDIT__:')) {
+      const payload = instruction.slice('__ELEMENT_EDIT__:'.length);
+      const parts = payload.split('||');
+      const cssPath = parts[0] ?? '';
+      const outerHtml = parts[1] ?? '';
+      const userText = parts.slice(2).join('||');
+      resolvedInstruction = userText;
+      elementContext = `\nTARGET ELEMENT (CSS path: ${cssPath}):\n${outerHtml.slice(0, 4000)}\nEdit only this element unless the instruction requires broader changes.`;
+      displaySummary = userText;
+    } else if (instruction.startsWith('__REMOVE_BY_PATH__:')) {
+      const cssPath = instruction.slice('__REMOVE_BY_PATH__:'.length);
+      resolvedInstruction = `Remove the element matching CSS path "${cssPath}" from the document. Keep everything else unchanged.`;
+      displaySummary = `Remove element: ${cssPath}`;
+    } else if (instruction.startsWith('__REMOVE_ELEMENT__:')) {
+      const outerHtml = instruction.slice('__REMOVE_ELEMENT__:'.length);
+      resolvedInstruction = `Remove this element from the document:\n${outerHtml.slice(0, 1000)}\nKeep everything else unchanged.`;
+      displaySummary = 'Remove element';
+    } else if (instruction.startsWith('__REMOVE_BACKGROUND__:')) {
+      const cssPath = instruction.slice('__REMOVE_BACKGROUND__:'.length);
+      resolvedInstruction = `Remove the background image from the element matching CSS path "${cssPath}". Keep all other styles and content unchanged.`;
+      displaySummary = 'Remove background image';
+    } else if (instruction.startsWith('__STYLE_PATCH__:')) {
+      const parts = instruction.slice('__STYLE_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const prop = parts[1] ?? '';
+      const value = parts[2] ?? '';
+      const hintHtml = parts[3] ?? '';
+      resolvedInstruction = `Set the CSS property "${prop}" to "${value}" on the element matching CSS path "${cssPath}". Keep everything else unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = `${prop}: ${value}`;
+    } else if (instruction.startsWith('__TEXT_PATCH__:')) {
+      const parts = instruction.slice('__TEXT_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const newText = parts[1] ?? '';
+      const hintHtml = parts[2] ?? '';
+      resolvedInstruction = `Replace the text content of the element matching CSS path "${cssPath}" with: "${newText}". Keep all other content, structure, and styles unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = 'Text updated';
+    } else if (instruction.startsWith('__IMAGE_INJECT_SCOPED__:')) {
+      const parts = instruction.slice('__IMAGE_INJECT_SCOPED__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const url = parts[1] ?? '';
+      const hintHtml = parts[2] ?? '';
+      resolvedInstruction = `Replace the image src at CSS path "${cssPath}" with this URL: "${url}". Keep all other attributes and styles unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = 'Image replaced';
+    } else if (instruction.startsWith('__BG_IMAGE_PATCH__:')) {
+      const parts = instruction.slice('__BG_IMAGE_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const url = parts[1] ?? '';
+      resolvedInstruction = `Set the background image of the element matching CSS path "${cssPath}" to url("${url}"). Update the inline style or CSS rule — keep all other styles unchanged.`;
+      displaySummary = 'Background image updated';
+    } else if (instruction.startsWith('__VIDEO_INJECT__:')) {
+      const parts = instruction.slice('__VIDEO_INJECT__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const url = parts[1] ?? '';
+      resolvedInstruction = `Replace the video or iframe at CSS path "${cssPath}" with a new iframe or video element pointing to: "${url}". Keep all surrounding styles and structure unchanged.`;
+      displaySummary = 'Video updated';
+    } else if (instruction.startsWith('__ICON_REPLACE__:') || instruction.startsWith('__SVG_REPLACE__:')) {
+      const isIcon = instruction.startsWith('__ICON_REPLACE__:');
+      const payload = instruction.slice((isIcon ? '__ICON_REPLACE__:' : '__SVG_REPLACE__:').length);
+      const parts = payload.split('||');
+      const cssPath = parts[0] ?? '';
+      const content = parts[1] ?? '';
+      resolvedInstruction = `Replace the ${isIcon ? 'icon image' : 'SVG element'} at CSS path "${cssPath}" with: ${content.slice(0, 1000)}. Keep all surrounding styles and structure unchanged.`;
+      displaySummary = 'Icon replaced';
+    }
+
+    console.log(`\n╔══ SLIDE EDIT ════════════════════════════════════════════`);
+    console.log(`║ Slide      : ${id}`);
+    console.log(`║ Instruction: ${resolvedInstruction.slice(0, 120)}`);
+    console.log(`║ HTML source: ${body?.currentHtml ? 'client (in-memory)' : 'disk'} — ${html.length} chars`);
+    console.log(`╚══════════════════════════════════════════════════════════`);
+
+    const prompt = `You are an expert HTML/CSS presentation editor. Edit the presentation below.
+
+INSTRUCTION: ${resolvedInstruction}${elementContext}
+
+RULES:
+- Return ONLY the complete, valid HTML — no explanations, no markdown fences
+- Preserve all existing slides, structure, animations, and styles unless the instruction changes them
+- Keep all content that isn't mentioned in the instruction
+- Maintain the same design language and color scheme unless asked to change
+- Return the full document from the first character to the last
+
+CURRENT HTML:
+${html.slice(0, 50000)}`;
+
+    const raw = await llmGenerateFn(prompt);
+    let updatedHtml = (raw ?? '').trim();
+
+    // Strip markdown code fences if LLM wrapped the response
+    const fenceMatch = updatedHtml.match(/^```(?:html)?\n?([\s\S]+?)\n?```$/i);
+    if (fenceMatch) updatedHtml = fenceMatch[1].trim();
+
+    if (!updatedHtml || !/<[a-z]/i.test(updatedHtml)) {
+      return reply.code(502).send({ error: 'LLM returned invalid HTML — try rephrasing' });
+    }
+
+    // Guard: result must not be catastrophically shorter (LLM truncation)
+    if (updatedHtml.length < html.length * 0.35 && !html.includes('data:')) {
+      return reply.code(502).send({ error: 'Edit result too short — LLM may have truncated. Try again.' });
+    }
+
+    // Guard: must contain closing tag (catches mid-document cuts)
+    if (!/(<\/body>|<\/html>)/i.test(updatedHtml)) {
+      return reply.code(502).send({ error: 'LLM returned incomplete HTML — missing closing tags. Try rephrasing.' });
+    }
+
+    await writeFile(htmlPath, updatedHtml);
+    const summary = displaySummary.length > 80 ? displaySummary.slice(0, 77) + '…' : displaySummary;
+    return reply.send({ html: updatedHtml, summary });
+  });
+
+  // PATCH /super-clients/:name/slides/:id/html — direct HTML overwrite (undo/redo sync)
+  app.patch('/super-clients/:name/slides/:id/html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { html?: string } | undefined;
+    const html = body?.html?.trim();
+    if (!html) return reply.code(400).send({ error: 'Missing html' });
+
+    const dir = path.join(superClientsRoot, name);
+    const htmlPath = path.join(dir, 'slides', `${id}.html`);
+    const resolved = path.resolve(htmlPath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'slides')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+
+    try {
+      await writeFile(htmlPath, html);
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(500).send({ error: 'Save failed' });
+    }
+  });
+
+  // GET /super-clients/:name/slides/:id/export?format=pdf|pptx
+  // PDF  → Chrome CLI --print-to-pdf (real text layer, fully selectable/editable, no Puppeteer lib)
+  // PPTX → python-pptx with HTML text extraction (editable text boxes in PowerPoint)
+  app.get('/super-clients/:name/slides/:id/export', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    const { format = 'pdf' } = req.query as { format?: string };
+
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    if (!['pdf', 'pptx'].includes(format)) return reply.code(400).send({ error: 'Format must be pdf or pptx' });
+
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+
+    let html: string;
+    try {
+      html = await readFile(path.join(dir, 'slides', `${id}.html`), 'utf-8');
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+
+    let title = 'Presentation';
+    try {
+      const idx = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as { id: string; title: string }[];
+      title = idx.find(s => s.id === id)?.title ?? title;
+    } catch { /* ok */ }
+
+    const safeTitle = title.replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
+    const fileName = `${safeTitle || 'presentation'}-${id.slice(0, 8)}`;
+
+    const { spawn } = await import('node:child_process');
+    const { tmpdir } = await import('node:os');
+    const { rm: rmTmp } = await import('node:fs/promises');
+
+    if (format === 'pdf') {
+      // ── Chrome CLI print-to-PDF ──────────────────────────────────────────
+      // Uses the Chrome binary that Puppeteer already downloaded to ~/.cache/puppeteer.
+      // Chrome's native PDF renderer produces real text (selectable, editable) — not images.
+      const chromeBin = await findChromeBinary();
+      if (!chromeBin) return reply.code(503).send({ error: 'Chrome binary not found — run `npm install` to let Puppeteer download it' });
+
+      // Inject print CSS that forces one PDF page per .slide element (16:9 landscape)
+      const PRINT_CSS = `<style id="prodeck-print">
+@page { size: 13.333in 7.5in; margin: 0; }
+html, body { margin: 0 !important; padding: 0 !important; }
+.deck,.slides,.slide-container,.presentation-container,.slideshow {
+  display: block !important; flex-direction: unset !important; gap: 0 !important;
+  padding: 0 !important; margin: 0 !important; overflow: visible !important;
+  height: auto !important; min-height: unset !important; position: static !important;
+}
+.slide,.page,.slide-page,section {
+  display: block !important; position: relative !important;
+  width: 13.333in !important; height: 7.5in !important; max-height: 7.5in !important;
+  aspect-ratio: unset !important; box-shadow: none !important;
+  margin: 0 !important; padding: 0 !important; overflow: hidden !important;
+  flex-shrink: 0 !important; break-after: page !important; page-break-after: always !important;
+}
+/* Cancel trailing page break on the last slide to avoid a blank final page */
+.slide:last-child,.page:last-child,.slide-page:last-child,section:last-child {
+  break-after: auto !important; page-break-after: auto !important;
+}
+.nav-prev,.nav-next,.nav-zone,.keyboard-hint { display: none !important; }
+</style>`;
+
+      // Strip the browser-only scroll enforcer before printing
+      const STRIP = [
+        /<style[^>]*\bid="prodeck-scroll-enforcer"[^>]*>[\s\S]*?<\/style>/g,
+        /<script[^>]*\bid="prodeck-theme-apply"[^>]*>[\s\S]*?<\/script>/g,
+      ];
+      let printHtml = html;
+      for (const re of STRIP) printHtml = printHtml.replace(re, '');
+      const headClose = printHtml.indexOf('</head>');
+      printHtml = headClose !== -1
+        ? printHtml.slice(0, headClose) + PRINT_CSS + printHtml.slice(headClose)
+        : PRINT_CSS + printHtml;
+
+      const tmpId = `slide-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const tmpHtml = path.join(tmpdir(), `${tmpId}.html`);
+      const tmpPdf  = path.join(tmpdir(), `${tmpId}.pdf`);
+
+      try {
+        await writeFile(tmpHtml, printHtml, 'utf-8');
+
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn(chromeBin, [
+            '--headless=new',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            `--print-to-pdf=${tmpPdf}`,
+            '--no-pdf-header-footer',
+            `file://${tmpHtml}`,
+          ], { stdio: 'ignore' });
+          proc.on('error', reject);
+          proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Chrome exited ${code}`)));
+        });
+
+        const pdfBytes = await readFile(tmpPdf);
+        reply.header('Content-Type', 'application/pdf');
+        reply.header('Content-Disposition', `attachment; filename="${fileName}.pdf"`);
+        return reply.send(pdfBytes);
+      } finally {
+        await rmTmp(tmpHtml, { force: true });
+        await rmTmp(tmpPdf, { force: true });
+      }
+    } else {
+      // ── python-pptx text extraction ──────────────────────────────────────
+      const venvRoot  = path.resolve(import.meta.dirname ?? '', '../../../../.venv');
+      const pythonBin = path.join(venvRoot, 'bin', 'python3');
+      const script    = path.resolve(import.meta.dirname ?? '', 'slide-to-pptx.py');
+
+      const pptxBytes = await new Promise<Buffer>((resolve, reject) => {
+        const proc = spawn(pythonBin, [script], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const chunks: Buffer[] = [];
+        const errChunks: Buffer[] = [];
+        proc.stdout.on('data', (d: Buffer) => chunks.push(d));
+        proc.stderr.on('data', (d: Buffer) => errChunks.push(d));
+        proc.on('error', reject);
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(`slide-to-pptx.py exited ${code}: ${Buffer.concat(errChunks).toString('utf-8').slice(0, 400)}`));
+          } else {
+            resolve(Buffer.concat(chunks));
+          }
+        });
+        proc.stdin.write(html, 'utf-8');
+        proc.stdin.end();
+      });
+
+      reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      reply.header('Content-Disposition', `attachment; filename="${fileName}.pptx"`);
+      return reply.send(pptxBytes);
     }
   });
 

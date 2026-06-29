@@ -1,0 +1,49 @@
+{
+  "slug": "executive-report",
+  "displayName": "Executive Report",
+  "description": "For generating executive reports, findings summaries, data reports, and stakeholder briefings.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["report", "executive", "findings", "analysis", "stakeholder"],
+  "toneDescription": "Authoritative and precise. Facts lead, interpretation follows. Written for time-poor executives.",
+  "triggers": [
+    "executive report",
+    "executive summary",
+    "findings report",
+    "data report",
+    "stakeholder report",
+    "quarterly report",
+    "progress report",
+    "status report",
+    "research report",
+    "analysis report",
+    "write a report",
+    "create a report"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "report_subject",
+      "question": "What is this report about? (e.g. Q2 performance, market research findings, project status)",
+      "required": false
+    },
+    {
+      "id": "audience",
+      "question": "Who is the primary audience for this report?",
+      "required": false
+    },
+    {
+      "id": "key_decisions",
+      "question": "Are there any decisions this report needs to support?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-26T00:00:00.000Z",
+  "updatedAt": "2026-06-26T00:00:00.000Z"
+}

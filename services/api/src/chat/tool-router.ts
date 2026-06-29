@@ -24,6 +24,7 @@ import {
   handleCreateSkill,
   handleListSkills,
   handleListDesignSkills,
+  handleGenerateDocument,
 } from './tool-handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ const TOOL_HANDLERS: Record<ToolName, ToolHandler> = {
   create_skill: handleCreateSkill,
   list_skills: handleListSkills,
   list_design_skills: handleListDesignSkills,
+  generate_document: handleGenerateDocument,
 };
 
 // ---------------------------------------------------------------------------

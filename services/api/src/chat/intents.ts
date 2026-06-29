@@ -21,6 +21,8 @@ export type Intent =
   | 'LIST_SKILLS'      // list available skills
   | 'LIST_DESIGN_SKILLS' // list available design skills
   | 'CLIENT_DATA_COLLECTION'  // chat-driven client data collection for proposal prerequisites
+  | 'GENERATE_DOCUMENT'       // free-form document generation (strategy, blog, report, deck, etc.)
+  | 'DOWNLOAD_ARTIFACT'       // user requests export of a generated artifact in a specific format
 
 export const VALID_INTENTS: readonly Intent[] = [
   'GENERATE_PROPOSAL',
@@ -42,6 +44,8 @@ export const VALID_INTENTS: readonly Intent[] = [
   'LIST_SKILLS',
   'LIST_DESIGN_SKILLS',
   'CLIENT_DATA_COLLECTION',
+  'GENERATE_DOCUMENT',
+  'DOWNLOAD_ARTIFACT',
 ] as const
 
 export interface ClassificationResult {

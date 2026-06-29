@@ -1,0 +1,63 @@
+{
+  "slug": "pitch-deck",
+  "displayName": "Pitch Deck",
+  "description": "For generating startup and investor pitch deck narratives — structured slide-by-slide content for fundraising, sales, or partnership presentations.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["pitch deck", "investor deck", "startup", "fundraising", "presentation", "slides"],
+  "toneDescription": "Compelling and story-driven. Each slide is a single clear idea. Lead with the problem, not the product. Quantify everything possible.",
+  "triggers": [
+    "pitch deck",
+    "create a pitch deck",
+    "build a pitch deck",
+    "write a pitch deck",
+    "investor deck",
+    "startup pitch",
+    "fundraising deck",
+    "pitch presentation",
+    "investor presentation",
+    "deck for investors",
+    "fundraising presentation",
+    "VC deck",
+    "venture capital pitch",
+    "demo day deck",
+    "series A deck",
+    "seed deck",
+    "pitch to investors",
+    "raising a round",
+    "I need to raise",
+    "we are raising",
+    "help me fundraise",
+    "fundraising materials",
+    "board presentation",
+    "investor meeting",
+    "pitch document",
+    "write my pitch"
+  ],
+  "outputFormats": ["md", "pptx"],
+  "clarifyingQuestions": [
+    {
+      "id": "stage",
+      "question": "What stage is the company at? (Pre-seed, Seed, Series A, etc.)",
+      "required": false
+    },
+    {
+      "id": "problem",
+      "question": "What problem does the company solve and for whom?",
+      "required": false
+    },
+    {
+      "id": "ask",
+      "question": "What is the fundraising ask? (Amount and what it will be used for)",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

@@ -9247,6 +9247,14 @@ html {
   border-top: 1px solid var(--border);
   margin: 24px 0;
 }
+/* Remove the prose h1 underline inside panels — the header already separates context */
+.proposal-body .prose h1 {
+  border-bottom: none;
+}
+/* Hide the hr that immediately follows an h1 (common markdown title+--- pattern) */
+.proposal-body .prose h1 + hr {
+  display: none;
+}
 .proposal-body blockquote {
   border-left: 3px solid var(--primary);
   margin: 0 0 14px;

@@ -1,0 +1,60 @@
+{
+  "slug": "white-paper",
+  "displayName": "White Paper",
+  "description": "For generating in-depth, authoritative white papers and research reports on industry topics, technology trends, or strategic recommendations.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["white paper", "whitepaper", "research", "thought leadership", "industry report", "authoritative"],
+  "toneDescription": "Authoritative and research-backed. Build the argument from problem to evidence to solution to recommendation. Academic rigor without academic inaccessibility.",
+  "triggers": [
+    "white paper",
+    "whitepaper",
+    "write a whitepaper",
+    "write a white paper",
+    "create a white paper",
+    "draft a white paper",
+    "research paper",
+    "research report",
+    "industry report",
+    "market report",
+    "technical report",
+    "in-depth guide",
+    "authoritative guide",
+    "definitive guide",
+    "comprehensive guide",
+    "expert guide",
+    "thought leadership paper",
+    "position paper",
+    "deep dive",
+    "technical deep dive",
+    "long-form content",
+    "write a report on",
+    "industry analysis"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "thesis",
+      "question": "What is the core thesis or argument of this white paper?",
+      "required": false
+    },
+    {
+      "id": "audience",
+      "question": "Who is the target audience? (e.g. CTOs, CFOs, policy makers, practitioners)",
+      "required": false
+    },
+    {
+      "id": "evidence",
+      "question": "Are there specific data points, statistics, or research findings to incorporate?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

@@ -1,0 +1,74 @@
+{
+  "sections": [
+    {
+      "id": "executive-summary",
+      "title": "Executive Summary",
+      "order": 1,
+      "required": true,
+      "promptHint": "3–4 sentences. State: overall status (Green/Yellow/Red with emoji), the reporting period, the single most important highlight, and the single most important risk or concern.",
+      "maxWords": 150,
+      "useRagContext": true,
+      "ragQuery": "project status summary highlights risks blockers period"
+    },
+    {
+      "id": "completed-this-period",
+      "title": "Completed This Period",
+      "order": 2,
+      "required": true,
+      "promptHint": "Bulleted list of work completed during the reporting period. Each item should name the deliverable or milestone, not just the activity. Use past tense. Pull from ingested context where available.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "completed finished delivered done shipped milestones achieved"
+    },
+    {
+      "id": "in-progress",
+      "title": "In Progress",
+      "order": 3,
+      "required": true,
+      "promptHint": "Bulleted list of work currently underway. For each item: what it is, who owns it, estimated % complete, and expected completion date.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "in progress current work ongoing active tasks"
+    },
+    {
+      "id": "upcoming",
+      "title": "Upcoming",
+      "order": 4,
+      "required": true,
+      "promptHint": "What starts in the next period. Note dependencies — what needs to be ready or decided for this work to begin.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "upcoming next steps planned schedule milestones"
+    },
+    {
+      "id": "risks-blockers",
+      "title": "Risks & Blockers",
+      "order": 5,
+      "required": true,
+      "promptHint": "The most important section. For each risk or blocker: description, impact if unresolved, mitigation plan, owner, and status (active/mitigated/escalated). If there are no blockers, state that explicitly.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "risks blockers issues problems dependencies delays concerns"
+    },
+    {
+      "id": "key-metrics",
+      "title": "Key Metrics",
+      "order": 6,
+      "required": false,
+      "promptHint": "Any tracked project metrics: velocity, budget burn vs. plan, defect count, test coverage, or other KPIs. Use a table. Pull from ingested context where available.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "metrics KPIs budget burn velocity performance numbers"
+    },
+    {
+      "id": "next-steps",
+      "title": "Next Steps",
+      "order": 7,
+      "required": true,
+      "promptHint": "3–5 specific action items for the next period. Each must have: the action, the owner (name or role), and a due date. Format as a table.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "action items next steps owners due dates follow-up"
+    }
+  ]
+}

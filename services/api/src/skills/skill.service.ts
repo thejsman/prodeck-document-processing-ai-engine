@@ -82,7 +82,10 @@ function bumpMinorVersion(version: string): string {
 // CRUD
 // ---------------------------------------------------------------------------
 
-export async function listSkills(workdir: string): Promise<SkillSummary[]> {
+export async function listSkills(
+  workdir: string,
+  opts?: { type?: 'proposal' | 'document' },
+): Promise<SkillSummary[]> {
   const dir = skillsDir(workdir);
   let entries: string[];
   try {
@@ -98,6 +101,8 @@ export async function listSkills(workdir: string): Promise<SkillSummary[]> {
       const parsed = SkillSchema.safeParse(JSON.parse(raw));
       if (!parsed.success) continue;
       const s = parsed.data;
+      const effectiveType = s.type ?? 'proposal';
+      if (opts?.type && effectiveType !== opts.type) continue;
       summaries.push({
         slug: s.slug,
         displayName: s.displayName,
@@ -105,6 +110,9 @@ export async function listSkills(workdir: string): Promise<SkillSummary[]> {
         industries: s.industries,
         version: s.version,
         updatedAt: s.updatedAt,
+        type: effectiveType,
+        triggers: s.triggers,
+        outputFormats: s.outputFormats,
       });
     } catch {
       // skip invalid/corrupt entries
@@ -189,6 +197,11 @@ export async function createSkill(workdir: string, input: CreateSkillInput): Pro
     namespace: input.namespace,
     createdAt: now,
     updatedAt: now,
+    type: input.type,
+    structureMode: input.structureMode,
+    triggers: input.triggers,
+    outputFormats: input.outputFormats,
+    clarifyingQuestions: input.clarifyingQuestions,
   };
 
   const validated = SkillSchema.safeParse(skill);
@@ -301,6 +314,38 @@ export async function findBestMatch(
     if (indNorm) {
       const match = summary.industries.some((i) => norm(i).includes(indNorm) || indNorm.includes(norm(i)));
       if (match) score += 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestSlug = summary.slug;
+    }
+  }
+
+  if (bestSlug && bestScore > 0) {
+    return getSkill(workdir, bestSlug);
+  }
+  return null;
+}
+
+export async function findBestDocumentSkill(
+  workdir: string,
+  userMessage: string,
+): Promise<Skill | null> {
+  const documentSkills = await listSkills(workdir, { type: 'document' });
+  if (documentSkills.length === 0) return null;
+
+  const msgLower = userMessage.toLowerCase();
+  let bestSlug: string | null = null;
+  let bestScore = 0;
+
+  for (const summary of documentSkills) {
+    if (!summary.triggers?.length) continue;
+    let score = 0;
+    for (const trigger of summary.triggers) {
+      if (msgLower.includes(trigger.toLowerCase())) {
+        // longer triggers are more specific — weight them higher
+        score += trigger.split(' ').length;
+      }
     }
     if (score > bestScore) {
       bestScore = score;

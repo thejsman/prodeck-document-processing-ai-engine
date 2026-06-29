@@ -1,0 +1,66 @@
+{
+  "slug": "vendor-evaluation",
+  "displayName": "Vendor Evaluation Report",
+  "description": "For generating structured vendor evaluation reports that score and compare vendors against defined criteria to produce a clear recommendation.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["vendor evaluation", "vendor comparison", "vendor assessment", "tool evaluation", "procurement"],
+  "toneDescription": "Objective and criteria-driven. Use weighted scoring tables. Recommendation must follow logically from the data, not precede it.",
+  "triggers": [
+    "vendor evaluation",
+    "vendor comparison",
+    "vendor assessment",
+    "evaluate vendors",
+    "vendor selection",
+    "vendor scorecard",
+    "vendor shortlist",
+    "choose a vendor",
+    "select a vendor",
+    "which vendor",
+    "evaluate providers",
+    "tool evaluation",
+    "software evaluation",
+    "evaluate software",
+    "software comparison",
+    "compare tools",
+    "compare platforms",
+    "platform comparison",
+    "which tool should we use",
+    "which product should we buy",
+    "tool assessment",
+    "tool selection",
+    "software selection",
+    "evaluate options",
+    "compare options",
+    "compare solutions",
+    "procurement analysis",
+    "help us pick a tool",
+    "help us pick a vendor"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "purpose",
+      "question": "What are you evaluating vendors for? (e.g. CRM, data warehouse, payment processor)",
+      "required": false
+    },
+    {
+      "id": "criteria",
+      "question": "What are the top evaluation criteria? (e.g. price, security, integrations, support)",
+      "required": false
+    },
+    {
+      "id": "vendors",
+      "question": "Which specific vendors are in consideration?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

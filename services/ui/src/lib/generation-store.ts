@@ -2,7 +2,7 @@
 // React state setters are never stored here; components subscribe and sync locally.
 
 export type GenerationPhase = 'generating' | 'complete' | 'error';
-export type GenerationType = 'proposal' | 'microsite';
+export type GenerationType = 'proposal' | 'microsite' | 'document' | 'slide';
 
 export interface Generation {
   id: string;
@@ -15,9 +15,14 @@ export interface Generation {
   charCount?: number; // HTML chars written so far — updated live during microsite generation
   error?: string;
   result?: {
-    fileName?: string;    // proposal
-    micrositeId?: string; // microsite
-    ast?: unknown;        // microsite AST for instant view without re-fetch
+    fileName?: string;       // proposal
+    micrositeId?: string;    // microsite
+    ast?: unknown;           // microsite AST for instant view without re-fetch
+    documentId?: string;     // generated document
+    documentType?: string;   // kebab-case type slug, e.g. "strategy-document"
+    preferredFormat?: string; // document format (docx, pdf, pptx, txt, notion, md)
+    downloadUrl?: string;    // auto-export download URL for non-md formats
+    slideId?: string;        // saved presentation
   };
   readonly abort: () => void;
 }

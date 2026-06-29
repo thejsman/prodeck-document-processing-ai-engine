@@ -24,6 +24,7 @@ import {
   Pencil,
   Link2 as LinkIcon,
   Download,
+  Presentation,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { Icon } from "@/components/ui/Icon";
@@ -45,6 +46,7 @@ import { InlineEditPanel } from "@/components/microsite/smart-editor/InlineEditP
 import {
   type BridgeMessage,
   injectBridgeScript,
+  stripPreviewInjections,
   normalizeMicrositeHtml,
   buildInstruction,
 } from "@/lib/microsite-bridge";
@@ -72,16 +74,26 @@ import {
   editSuperClientMicrosite,
   revertSuperClientMicrosite,
   patchSuperClientMicrositeHtml,
+  editSuperClientSlide,
+  patchSuperClientSlideHtml,
   generateMicrositeV2Stream,
   prepareImages,
   type PreparedImage,
   exportSuperClientMicrositeAsPdf,
+  listGeneratedDocuments,
+  getGeneratedDocumentContent,
+  deleteGeneratedDocument,
+  listSlides,
+  getSlideHtmlUrl,
+  deleteSlide,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
   type SuperClientChatEvent,
   type SuperClientFile,
   type SuperClientProposal,
   type SuperClientMicrosite,
+  type GeneratedDocument,
+  type SavedSlide,
 } from "@/lib/api";
 
 interface Message {
@@ -92,12 +104,53 @@ interface Message {
   generationId?: string;
   uploadId?: string;
   createdAt?: string;
-  editContext?: "microsite" | "proposal";
+  editContext?: "microsite" | "proposal" | "document" | "slide";
+  documentType?: string;
+}
+
+function docTypeLabel(t: string) {
+  return t.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase());
 }
 
 function genId() {
   return Math.random().toString(36).slice(2);
 }
+
+// Realistic progress steps shown one-at-a-time while each artifact type generates
+const GENERATION_STEPS: Record<string, string[]> = {
+  slide: [
+    "Reading client context…",
+    "Analyzing presentation requirements…",
+    "Structuring slides…",
+    "Writing slide content…",
+    "Applying design and layout…",
+    "Finalizing presentation…",
+  ],
+  document: [
+    "Reading client context…",
+    "Researching topic…",
+    "Structuring document…",
+    "Writing sections…",
+    "Reviewing and refining…",
+    "Preparing document…",
+  ],
+  proposal: [
+    "Reading client context…",
+    "Analyzing requirements…",
+    "Drafting proposal sections…",
+    "Refining content…",
+    "Finalizing proposal…",
+  ],
+  microsite: [
+    "Reading client context…",
+    "Planning layout…",
+    "Building sections…",
+    "Applying design system…",
+    "Optimizing content…",
+    "Finalizing microsite…",
+  ],
+};
+const STEP_INTERVAL_MS = 3200;
 
 // ArtifactCard — artifact capsule rendered in the chat message list
 function ArtifactCard({
@@ -112,15 +165,27 @@ function ArtifactCard({
   onView: (gen: Generation) => void;
 }) {
   const gen = generations.find((g) => g.id === gid);
+  const [stepIndex, setStepIndex] = useState(0);
+
+  const isGenerating = gen?.phase === "generating";
+  const genType = gen?.type ?? "proposal";
+
+  // Cycle through predefined steps while generating; reset when a new generation starts
+  useEffect(() => {
+    if (!isGenerating) { setStepIndex(0); return; }
+    const steps = GENERATION_STEPS[genType] ?? GENERATION_STEPS.proposal;
+    setStepIndex(0);
+    const id = setInterval(() => {
+      setStepIndex((prev) => Math.min(prev + 1, steps.length - 1));
+    }, STEP_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [isGenerating, genType, gid]);
+
   if (!gen) return null;
   const isMicrosite = gen.type === "microsite";
-  const isGenerating = gen.phase === "generating";
+  const isDocument = gen.type === "document";
+  const isSlide = gen.type === "slide";
   const isComplete = gen.phase === "complete";
-  // Progress 0–92% while generating (charCount-driven), snaps to 100 on complete.
-  // Assumes a typical microsite is ~32k HTML chars.
-  const progressPct = isComplete
-    ? 100
-    : Math.min(((gen.charCount ?? 0) / 32000) * 100, 92);
   return (
     <div
       onClick={isComplete ? () => onView(gen) : undefined}
@@ -168,11 +233,46 @@ function ArtifactCard({
         >
           {isMicrosite ? (
             <Globe size={13} strokeWidth={1.5} />
+          ) : isSlide ? (
+            <Presentation size={13} strokeWidth={1.5} />
           ) : (
             <FileText size={13} strokeWidth={1.5} />
           )}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Type label row — mirrors right-panel format */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: "var(--primary)",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              {isDocument && isComplete && gen.result?.documentType
+                ? gen.result.documentType.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+                : isMicrosite ? "Microsite" : isDocument ? "Document" : isSlide ? "Presentation" : "Proposal"}
+            </span>
+            {isDocument && isComplete && gen.result?.preferredFormat && gen.result.preferredFormat !== "md" && (
+              <span
+                style={{
+                  flexShrink: 0,
+                  fontSize: 9,
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                  color: "var(--primary)",
+                  borderRadius: 3,
+                  padding: "1px 4px",
+                  textTransform: "uppercase",
+                }}
+              >
+                {gen.result.preferredFormat}
+              </span>
+            )}
+          </div>
           <span
             style={{
               display: "block",
@@ -191,12 +291,18 @@ function ArtifactCard({
               fontSize: 11,
               color: "var(--muted)",
               marginTop: 2,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
               overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
             }}
           >
-            {gen.clientSlug} · {isMicrosite ? "Microsite" : "Proposal"}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 1 }}>
+              {gen.clientSlug}
+              {isComplete && gen.createdAt
+                ? ` · ${new Date(gen.createdAt).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}`
+                : ""}
+            </span>
           </div>
         </div>
       </div>
@@ -215,84 +321,35 @@ function ArtifactCard({
         </span>
       )}
 
-      {/* Progress bar — microsite only while generating */}
-      {isGenerating && isMicrosite && (
-        <div style={{ padding: "0 10px 10px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div
-              style={{
-                flex: 1,
-                height: 3,
-                borderRadius: 2,
-                background: "var(--border)",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  height: "100%",
-                  borderRadius: 2,
-                  background: "var(--primary)",
-                  width: `${progressPct}%`,
-                  transition: "width 0.8s ease",
-                }}
-              />
-            </div>
+      {/* Animated step — one step at a time while generating */}
+      {isGenerating && (() => {
+        const steps = GENERATION_STEPS[gen.type] ?? GENERATION_STEPS.proposal;
+        const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
+        return (
+          <div
+            style={{
+              padding: "0 10px 12px",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span
+              className="status-glyph"
+              style={{ width: 6, height: 6, flexShrink: 0 }}
+            />
             <span
               style={{
-                fontSize: 10,
-                color: "var(--muted)",
-                fontVariantNumeric: "tabular-nums",
-                flexShrink: 0,
+                fontSize: 11,
+                color: "var(--text)",
+                opacity: 0.75,
               }}
             >
-              {Math.round(progressPct)}%
+              {currentStep}
             </span>
           </div>
-        </div>
-      )}
-      {/* Steps — hide once complete */}
-      {gen.steps.length > 0 && isGenerating && (
-        <div
-          style={{
-            padding: "0 10px 12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 3,
-          }}
-        >
-          {gen.steps.slice(-4).map((step, i, arr) => {
-            const isLast = i === arr.length - 1;
-            const isActive = isLast && isGenerating;
-            return (
-              <div
-                key={i}
-                style={{
-                  fontSize: 11,
-                  color: isActive ? "var(--text)" : "var(--muted)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
-                {isActive ? (
-                  <span
-                    className="status-glyph"
-                    style={{ width: 6, height: 6, flexShrink: 0 }}
-                  />
-                ) : (
-                  <span
-                    style={{ color: "#22c55e", fontSize: 9, flexShrink: 0 }}
-                  >
-                    ✓
-                  </span>
-                )}
-                <span style={{ flex: 1 }}>{step}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+        );
+      })()}
       {gen.phase === "error" && (
         <div
           style={{
@@ -303,6 +360,27 @@ function ArtifactCard({
         >
           {gen.error ?? "Generation failed"}
         </div>
+      )}
+      {/* Download link — document with auto-exported file */}
+      {isDocument && isComplete && gen.result?.downloadUrl && (
+        <a
+          href={gen.result.downloadUrl}
+          download
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "5px 10px 8px",
+            fontSize: 11,
+            color: "var(--primary)",
+            textDecoration: "none",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          <Download size={11} strokeWidth={1.5} />
+          Download {gen.result.preferredFormat?.toUpperCase()}
+        </a>
       )}
     </div>
   );
@@ -564,6 +642,47 @@ export default function SuperClientPage() {
     content: string;
   } | null>(null);
 
+  const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
+  const [viewingDocument, setViewingDocument] = useState<{
+    id: string;
+    title: string;
+    documentType: string;
+    content: string;
+  } | null>(null);
+  const lastDocumentRef = useRef<typeof viewingDocument>(null);
+  if (viewingDocument) lastDocumentRef.current = viewingDocument;
+
+  const [hoveredGenDocId, setHoveredGenDocId] = useState<string | null>(null);
+  const [menuGenDocId, setMenuGenDocId] = useState<string | null>(null);
+  const [menuGenDocPos, setMenuGenDocPos] = useState({ top: 0, right: 0 });
+  const [confirmDeleteGenDoc, setConfirmDeleteGenDoc] = useState<string | null>(null);
+  const genDocMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [showDocExportMenu, setShowDocExportMenu] = useState(false);
+  const [docExportLoading, setDocExportLoading] = useState(false);
+  const [showSlideExportMenu, setShowSlideExportMenu] = useState(false);
+  const [slideExportLoading, setSlideExportLoading] = useState<'pdf' | 'pptx' | null>(null);
+  const [slideExportMsg, setSlideExportMsg] = useState('');
+  // ── Slide editing (mirrors microsite editing state) ──────────────────────
+  const [slideEditInput, setSlideEditInput] = useState('');
+  const [slideEditing, setSlideEditing] = useState(false);
+  const [slideEditBanner, setSlideEditBanner] = useState('');
+  // Ref holds the current in-memory HTML (for passing as currentHtml to the edit API).
+  const slideCurrentHtmlRef = useRef<string | null>(null);
+  // srcDoc drives the slide iframe — edits apply in-place without remounting.
+  const [slideSrcDoc, setSlideSrcDoc] = useState('');
+  const slideIframeRef = useRef<HTMLIFrameElement>(null);
+  const MAX_SLIDE_HISTORY = 50;
+  const [slideEditHistory, setSlideEditHistory] = useState<string[]>([]);
+  const [slideEditHistoryIndex, setSlideEditHistoryIndex] = useState(-1);
+  const [slideEditSavedHistoryIndex, setSlideEditSavedHistoryIndex] = useState(-1);
+  const canSlideUndo = slideEditHistoryIndex > 0;
+  const canSlideRedo = slideEditHistoryIndex < slideEditHistory.length - 1;
+  const hasUnsavedSlideChanges = slideEditHistory.length > 0 && slideEditHistoryIndex !== slideEditSavedHistoryIndex;
+  const [slideStripVisible, setSlideStripVisible] = useState(true);
+  const [slideDragging, setSlideDragging] = useState(false);
+  const [slideDragHover, setSlideDragHover] = useState(false);
+  const slideDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
   const [microsites, setMicrosites] = useState<SuperClientMicrosite[]>([]);
   const [viewingMicrosite, setViewingMicrosite] = useState<{
     id: string;
@@ -583,6 +702,9 @@ export default function SuperClientPage() {
   const iframeContainerRef = useRef<HTMLDivElement>(null);
   const [iframeContainerH, setIframeContainerH] = useState(0);
   const [iframeContainerW, setIframeContainerW] = useState(0);
+  const slideIframeContainerRef = useRef<HTMLDivElement>(null);
+  const [slideIframeContainerH, setSlideIframeContainerH] = useState(0);
+  const [slideIframeContainerW, setSlideIframeContainerW] = useState(0);
   const MICROSITE_MIN_WIDTH = 500;
   const CHAT_MIN_WIDTH = 360;
 
@@ -597,6 +719,20 @@ export default function SuperClientPage() {
     ro.observe(el);
     setIframeContainerH(el.offsetHeight);
     setIframeContainerW(el.offsetWidth);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const el = slideIframeContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setSlideIframeContainerH(el.offsetHeight);
+      setSlideIframeContainerW(el.offsetWidth);
+    });
+    ro.observe(el);
+    setSlideIframeContainerH(el.offsetHeight);
+    setSlideIframeContainerW(el.offsetWidth);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -619,11 +755,20 @@ export default function SuperClientPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [savedSlides, setSavedSlides] = useState<SavedSlide[]>([]);
+  const [viewingSlide, setViewingSlide] = useState<{
+    id: string;
+    url: string;
+    title: string;
+  } | null>(null);
+
   // Cache last-seen content so panels render content during close animation (prevents content flash)
   const lastMicrositeRef = useRef(viewingMicrosite);
   if (viewingMicrosite) lastMicrositeRef.current = viewingMicrosite;
   const lastProposalRef = useRef(viewingProposal);
   if (viewingProposal) lastProposalRef.current = viewingProposal;
+  const lastSlideRef = useRef(viewingSlide);
+  if (viewingSlide) lastSlideRef.current = viewingSlide;
   const [micrositeModal, setMicrositeModal] = useState<{
     proposal: SuperClientProposal;
     markdown: string;
@@ -696,6 +841,20 @@ export default function SuperClientPage() {
     setHoveredElement(null);
   };
 
+  // ── Slide smart-edit mode ─────────────────────────────────────────────────
+  const [slideEditModeActive, setSlideEditModeActive] = useState(false);
+  const [selectedSlideElement, setSelectedSlideElement] = useState<BridgeMessage | null>(null);
+  const [hoveredSlideElement, setHoveredSlideElement] = useState<BridgeMessage | null>(null);
+
+  const clearSlideSelection = () => {
+    slideIframeRef.current?.contentWindow?.postMessage(
+      { source: "microsite-host", type: "deselect" },
+      "*",
+    );
+    setSelectedSlideElement(null);
+    setHoveredSlideElement(null);
+  };
+
   // ── History helpers ───────────────────────────────────────────────────────
   // Push a new HTML snapshot onto the stack. Any forward history is discarded
   // (same behaviour as every text editor: a new edit after undo clears redo).
@@ -715,6 +874,28 @@ export default function SuperClientPage() {
     setEditHistory([html]);
     setEditHistoryIndex(0);
     setSavedHistoryIndex(0); // opening state counts as already "saved"
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Slide history helpers ─────────────────────────────────────────────────
+  function pushSlideHistory(html: string) {
+    slideCurrentHtmlRef.current = html;
+    applySlideHtml(html); // update srcDoc in-place, preserving scroll
+    setSlideEditHistory((prev) => {
+      const base = prev.slice(0, slideEditHistoryIndex + 1);
+      const next = [...base, html];
+      return next.length > MAX_SLIDE_HISTORY
+        ? next.slice(next.length - MAX_SLIDE_HISTORY)
+        : next;
+    });
+    setSlideEditHistoryIndex((prev) => Math.min(prev + 1, MAX_SLIDE_HISTORY - 1));
+  }
+
+  function seedSlideHistory(html: string) {
+    slideCurrentHtmlRef.current = html;
+    setSlideEditHistory([html]);
+    setSlideEditHistoryIndex(0);
+    setSlideEditSavedHistoryIndex(0);
   }
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -819,6 +1000,11 @@ export default function SuperClientPage() {
   const msMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const propMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const docMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [hoveredSlideId, setHoveredSlideId] = useState<string | null>(null);
+  const [menuSlideId, setMenuSlideId] = useState<string | null>(null);
+  const [menuSlidePos, setMenuSlidePos] = useState({ top: 0, right: 0 });
+  const [confirmDeleteSlide, setConfirmDeleteSlide] = useState<string | null>(null);
+  const slideMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const [generations, setGenerations] = useState<Generation[]>([]);
   const localGenIdsRef = useRef<Set<string>>(new Set());
@@ -826,6 +1012,9 @@ export default function SuperClientPage() {
     new Set(),
   );
   const [updateBanner, setUpdateBanner] = useState("");
+  const [documentStripVisible, setDocumentStripVisible] = useState(true);
+  const [changedDocSections, setChangedDocSections] = useState<Set<string>>(new Set());
+  const [updateDocBanner, setUpdateDocBanner] = useState("");
 
   const [composerStage, setComposerStage] = useState<
     null | "select-proposal" | "configure"
@@ -1102,11 +1291,27 @@ export default function SuperClientPage() {
       .catch(() => {});
   }, [name, apiKey]);
 
+  const loadGeneratedDocs = useCallback(() => {
+    if (!name) return;
+    listGeneratedDocuments(apiKey, name)
+      .then(setGeneratedDocs)
+      .catch(() => {});
+  }, [name, apiKey]);
+
+  const loadSavedSlides = useCallback(() => {
+    if (!name) return;
+    listSlides(apiKey, name)
+      .then(setSavedSlides)
+      .catch(() => {});
+  }, [name, apiKey]);
+
   useEffect(() => {
     loadDocs();
     loadProposals();
     loadMicrosites();
-  }, [loadDocs, loadProposals, loadMicrosites]);
+    loadGeneratedDocs();
+    loadSavedSlides();
+  }, [loadDocs, loadProposals, loadMicrosites, loadGeneratedDocs, loadSavedSlides]);
 
   useEffect(() => {
     const hasProcessing = docs.some((d) => d.status === "processing");
@@ -1162,7 +1367,7 @@ export default function SuperClientPage() {
     ]);
   }, [docs]);
 
-  // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo for microsite editor
+  // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo for microsite & slide editors
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
@@ -1170,18 +1375,24 @@ export default function SuperClientPage() {
       if (e.key === "z" && !e.shiftKey) {
         if (canUndo) {
           e.preventDefault();
-          handleMicrositeRevert(); // instant, not async
+          handleMicrositeRevert();
+        } else if (canSlideUndo) {
+          e.preventDefault();
+          handleSlideRevert();
         }
       } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
         if (canRedo) {
           e.preventDefault();
-          handleMicrositeRedo(); // instant, not async
+          handleMicrositeRedo();
+        } else if (canSlideRedo) {
+          e.preventDefault();
+          handleSlideRedo();
         }
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canUndo, canRedo]);
+  }, [canUndo, canRedo, canSlideUndo, canSlideRedo]);
 
   // Reset strip visibility when a new microsite/proposal is opened
   useEffect(() => {
@@ -1193,6 +1404,20 @@ export default function SuperClientPage() {
     if (viewingProposal) setProposalStripVisible(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingProposal?.fileName]);
+
+  useEffect(() => {
+    if (viewingDocument) setDocumentStripVisible(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingDocument?.id]);
+
+  useEffect(() => {
+    if (viewingSlide) {
+      setSlideStripVisible(true);
+      // Auto-focus the composer textarea so the user can type immediately
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingSlide?.id]);
 
   useEffect(() => {
     if (!editModeActive) return;
@@ -1213,6 +1438,25 @@ export default function SuperClientPage() {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [editModeActive]);
+
+  // Slide smart-edit bridge messages — mirrors microsite but scoped to the slide iframe.
+  useEffect(() => {
+    if (!slideEditModeActive) return;
+    function onMessage(e: MessageEvent) {
+      // Only handle messages from the slide iframe window
+      if (slideIframeRef.current && e.source !== slideIframeRef.current.contentWindow) return;
+      const msg = e.data as BridgeMessage;
+      if (!msg || msg.source !== "microsite-bridge") return;
+      if (msg.type === "hover") setHoveredSlideElement(msg);
+      else if (msg.type === "leave") setHoveredSlideElement(null);
+      else if (msg.type === "track-update" && msg.rect) {
+        setSelectedSlideElement((prev) => prev ? { ...prev, rect: msg.rect } : prev);
+        setHoveredSlideElement((prev) => prev ? { ...prev, rect: msg.rect } : prev);
+      } else if (msg.type === "select") setSelectedSlideElement(msg);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [slideEditModeActive]);
 
   // Background iframe signals when it has loaded and set scroll — swap slots instantly.
   useEffect(() => {
@@ -1478,6 +1722,44 @@ export default function SuperClientPage() {
     }
   }
 
+  async function handleDeleteGenDoc(id: string) {
+    if (!name) return;
+    try {
+      await deleteGeneratedDocument(apiKey, name, id);
+      setGeneratedDocs((prev) => prev.filter((d) => d.id !== id));
+    } catch (err) {
+      console.error("Delete generated document failed", err);
+    }
+  }
+
+  async function handleDeleteSlide(id: string) {
+    if (!name) return;
+    try {
+      await deleteSlide(apiKey, name, id);
+      setSavedSlides((prev) => prev.filter((s) => s.id !== id));
+      if (viewingSlide?.id === id) setViewingSlide(null);
+    } catch (err) {
+      console.error("Delete slide failed", err);
+    }
+  }
+
+  async function openDocument(doc: GeneratedDocument) {
+    if (!name) return;
+    setViewingDocument({ id: doc.id, title: doc.title, documentType: doc.documentType, content: "" });
+    setViewingProposal(null);
+    setViewingMicrosite(null);
+    setViewingSlide(null);
+    setActiveRightTab("artifacts");
+    collapseForPanel();
+    try {
+      const content = await getGeneratedDocumentContent(apiKey, name, doc.id);
+      setViewingDocument({ id: doc.id, title: doc.title, documentType: doc.documentType, content });
+    } catch (err) {
+      setViewingDocument(null);
+      showToast(`Failed to load document: ${(err as Error).message}`, "error");
+    }
+  }
+
   async function handleDownloadPresentationPDF() {
     if (!viewingMicrosite || !apiKey) return;
     setPdfDownloading(true);
@@ -1544,6 +1826,21 @@ export default function SuperClientPage() {
       setActiveSlot(next);
     }, 2000);
     setBackSrcDoc(srcDoc);
+  }
+
+  // Mirror of applyEditHtml for slides: captures scroll, injects restore script, sets srcDoc.
+  function applySlideHtml(html: string, withBridge?: boolean) {
+    const useBridge = withBridge ?? slideEditModeActive;
+    // Strip any stale injections, then optionally re-inject bridge script
+    const clean = stripPreviewInjections(html);
+    const bridged = useBridge ? injectBridgeScript(clean) : clean;
+    const y = Math.round(slideIframeRef.current?.contentWindow?.scrollY ?? 0);
+    const script = `<script id="__scroll-restore">(function(){var y=${y};function r(){if(y>0){document.documentElement.style.scrollBehavior='auto';document.body&&(document.body.style.scrollBehavior='auto');window.scrollTo(0,y);}}r();requestAnimationFrame(function(){if(y>0){var n=0;function t(){r();if(++n<5)setTimeout(t,80);}setTimeout(t,30);}});})();<\/script>`;
+    const bodyClose = bridged.lastIndexOf('</body>');
+    const srcDoc = bodyClose !== -1
+      ? bridged.slice(0, bodyClose) + script + bridged.slice(bodyClose)
+      : bridged + script;
+    setSlideSrcDoc(srcDoc);
   }
 
   async function handleMicrositeEdit() {
@@ -1727,9 +2024,18 @@ export default function SuperClientPage() {
       setMicrositeEditBanner("Microsite updated");
       setTimeout(() => setMicrositeEditBanner(""), 4000);
 
-      // Save assistant confirmation to chat
+      // Save assistant confirmation to chat.
+      // editSummary can be the raw LLM instruction echoed back — only show it
+      // when it looks like a clean human-readable label (deterministic ops return
+      // short phrases like "Text updated"; LLM fallbacks return the raw instruction).
       const successAt = new Date().toISOString();
-      const successContent = editSummary || `Updated microsite`;
+      const isFriendlySummary =
+        editSummary.length > 0 &&
+        editSummary.length <= 80 &&
+        !/^[<#_]|__/.test(editSummary);
+      const successContent = isFriendlySummary
+        ? editSummary
+        : `Microsite updated`;
       setMessages((prev) => [
         ...prev,
         {
@@ -1971,6 +2277,77 @@ export default function SuperClientPage() {
     );
   }
 
+  // ── Slide InlineEditPanel handlers ───────────────────────────────────────
+  async function applySlideInstruction(instruction: string, banner: string) {
+    if (!viewingSlide || slideEditing) return;
+    setSlideEditing(true);
+    setSlideEditBanner('');
+    try {
+      const { html: newHtml } = await editSuperClientSlide(
+        apiKey, name ?? '', viewingSlide.id, instruction, slideCurrentHtmlRef.current ?? undefined
+      );
+      pushSlideHistory(newHtml);
+      setSlideEditBanner(banner);
+      setTimeout(() => setSlideEditBanner(''), 4000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Edit failed';
+      setSlideEditBanner(`Error: ${msg}`);
+      setTimeout(() => setSlideEditBanner(''), 8000);
+    } finally {
+      setSlideEditing(false);
+    }
+  }
+
+  const slideHint = () => selectedSlideElement?.outerHtml?.slice(0, 400) ?? '';
+
+  async function handleSlideStylePatch(prop: string, value: string) {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__STYLE_PATCH__:${selectedSlideElement.path}||${prop}||${value}||${slideHint()}`, `${prop} updated`);
+  }
+  async function handleSlideTextPatch(newText: string) {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__TEXT_PATCH__:${selectedSlideElement.path}||${newText}||${slideHint()}`, 'Text updated');
+  }
+  async function handleSlideImageReplace(url: string) {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__IMAGE_INJECT_SCOPED__:${selectedSlideElement.path}||${url}||${slideHint()}`, 'Image replaced');
+  }
+  async function handleSlideBgImagePatch(url: string) {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__BG_IMAGE_PATCH__:${selectedSlideElement.path}||${url}||${slideHint()}`, 'Background image updated');
+  }
+  async function handleSlideRemoveSection() {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__REMOVE_BY_PATH__:${selectedSlideElement.path}||${slideHint()}`, 'Removed');
+    clearSlideSelection();
+  }
+  async function handleSlideRemoveSectionContainer() {
+    if (!selectedSlideElement) return;
+    const sectionM = selectedSlideElement.path?.match(/\b(section#[\w-]+)/);
+    if (sectionM) {
+      await applySlideInstruction(`__REMOVE_BY_PATH__:${sectionM[1]}`, 'Section removed');
+    } else if (selectedSlideElement.sectionType) {
+      await applySlideInstruction(`__REMOVE_BY_PATH__:section#${selectedSlideElement.sectionType}`, 'Section removed');
+    }
+    clearSlideSelection();
+  }
+  // Unused for slides but required by InlineEditPanel prop types
+  const handleSlideLogoReplace = async (url: string) => {
+    await applySlideInstruction(`__IMAGE_INJECT_SCOPED__:${selectedSlideElement?.path ?? ''}||${url}||${slideHint()}`, 'Image replaced');
+  };
+  const handleSlideVideoReplace = async (url: string) => {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__VIDEO_INJECT__:${selectedSlideElement.path}||${url}||${slideHint()}`, 'Video updated');
+  };
+  const handleSlideIconReplace = async (url: string) => {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__ICON_REPLACE__:${selectedSlideElement.path}||${url}||${slideHint()}`, 'Icon replaced');
+  };
+  const handleSlideSvgReplace = async (svgMarkup: string) => {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__SVG_REPLACE__:${selectedSlideElement.path}||${svgMarkup}`, 'Icon replaced');
+  };
+
   // Instant client-side undo — no server round-trip, no loading spinner.
   // Silently syncs to server in the background so hard-refresh shows undone state.
   function handleMicrositeRevert() {
@@ -2100,6 +2477,132 @@ export default function SuperClientPage() {
     window.addEventListener("mouseup", onMouseUp);
   }
 
+  // ── Slide edit handlers ───────────────────────────────────────────────────
+  async function handleSlideEdit() {
+    if (!viewingSlide || !slideEditInput.trim() || slideEditing) return;
+    const instruction = buildInstruction(selectedSlideElement, slideEditInput.trim());
+    clearSlideSelection();
+    const slideTitle = viewingSlide.title;
+    const now = new Date().toISOString();
+    const userMsgId = genId();
+    const assistantMsgId = genId();
+
+    setMessages((prev) => [
+      ...prev,
+      { id: userMsgId, role: 'user', content: slideEditInput.trim(), createdAt: now, editContext: 'slide' as const },
+    ]);
+    setSlideEditing(true);
+    setSlideEditBanner('');
+    setSlideEditInput('');
+    try {
+      const { html: newHtml, summary } = await editSuperClientSlide(
+        apiKey,
+        name ?? '',
+        viewingSlide.id,
+        instruction,
+        slideCurrentHtmlRef.current ?? undefined,
+      );
+      pushSlideHistory(newHtml); // updates ref + bumps URL suffix
+      setSlideEditBanner(`Updated`);
+      setTimeout(() => setSlideEditBanner(''), 4000);
+
+      const successAt = new Date().toISOString();
+      const isFriendlySlipSummary =
+        !!summary && summary.length <= 80 && !/^[<#_]|__/.test(summary);
+      const successContent = isFriendlySlipSummary
+        ? summary
+        : `Presentation updated`;
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantMsgId, role: 'assistant', content: successContent, createdAt: successAt, editContext: 'slide' as const },
+      ]);
+      void appendSuperClientHistory(apiKey, name, [
+        { role: 'user', content: instruction, createdAt: now, editContext: 'slide' },
+        { role: 'assistant', content: successContent, createdAt: successAt, editContext: 'slide' },
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Edit failed';
+      setSlideEditBanner(`Error: ${msg}`);
+      setTimeout(() => setSlideEditBanner(''), 8000);
+      const errorAt = new Date().toISOString();
+      const errorContent = `Edit failed: ${msg}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantMsgId, role: 'assistant', content: errorContent, createdAt: errorAt, editContext: 'slide' as const },
+      ]);
+    } finally {
+      setSlideEditing(false);
+    }
+  }
+
+  function handleSlideRevert() {
+    if (!viewingSlide || slideEditing || !canSlideUndo) return;
+    const prevIndex = slideEditHistoryIndex - 1;
+    const prevHtml = slideEditHistory[prevIndex];
+    setSlideEditHistoryIndex(prevIndex);
+    slideCurrentHtmlRef.current = prevHtml;
+    applySlideHtml(prevHtml);
+    void patchSuperClientSlideHtml(apiKey, name ?? '', viewingSlide.id, prevHtml).catch(() => {});
+  }
+
+  function handleSlideRedo() {
+    if (!viewingSlide || slideEditing || !canSlideRedo) return;
+    const nextIndex = slideEditHistoryIndex + 1;
+    const nextHtml = slideEditHistory[nextIndex];
+    setSlideEditHistoryIndex(nextIndex);
+    slideCurrentHtmlRef.current = nextHtml;
+    applySlideHtml(nextHtml);
+    void patchSuperClientSlideHtml(apiKey, name ?? '', viewingSlide.id, nextHtml).catch(() => {});
+  }
+
+  async function handleSlideSave() {
+    if (!viewingSlide || slideEditing || !hasUnsavedSlideChanges) return;
+    const currentHtml = slideEditHistory[slideEditHistoryIndex];
+    if (!currentHtml) return;
+    setSlideEditing(true);
+    try {
+      await patchSuperClientSlideHtml(apiKey, name ?? '', viewingSlide.id, currentHtml);
+      setSlideEditSavedHistoryIndex(slideEditHistoryIndex);
+      setSlideEditBanner('Changes saved');
+      setTimeout(() => setSlideEditBanner(''), 3000);
+    } catch {
+      setSlideEditBanner('Save failed — try again');
+      setTimeout(() => setSlideEditBanner(''), 5000);
+    } finally {
+      setSlideEditing(false);
+    }
+  }
+
+  function handleSlideDragStart(e: React.MouseEvent) {
+    e.preventDefault();
+    slideDragRef.current = { startX: e.clientX, startWidth: chatPanelWidth };
+    setSlideDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!slideDragRef.current) return;
+      const containerWidth = splitContainerRef.current?.offsetWidth ?? window.innerWidth;
+      const maxChatWidth = containerWidth - 400;
+      const delta = ev.clientX - slideDragRef.current.startX;
+      const next = Math.max(CHAT_MIN_WIDTH, Math.min(maxChatWidth, slideDragRef.current.startWidth + delta));
+      setChatPanelWidth(next);
+    }
+
+    function onMouseUp() {
+      slideDragRef.current = null;
+      setSlideDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   function parseMarkdownSections(
     md: string,
   ): Array<{ heading: string; body: string }> {
@@ -2139,6 +2642,10 @@ export default function SuperClientPage() {
     /\b(generate|create|make|build|design)\b[^.?!]*\bmicrosite\b|\bmicrosite\b[^.?!]*\b(generate|create|make|build|design)\b/i;
   const PROPOSAL_INTENT_RE =
     /\b(generate|create|write|draft|make|build)\s+(a\s+)?proposal\b/i;
+  const SLIDE_INTENT_RE =
+    /\b(generate|create|make|build|design|write|draft)\b[^.?!\n]{0,40}\b(slides?|deck|pptx?|presentation)\b|\bpptx?\b|\bpitch\s+deck\b/i;
+  const DOCUMENT_INTENT_RE =
+    /\b(generate|create|write|draft|make|build)\b[^.?!\n]{0,60}\b(blog\s*post|white\s*paper|case\s*study|press\s*release|strategy|report|brief|document|doc|article|post|paragraph|summary|proposal\s*document|executive\s*report|okr|rfp|statement\s*of\s*work|pitch\s*document|meeting\s*summary|competitive\s*analysis|vendor\s*evaluation|technical\s*spec)\b/i;
 
   function dismissProposal() {
     // Abort any in-flight stream so the backend cannot save further changes
@@ -2147,6 +2654,84 @@ export default function SuperClientPage() {
     setChangedSections(new Set());
     setUpdateBanner("");
     restoreSidebar();
+  }
+
+  function dismissDocument() {
+    setViewingDocument(null);
+    setShowDocExportMenu(false);
+    setChangedDocSections(new Set());
+    setUpdateDocBanner("");
+    restoreSidebar();
+  }
+
+  function stripMarkdown(md: string): string {
+    return md
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/^\|[-:| ]+\|$/gm, '')
+      .replace(/^\|(.+)\|$/gm, (_m, inner) =>
+        inner.split('|').map((c: string) => c.trim()).filter(Boolean).join('  ')
+      )
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*(.+?)\*\*/gs, '$1')
+      .replace(/\*(.+?)\*/gs, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/!\[.*?\]\(.*?\)/g, '')
+      .replace(/\[(.+?)\]\(.*?\)/gs, '$1')
+      .replace(/^[-*+]\s+/gm, '• ')
+      .replace(/^>\s*/gm, '')
+      .replace(/^---+$/gm, '———')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  async function handleDocumentExport(fmt: 'pdf' | 'docx' | 'rtf' | 'md' | 'txt') {
+    const docRef = viewingDocument ?? lastDocumentRef.current;
+    if (!docRef?.content) return;
+    setShowDocExportMenu(false);
+
+    const safeName = (docRef.title || 'document')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .slice(0, 60);
+
+    function triggerBlob(blob: Blob, filename: string) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    if (fmt === 'md') {
+      triggerBlob(new Blob([docRef.content], { type: 'text/markdown;charset=utf-8' }), `${safeName}.md`);
+      return;
+    }
+
+    if (fmt === 'txt') {
+      triggerBlob(new Blob([stripMarkdown(docRef.content)], { type: 'text/plain;charset=utf-8' }), `${safeName}.txt`);
+      return;
+    }
+
+    // Server-side: PDF (Puppeteer), DOCX (docx package), RTF (pure string)
+    const EXT: Record<string, string> = { pdf: 'pdf', docx: 'docx', rtf: 'rtf' };
+    const ext = EXT[fmt] ?? 'pdf';
+    setDocExportLoading(true);
+    try {
+      const params = new URLSearchParams({ format: fmt });
+      if (apiKey) params.set('token', apiKey);
+      const res = await fetch(
+        `/api/super-clients/${encodeURIComponent(name ?? '')}/generated-documents/${encodeURIComponent(docRef.id)}/export?${params.toString()}`,
+      );
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      triggerBlob(blob, `${safeName}.${ext}`);
+    } catch (err) {
+      console.error(`Document ${fmt.toUpperCase()} export failed:`, err);
+      showToast(`${fmt.toUpperCase()} export failed — please try again`);
+    } finally {
+      setDocExportLoading(false);
+    }
   }
 
   function dismissMicrosite() {
@@ -2163,6 +2748,77 @@ export default function SuperClientPage() {
     setShowEditingLogoUrlInput(false);
     setEditModeActive(false);
     clearBridgeSelection();
+  }
+
+  function dismissSlide() {
+    setViewingSlide(null);
+    setShowSlideExportMenu(false);
+    setSlideEditInput('');
+    setSlideEditBanner('');
+    slideCurrentHtmlRef.current = null;
+    setSlideSrcDoc('');
+    setSlideEditHistory([]);
+    setSlideEditHistoryIndex(-1);
+    setSlideEditSavedHistoryIndex(-1);
+    setSlideEditModeActive(false);
+    setSelectedSlideElement(null);
+    setHoveredSlideElement(null);
+    restoreSidebar();
+  }
+
+  async function handleSlideExport(fmt: 'pdf' | 'pptx') {
+    const slideRef = viewingSlide ?? lastSlideRef.current;
+    if (!slideRef || !name) return;
+    setShowSlideExportMenu(false);
+    setSlideExportLoading(fmt);
+    setSlideExportMsg('Loading…');
+    try {
+      const slideParams = new URLSearchParams();
+      if (apiKey) slideParams.set('token', apiKey);
+      const htmlRes = await fetch(
+        `/api/super-clients/${encodeURIComponent(name)}/slides/${encodeURIComponent(slideRef.id)}?${slideParams.toString()}`,
+      );
+      if (!htmlRes.ok) throw new Error('Could not fetch slide HTML');
+      const html = await htmlRes.text();
+
+      const { downloadHtmlSlidePdf, downloadHtmlSlidePptx } = await import('@/lib/html-slide-export');
+      const title = slideRef.title || 'Presentation';
+      const progress = (_pct: number, msg: string) => setSlideExportMsg(msg);
+
+      if (fmt === 'pdf') {
+        await downloadHtmlSlidePdf(html, title, progress);
+      } else {
+        await downloadHtmlSlidePptx(html, title, progress);
+      }
+    } catch (err) {
+      console.error('Slide export failed:', err);
+      showToast('Export failed — please try again');
+    } finally {
+      setSlideExportLoading(null);
+      setSlideExportMsg('');
+    }
+  }
+
+  function openSlide(slide: SavedSlide) {
+    const bg = typeof window !== 'undefined'
+      ? getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+      : undefined;
+    setViewingSlide({
+      id: slide.id,
+      url: getSlideHtmlUrl(name, slide.id, apiKey ?? undefined, bg || undefined),
+      title: slide.title,
+    });
+    setSlideStripVisible(true);
+    setActiveRightTab("artifacts");
+    collapseForPanel();
+    // Fetch initial HTML to seed undo history and drive the srcDoc iframe
+    setSlideSrcDoc(''); // blank while loading
+    const params = new URLSearchParams();
+    if (apiKey) params.set('token', apiKey);
+    fetch(`/api/super-clients/${encodeURIComponent(name ?? '')}/slides/${encodeURIComponent(slide.id)}?${params.toString()}`)
+      .then((r) => r.ok ? r.text() : Promise.reject(r.status))
+      .then((html) => { seedSlideHistory(html); setSlideSrcDoc(html); })
+      .catch(() => {});
   }
 
   function resetComposer() {
@@ -2881,9 +3537,40 @@ export default function SuperClientPage() {
       return;
     }
 
-    // Start a proposal generation entry in the store so the capsule shows in chat
+    // Detect intent and compose a planning message synchronously — no server
+    // round-trip, so the text appears the moment the user hits send.
     let proposalGenId: string | null = null;
-    if (PROPOSAL_INTENT_RE.test(text)) {
+    let slideGenId: string | null = null;
+    let documentGenId: string | null = null;
+    let docCharCount = 0;
+    let docFirstChunk = true;
+    let slideCharCount = 0;
+    let slideFirstChunk = true;
+    // Keep planning text visible for slides — chunks are raw HTML, not displayable.
+    let suppressChunkContent = false;
+
+    const clientLabel = meta?.displayName ?? name;
+    let planningContent = "";
+
+    if (SLIDE_INTENT_RE.test(text)) {
+      const countMatch = text.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
+      const count = countMatch ? countMatch[1] : null;
+      planningContent = count
+        ? `Building a ${count}-slide presentation for ${clientLabel}…`
+        : `Building a presentation for ${clientLabel}…`;
+      slideGenId = genId();
+      suppressChunkContent = true;
+      generationStore.start({
+        id: slideGenId,
+        clientSlug: name,
+        type: "slide",
+        title: "Presentation",
+        abort: () => abortRef.current?.abort(),
+      });
+      generationStore.addStep(slideGenId, "Reading client context…");
+      localGenIdsRef.current.add(slideGenId);
+    } else if (PROPOSAL_INTENT_RE.test(text)) {
+      planningContent = `Drafting a proposal for ${clientLabel}…`;
       proposalGenId = genId();
       generationStore.start({
         id: proposalGenId,
@@ -2893,6 +3580,21 @@ export default function SuperClientPage() {
         abort: () => abortRef.current?.abort(),
       });
       localGenIdsRef.current.add(proposalGenId);
+    } else if (DOCUMENT_INTENT_RE.test(text)) {
+      const docTypeMatch = text.match(/\b(blog\s*post|white\s*paper|case\s*study|press\s*release|strategy\s*\w*|report|brief|article|summary|paragraph|okr|rfp|statement\s*of\s*work|pitch\s*document|meeting\s*summary|competitive\s*analysis|vendor\s*evaluation|technical\s*spec)\b/i);
+      const docTypeHint = docTypeMatch ? docTypeMatch[1].toLowerCase() : 'document';
+      planningContent = `Creating a ${docTypeHint} for ${clientLabel}…`;
+      documentGenId = genId();
+      suppressChunkContent = true;
+      generationStore.start({
+        id: documentGenId,
+        clientSlug: name,
+        type: "document",
+        title: "Document",
+        abort: () => abortRef.current?.abort(),
+      });
+      generationStore.addStep(documentGenId, "Reading client context…");
+      localGenIdsRef.current.add(documentGenId);
     }
 
     const now = new Date().toISOString();
@@ -2901,17 +3603,17 @@ export default function SuperClientPage() {
       role: "user",
       content: text,
       createdAt: now,
-      ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
+      ...(proposalEditActive ? { editContext: "proposal" as const } : documentEditActive ? { editContext: "document" as const, documentType: viewingDocument?.documentType } : {}),
     };
     const assistantMsgId = genId();
     const assistantMsg: Message = {
       id: assistantMsgId,
       role: "assistant",
-      content: "",
+      content: planningContent,
       streaming: true,
       createdAt: now,
-      ...(proposalGenId ? { generationId: proposalGenId } : {}),
-      ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
+      ...(proposalGenId ? { generationId: proposalGenId } : slideGenId ? { generationId: slideGenId } : documentGenId ? { generationId: documentGenId } : {}),
+      ...(proposalEditActive ? { editContext: "proposal" as const } : documentEditActive ? { editContext: "document" as const } : {}),
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -2926,14 +3628,96 @@ export default function SuperClientPage() {
         name,
         text,
         (evt: SuperClientChatEvent) => {
-          if (evt.type === "chunk" && evt.text) {
+          if (evt.type === "planning" && evt.text) {
+            // Server confirmed what's being generated — refine planning text with
+            // server-side context (e.g. better client display name).
+            // If the intent regex already created a card, just update the text.
+            // If it didn't (regex missed), create the card now as a fallback.
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantMsgId
-                  ? { ...m, content: m.content + evt.text }
-                  : m,
+                m.id === assistantMsgId ? { ...m, content: evt.text! } : m,
               ),
             );
+
+            if (!slideGenId && !proposalGenId && !documentGenId) {
+              if (evt.artifactType === "slide") {
+                slideGenId = genId();
+                suppressChunkContent = true;
+                generationStore.start({
+                  id: slideGenId,
+                  clientSlug: name,
+                  type: "slide",
+                  title: "Presentation",
+                  abort: () => abortRef.current?.abort(),
+                });
+                generationStore.addStep(slideGenId, "Reading client context…");
+                localGenIdsRef.current.add(slideGenId);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, generationId: slideGenId! } : m,
+                  ),
+                );
+              } else if (evt.artifactType === "proposal") {
+                proposalGenId = genId();
+                generationStore.start({
+                  id: proposalGenId,
+                  clientSlug: name,
+                  type: "proposal",
+                  title: "Proposal",
+                  abort: () => abortRef.current?.abort(),
+                });
+                localGenIdsRef.current.add(proposalGenId);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, generationId: proposalGenId! } : m,
+                  ),
+                );
+              } else if (evt.artifactType === "document") {
+                documentGenId = genId();
+                suppressChunkContent = true;
+                generationStore.start({
+                  id: documentGenId,
+                  clientSlug: name,
+                  type: "document",
+                  title: "Document",
+                  abort: () => abortRef.current?.abort(),
+                });
+                generationStore.addStep(documentGenId, "Reading client context…");
+                localGenIdsRef.current.add(documentGenId);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, generationId: documentGenId! } : m,
+                  ),
+                );
+              }
+            }
+          }
+          if (evt.type === "chunk" && evt.text) {
+            if (!suppressChunkContent) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, content: m.content + evt.text }
+                    : m,
+                ),
+              );
+            }
+            if (documentGenId) {
+              docCharCount += evt.text.length;
+              generationStore.updateChars(documentGenId, docCharCount);
+              if (docFirstChunk) {
+                docFirstChunk = false;
+                generationStore.addStep(documentGenId, "Writing content…");
+              }
+            }
+            if (slideGenId) {
+              slideCharCount += evt.text.length;
+              generationStore.updateChars(slideGenId, slideCharCount);
+              if (slideFirstChunk) {
+                slideFirstChunk = false;
+                generationStore.addStep(slideGenId, "Rendering slides…");
+              }
+            }
           }
           if (evt.type === "done") {
             setMessages((prev) =>
@@ -2947,9 +3731,10 @@ export default function SuperClientPage() {
                   : m,
               ),
             );
-            if (evt.proposalSaved) {
-              // If the proposal intent regex didn't match, retroactively attach a generation
-              // entry to the assistant message so the ArtifactCard appears in the chat.
+            if (evt.proposalSaved && !evt.slideSaved) {
+              // Only show a proposal card when slides weren't also generated.
+              // If slideSaved is also present the user asked for a presentation —
+              // update the proposals list silently and let the slide card win.
               let effectiveGenId = proposalGenId;
               if (!effectiveGenId) {
                 effectiveGenId = genId();
@@ -2975,16 +3760,27 @@ export default function SuperClientPage() {
                 evt.proposalSaved.title,
               );
               setActiveRightTab("artifacts");
-              // Optimistic update so the artifacts tab is populated immediately
               setProposals((prev) => {
-                if (
-                  prev.some((p) => p.fileName === evt.proposalSaved!.fileName)
-                )
+                if (prev.some((p) => p.fileName === evt.proposalSaved!.fileName))
                   return prev;
                 return [evt.proposalSaved!, ...prev];
               });
-              loadProposals(); // sync with server
+              loadProposals();
               void openProposal(evt.proposalSaved!);
+            } else if (evt.proposalSaved && evt.slideSaved) {
+              // Slides take the card — update proposals list silently, dismiss any early card
+              setProposals((prev) => {
+                if (prev.some((p) => p.fileName === evt.proposalSaved!.fileName))
+                  return prev;
+                return [evt.proposalSaved!, ...prev];
+              });
+              loadProposals();
+              if (proposalGenId) {
+                generationStore.dismiss(proposalGenId);
+                setMessages((prev) =>
+                  prev.filter((m) => m.generationId !== proposalGenId),
+                );
+              }
             } else if (proposalGenId) {
               // Proposal intent matched but LLM didn't generate one — remove the capsule
               generationStore.dismiss(proposalGenId);
@@ -3028,6 +3824,119 @@ export default function SuperClientPage() {
                 }
               })();
             }
+            if (evt.documentSaved) {
+              let effectiveDocGenId = documentGenId;
+              if (!effectiveDocGenId) {
+                effectiveDocGenId = genId();
+                generationStore.start({
+                  id: effectiveDocGenId,
+                  clientSlug: name,
+                  type: "document",
+                  title: evt.documentSaved.title,
+                  abort: () => {},
+                });
+                localGenIdsRef.current.add(effectiveDocGenId);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, generationId: effectiveDocGenId! }
+                      : m,
+                  ),
+                );
+              }
+              generationStore.addStep(effectiveDocGenId, "Saving document…");
+              generationStore.complete(
+                effectiveDocGenId,
+                {
+                  documentId: evt.documentSaved.id,
+                  documentType: evt.documentSaved.documentType,
+                  preferredFormat: evt.documentSaved.preferredFormat,
+                  downloadUrl: evt.documentSaved.downloadUrl,
+                },
+                evt.documentSaved.title,
+              );
+              setGeneratedDocs((prev) =>
+                prev.some((d) => d.id === evt.documentSaved!.id)
+                  ? prev
+                  : [evt.documentSaved!, ...prev],
+              );
+              loadGeneratedDocs();
+              void openDocument(evt.documentSaved);
+            } else if (documentGenId) {
+              generationStore.dismiss(documentGenId);
+              setMessages((prev) =>
+                prev.filter((m) => m.generationId !== documentGenId),
+              );
+            }
+            if (evt.slideSaved) {
+              let effectiveSlideGenId = slideGenId;
+              if (!effectiveSlideGenId) {
+                // Retroactive: intent regex didn't match, create a card now
+                effectiveSlideGenId = genId();
+                generationStore.start({
+                  id: effectiveSlideGenId,
+                  clientSlug: name,
+                  type: "slide",
+                  title: evt.slideSaved.title,
+                  abort: () => {},
+                });
+                localGenIdsRef.current.add(effectiveSlideGenId);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, generationId: effectiveSlideGenId! }
+                      : m,
+                  ),
+                );
+              }
+              generationStore.addStep(effectiveSlideGenId, "Saving presentation…");
+              generationStore.complete(
+                effectiveSlideGenId,
+                { slideId: evt.slideSaved.id },
+                evt.slideSaved.title,
+              );
+              setActiveRightTab("artifacts");
+              setSavedSlides((prev) =>
+                prev.some((s) => s.id === evt.slideSaved!.id)
+                  ? prev
+                  : [evt.slideSaved!, ...prev],
+              );
+              openSlide(evt.slideSaved);
+            } else if (slideGenId) {
+              // Intent matched but LLM didn't generate a presentation — remove the capsule
+              generationStore.dismiss(slideGenId);
+              setMessages((prev) =>
+                prev.filter((m) => m.generationId !== slideGenId),
+              );
+            }
+            if (evt.documentUpdated) {
+              setGeneratedDocs((prev) =>
+                prev.map((d) =>
+                  d.id === evt.documentUpdated!.id ? { ...d, ...evt.documentUpdated! } : d,
+                ),
+              );
+              void (async () => {
+                try {
+                  const newContent = await getGeneratedDocumentContent(
+                    apiKey,
+                    name,
+                    evt.documentUpdated!.id,
+                  );
+                  setViewingDocument((prev) => {
+                    if (!prev) return prev;
+                    const changed = diffSections(prev.content, newContent);
+                    setChangedDocSections(changed);
+                    const count = changed.size;
+                    setUpdateDocBanner(
+                      count === 1 ? "1 section updated" : `${count} sections updated`,
+                    );
+                    return { ...prev, content: newContent };
+                  });
+                } catch (err) {
+                  console.error("Failed to reload updated document", err);
+                }
+              })();
+            }
           }
           if (evt.type === "error") {
             setMessages((prev) =>
@@ -3045,6 +3954,7 @@ export default function SuperClientPage() {
         },
         abortRef.current.signal,
         viewingProposal ? viewingProposal.fileName : undefined,
+        viewingDocument ? viewingDocument.id : undefined,
       );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -3194,6 +4104,8 @@ export default function SuperClientPage() {
 
   const micrositeEditActive = !!(viewingMicrosite && micrositeStripVisible);
   const proposalEditActive = !!(viewingProposal && proposalStripVisible);
+  const documentEditActive = !!(viewingDocument && documentStripVisible);
+  const slideEditActive = !!(viewingSlide && slideStripVisible);
 
   return (
     <>
@@ -3207,7 +4119,7 @@ export default function SuperClientPage() {
             flex: 1,
             maxWidth: editModeActive
               ? CHAT_MIN_WIDTH
-              : viewingProposal || viewingMicrosite
+              : viewingProposal || viewingMicrosite || viewingDocument || viewingSlide
                 ? chatPanelWidth
                 : "100%",
             display: "flex",
@@ -3236,10 +4148,11 @@ export default function SuperClientPage() {
                 onClick={() => {
                   if (viewingMicrosite) dismissMicrosite();
                   else if (viewingProposal) dismissProposal();
+                  else if (viewingDocument) dismissDocument();
                   else setRightPanelOpen((v) => !v);
                 }}
                 title={
-                  viewingMicrosite || viewingProposal
+                  viewingMicrosite || viewingProposal || viewingDocument
                     ? "Close panel"
                     : rightPanelOpen
                       ? "Hide panel"
@@ -3248,7 +4161,7 @@ export default function SuperClientPage() {
               >
                 <Icon
                   icon={
-                    viewingMicrosite || viewingProposal
+                    viewingMicrosite || viewingProposal || viewingDocument
                       ? ChevronRight
                       : rightPanelOpen
                         ? ChevronRight
@@ -3310,14 +4223,24 @@ export default function SuperClientPage() {
                     }
                     if (
                       msg.editContext === "microsite" ||
-                      msg.editContext === "proposal"
+                      msg.editContext === "proposal" ||
+                      msg.editContext === "document" ||
+                      msg.editContext === "slide"
                     ) {
                       const EyebrowIcon =
-                        msg.editContext === "microsite" ? Globe : FileText;
+                        msg.editContext === "microsite"
+                          ? Globe
+                          : msg.editContext === "slide"
+                            ? Presentation
+                            : FileText;
                       const eyebrowLabel =
                         msg.editContext === "microsite"
                           ? "Edit microsite"
-                          : "Edit proposal";
+                          : msg.editContext === "slide"
+                            ? "Edit presentation"
+                            : msg.editContext === "document"
+                              ? `Edit ${msg.documentType ? docTypeLabel(msg.documentType) : 'document'}`
+                              : "Edit proposal";
                       return (
                         <div
                           key={msg.id}
@@ -3364,9 +4287,15 @@ export default function SuperClientPage() {
                     );
                   }
 
-                  // Microsite edit confirmation — eyebrow above normal assistant bubble
-                  if (msg.editContext === "microsite") {
+                  // Microsite / slide edit confirmation — eyebrow above normal assistant bubble
+                  if (msg.editContext === "microsite" || msg.editContext === "slide") {
+                    const isSlideEdit = msg.editContext === "slide";
                     const isError = visibleContent.startsWith("Edit failed");
+                    const doneLabel = isError
+                      ? "Edit failed"
+                      : isSlideEdit
+                        ? "Presentation updated"
+                        : "Microsite updated";
                     return (
                       <div
                         key={msg.id}
@@ -3396,7 +4325,7 @@ export default function SuperClientPage() {
                               color: isError ? "#ef4444" : "#22c55e",
                             }}
                           >
-                            {isError ? "Edit failed" : "Microsite updated"}
+                            {doneLabel}
                           </span>
                         </div>
                         <div className="chat-v2-message chat-v2-message--assistant">
@@ -3414,8 +4343,8 @@ export default function SuperClientPage() {
                   }
 
                   // Assistant message — column wrapper needed to stack bubble + artifact card
-                  const isProposalDone =
-                    msg.editContext === "proposal" &&
+                  const isEditDone =
+                    (msg.editContext === "proposal" || msg.editContext === "document") &&
                     !msg.streaming &&
                     /\b(updated|changed|saved|applied|modified|revised|replaced|rewritten|regenerated)\b/i.test(
                       visibleContent,
@@ -3423,6 +4352,7 @@ export default function SuperClientPage() {
                     !/\?|for example[:\s]|what (would|do|changes)|give me (the )?direction|let me know|tell me|could you|can you/i.test(
                       visibleContent,
                     );
+                  const isProposalDone = isEditDone;
                   return (
                     <div
                       key={msg.id}
@@ -3508,7 +4438,7 @@ export default function SuperClientPage() {
                                       {visibleContent}
                                     </ReactMarkdown>
                                   </div>
-                                  {msg.streaming && (
+                                  {msg.streaming && !msg.generationId && (
                                     <span className="chat-cursor" />
                                   )}
                                 </>
@@ -3573,6 +4503,28 @@ export default function SuperClientPage() {
                                     title: gen.title,
                                     savedAt: "",
                                   });
+                                } else if (
+                                  gen.type === "document" &&
+                                  gen.result?.documentId
+                                ) {
+                                  const found = generatedDocs.find(
+                                    (d) => d.id === gen.result!.documentId,
+                                  );
+                                  if (found) {
+                                    void openDocument(found);
+                                  }
+                                } else if (
+                                  gen.type === "slide" &&
+                                  gen.result?.slideId
+                                ) {
+                                  const found = savedSlides.find(
+                                    (s) => s.id === gen.result!.slideId,
+                                  );
+                                  if (found) {
+                                    openSlide(found);
+                                  } else {
+                                    openSlide({ id: gen.result.slideId, title: gen.title, client: name, slideCount: 0, savedAt: "" });
+                                  }
                                 }
                               }}
                             />
@@ -4324,6 +5276,64 @@ export default function SuperClientPage() {
             {/* Textarea row — hidden while composer expansion is active */}
             {!composerStage && (
               <>
+                {/* Document editing strip */}
+                {viewingDocument && documentStripVisible && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "0 10px 0 14px",
+                      height: 44,
+                      borderRadius: "16px 16px 0 0",
+                      background:
+                        "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      marginBottom: -6,
+                      position: "relative",
+                      zIndex: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                      }}
+                    >
+                      <FileText size={16} style={{ flexShrink: 0 }} />
+                      {viewingDocument?.documentType ? `Edit ${docTypeLabel(viewingDocument.documentType)}` : 'Edit document'}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDocumentStripVisible(false);
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: 0,
+                        opacity: 0.6,
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity = "0.6";
+                      }}
+                      title="Dismiss"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
                 {/* Proposal editing strip — sits above composer, same as microsite strip */}
                 {viewingProposal && proposalStripVisible && (
                   <div
@@ -4453,6 +5463,108 @@ export default function SuperClientPage() {
                     </button>
                   </div>
                 )}
+                {/* Slide element selection strip — shows when element is targeted in smart edit mode */}
+                {viewingSlide && slideEditModeActive && selectedSlideElement && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "0 10px 0 14px",
+                      height: 44,
+                      borderRadius: "16px 16px 0 0",
+                      background: "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      marginBottom: -6,
+                      position: "relative",
+                      zIndex: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <Pencil size={16} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {selectedSlideElement.sectionType ? `${selectedSlideElement.sectionType} › ` : ""}
+                        {selectedSlideElement.label}
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => clearSlideSelection()}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "var(--primary)", display: "flex", alignItems: "center", padding: 0, opacity: 0.6, flexShrink: 0 }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "1"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.6"; }}
+                      title="Clear selection"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+                {/* Slide editing strip — hidden when smart edit mode has an element selected */}
+                {viewingSlide && slideStripVisible && !(slideEditModeActive && selectedSlideElement) && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "0 10px 0 14px",
+                      height: 44,
+                      borderRadius: "16px 16px 0 0",
+                      background:
+                        "color-mix(in srgb, var(--primary) 15%, var(--panel-soft))",
+                      marginBottom: -6,
+                      position: "relative",
+                      zIndex: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                      }}
+                    >
+                      <Presentation size={16} style={{ flexShrink: 0 }} />
+                      Edit presentation
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSlideStripVisible(false);
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--primary)",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: 0,
+                        opacity: 0.6,
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.opacity = "0.6";
+                      }}
+                      title="Dismiss"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
                 {/* Microsite editing strip — sits above composer with 4px sliding behind it */}
                 {viewingMicrosite &&
                   micrositeStripVisible &&
@@ -4522,7 +5634,7 @@ export default function SuperClientPage() {
                   style={{
                     position: "relative",
                     zIndex: 1,
-                    ...(viewingProposal || viewingMicrosite
+                    ...(viewingProposal || viewingMicrosite || viewingSlide
                       ? {
                           flexDirection: "column",
                           alignItems: "stretch",
@@ -4551,15 +5663,42 @@ export default function SuperClientPage() {
                         {micrositeEditBanner}
                       </span>
                     )}
+                  {/* Slide edit error banner */}
+                  {slideEditActive && slideEditBanner.startsWith("Error:") && (
+                    <span
+                      onClick={() => setSlideEditBanner("")}
+                      style={{
+                        display: "block",
+                        fontSize: 12,
+                        color: "var(--destructive, #ef4444)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        padding: "4px 12px 0",
+                        cursor: "pointer",
+                      }}
+                      title="Click to dismiss"
+                    >
+                      {slideEditBanner}
+                    </span>
+                  )}
                   {/* Textarea */}
                   <textarea
                     ref={textareaRef}
                     className="chat-v2-input"
-                    value={micrositeEditActive ? micrositeEditInput : input}
+                    value={
+                      micrositeEditActive
+                        ? micrositeEditInput
+                        : slideEditActive
+                          ? slideEditInput
+                          : input
+                    }
                     onChange={(e) =>
                       micrositeEditActive
                         ? setMicrositeEditInput(e.target.value)
-                        : setInput(e.target.value)
+                        : slideEditActive
+                          ? setSlideEditInput(e.target.value)
+                          : setInput(e.target.value)
                     }
                     onKeyDown={
                       micrositeEditActive
@@ -4569,7 +5708,14 @@ export default function SuperClientPage() {
                               void handleMicrositeEdit();
                             }
                           }
-                        : handleKeyDown
+                        : slideEditActive
+                          ? (e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                void handleSlideEdit();
+                              }
+                            }
+                          : handleKeyDown
                     }
                     placeholder={
                       micrositeEditActive && editModeActive && selectedElement
@@ -4580,11 +5726,27 @@ export default function SuperClientPage() {
                           ? editModeActive
                             ? "Tap an element to select it"
                             : "Describe your edit…"
-                          : proposalEditActive
-                            ? "Ask to edit this proposal…"
-                            : `Ask about ${meta.displayName}…`
+                          : slideEditActive && slideEditModeActive && selectedSlideElement
+                            ? selectedSlideElement.tag === "img"
+                              ? "Paste URL or describe the change…"
+                              : "Describe the edit…"
+                            : slideEditActive && slideEditModeActive
+                              ? "Tap an element to select it"
+                              : slideEditActive
+                                ? "Describe your edit to the presentation…"
+                                : proposalEditActive
+                                  ? "Ask to edit this proposal…"
+                                  : documentEditActive
+                                    ? "Ask to edit this document…"
+                                    : `Ask about ${meta.displayName}…`
                     }
-                    disabled={micrositeEditActive ? micrositeEditing : false}
+                    disabled={
+                      micrositeEditActive
+                        ? micrositeEditing
+                        : slideEditActive
+                          ? slideEditing
+                          : false
+                    }
                     rows={1}
                     onInput={(e) => {
                       const el = e.currentTarget;
@@ -4597,7 +5759,7 @@ export default function SuperClientPage() {
                   {/* Bottom bar: attach left, send right — same padding as textarea */}
                   <div className="chat-v2-composer-bottom">
                     {/* Attach (+) button */}
-                    {!micrositeEditActive ? (
+                    {!micrositeEditActive && !slideEditActive ? (
                       <div style={{ position: "relative", flexShrink: 0 }}>
                         <button
                           onClick={() => setAttachMenuOpen((v) => !v)}
@@ -4691,6 +5853,29 @@ export default function SuperClientPage() {
                     <div
                       style={{ display: "flex", alignItems: "center", gap: 6 }}
                     >
+                      {viewingDocument && (
+                        <button
+                          onClick={() => {
+                            setDocumentStripVisible(true);
+                            setTimeout(() => textareaRef.current?.focus(), 50);
+                          }}
+                          title="Edit document"
+                          className="theme-toggle"
+                          style={{
+                            background: documentEditActive
+                              ? "color-mix(in srgb, var(--primary) 12%, transparent)"
+                              : "transparent",
+                            border: "1px solid transparent",
+                            color: documentEditActive
+                              ? "var(--primary)"
+                              : undefined,
+                            transition:
+                              "background 0.15s, color 0.15s, border-color 0.15s",
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                       {viewingProposal && (
                         <button
                           onClick={() => setProposalStripVisible(true)}
@@ -4753,13 +5938,42 @@ export default function SuperClientPage() {
                           <Pencil size={16} />
                         </button>
                       )}
+                      {viewingSlide && (
+                        <button
+                          onClick={() => {
+                            const next = !slideEditModeActive;
+                            setSlideEditModeActive(next);
+                            setSlideStripVisible(true);
+                            if (!next) {
+                              clearSlideSelection();
+                            }
+                            const rawHtml = slideCurrentHtmlRef.current;
+                            if (rawHtml) applySlideHtml(rawHtml, next);
+                            setTimeout(() => textareaRef.current?.focus(), 50);
+                          }}
+                          title={slideEditModeActive ? "Exit smart edit mode" : "Smart edit — click any element to target it"}
+                          className="theme-toggle"
+                          style={{
+                            background: slideEditModeActive
+                              ? "color-mix(in srgb, var(--primary) 12%, transparent)"
+                              : "transparent",
+                            border: "1px solid transparent",
+                            color: slideEditModeActive ? "var(--primary)" : undefined,
+                            transition: "background 0.15s, color 0.15s, border-color 0.15s",
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                       {/* Send button */}
                       <button
                         className="chat-v2-send-btn"
                         onClick={() =>
                           micrositeEditActive
                             ? void handleMicrositeEdit()
-                            : void sendMessage()
+                            : slideEditActive
+                              ? void handleSlideEdit()
+                              : void sendMessage()
                         }
                         disabled={
                           micrositeEditActive
@@ -4767,18 +5981,22 @@ export default function SuperClientPage() {
                               (!micrositeEditInput.trim() &&
                                 !editingLogo &&
                                 !editingLogoUrl.trim())
-                            : streaming || !input.trim()
+                            : slideEditActive
+                              ? slideEditing || !slideEditInput.trim()
+                              : streaming || !input.trim()
                         }
                       >
                         <Icon
                           icon={
-                            micrositeEditActive && micrositeEditing
+                            (micrositeEditActive && micrositeEditing) ||
+                            (slideEditActive && slideEditing)
                               ? Loader
                               : ArrowUp
                           }
                           size="md"
                           style={
-                            micrositeEditActive && micrositeEditing
+                            (micrositeEditActive && micrositeEditing) ||
+                            (slideEditActive && slideEditing)
                               ? { animation: "spin 1s linear infinite" }
                               : undefined
                           }
@@ -4922,10 +6140,11 @@ export default function SuperClientPage() {
                 <button
                   className="chat-v2-back-btn sc-panel-back-btn"
                   onClick={dismissMicrosite}
-                  aria-label="Close microsite panel"
+                  aria-label="Close panel"
                 >
                   <ArrowLeft size={16} />
                 </button>
+                <>
                 <p
                   style={{
                     fontSize: 14,
@@ -5162,6 +6381,7 @@ export default function SuperClientPage() {
                     <X size={16} />
                   </button>
                 </div>
+                </>
               </div>
 
               {/* Microsite edit success banner */}
@@ -5524,7 +6744,7 @@ export default function SuperClientPage() {
               </div>
               <div
                 style={{
-                  padding: "14px 20px",
+                  padding: "10px 20px",
                   borderBottom: "1px solid var(--border)",
                   display: "flex",
                   alignItems: "center",
@@ -5540,21 +6760,48 @@ export default function SuperClientPage() {
                 >
                   <ArrowLeft size={16} />
                 </button>
-                <p
+                <span
                   style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--text)",
-                    margin: 0,
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: "hidden",
-                    whiteSpace: "nowrap",
-                    textOverflow: "ellipsis",
+                    flexShrink: 0,
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                    color: "var(--primary)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                 >
-                  {lastProposalRef.current!.title}
-                </p>
+                  <FileText size={13} strokeWidth={1.5} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "var(--primary)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      marginBottom: 1,
+                    }}
+                  >
+                    Proposal
+                  </div>
+                  <p
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "var(--text)",
+                      margin: 0,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {lastProposalRef.current!.title}
+                  </p>
+                </div>
                 <button
                   className="sc-panel-close-btn"
                   onClick={dismissProposal}
@@ -5565,6 +6812,7 @@ export default function SuperClientPage() {
                     color: "var(--muted)",
                     display: "flex",
                     padding: 4,
+                    flexShrink: 0,
                   }}
                 >
                   <X size={16} />
@@ -5632,6 +6880,691 @@ export default function SuperClientPage() {
           )}
         </div>
 
+        {/* Document slide-in panel */}
+        <div
+          className={`sc-viewer-panel${viewingDocument ? " sc-viewer-panel--open" : ""}`}
+          style={{
+            flexGrow: viewingDocument ? 1 : 0,
+            flexShrink: 0,
+            flexBasis: viewingDocument ? 0 : "auto",
+            width: viewingDocument ? undefined : 0,
+            minWidth: viewingDocument ? 400 : 0,
+            borderLeft: viewingDocument ? "1px solid var(--border)" : "none",
+            position: "relative",
+          }}
+        >
+          {(viewingDocument || lastDocumentRef.current) && (
+            <div
+              className="sc-viewer-panel-inner"
+              style={{ width: "100%" }}
+            >
+              {/* Drag handle */}
+              <div
+                onMouseDown={handleMicrositeDragStart}
+                onMouseEnter={() => setMicrositeDragHover(true)}
+                onMouseLeave={() => setMicrositeDragHover(false)}
+                title="Drag to resize"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 14,
+                  cursor: "col-resize",
+                  zIndex: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: micrositeDragging
+                    ? "color-mix(in srgb, var(--primary) 8%, transparent)"
+                    : micrositeDragHover
+                      ? "color-mix(in srgb, var(--border) 30%, transparent)"
+                      : "transparent",
+                  transition: "background 0.15s",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 3,
+                    transition: "opacity 0.15s, transform 0.15s",
+                    opacity: micrositeDragging || micrositeDragHover ? 1 : 0.4,
+                    transform: micrositeDragging ? "scaleX(1.2)" : "scaleX(1)",
+                  }}
+                >
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: micrositeDragging || micrositeDragHover ? 4 : 3,
+                        height: 4,
+                        borderRadius: "50%",
+                        background: micrositeDragging
+                          ? "var(--primary)"
+                          : "var(--muted-foreground, var(--muted))",
+                        transition: "width 0.15s, background 0.15s",
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              {/* Header */}
+              <div
+                style={{
+                  padding: "10px 20px 10px 20px",
+                  borderBottom: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                  gap: 8,
+                }}
+              >
+                <button
+                  className="chat-v2-back-btn sc-panel-back-btn"
+                  onClick={dismissDocument}
+                  aria-label="Close document panel"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <span
+                  style={{
+                    flexShrink: 0,
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                    color: "var(--primary)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <FileText size={13} strokeWidth={1.5} />
+                </span>
+                {/* Eyebrow + title stacked */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {(() => {
+                    const docRef = viewingDocument ?? lastDocumentRef.current;
+                    const typeLabel = docRef?.documentType
+                      ? docRef.documentType
+                          .split("-")
+                          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                          .join(" ")
+                      : null;
+                    return (
+                      <>
+                        {typeLabel && (
+                          <div
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: "var(--primary)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                              marginBottom: 1,
+                            }}
+                          >
+                            {typeLabel}
+                          </div>
+                        )}
+                        <p
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: "var(--text)",
+                            margin: 0,
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {docRef?.title ?? "Document"}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
+                {/* Export dropdown */}
+                {(() => {
+                  const docRef = viewingDocument ?? lastDocumentRef.current;
+                  const EXPORT_FORMATS = [
+                    { value: "pdf"  as const, label: "PDF (.pdf)" },
+                    { value: "docx" as const, label: "Word (.docx)" },
+                    { value: "rtf"  as const, label: "Rich Text (.rtf)" },
+                    { value: "md"   as const, label: "Markdown (.md)" },
+                    { value: "txt"  as const, label: "Plain Text (.txt)" },
+                  ];
+                  const canExport = !!(viewingDocument?.content) && !docExportLoading;
+                  return (
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <button
+                        onClick={() => canExport && setShowDocExportMenu((v) => !v)}
+                        disabled={!canExport}
+                        title="Export document"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          padding: "5px 10px",
+                          background: canExport ? "var(--primary)" : "var(--primary-soft, rgba(99,102,241,0.5))",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 6,
+                          cursor: canExport ? "pointer" : "default",
+                          fontSize: 12,
+                          fontWeight: 500,
+                          minWidth: 76,
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Download size={12} strokeWidth={2} />
+                        {docExportLoading ? "Exporting…" : "Export"}
+                      </button>
+                      {showDocExportMenu && docRef && (
+                        <>
+                          <div
+                            style={{ position: "fixed", inset: 0, zIndex: 99 }}
+                            onClick={() => setShowDocExportMenu(false)}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "calc(100% + 6px)",
+                              right: 0,
+                              background: "var(--panel)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                              minWidth: 160,
+                              zIndex: 100,
+                              overflow: "hidden",
+                            }}
+                          >
+                            {EXPORT_FORMATS.map((fmt) => (
+                              <button
+                                key={fmt.value}
+                                onClick={() => handleDocumentExport(fmt.value)}
+                                style={{
+                                  display: "block",
+                                  width: "100%",
+                                  padding: "9px 14px",
+                                  fontSize: 13,
+                                  color: "var(--text)",
+                                  textAlign: "left",
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                }}
+                                onMouseEnter={(e) => {
+                                  (e.currentTarget as HTMLElement).style.background = "var(--panel-soft)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                                }}
+                              >
+                                {fmt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                <button
+                  className="sc-panel-close-btn"
+                  onClick={dismissDocument}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--muted)",
+                    display: "flex",
+                    padding: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              {/* Update banner */}
+              {updateDocBanner && (
+                <div
+                  style={{
+                    padding: "8px 20px",
+                    background: "rgba(34, 197, 94, 0.1)",
+                    borderBottom: "1px solid rgba(34, 197, 94, 0.2)",
+                    fontSize: 12,
+                    color: "var(--text)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                  }}
+                >
+                  <CheckCircle size={12} style={{ color: "#22c55e", flexShrink: 0 }} />
+                  {updateDocBanner}
+                </div>
+              )}
+              {/* Content */}
+              <div
+                style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}
+                className="proposal-body"
+              >
+                {viewingDocument?.content ? (
+                  parseMarkdownSections(viewingDocument.content).map((section, i) => {
+                    const isChanged = changedDocSections.has(section.heading);
+                    const mdChunk = [section.heading, section.body].filter(Boolean).join("\n");
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          borderRadius: 6,
+                          padding: isChanged ? "10px 12px" : undefined,
+                          marginBottom: isChanged ? 8 : undefined,
+                          background: isChanged ? "rgba(234, 179, 8, 0.08)" : undefined,
+                          borderLeft: isChanged ? "3px solid rgba(234, 179, 8, 0.6)" : undefined,
+                          transition: "background 0.4s ease, border-color 0.4s ease",
+                        }}
+                      >
+                        <div className="prose">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{mdChunk}</ReactMarkdown>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ color: "var(--muted)", fontSize: 14 }}>
+                    Loading…
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Presentation slide-in panel */}
+        <div
+          className={`sc-viewer-panel${viewingSlide ? " sc-viewer-panel--open" : ""}`}
+          style={{
+            flexGrow: viewingSlide ? 1 : 0,
+            flexShrink: 0,
+            flexBasis: viewingSlide ? 0 : "auto",
+            width: viewingSlide ? undefined : 0,
+            minWidth: viewingSlide ? 400 : 0,
+            borderLeft: viewingSlide ? "1px solid var(--border)" : "none",
+            position: "relative",
+          }}
+        >
+          {(viewingSlide || lastSlideRef.current) && (
+            <div
+              className="sc-viewer-panel-inner"
+              style={{ width: "100%", position: "relative" }}
+            >
+              {/* Drag handle */}
+              <div
+                onMouseDown={handleSlideDragStart}
+                onMouseEnter={() => setSlideDragHover(true)}
+                onMouseLeave={() => setSlideDragHover(false)}
+                title="Drag to resize"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 14,
+                  cursor: "col-resize",
+                  zIndex: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: slideDragging
+                    ? "color-mix(in srgb, var(--primary) 8%, transparent)"
+                    : slideDragHover
+                      ? "color-mix(in srgb, var(--border) 30%, transparent)"
+                      : "transparent",
+                  transition: "background 0.15s",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 3,
+                    transition: "opacity 0.15s, transform 0.15s",
+                    opacity: slideDragging || slideDragHover ? 1 : 0.4,
+                    transform: slideDragging ? "scaleX(1.2)" : "scaleX(1)",
+                  }}
+                >
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: slideDragging || slideDragHover ? 4 : 3,
+                        height: 4,
+                        borderRadius: "50%",
+                        background: slideDragging
+                          ? "var(--primary)"
+                          : "var(--muted-foreground, var(--muted))",
+                        transition: "width 0.15s, background 0.15s",
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Header */}
+              <div
+                className="sc-panel-header"
+                style={{
+                  padding: "14px 20px",
+                  borderBottom: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                  gap: 8,
+                }}
+              >
+                <button
+                  className="chat-v2-back-btn sc-panel-back-btn"
+                  onClick={dismissSlide}
+                  aria-label="Close presentation panel"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    margin: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  <Presentation
+                    size={14}
+                    style={{ color: "var(--primary)", flexShrink: 0 }}
+                  />
+                  {(viewingSlide ?? lastSlideRef.current)?.title ?? "Presentation"}
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {/* Undo / Redo / Save */}
+                  <div className="sc-panel-history-btns">
+                    {hasUnsavedSlideChanges && (
+                      <span
+                        title="Unsaved changes"
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: "#f59e0b",
+                          flexShrink: 0,
+                          display: "inline-block",
+                        }}
+                      />
+                    )}
+                    <button
+                      onClick={handleSlideRevert}
+                      disabled={slideEditing || !canSlideUndo}
+                      title={canSlideUndo ? `Undo — Ctrl+Z` : "Nothing to undo"}
+                      style={{
+                        background: "none",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor: slideEditing || !canSlideUndo ? "default" : "pointer",
+                        fontSize: 12,
+                        color: canSlideUndo ? "var(--foreground)" : "var(--muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: canSlideUndo ? 1 : 0.4,
+                      }}
+                    >
+                      ↩ Undo
+                    </button>
+                    <button
+                      onClick={handleSlideRedo}
+                      disabled={slideEditing || !canSlideRedo}
+                      title="Redo — Ctrl+Shift+Z"
+                      style={{
+                        background: "none",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor: slideEditing || !canSlideRedo ? "default" : "pointer",
+                        fontSize: 12,
+                        color: canSlideRedo ? "var(--foreground)" : "var(--muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: canSlideRedo ? 1 : 0.4,
+                      }}
+                    >
+                      ↪ Redo
+                    </button>
+                    <button
+                      onClick={() => void handleSlideSave()}
+                      disabled={slideEditing || !hasUnsavedSlideChanges}
+                      title={hasUnsavedSlideChanges ? "Save changes" : "No unsaved changes"}
+                      style={{
+                        background: hasUnsavedSlideChanges && !slideEditing ? "var(--primary)" : "none",
+                        border: `1px solid ${hasUnsavedSlideChanges && !slideEditing ? "var(--primary)" : "var(--border)"}`,
+                        borderRadius: 6,
+                        padding: "4px 10px",
+                        cursor: slideEditing || !hasUnsavedSlideChanges ? "default" : "pointer",
+                        fontSize: 12,
+                        color: hasUnsavedSlideChanges && !slideEditing ? "#fff" : "var(--muted)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        opacity: hasUnsavedSlideChanges ? 1 : 0.4,
+                        fontWeight: hasUnsavedSlideChanges ? 600 : 400,
+                        transition: "background 0.15s, border-color 0.15s, color 0.15s",
+                      }}
+                    >
+                      Save
+                    </button>
+                  </div>
+                  {/* Export dropdown */}
+                  {(() => {
+                    const slideRef = viewingSlide ?? lastSlideRef.current;
+                    return (
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        <button
+                          onClick={() => !slideExportLoading && setShowSlideExportMenu((v) => !v)}
+                          title="Export presentation"
+                          disabled={!!slideExportLoading}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 5,
+                            padding: "4px 10px",
+                            background: "none",
+                            color: "var(--muted)",
+                            border: "1px solid var(--border)",
+                            borderRadius: 6,
+                            cursor: slideExportLoading ? "default" : "pointer",
+                            fontSize: 12,
+                          }}
+                        >
+                          <Download size={12} strokeWidth={2} />
+                          {slideExportLoading
+                            ? (slideExportMsg || "Exporting…")
+                            : "Export"}
+                        </button>
+                        {showSlideExportMenu && slideRef && (
+                          <>
+                            <div
+                              style={{ position: "fixed", inset: 0, zIndex: 99 }}
+                              onClick={() => setShowSlideExportMenu(false)}
+                            />
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: "calc(100% + 6px)",
+                                right: 0,
+                                background: "var(--panel)",
+                                border: "1px solid var(--border)",
+                                borderRadius: 8,
+                                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                                minWidth: 160,
+                                zIndex: 100,
+                                overflow: "hidden",
+                              }}
+                            >
+                              {([
+                                { fmt: "pdf" as const, label: "PDF (.pdf)" },
+                                { fmt: "pptx" as const, label: "PowerPoint (.pptx)" },
+                              ] as const).map(({ fmt, label }) => (
+                                <button
+                                  key={fmt}
+                                  onClick={() => handleSlideExport(fmt)}
+                                  style={{
+                                    display: "block",
+                                    width: "100%",
+                                    padding: "9px 14px",
+                                    fontSize: 13,
+                                    color: "var(--text)",
+                                    textAlign: "left",
+                                    background: "transparent",
+                                    border: "none",
+                                    cursor: "pointer",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    (e.currentTarget as HTMLElement).style.background = "var(--panel-soft)";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    (e.currentTarget as HTMLElement).style.background = "transparent";
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <button
+                    className="sc-panel-close-btn"
+                    onClick={dismissSlide}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--muted)",
+                      display: "flex",
+                      padding: 4,
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Slide edit success banner */}
+              {slideEditBanner && !slideEditBanner.startsWith("Error:") && (
+                <div
+                  style={{
+                    padding: "8px 20px",
+                    background: "rgba(34, 197, 94, 0.1)",
+                    borderBottom: "1px solid rgba(34, 197, 94, 0.2)",
+                    fontSize: 12,
+                    color: "var(--text)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                  }}
+                >
+                  <CheckCircle size={12} style={{ color: "#22c55e", flexShrink: 0 }} />
+                  {slideEditBanner}
+                </div>
+              )}
+
+              {/* Slide iframe — srcDoc updated in-place to preserve scroll on edit */}
+              <div ref={slideIframeContainerRef} style={{ flex: 1, minHeight: 0, background: "#fff", position: "relative" }}>
+                <iframe
+                  ref={slideIframeRef}
+                  srcDoc={slideSrcDoc || undefined}
+                  src={slideSrcDoc ? undefined : (viewingSlide ?? lastSlideRef.current)?.url}
+                  style={{ width: "100%", height: "100%", border: "none", position: "absolute", inset: 0 }}
+                  title={(viewingSlide ?? lastSlideRef.current)?.title ?? "Presentation"}
+                />
+                {slideEditModeActive && (
+                  <SelectionOverlay
+                    hovered={hoveredSlideElement}
+                    selected={selectedSlideElement}
+                    isProcessing={slideEditing}
+                    onClearSelected={() => clearSlideSelection()}
+                  />
+                )}
+                {slideEditModeActive && selectedSlideElement && (
+                  <InlineEditPanel
+                    selected={selectedSlideElement}
+                    micrositeEditing={slideEditing}
+                    containerH={slideIframeContainerH}
+                    containerW={slideIframeContainerW}
+                    onStylePatch={handleSlideStylePatch}
+                    onTextPatch={handleSlideTextPatch}
+                    onImageReplace={handleSlideImageReplace}
+                    onBgImagePatch={handleSlideBgImagePatch}
+                    onIconReplace={handleSlideIconReplace}
+                    onSvgReplace={handleSlideSvgReplace}
+                    onLogoReplace={handleSlideLogoReplace}
+                    onVideoReplace={handleSlideVideoReplace}
+                    onRemoveSection={handleSlideRemoveSection}
+                    onRemoveSectionContainer={handleSlideRemoveSectionContainer}
+                    onClose={() => clearSlideSelection()}
+                  />
+                )}
+                {slideEditing && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      zIndex: 10,
+                      background: "rgba(0,0,0,0.35)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "column",
+                      gap: 10,
+                      color: "#fff",
+                      fontSize: 14,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Loader size={24} style={{ animation: "spin 1s linear infinite" }} />
+                    Updating presentation…
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Backdrop — mobile only, closes the right panel on tap outside */}
         {rightPanelOpen && (
           <div
@@ -5645,10 +7578,10 @@ export default function SuperClientPage() {
           className="chat-side-panel"
           style={{
             width:
-              viewingProposal || viewingMicrosite || !rightPanelOpen ? 0 : 320,
+              viewingProposal || viewingMicrosite || viewingDocument || viewingSlide || !rightPanelOpen ? 0 : 320,
             minWidth: 0,
             borderLeft:
-              viewingProposal || viewingMicrosite || !rightPanelOpen
+              viewingProposal || viewingMicrosite || viewingDocument || viewingSlide || !rightPanelOpen
                 ? "none"
                 : "1px solid var(--border)",
             display: "flex",
@@ -6407,6 +8340,302 @@ export default function SuperClientPage() {
                       );
                     })
                   )}
+
+                  {/* Generated Documents */}
+                  <div
+                    className="brief-panel-section-header"
+                    style={{ padding: "8px 4px 2px" }}
+                  >
+                    <span
+                      style={{
+                        flex: "none",
+                        fontSize: 14,
+                        fontWeight: 400,
+                        color: "var(--muted)",
+                        textTransform: "none",
+                        letterSpacing: 0,
+                      }}
+                    >
+                      Documents
+                    </span>
+                  </div>
+                  {generatedDocs.length === 0 ? (
+                    <div
+                      style={{
+                        padding: "4px 2px",
+                        fontSize: 13,
+                        color: "var(--muted)",
+                        opacity: 0.5,
+                      }}
+                    >
+                      Ask me to write any document — strategy, blog post, press release, report, deck…
+                    </div>
+                  ) : (
+                    generatedDocs.map((doc) => {
+                      const isHov = hoveredGenDocId === doc.id;
+                      const menuOpen = menuGenDocId === doc.id;
+                      const typeLabel = doc.documentType
+                        .split("-")
+                        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                        .join(" ");
+                      return (
+                        <div
+                          key={doc.id}
+                          className="client-panel-row"
+                          onClick={() => void openDocument(doc)}
+                          onMouseEnter={() => setHoveredGenDocId(doc.id)}
+                          onMouseLeave={() => setHoveredGenDocId(null)}
+                          style={{
+                            paddingRight: isHov || menuOpen ? 36 : 10,
+                            height: "auto",
+                            paddingTop: 7,
+                            paddingBottom: 7,
+                            alignItems: "flex-start",
+                          }}
+                        >
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              width: 26,
+                              height: 26,
+                              borderRadius: "50%",
+                              background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                              color: "var(--primary)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginTop: 1,
+                            }}
+                          >
+                            <FileText size={13} strokeWidth={1.5} />
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2, flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: "var(--primary)",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.05em",
+                                }}
+                              >
+                                {typeLabel}
+                              </span>
+                              {doc.preferredFormat && doc.preferredFormat !== "md" && (
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    letterSpacing: "0.04em",
+                                    background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                                    color: "var(--primary)",
+                                    borderRadius: 3,
+                                    padding: "1px 4px",
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  {doc.preferredFormat}
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                color: "var(--text)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {doc.title}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--muted)",
+                                marginTop: 2,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {meta?.displayName ?? name} ·{" "}
+                                {new Date(doc.createdAt).toLocaleDateString("en", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </span>
+                              {doc.downloadUrl && (
+                                <a
+                                  href={doc.downloadUrl}
+                                  download
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    flexShrink: 0,
+                                    color: "var(--primary)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 3,
+                                    textDecoration: "none",
+                                    fontSize: 11,
+                                  }}
+                                  title={`Download ${doc.preferredFormat?.toUpperCase()}`}
+                                >
+                                  <Download size={11} strokeWidth={1.5} />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            ref={(el) => {
+                              genDocMenuBtnRefs.current[doc.id] = el;
+                            }}
+                            className="btn btn-sm client-panel-row-menu"
+                            title="Options"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const btn = genDocMenuBtnRefs.current[doc.id];
+                              if (!btn) return;
+                              const rect = btn.getBoundingClientRect();
+                              setMenuGenDocPos({
+                                top: rect.bottom + 4,
+                                right: window.innerWidth - rect.right,
+                              });
+                              setMenuGenDocId(menuOpen ? null : doc.id);
+                            }}
+                            style={{ opacity: isHov || menuOpen ? 1 : 0 }}
+                          >
+                            <Icon icon={MoreHorizontal} size="sm" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {/* Presentations */}
+                  <div
+                    className="brief-panel-section-header"
+                    style={{ padding: "8px 4px 2px" }}
+                  >
+                    <span
+                      style={{
+                        flex: "none",
+                        fontSize: 14,
+                        fontWeight: 400,
+                        color: "var(--muted)",
+                        textTransform: "none",
+                        letterSpacing: 0,
+                      }}
+                    >
+                      Presentations
+                    </span>
+                  </div>
+                  {savedSlides.length === 0 ? (
+                    <div
+                      style={{
+                        padding: "4px 2px",
+                        fontSize: 13,
+                        color: "var(--muted)",
+                        opacity: 0.5,
+                      }}
+                    >
+                      Ask me to create a presentation in chat.
+                    </div>
+                  ) : (
+                    savedSlides.map((slide) => {
+                      const isHov = hoveredSlideId === slide.id;
+                      const menuOpen = menuSlideId === slide.id;
+                      return (
+                        <div
+                          key={slide.id}
+                          className="client-panel-row"
+                          onClick={() => openSlide(slide)}
+                          onMouseEnter={() => setHoveredSlideId(slide.id)}
+                          onMouseLeave={() => setHoveredSlideId(null)}
+                          style={{
+                            paddingRight: isHov || menuOpen ? 36 : 10,
+                            height: "auto",
+                            paddingTop: 7,
+                            paddingBottom: 7,
+                            alignItems: "flex-start",
+                          }}
+                        >
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              width: 26,
+                              height: 26,
+                              borderRadius: "50%",
+                              background: "var(--primary-soft, rgba(99,102,241,0.12))",
+                              color: "var(--primary)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              marginTop: 1,
+                            }}
+                          >
+                            <Presentation size={13} strokeWidth={1.5} />
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                color: "var(--text)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {slide.title}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--muted)",
+                                marginTop: 2,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {meta?.displayName ?? name} ·{" "}
+                              {new Date(slide.savedAt).toLocaleDateString("en", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}
+                              {slide.slideCount > 0 && ` · ${slide.slideCount} slides`}
+                            </div>
+                          </div>
+                          <button
+                            ref={(el) => {
+                              slideMenuBtnRefs.current[slide.id] = el;
+                            }}
+                            className="btn btn-sm client-panel-row-menu"
+                            title="Options"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const btn = slideMenuBtnRefs.current[slide.id];
+                              if (!btn) return;
+                              const rect = btn.getBoundingClientRect();
+                              setMenuSlidePos({
+                                top: rect.bottom + 4,
+                                right: window.innerWidth - rect.right,
+                              });
+                              setMenuSlideId(menuOpen ? null : slide.id);
+                            }}
+                            style={{ opacity: isHov || menuOpen ? 1 : 0 }}
+                          >
+                            <Icon icon={MoreHorizontal} size="sm" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+
                 </div>
               )}
             </div>
@@ -6529,6 +8758,120 @@ export default function SuperClientPage() {
           onCancel={() => setConfirmDeleteProposal(null)}
         />
       )}
+      {confirmDeleteGenDoc && (
+        <ConfirmDialog
+          title="Delete document"
+          message={`Delete "${generatedDocs.find((d) => d.id === confirmDeleteGenDoc)?.title ?? confirmDeleteGenDoc}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            await handleDeleteGenDoc(confirmDeleteGenDoc);
+            setConfirmDeleteGenDoc(null);
+          }}
+          onCancel={() => setConfirmDeleteGenDoc(null)}
+        />
+      )}
+      {menuSlideId &&
+        createPortal(
+          <>
+            <div
+              style={{ position: "fixed", inset: 0, zIndex: 99998 }}
+              onClick={() => setMenuSlideId(null)}
+            />
+            <div
+              className="card"
+              style={{
+                position: "fixed",
+                top: menuSlidePos.top,
+                right: menuSlidePos.right,
+                minWidth: 120,
+                padding: "4px 0",
+                zIndex: 99999,
+              }}
+            >
+              <button
+                className="btn btn-sm"
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  borderRadius: 0,
+                  border: "none",
+                  justifyContent: "flex-start",
+                  padding: "8px 14px",
+                  fontSize: 14,
+                  color: "var(--danger)",
+                  gap: 8,
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  const id = menuSlideId;
+                  setMenuSlideId(null);
+                  setConfirmDeleteSlide(id);
+                }}
+              >
+                <Icon icon={Trash2} size="sm" />
+                <span>Delete</span>
+              </button>
+            </div>
+          </>,
+          document.body,
+        )}
+      {confirmDeleteSlide && (
+        <ConfirmDialog
+          title="Delete presentation"
+          message={`Delete "${savedSlides.find((s) => s.id === confirmDeleteSlide)?.title ?? confirmDeleteSlide}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            await handleDeleteSlide(confirmDeleteSlide);
+            setConfirmDeleteSlide(null);
+          }}
+          onCancel={() => setConfirmDeleteSlide(null)}
+        />
+      )}
+      {menuGenDocId &&
+        createPortal(
+          <>
+            <div
+              style={{ position: "fixed", inset: 0, zIndex: 99998 }}
+              onClick={() => setMenuGenDocId(null)}
+            />
+            <div
+              className="card"
+              style={{
+                position: "fixed",
+                top: menuGenDocPos.top,
+                right: menuGenDocPos.right,
+                minWidth: 140,
+                padding: "4px 0",
+                zIndex: 99999,
+              }}
+            >
+              <button
+                className="btn btn-sm"
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  borderRadius: 0,
+                  border: "none",
+                  justifyContent: "flex-start",
+                  padding: "8px 14px",
+                  fontSize: 14,
+                  color: "var(--danger)",
+                  gap: 8,
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  const id = menuGenDocId;
+                  setMenuGenDocId(null);
+                  setConfirmDeleteGenDoc(id);
+                }}
+              >
+                <Icon icon={Trash2} size="sm" />
+                <span>Delete</span>
+              </button>
+            </div>
+          </>,
+          document.body,
+        )}
       {menuDocId &&
         createPortal(
           <>

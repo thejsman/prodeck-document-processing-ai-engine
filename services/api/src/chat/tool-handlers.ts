@@ -32,13 +32,17 @@ import { createVersionFromEdit } from '../proposals/proposal-version.service.js'
 import { resolvePolicy, executeWithPolicy, type ProviderPolicyConfig } from '../provider-policy.js';
 import { llmGenerateFn } from '../agent-routes.js';
 import type { ToolName } from './planner.js';
-import { listSkills as listSkillsFromDisk, createSkill, loadSkill } from '../skills/skill.service.js';
+import { listSkills as listSkillsFromDisk, createSkill, loadSkill, findBestDocumentSkill } from '../skills/skill.service.js';
 import { listDesignSkills as listDesignSkillsFromDisk } from '../skills/design-skill.service.js';
 import { generateSkillFromDescription } from '../skills/skill-generator.js';
 import { generateStructuredMicrosite, assignSectionIds } from '../presentation/structured-microsite-generator.js';
 import { generateThemeCSSTokens, generateSectionHtml, CUSTOM_HTML_SECTION_TYPES } from '../skills/design-skill-microsite.js';
 import { applyDesignSkill } from '../skills/design-skill-microsite.js';
 import { ContextService } from './context.service.js';
+import { generateDocument } from '../documents/document-generator.js';
+import { detectInlineDocument, detectInlineStructure } from './context-builder.js';
+import { ClientMemoryService } from '../memory/client-memory.service.js';
+import type { OutputFormat } from '../skills/skill.types.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -1155,5 +1159,83 @@ export async function handleListDesignSkills(
     message: `**${skills.length} design skill${skills.length !== 1 ? 's' : ''} available:**\n\n${lines.join('\n')}\n\nUse a design skill when generating a microsite by saying e.g. _"generate microsite with obsidian-editorial"_.`,
     data: { designSkills: skills },
     actionCards: [{ type: 'view_skills', label: 'Manage Design Skills', href: '/skills' }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 15. generate_document
+//     Single-pass document generation using client context + RAG + skill.
+//     ctx.namespace is used as the client slug for super-client scoped calls.
+// ---------------------------------------------------------------------------
+
+export async function handleGenerateDocument(
+  params: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<PartialResult> {
+  const userMessage = ((params.userMessage as string | undefined) ?? '').trim();
+  const preferredFormat = (params.preferredFormat as OutputFormat | undefined) ?? undefined;
+  const { workdir, namespace, generateFn, vectorStoreConfig } = ctx;
+
+  if (!userMessage) {
+    return { success: false, message: 'Missing userMessage parameter for document generation.' };
+  }
+
+  // Resolve client context: context.md from super-client dir
+  const superClientDir = path.join(workdir, 'super-clients', namespace);
+  let clientProfile = '';
+  try {
+    clientProfile = await readFile(path.join(superClientDir, 'context.md'), 'utf-8');
+  } catch {
+    // no context.md — proceed without it
+  }
+
+  // Resolve client memory (knowledge entries from ingested docs)
+  const memService = new ClientMemoryService(workdir);
+  const memResult = await memService.prepopulate(namespace).catch(() => ({ found: false, knowledge: [], stableFields: {}, stakeholders: [], engagementCount: 0, lastEngagementDate: '' }));
+
+  // Detect inline content / structure from the user message
+  const inlineContent = detectInlineDocument(userMessage) ?? undefined;
+  const inlineStructure = detectInlineStructure(userMessage) ?? undefined;
+
+  // Find best matching document skill
+  let skill = undefined;
+  try {
+    const matchedSkillMeta = await findBestDocumentSkill(workdir, userMessage);
+    if (matchedSkillMeta) {
+      skill = await loadSkill(workdir, matchedSkillMeta.slug);
+    }
+  } catch {
+    // proceed without skill
+  }
+
+  const clientName = (memResult.stableFields as Record<string, { value: string }>)?.clientName?.value ?? namespace;
+
+  const result = await generateDocument({
+    clientName,
+    clientSlug: namespace,
+    userMessage,
+    clientProfile,
+    knowledgeEntries: memResult.knowledge,
+    skill,
+    inlineContent,
+    inlineStructure,
+    preferredFormat,
+    generateFn,
+    vectorStoreConfig,
+    workdir,
+  });
+
+  return {
+    success: true,
+    message: `**${result.title}** has been generated successfully.`,
+    data: { id: result.id, title: result.title, documentType: result.meta.documentType },
+    artifacts: [result.id],
+    actionCards: [
+      {
+        type: 'view_document',
+        label: `View: ${result.title}`,
+        href: `/document?artifact=${result.id}&client=${namespace}`,
+      },
+    ],
   };
 }

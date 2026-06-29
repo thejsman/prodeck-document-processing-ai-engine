@@ -1,0 +1,62 @@
+{
+  "slug": "rfp-response",
+  "displayName": "RFP Response",
+  "description": "For generating structured responses to Requests for Proposal (RFPs), mirroring the RFP's language and addressing every requirement explicitly.",
+  "type": "document",
+  "structureMode": "strict",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["RFP", "RFP response", "bid response", "proposal response", "tender response"],
+  "toneDescription": "Mirror the RFP's language back. Address every stated requirement explicitly. Differentiators should be framed as client benefits, not vendor capabilities.",
+  "triggers": [
+    "RFP response",
+    "write an RFP response",
+    "draft an RFP response",
+    "respond to RFP",
+    "respond to an RFP",
+    "we got an RFP",
+    "received an RFP",
+    "answer RFP",
+    "RFP reply",
+    "reply to RFP",
+    "respond to request for proposal",
+    "proposal response",
+    "bid response",
+    "draft a bid",
+    "write a bid",
+    "bid proposal",
+    "bid document",
+    "tender response",
+    "tender bid",
+    "government bid",
+    "procurement response",
+    "RFQ response",
+    "respond to this tender",
+    "create a bid response",
+    "winning proposal"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "rfp_context",
+      "question": "What is the RFP for? (e.g. cloud migration, custom software, consulting engagement)",
+      "required": false
+    },
+    {
+      "id": "rfp_ingested",
+      "question": "Have you already ingested the original RFP document into this client's context?",
+      "required": false
+    },
+    {
+      "id": "differentiators",
+      "question": "What are your key differentiators or competitive advantages for this bid?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

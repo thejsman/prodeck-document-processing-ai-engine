@@ -1,0 +1,67 @@
+{
+  "slug": "technical-specification",
+  "displayName": "Technical Specification",
+  "description": "For generating engineering-grade technical specifications, architecture design docs, and system design documents.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["tech spec", "technical specification", "architecture", "system design", "engineering", "design doc"],
+  "toneDescription": "Engineering-grade precision. Diagrams over prose where possible. Every design decision should note the tradeoff considered.",
+  "triggers": [
+    "technical spec",
+    "tech spec",
+    "technical specification",
+    "write a tech spec",
+    "create a tech spec",
+    "architecture doc",
+    "architecture document",
+    "architecture design",
+    "document the architecture",
+    "system design",
+    "system design doc",
+    "system architecture",
+    "engineering spec",
+    "design doc",
+    "write a design doc",
+    "create a design doc",
+    "RFC",
+    "request for comments",
+    "technical design",
+    "technical design document",
+    "engineering design",
+    "high level design",
+    "HLD",
+    "how should we build this",
+    "how to build this",
+    "technical plan",
+    "engineering plan",
+    "API design",
+    "infrastructure design",
+    "design this system"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "system",
+      "question": "What system, service, or feature is being specified?",
+      "required": false
+    },
+    {
+      "id": "constraints",
+      "question": "What are the key constraints or non-functional requirements? (e.g. latency, scale, security)",
+      "required": false
+    },
+    {
+      "id": "audience",
+      "question": "Who is the primary audience? (e.g. backend engineers, the whole eng team, external reviewers)",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

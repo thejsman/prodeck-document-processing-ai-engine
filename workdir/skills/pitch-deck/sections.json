@@ -1,0 +1,94 @@
+{
+  "sections": [
+    {
+      "id": "problem",
+      "title": "The Problem",
+      "order": 1,
+      "required": true,
+      "promptHint": "Make the investor feel the pain before introducing the solution. Include: who suffers, what they do today as a workaround, and the cost of the status quo in time or money. Use a specific, relatable scenario.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "problem pain point challenge customer frustration status quo"
+    },
+    {
+      "id": "solution",
+      "title": "The Solution",
+      "order": 2,
+      "required": true,
+      "promptHint": "Describe the product in plain language. Lead with the 'aha moment' — the single insight that makes this different. Include: what it does, how it works at a high level, and the key differentiator. One sentence a non-technical investor can repeat.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "solution product features how it works differentiator unique"
+    },
+    {
+      "id": "market-opportunity",
+      "title": "Market Opportunity",
+      "order": 3,
+      "required": true,
+      "promptHint": "Define TAM, SAM, and SOM with sources or methodology. Show a bottom-up logic for the SOM — how many customers × what ACV = what revenue. This should be achievable, not just aspirational.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "market size TAM SAM SOM addressable market opportunity"
+    },
+    {
+      "id": "product",
+      "title": "Product",
+      "order": 4,
+      "required": true,
+      "promptHint": "Describe the product in detail: core features, user flow, key capabilities. Write as if narrating a demo. Highlight what makes the UX or technical approach distinctive.",
+      "maxWords": 250,
+      "useRagContext": true,
+      "ragQuery": "product features capabilities user experience workflow demo"
+    },
+    {
+      "id": "business-model",
+      "title": "Business Model",
+      "order": 5,
+      "required": true,
+      "promptHint": "Explain how the company makes money: pricing model, contract structure, ARPU or ACV, gross margin if known. If available, include LTV/CAC ratio and payback period.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "business model pricing revenue monetization LTV CAC"
+    },
+    {
+      "id": "traction",
+      "title": "Traction",
+      "order": 6,
+      "required": true,
+      "promptHint": "The most important slide. Include all available proof: ARR/MRR, growth rate, customer count, key logos, retention/churn, NPS. If pre-revenue, use pilots, LOIs, waitlist, or user growth. Mark missing data as [DATA NEEDED].",
+      "maxWords": 250,
+      "useRagContext": true,
+      "ragQuery": "traction revenue customers growth metrics ARR MRR retention churn"
+    },
+    {
+      "id": "team",
+      "title": "Team",
+      "order": 7,
+      "required": true,
+      "promptHint": "Explain WHY this specific team is uniquely positioned to win. Include: founder backgrounds, directly relevant experience, domain expertise, previous exits, key advisors. Focus on what makes them non-obvious for this problem.",
+      "maxWords": 250,
+      "useRagContext": true,
+      "ragQuery": "team founders experience background expertise advisors"
+    },
+    {
+      "id": "financials",
+      "title": "Financials",
+      "order": 8,
+      "required": true,
+      "promptHint": "3-year forward projections: revenue, headcount, burn rate, runway. List the key assumptions driving the model. Include current ARR and monthly burn. Use actuals from context if available.",
+      "maxWords": 250,
+      "useRagContext": true,
+      "ragQuery": "financials revenue projections burn rate runway headcount ARR"
+    },
+    {
+      "id": "the-ask",
+      "title": "The Ask",
+      "order": 9,
+      "required": true,
+      "promptHint": "State: amount being raised, round type, how funds will be used (breakdown by category with %), and what milestone this funding takes the company to. End with the next 12–18 month roadmap at a high level.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "funding ask investment use of funds milestones roadmap next steps"
+    }
+  ]
+}

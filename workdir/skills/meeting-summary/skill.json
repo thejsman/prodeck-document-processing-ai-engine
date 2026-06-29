@@ -1,0 +1,66 @@
+{
+  "slug": "meeting-summary",
+  "displayName": "Meeting Summary",
+  "description": "For generating concise meeting summaries and action item lists from ingested transcripts or meeting notes.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["meeting summary", "meeting notes", "action items", "meeting recap", "call notes"],
+  "toneDescription": "Concise and action-oriented. Lead with decisions made, then key discussion points, then action items with owners. Avoid padding.",
+  "triggers": [
+    "meeting summary",
+    "write a meeting summary",
+    "meeting notes",
+    "summarize meeting",
+    "summarize the meeting",
+    "summarize this meeting",
+    "meeting recap",
+    "call summary",
+    "call recap",
+    "call notes",
+    "notes from meeting",
+    "meeting action items",
+    "action items from meeting",
+    "what did we decide",
+    "what was discussed",
+    "write up the meeting",
+    "document the meeting",
+    "write meeting minutes",
+    "meeting minutes",
+    "follow-up from meeting",
+    "recap this call",
+    "zoom notes",
+    "team meeting summary",
+    "client call notes",
+    "discovery call notes",
+    "standup notes",
+    "weekly meeting notes",
+    "summarize this call",
+    "we just had a meeting"
+  ],
+  "outputFormats": ["md", "txt"],
+  "clarifyingQuestions": [
+    {
+      "id": "meeting_topic",
+      "question": "What was the meeting about?",
+      "required": false
+    },
+    {
+      "id": "attendees",
+      "question": "Who attended? (Names and roles, if known)",
+      "required": false
+    },
+    {
+      "id": "transcript",
+      "question": "Have you already ingested the meeting transcript or notes into this client's context?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

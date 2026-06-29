@@ -987,7 +987,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   // is generic (list/count-style), the RESPOND enriches it. For tools that
   // produce content in their own message (search_documents, generate_proposal),
   // skip the override so the actual content isn't lost.
-  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite', 'recommend_template'];
+  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite', 'recommend_template', 'generate_document'];
   const hasContentTool = toolActions.some((a) => contentTools.includes(a.tool));
 
   if (respondActions.length > 0 && !hasContentTool) {

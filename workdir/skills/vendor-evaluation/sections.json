@@ -1,0 +1,62 @@
+{
+  "sections": [
+    {
+      "id": "overview-criteria",
+      "title": "Overview & Evaluation Criteria",
+      "order": 1,
+      "required": true,
+      "promptHint": "Describe what is being evaluated and why. List the evaluation criteria with assigned weights (must sum to 100%). Criteria examples: functionality, security, pricing, integrations, support, vendor stability, ease of implementation.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "evaluation purpose criteria requirements decision context"
+    },
+    {
+      "id": "vendor-profiles",
+      "title": "Vendor Profiles",
+      "order": 2,
+      "required": true,
+      "promptHint": "One profile per vendor: company overview, target customer, pricing model (if known), key features and capabilities, and honest 2–3 strengths and weaknesses relevant to the evaluation criteria.",
+      "maxWords": 800,
+      "useRagContext": true,
+      "ragQuery": "vendors products features pricing capabilities strengths weaknesses"
+    },
+    {
+      "id": "scoring-matrix",
+      "title": "Scoring Matrix",
+      "order": 3,
+      "required": true,
+      "promptHint": "A weighted scoring table. Rows = criteria, Columns = vendors. Score each vendor 1–5 per criterion. Multiply by weight. Sum to get weighted total. Highlight the winner. Note any disqualifying factors separately.",
+      "maxWords": 400,
+      "useRagContext": false
+    },
+    {
+      "id": "risk-assessment",
+      "title": "Risk Assessment",
+      "order": 4,
+      "required": true,
+      "promptHint": "For each vendor: assess vendor stability (funding, longevity, market position), lock-in risk (data portability, exit costs), contract terms concerns, and support quality. Use High/Med/Low ratings.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "vendor risk stability lock-in contract support reliability"
+    },
+    {
+      "id": "tco",
+      "title": "Total Cost of Ownership",
+      "order": 5,
+      "required": true,
+      "promptHint": "3-year TCO for each vendor in table format. Include: licensing/subscription, implementation cost, training, ongoing support, and estimated internal engineering time. Sum to total 3-year cost per vendor.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "cost pricing licensing implementation support total cost"
+    },
+    {
+      "id": "recommendation",
+      "title": "Recommendation",
+      "order": 6,
+      "required": true,
+      "promptHint": "State the recommended vendor and the runner-up. The recommendation must follow from the scorecard and TCO. If the top scorer is not recommended, explain why (e.g. a disqualifying risk). Include suggested next steps: proof of concept, contract negotiation, migration planning.",
+      "maxWords": 300,
+      "useRagContext": false
+    }
+  ]
+}

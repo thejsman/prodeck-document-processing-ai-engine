@@ -14,10 +14,35 @@ const nextConfig = {
   // Mermaid v11 is ESM-only — webpack must transpile it to avoid production
   // build failures where the mermaid chunk loads but evaluates incorrectly.
   transpilePackages: ["mermaid", "motion"],
-  webpack(config) {
+  webpack(config, { webpack: wp, isServer }) {
     // pnpm symlinks + webpack 5 subpath exports don't resolve reliably on Windows.
     // Alias motion/react directly to its CJS entry so webpack finds it every time.
     config.resolve.alias["motion/react"] = require.resolve("motion/react");
+
+    if (!isServer) {
+      // webpack 5 treats "node:fs" as an unknown URI scheme and errors before
+      // resolve.fallback can handle it. Strip the prefix so "node:fs" → "fs",
+      // then the fallbacks below silence it in the browser bundle.
+      config.plugins.push(
+        new wp.NormalModuleReplacementPlugin(/^node:/, (resource) => {
+          resource.request = resource.request.replace(/^node:/, "");
+        })
+      );
+
+      // pptxgenjs / jspdf use Node.js built-ins only on their server-side write
+      // paths. Set them to false so webpack emits an empty stub — the browser
+      // paths (Blob / FileSaver) are used at runtime instead.
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        os: false,
+        stream: false,
+        crypto: false,
+        buffer: false,
+      };
+    }
+
     return config;
   },
   // LLM-backed routes (proposal generation, RAG query) can take several minutes
