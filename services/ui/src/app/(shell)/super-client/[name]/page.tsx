@@ -4735,7 +4735,9 @@ export default function SuperClientPage() {
                       )}
                       {viewingMicrosite && (
                         <button
+                          disabled={micrositeEditing}
                           onClick={() => {
+                            if (micrositeEditing) return;
                             const next = !editModeActive;
                             setEditModeActive(next);
                             if (next) {
@@ -4755,9 +4757,11 @@ export default function SuperClientPage() {
                             });
                           }}
                           title={
-                            editModeActive
-                              ? "Exit smart edit mode"
-                              : "Smart edit — click any element to target it"
+                            micrositeEditing
+                              ? "Applying edit…"
+                              : editModeActive
+                                ? "Exit smart edit mode"
+                                : "Smart edit — click any element to target it"
                           }
                           className="theme-toggle"
                           style={{
@@ -4770,6 +4774,8 @@ export default function SuperClientPage() {
                               : undefined,
                             transition:
                               "background 0.15s, color 0.15s, border-color 0.15s",
+                            opacity: micrositeEditing ? 0.4 : 1,
+                            cursor: micrositeEditing ? "not-allowed" : "pointer",
                           }}
                         >
                           <Pencil size={16} />
@@ -5297,8 +5303,8 @@ export default function SuperClientPage() {
                     </div>
                   </>
                 )}
-                {/* Figma-style selection overlay — only in smart edit mode */}
-                {editModeActive && (
+                {/* Figma-style selection overlay — in smart edit mode OR while a global edit is processing */}
+                {(editModeActive || micrositeEditing) && (
                   <SelectionOverlay
                     hovered={hoveredElement}
                     selected={selectedElement}
