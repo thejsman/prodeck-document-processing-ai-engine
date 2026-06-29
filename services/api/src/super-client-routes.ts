@@ -245,6 +245,52 @@ function stripSectionUpdateTags(text: string): string {
   return text.replace(/<section-update\s+heading="[^"]*">[\s\S]*?<\/section-update>/gi, '').trim();
 }
 
+const TONE_PATTERNS = [
+  /\buse\s+a?\s*([\w][\w\s-]{1,30}?)\s+tone\b/i,
+  /\bwrite\s+(?:in\s+)?a?\s*([\w][\w\s-]{1,30}?)\s+(?:tone|style|voice)\b/i,
+  /\bsound(?:s)?\s+more\s+([\w-]+)\b/i,
+  /\bbe\s+more\s+([\w-]+)\b/i,
+  /\bswitch\s+(?:to\s+)?(?:a?\s*)?([\w\s-]{2,20}?)\s+(?:tone|style|voice)\b/i,
+  /\badopt\s+(?:a?\s*)?([\w\s-]{2,20}?)\s+(?:tone|style|voice)\b/i,
+  /\bmake\s+(?:it|this)\s+(?:sound\s+)?(?:more\s+)?([\w-]+)\b/i,
+];
+
+const TONE_WORDS = new Set([
+  'casual', 'informal', 'friendly', 'warm', 'conversational', 'relaxed',
+  'formal', 'professional', 'corporate', 'serious', 'authoritative', 'assertive',
+  'confident', 'direct', 'concise', 'aggressive', 'bold',
+  'consultative', 'empathetic', 'collaborative', 'inclusive',
+  'enthusiastic', 'energetic', 'passionate', 'neutral', 'objective',
+  'technical', 'simple', 'plain', 'persuasive', 'compelling', 'playful',
+]);
+
+/**
+ * Scan the current message and recent user messages for an explicit tone/style
+ * override request. Returns the matched phrase if found, null otherwise.
+ * Checks the current message first (highest recency), then walks back through
+ * the last 5 user turns so a tone set earlier in the conversation still wins.
+ */
+function detectToneOverride(
+  currentMessage: string,
+  history: Array<{ role: string; content: string }>,
+): string | null {
+  const recentUserMessages = history
+    .filter((h) => h.role === 'user')
+    .slice(-5)
+    .map((h) => h.content);
+
+  for (const text of [currentMessage, ...recentUserMessages]) {
+    for (const pattern of TONE_PATTERNS) {
+      const match = text.match(pattern);
+      if (!match) continue;
+      const captured = match[1]?.toLowerCase().trim() ?? '';
+      const hasToneWord = [...TONE_WORDS].some((tw) => captured.includes(tw));
+      if (hasToneWord) return match[0].trim();
+    }
+  }
+  return null;
+}
+
 function patchProposalSections(
   original: string,
   updates: Array<{ heading: string; content: string }>,
@@ -791,6 +837,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // org has learned a voice from past proposals and the toggle is on.
       if (orgSettings.applyAuthorVoice && authorVoiceBlock) {
         promptParts.push(`\n${authorVoiceBlock}`);
+
+        const toneOverride = detectToneOverride(message, history);
+        if (toneOverride) {
+          promptParts.push(
+            `\n⚡ USER TONE OVERRIDE ACTIVE: The user has requested "${toneOverride}". This takes absolute priority over every tone, voice, and style directive in the Author Voice block above. Ignore those style directives entirely and apply the user's requested style instead. You may still use structural patterns (section order, headings) from the Author Voice if they don't conflict with the user's request.`,
+          );
+        }
       }
 
       if (memResult.found && (Object.keys(memResult.stableFields).length > 0 || memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {

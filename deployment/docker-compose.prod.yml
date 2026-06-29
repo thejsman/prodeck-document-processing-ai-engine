@@ -44,6 +44,8 @@ services:
       # Feature flags — V2 pipelines are the only active pipelines
       - CHAT_V2=true
       - INGEST_V2=true
+      # External image search
+      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
     volumes:
       - engine_data:/engine
       - ${API_KEYS_HOST_PATH:-../config/api_keys.example.json}:/app/config/api_keys.json:ro

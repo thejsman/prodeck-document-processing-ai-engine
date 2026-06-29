@@ -2963,8 +2963,8 @@ body {
 
 .composer-mode-btn--active {
   border-color: var(--primary) !important;
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
-  color: var(--primary) !important;
+  background: var(--primary) !important;
+  color: #fff !important;
 }
 
 .composer-pdf-orientation {
@@ -3010,9 +3010,9 @@ body {
 }
 
 .composer-pdf-orientation-btn--active {
-  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
-  color: var(--primary);
+  border-color: var(--primary) !important;
+  background: var(--primary) !important;
+  color: #fff !important;
 }
 
 /* ── Context panel ───────────────────────────────────────────────── */

@@ -193,7 +193,7 @@ export function renderVoicePromptBlock(
 
   const lines: string[] = [
     AUTHOR_VOICE_HEADING,
-    'Write so the proposal reads as if the same author wrote it. This describes HOW to write — tone, structure, and phrasing — NOT client facts. Never copy any specific names, numbers, prices, dates, or facts from this block.',
+    'Apply this as a default style baseline only. If the user has explicitly requested a different tone, voice, or writing style anywhere in this conversation, their instruction takes absolute priority over this block. This describes HOW to write — tone, structure, and phrasing — NOT client facts. Never copy any specific names, numbers, prices, dates, or facts from this block.',
     '',
   ];
 
