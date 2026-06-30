@@ -1626,9 +1626,22 @@ export default function SuperClientPage() {
           sectionM?.[1] && !STOP_WORDS.test(sectionM[1])
             ? sectionM[1].toLowerCase()
             : "";
-        if (!selectedElement?.path && sectionKeyword) {
+        if (!selectedElement?.path) {
+          // No element selected → route through __VIDEO_IN_SECTION__ with the parsed keyword
+          // (prevents automatic hero background injection when no section is named).
           instruction = `__VIDEO_IN_SECTION__:||${sectionKeyword}||${url}||${micrositeEditInput.trim()}`;
+        } else if (selectedElement.tag?.toLowerCase() === "section") {
+          // A <section> is selected: use the named keyword from the prompt if given,
+          // otherwise fall back to the selected section's own id/class so the video
+          // lands in the right section with preserved params + class="video-embed".
+          const selectedSectionId =
+            sectionKeyword ||
+            selectedElement.path.match(/section#([\w-]+)/)?.[1] ||
+            selectedElement.path.match(/section\.([\w-]+)/)?.[1] ||
+            "";
+          instruction = `__VIDEO_IN_SECTION__:||${selectedSectionId}||${url}||${micrositeEditInput.trim()}`;
         }
+        // else: non-section element selected → __ELEMENT_EDIT__ flow handles it
       }
       // Video URL: server's Vimeo/YouTube detection fires on any matching URL.
     }

@@ -1432,13 +1432,31 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       };
       const embedUrl = toEmbedUrl(rawVideoUrl);
 
-      // extractBestSection scores all sections by keyword; falls back to first section when no match
-      const bestSlice = extractBestSection(html, sectionKw || 'first');
+      const isBgIntent = /\b(?:background|bg)\b/i.test(userPrompt);
+
+      // Section selection:
+      // - Named section → score by keyword
+      // - Explicit bg intent, no name → use first section (hero/banner is fine for bg)
+      // - No section, no bg intent → skip hero-like first section, prefer first content section
+      let bestSlice: ReturnType<typeof extractBestSection>;
+      if (sectionKw) {
+        bestSlice = extractBestSection(html, sectionKw);
+      } else if (isBgIntent) {
+        bestSlice = extractBestSection(html, 'hero first banner');
+      } else {
+        const allSecs = extractAllTopLevelSections(html);
+        const HERO_LIKE = /\b(?:hero|banner|jumbotron)\b/i;
+        const firstHtml = allSecs[0] ? html.slice(allSecs[0].start, Math.min(allSecs[0].start + 400, allSecs[0].end)) : '';
+        const useSecond = HERO_LIKE.test(firstHtml) && allSecs.length > 1;
+        const targetSec = useSecond ? allSecs[1] : allSecs[0];
+        bestSlice = targetSec
+          ? { before: html.slice(0, targetSec.start), section: html.slice(targetSec.start, targetSec.end), after: html.slice(targetSec.end), tag: 'section' }
+          : null;
+      }
+
       if (!bestSlice) {
         return reply.code(422).send({ error: 'No sections found in this microsite' });
       }
-
-      const isBgIntent = /\b(?:background|bg)\b/i.test(userPrompt);
       const platform   = /vimeo/i.test(rawVideoUrl) ? 'Vimeo' : 'YouTube';
 
       const embedBlock = isBgIntent
@@ -1450,7 +1468,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         : [
             `  Wrap the video in a responsive container and insert it at a natural visual break`,
             `  (after the intro paragraph, before any CTA button, or at the end of main content):`,
-            `  <div style="position:relative;padding-top:56.25%;margin:2rem 0"><iframe src="${embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:none" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`,
+            `  <div class="video-embed" style="position:relative;padding-top:56.25%;margin:2rem 0"><iframe src="${embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:none" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`,
           ].join('\n');
 
       const prompt = [
@@ -1500,7 +1518,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // is placed where the user intended (below, beside, inside the section) rather than always
     // being injected as a fullscreen background in the first <section>.
     const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
-    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:') && !instruction.startsWith('__VIDEO_IN_SECTION__:')) {
+    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:') && !instruction.startsWith('__VIDEO_IN_SECTION__:') && !instruction.startsWith('__REMOVE_BY_PATH__:')) {
       const isVimeo = !!vimeoIdMatch;
       const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
       const src = isVimeo
