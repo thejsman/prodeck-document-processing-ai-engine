@@ -40,7 +40,6 @@ import { SectionIdProvider } from './editor/SectionIdContext';
 import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
-import { normalizeMicrositeHtml } from '../../lib/microsite-bridge';
 import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
 import { MicrositeEffectsContext, useMotionLevel } from './shared/MicrositeEffectsContext';
 import { AstSectionDivider } from './shared/AstSectionDivider';
@@ -160,6 +159,55 @@ function AnimatedSection({
   );
 }
 
+function CustomHtmlSection({ html }: { html: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const W = 1280, H = 720;
+
+    const applyScale = () => {
+      const vw = container.offsetWidth;
+      if (!vw) return;
+      const vs = vw / W;
+
+      if (!container.querySelector('[data-section-id]')) {
+        container.querySelectorAll('section').forEach((el, i) => {
+          el.setAttribute('data-section-id', el.id || `slide-${i + 1}`);
+        });
+      }
+
+      container.querySelectorAll('[data-section-id]').forEach((el) => {
+        const s = el as HTMLElement;
+        s.style.setProperty('height', H + 'px', 'important');
+        s.style.setProperty('max-height', H + 'px', 'important');
+        s.style.setProperty('overflow', 'hidden', 'important');
+        s.style.setProperty('transform-origin', vs < 1 ? 'top left' : 'top center', 'important');
+        if (Math.abs(vs - 1) < 0.005) {
+          s.style.transform = '';
+          s.style.marginBottom = '';
+        } else {
+          s.style.transform = `scale(${vs})`;
+          s.style.marginBottom = `${Math.round(H * (vs - 1))}px`;
+        }
+      });
+    };
+
+    const ro = new ResizeObserver(applyScale);
+    ro.observe(container);
+    applyScale();
+    const t = setTimeout(applyScale, 150);
+    return () => { ro.disconnect(); clearTimeout(t); };
+  }, [html]);
+
+  return (
+    <div ref={containerRef} style={{ overflowX: 'hidden' }}>
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
 function renderSection(
   section: LayoutAST['sections'][number],
   tokens: PluginTokens,
@@ -175,18 +223,7 @@ function renderSection(
   // Pro mode: section carries pre-generated HTML — render it directly.
   const customHtml = (section as unknown as Record<string, unknown>).customHtml as string | undefined;
   if (customHtml) {
-    if (/^\s*<!DOCTYPE\s+html/i.test(customHtml) || /^\s*<html/i.test(customHtml)) {
-      return (
-        <iframe
-          srcDoc={normalizeMicrositeHtml(customHtml)}
-          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
-          title="Microsite"
-        />
-      );
-    }
-    return <div dangerouslySetInnerHTML={{ __html: customHtml }} />;
+    return <CustomHtmlSection html={customHtml} />;
   }
   // Pro mode streaming: section HTML not yet ready — render nothing.
   // The bottom progress chip ("Section X of Y") already provides feedback.
