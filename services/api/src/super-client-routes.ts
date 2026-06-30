@@ -1406,6 +1406,92 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── LLM-placed video embed inside a named section ────────────────────────
+    // Format: __VIDEO_IN_SECTION__:||[sectionKeyword]||[rawVideoUrl]||[userPrompt]
+    // Built by the client only when no element is selected and a named section is given.
+    const videoInSectionMatch = instruction.match(
+      /^__VIDEO_IN_SECTION__:[^|]*\|\|([\s\S]*?)\|\|(https?:\/\/[^|]+)\|\|([\s\S]*)$/s,
+    );
+    if (videoInSectionMatch) {
+      const sectionKw   = videoInSectionMatch[1].trim();
+      const rawVideoUrl = videoInSectionMatch[2].trim();
+      const userPrompt  = videoInSectionMatch[3].trim();
+
+      const toEmbedUrl = (raw: string): string => {
+        const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
+        if (vimeoM) {
+          const id     = vimeoM[1];
+          const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
+          return `https://player.vimeo.com/video/${id}${params}`;
+        }
+        const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+        if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
+        const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+        if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
+        return raw;
+      };
+      const embedUrl = toEmbedUrl(rawVideoUrl);
+
+      // extractBestSection scores all sections by keyword; falls back to first section when no match
+      const bestSlice = extractBestSection(html, sectionKw || 'first');
+      if (!bestSlice) {
+        return reply.code(422).send({ error: 'No sections found in this microsite' });
+      }
+
+      const isBgIntent = /\b(?:background|bg)\b/i.test(userPrompt);
+      const platform   = /vimeo/i.test(rawVideoUrl) ? 'Vimeo' : 'YouTube';
+
+      const embedBlock = isBgIntent
+        ? [
+            `  Modify the opening <section> tag to add style="position:relative;overflow:hidden" (merge with existing styles).`,
+            `  Add this as the very first child inside the section:`,
+            `  <iframe src="${embedUrl}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>`,
+          ].join('\n')
+        : [
+            `  Wrap the video in a responsive container and insert it at a natural visual break`,
+            `  (after the intro paragraph, before any CTA button, or at the end of main content):`,
+            `  <div style="position:relative;padding-top:56.25%;margin:2rem 0"><iframe src="${embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:none" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`,
+          ].join('\n');
+
+      const prompt = [
+        `You are editing one HTML section of a microsite. Your job: add a ${platform} video embed.`,
+        ``,
+        `SECTION HTML:`,
+        bestSlice.section.slice(0, 12000),
+        ``,
+        `EMBED URL (use exactly — do NOT change it): ${embedUrl}`,
+        ``,
+        `USER INSTRUCTION: ${userPrompt}`,
+        ``,
+        `WHAT TO DO:`,
+        embedBlock,
+        ``,
+        `STRICT RULES:`,
+        `- Use the EXACT embed URL above — never alter it`,
+        `- Return ONLY the complete modified <section>...</section> element`,
+        `- Do NOT include <!DOCTYPE>, <html>, <head>, or <body>`,
+        `- Preserve all existing text, styles, and children — only ADD the video`,
+        `- Do not remove or reorder any existing content`,
+      ].join('\n');
+
+      console.log('\n┌─ __VIDEO_IN_SECTION__ ──────────────────────────────────────');
+      console.log(`  keyword: "${sectionKw}" | bg: ${isBgIntent} | url: ${embedUrl.slice(0, 80)}`);
+      console.log('└────────────────────────────────────────────────────────────');
+
+      const raw      = await llmGenerateFn(prompt);
+      const modified = extractHtmlFromResponse(raw);
+
+      if (!modified) return reply.code(502).send({ error: 'LLM returned no HTML — try rephrasing' });
+      if (!/^<section[\s>]/i.test(modified.trim())) {
+        return reply.code(422).send({ error: 'LLM returned unexpected structure — try again' });
+      }
+
+      return saveValidatedEdit(
+        bestSlice.before + modified + bestSlice.after,
+        `${platform} video added to ${sectionKw || 'section'}`,
+      );
+    }
+
     // ── Deterministic video-background injection (bypasses LLM entirely) ──────
     const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
     const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
@@ -1414,7 +1500,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // is placed where the user intended (below, beside, inside the section) rather than always
     // being injected as a fullscreen background in the first <section>.
     const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
-    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:')) {
+    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:') && !instruction.startsWith('__VIDEO_IN_SECTION__:')) {
       const isVimeo = !!vimeoIdMatch;
       const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
       const src = isVimeo

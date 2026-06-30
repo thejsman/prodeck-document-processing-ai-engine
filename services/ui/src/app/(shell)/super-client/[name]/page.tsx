@@ -1616,6 +1616,20 @@ export default function SuperClientPage() {
           instruction = `__IMAGE_INJECT__:${url}`;
         }
       }
+      if (isVideo) {
+        const STOP_WORDS =
+          /^(this|the|a|an|that|my|our|your|it|its|there|here|any|some|new|old)$/i;
+        const sectionM =
+          micrositeEditInput.match(/\bin\s+(?:the\s+)?(\w[\w-]*)\s+section\b/i) ??
+          micrositeEditInput.match(/\b(\w[\w-]*)\s+section\b/i);
+        const sectionKeyword =
+          sectionM?.[1] && !STOP_WORDS.test(sectionM[1])
+            ? sectionM[1].toLowerCase()
+            : "";
+        if (!selectedElement?.path && sectionKeyword) {
+          instruction = `__VIDEO_IN_SECTION__:||${sectionKeyword}||${url}||${micrositeEditInput.trim()}`;
+        }
+      }
       // Video URL: server's Vimeo/YouTube detection fires on any matching URL.
     }
     // Snapshot label for chat messages before clearing input
