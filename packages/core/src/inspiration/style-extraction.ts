@@ -50,6 +50,36 @@ Return ONLY valid JSON in exactly this shape:
 }`;
 }
 
+/**
+ * Prompt for extracting style from a proposal image (screenshot, slide, scan).
+ * Same output schema as buildStylePrompt — parsed by parseStyleResponse.
+ */
+export function buildVisionStylePrompt(): string {
+  return `You are a writing-style analyst. Study this proposal image and capture the AUTHOR'S STYLE — HOW they write and present — so a future proposal can be written in the same voice and format.
+
+CRITICAL: Extract STYLE ONLY. Do NOT include any client-specific facts: no company names, people's names, product names, prices, numbers, dates, metrics, or industry-specific facts. Focus on reusable, content-agnostic patterns visible in the layout, typography, headings, and any readable text.
+
+Infer as much as you can from:
+- Visible section headings and their order
+- Typography weight, spacing, and hierarchy (signals formality)
+- Use of bullet points, numbered lists, columns, callout boxes
+- Any readable phrases or vocabulary (capture style, not specific content)
+- Opening and closing patterns if visible
+
+Return ONLY valid JSON in exactly this shape:
+{
+  "tone": ["3-6 adjectives, e.g. confident, consultative, warm"],
+  "formality": "casual | neutral | formal | highly-formal",
+  "sectionPatterns": ["visible section names in the order they appear, e.g. Executive Summary, Approach, Timeline"],
+  "openingStyle": "one sentence describing HOW proposals open (style, not content) — or infer from layout if not visible",
+  "closingStyle": "one sentence describing HOW proposals close / the call-to-action style — or infer if not visible",
+  "recurringPhrases": ["any reusable phrasings visible with NO client names/numbers — empty array if none readable"],
+  "vocabulary": ["characteristic word choices / power words visible in headings or body text"],
+  "persuasionPatterns": ["how they persuade, e.g. roi-led, social-proof-led, timeline-led, risk-reduction-led, vision-led, authority-led"],
+  "formatting": ["formatting habits visible, e.g. short paragraphs, bold key terms, bulleted deliverables, numbered phases, two-column layout"]
+}`;
+}
+
 /** Heuristic guard: a phrase carrying money/percent/long numbers is a fact, not style. */
 export function looksLikeFact(s: string): boolean {
   return /[$£€]/.test(s) || /\d+\s?%/.test(s) || /\b\d{2,}\b/.test(s);

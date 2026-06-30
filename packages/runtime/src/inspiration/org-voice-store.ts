@@ -18,6 +18,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { mergeVoiceProfiles, renderVoicePromptBlock } from '@ai-engine/core';
 import type { AuthorVoice, VoiceStyleProfile } from '@ai-engine/core';
+import { readOrgContextSettings } from './org-settings.js';
 
 export interface VoiceDocEntry {
   id: string;
@@ -160,8 +161,11 @@ export class OrgVoiceStore {
 
   /** Recompute the merged voice from cached profiles (no LLM calls). */
   async recompute(): Promise<AuthorVoice> {
-    const profiles = await this.listProfiles();
-    const computed = mergeVoiceProfiles(profiles);
+    const [profiles, settings] = await Promise.all([
+      this.listProfiles(),
+      readOrgContextSettings(this.workdir),
+    ]);
+    const computed = mergeVoiceProfiles(profiles, settings.recencyMultiplier);
     const prev = await this.getVoice();
     const voice: AuthorVoice = {
       ...computed,

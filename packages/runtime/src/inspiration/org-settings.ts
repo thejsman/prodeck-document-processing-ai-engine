@@ -12,11 +12,14 @@ import path from 'node:path';
 export interface OrgContextSettings {
   applyAuthorVoice: boolean;
   applyDesignKit: boolean;
+  /** Weight of the newest upload relative to oldest. 1=flat, 2=default, 4=aggressive. */
+  recencyMultiplier: number;
 }
 
 export const DEFAULT_ORG_CONTEXT_SETTINGS: OrgContextSettings = {
   applyAuthorVoice: true,
   applyDesignKit: true,
+  recencyMultiplier: 2,
 };
 
 function settingsPath(workdir: string): string {

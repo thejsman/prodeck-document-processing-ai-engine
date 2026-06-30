@@ -13,6 +13,7 @@ import { tools } from './commands/tools.js';
 import { analyzeImage } from './commands/analyze-image.js';
 import { planner } from './commands/planner.js';
 import { voice } from './commands/voice.js';
+import { assets } from './commands/assets.js';
 import { formatError } from './output/console-reporter.js';
 
 const COMMANDS: Readonly<Record<string, (args: readonly string[]) => Promise<void>>> = {
@@ -28,6 +29,7 @@ const COMMANDS: Readonly<Record<string, (args: readonly string[]) => Promise<voi
   planner,
   'analyze-image': analyzeImage,
   voice,
+  assets,
 };
 
 async function main(): Promise<void> {
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
     process.stderr.write('  planner simulate --task <desc>    Simulate a tool execution plan\n');
     process.stderr.write('  analyze-image --input <path|url>  Analyze image metadata via Claude Vision\n');
     process.stderr.write('  voice <ingest|show|list|...>      Manage org Author Voice from past proposals\n');
+  process.stderr.write('  assets <ingest|list|design-kit|..> Manage org Design Kit for microsites\n');
     process.stderr.write('  (no command)                      Enter interactive mode\n\n');
     process.stderr.write('Options:\n');
     process.stderr.write('  --plugins <path>   Plugin directory (repeatable)\n');

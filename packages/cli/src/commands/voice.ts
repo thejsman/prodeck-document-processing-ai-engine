@@ -6,15 +6,14 @@
  * parser (@ai-engine/core) used by the API, so CLI and API stay consistent.
  *
  * Usage:
- *   ai-engine voice ingest <file...> [--workdir <path>]   Learn style from proposals (.md/.txt)
+ *   ai-engine voice ingest <file...> [--workdir <path>]   Learn style from proposals (.pdf/.docx/.md/.txt)
  *   ai-engine voice show [--json] [--workdir <path>]       Print the learned voice
  *   ai-engine voice list [--workdir <path>]                List ingested documents
  *   ai-engine voice recompute [--workdir <path>]           Rebuild the merged voice
  *   ai-engine voice rm <id> [--workdir <path>]             Remove a document
  *   ai-engine voice enable|disable [--workdir <path>]      Toggle injection at generation
  *
- * `ingest` requires ANTHROPIC_API_KEY. PDF proposals are supported via the
- * web UI / API (the CLI ingests .md/.txt to stay dependency-light).
+ * `ingest` requires ANTHROPIC_API_KEY. Supports .md, .txt, .docx, and .pdf.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -27,6 +26,7 @@ import {
 } from '@ai-engine/runtime';
 import {
   buildStylePrompt,
+  buildVisionStylePrompt,
   parseStyleResponse,
   renderVoicePromptBlock,
 } from '@ai-engine/core';
@@ -35,7 +35,7 @@ import type { VoiceStyleProfile } from '@ai-engine/core';
 const HELP =
   'Usage: ai-engine voice <subcommand> [options]\n\n' +
   'Subcommands:\n' +
-  '  ingest <file...>   Learn writing style from past proposals (.md/.txt)\n' +
+  '  ingest <file...>   Learn writing style from past proposals (.pdf/.docx/.md/.txt)\n' +
   '  show [--json]      Print the learned Author Voice\n' +
   '  list               List ingested documents and their status\n' +
   '  recompute          Rebuild the merged voice from cached profiles\n' +
@@ -75,6 +75,42 @@ function parseArgs(args: readonly string[]): ParsedArgs {
 interface ClaudeResponse {
   content: Array<{ type: string; text?: string }>;
   error?: { message: string };
+}
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+
+async function callClaudeVisionStyle(filePath: string, mediaType: string, apiKey: string): Promise<string> {
+  const buf = await readFile(filePath);
+  const base64 = buf.toString('base64');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: buildVisionStylePrompt() },
+        ],
+      }],
+    }),
+  });
+  const json = (await res.json()) as ClaudeResponse;
+  if (!res.ok) throw new Error(`Claude vision API error ${res.status}: ${json.error?.message ?? 'unknown'}`);
+  const textBlock = json.content.find((b) => b.type === 'text');
+  if (!textBlock?.text) throw new Error('Claude returned no text from vision call');
+  return textBlock.text;
 }
 
 async function callClaudeText(prompt: string, apiKey: string): Promise<string> {
@@ -121,17 +157,36 @@ export async function voice(args: readonly string[]): Promise<void> {
         process.stderr.write('Error: ANTHROPIC_API_KEY environment variable is not set\n');
         process.exit(1);
       }
+      const ALLOWED_EXTS = ['.pdf', '.docx', '.md', '.txt', '.png', '.jpg', '.jpeg', '.webp'];
       for (const file of files) {
         const ext = path.extname(file).toLowerCase();
-        if (ext !== '.md' && ext !== '.txt') {
-          process.stderr.write(`Skipping ${file}: CLI ingest supports .md/.txt (use the web UI for PDF)\n`);
+        if (!ALLOWED_EXTS.includes(ext)) {
+          process.stderr.write(`Skipping ${file}: supported formats are .pdf, .docx, .md, .txt, .png, .jpg, .webp\n`);
           continue;
         }
         const safeName = path.basename(file).replace(/[^a-zA-Z0-9._-]/g, '_');
         const buffer = await readFile(file);
         const entry = await store.addUpload(safeName, buffer);
         try {
-          const raw = await callClaudeText(buildStylePrompt(safeName, buffer.toString('utf-8')), apiKey);
+          const imageMime = IMAGE_MIME[ext];
+          let raw: string;
+          if (imageMime) {
+            raw = await callClaudeVisionStyle(file, imageMime, apiKey);
+          } else {
+            let text: string;
+            if (ext === '.pdf') {
+              const { default: pdfParse } = (await import('pdf-parse')) as {
+                default: (buf: Buffer) => Promise<{ text: string }>;
+              };
+              text = (await pdfParse(buffer)).text;
+            } else if (ext === '.docx') {
+              const mammoth = await import('mammoth');
+              text = (await mammoth.extractRawText({ buffer })).value;
+            } else {
+              text = buffer.toString('utf-8');
+            }
+            raw = await callClaudeText(buildStylePrompt(safeName, text), apiKey);
+          }
           const style = parseStyleResponse(raw);
           const profile: VoiceStyleProfile = {
             id: entry.id,

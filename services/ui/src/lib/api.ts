@@ -2625,6 +2625,7 @@ export interface VoiceDocEntry {
 export interface OrgContextSettings {
   applyAuthorVoice: boolean;
   applyDesignKit: boolean;
+  recencyMultiplier: number;
 }
 
 export async function fetchAuthorVoice(apiKey: string): Promise<AuthorVoice | null> {
@@ -2699,4 +2700,100 @@ export async function saveOrgContextSettings(
   });
   const data = await handleResponse<{ settings: OrgContextSettings }>(res);
   return data.settings;
+}
+
+// ── Design Kit (Phase 2) ──────────────────────────────────────────────────────
+
+export type AssetType = 'logo' | 'hero' | 'background' | 'palette' | 'typography' | 'inspiration' | 'other';
+
+export interface AssetMetadata {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  size: number;
+  uploadedAt: string;
+  assetType: AssetType;
+  isPrimary: boolean;
+  palette: string[];
+  fontHints: string[];
+  tags: string[];
+  description: string;
+  status: 'processing' | 'tagged' | 'failed';
+  error?: string;
+}
+
+export interface DesignKit {
+  primaryColor: string | null;
+  palette: string[];
+  fontHints: string[];
+  logoAssetId: string | null;
+  heroAssetId: string | null;
+  designBrief: string;
+  dominantColors: string[];
+  updatedAt: string;
+}
+
+export async function fetchDesignAssets(apiKey: string): Promise<AssetMetadata[]> {
+  const res = await fetch('/api/org-context/assets', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ assets: AssetMetadata[] }>(res);
+  return data.assets;
+}
+
+export async function uploadDesignAsset(
+  apiKey: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/org-context/assets/upload');
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteDesignAsset(apiKey: string, id: string): Promise<DesignKit> {
+  const res = await fetch(`/api/org-context/assets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ designKit: DesignKit }>(res);
+  return data.designKit;
+}
+
+export async function setAssetPrimary(apiKey: string, id: string, isPrimary: boolean): Promise<AssetMetadata[]> {
+  const res = await fetch(`/api/org-context/assets/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ isPrimary }),
+  });
+  const data = await handleResponse<{ assets: AssetMetadata[] }>(res);
+  return data.assets;
+}
+
+export async function fetchDesignKit(apiKey: string): Promise<DesignKit | null> {
+  const res = await fetch('/api/org-context/design-kit', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ designKit: DesignKit | null }>(res);
+  return data.designKit;
+}
+
+export async function recomputeDesignKit(apiKey: string): Promise<DesignKit> {
+  const res = await fetch('/api/org-context/design-kit/regenerate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+  });
+  const data = await handleResponse<{ designKit: DesignKit }>(res);
+  return data.designKit;
 }

@@ -4,6 +4,40 @@ import type { FastifyInstance } from 'fastify';
 import puppeteer from 'puppeteer';
 import { PDFDocument } from 'pdf-lib';
 
+// Fetch all external image URLs found in src attributes and CSS url() and replace
+// them with base64 data URIs so Puppeteer never needs to make outbound requests.
+// Node.js follows Unsplash redirects; Puppeteer in headless mode often drops them.
+async function inlineExternalImages(html: string): Promise<string> {
+  const urlSet = new Set<string>();
+
+  const srcRe = /\bsrc=["']((https?:\/\/)[^"']+)["']/gi;
+  const bgRe = /url\(['"]?((https?:\/\/)[^'")\s]+)['"]?\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = srcRe.exec(html)) !== null) urlSet.add(m[1]);
+  while ((m = bgRe.exec(html)) !== null) urlSet.add(m[1]);
+
+  if (urlSet.size === 0) return html;
+
+  const replacements = new Map<string, string>();
+  await Promise.all(
+    Array.from(urlSet).map(async (url) => {
+      try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(12_000) });
+        if (!resp.ok) return;
+        const ct = resp.headers.get('content-type') ?? 'image/jpeg';
+        const buf = await resp.arrayBuffer();
+        replacements.set(url, `data:${ct.split(';')[0]};base64,${Buffer.from(buf).toString('base64')}`);
+      } catch { /* skip unreachable images */ }
+    }),
+  );
+
+  let result = html;
+  for (const [url, dataUri] of replacements) {
+    result = result.split(url).join(dataUri);
+  }
+  return result;
+}
+
 const DIMS = {
   landscape: { pdfW: 841.89, pdfH: 473.56, vpW: 1280, vpH: 720 },
   portrait:  { pdfW: 473.56, pdfH: 841.89, vpW: 720,  vpH: 1280 },
@@ -43,6 +77,9 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
       try {
         browser = await puppeteer.launch({
           headless: true,
+          ...(process.env.PUPPETEER_EXECUTABLE_PATH
+            ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+            : {}),
           args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
         });
       } catch (err) {
@@ -54,11 +91,12 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         const page = await browser.newPage();
         await page.setViewport({ width: vpW, height: vpH, deviceScaleFactor: 1 });
 
-        // Strip CSS @import rules that point to external font CDNs.
-        // Google Fonts' @import blocks DOMContentLoaded in headless Chrome when the
-        // TLS/DNS handshake is slow; removing it lets Chrome use system-font fallbacks
-        // and avoids Puppeteer's 30s navigation lifecycle timeout entirely.
-        const exportHtml = html.replace(/@import\s+url\([^)]+\)\s*;/g, '');
+        // Pre-fetch all external images and embed as base64 data URIs so Puppeteer
+        // never needs outbound requests. source.unsplash.com uses 302 redirects that
+        // headless Chrome drops; Node.js fetch follows them reliably.
+        // Also strip CSS @import font CDN rules that can stall DOMContentLoaded.
+        const strippedHtml = html.replace(/@import\s+url\([^)]+\)\s*;/g, '');
+        const exportHtml = await inlineExternalImages(strippedHtml);
 
         // Inject HTML via document.write() instead of page.setContent() to bypass
         // Puppeteer 24.x's navigation lifecycle tracking — setContent() can hang
@@ -81,7 +119,7 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
                 .map((img) => new Promise<void>((resolve) => { img.onload = img.onerror = () => resolve(); }))
             )
           ).catch(() => {}),
-          new Promise<void>((r) => setTimeout(r, 10_000)),
+          new Promise<void>((r) => setTimeout(r, 5_000)),
         ]);
 
         // Extra settle for web fonts and CSS transitions
