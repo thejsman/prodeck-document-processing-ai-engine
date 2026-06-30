@@ -397,7 +397,11 @@ export async function generateSectionHtml(
   ].filter(line => line !== '').join('\n');
 
   const raw = await generateFn(prompt);
-  const cleaned = raw.replace(/^```(?:html)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+  const cleaned = raw
+    .replace(/^```(?:html)?\s*/m, '').replace(/\s*```\s*$/m, '')
+    .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+    .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) => /&lt;|&gt;|&amp;lt;/.test(match) ? '' : match)
+    .trim();
 
   // Deterministically inject the 4-column metadata strip at the bottom of the hero.
   // Post-processing guarantees the strip even if the LLM ignores or rephrases the instruction.

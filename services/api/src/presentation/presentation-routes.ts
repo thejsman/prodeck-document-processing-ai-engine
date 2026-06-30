@@ -3295,9 +3295,15 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
           send({ type: 'html_chunk', chunk });
         },
         async ({ elapsed }) => {
+          const sanitized = accumulated
+            .replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '')
+            .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+            .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (m) => /&lt;|&gt;|&amp;lt;/.test(m) ? '' : m)
+            .trim()
+            .replace(/ — /g, ', ').replace(/—/g, '-');
           const htmlPath = path.join(workdir, 'assets', 'presentations', namespace, 'site-direct.html');
           await mkdir(path.dirname(htmlPath), { recursive: true });
-          await writeFile(htmlPath, accumulated, 'utf-8');
+          await writeFile(htmlPath, sanitized, 'utf-8');
           console.log(`[direct-gen] Stream complete — namespace=${namespace} elapsed=${elapsed}ms size=${accumulated.length}`);
           send({ type: 'complete', elapsed, size: accumulated.length });
           reply.raw.end();
