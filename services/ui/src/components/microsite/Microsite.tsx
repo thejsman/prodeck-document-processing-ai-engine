@@ -40,6 +40,7 @@ import { SectionIdProvider } from './editor/SectionIdContext';
 import { AddSectionButton } from './editor/AddSectionButton';
 import { useAuth } from '../../lib/auth-context';
 import { isSectionEmpty } from '../../lib/sectionUtils';
+import { normalizeMicrositeHtml } from '../../lib/microsite-bridge';
 import { TypewriterSection, SectionStreamingContext } from './TypewriterSection';
 import { MicrositeEffectsContext, useMotionLevel } from './shared/MicrositeEffectsContext';
 import { AstSectionDivider } from './shared/AstSectionDivider';
@@ -174,6 +175,17 @@ function renderSection(
   // Pro mode: section carries pre-generated HTML — render it directly.
   const customHtml = (section as unknown as Record<string, unknown>).customHtml as string | undefined;
   if (customHtml) {
+    if (/^\s*<!DOCTYPE\s+html/i.test(customHtml) || /^\s*<html/i.test(customHtml)) {
+      return (
+        <iframe
+          srcDoc={normalizeMicrositeHtml(customHtml)}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
+          title="Microsite"
+        />
+      );
+    }
     return <div dangerouslySetInnerHTML={{ __html: customHtml }} />;
   }
   // Pro mode streaming: section HTML not yet ready — render nothing.
