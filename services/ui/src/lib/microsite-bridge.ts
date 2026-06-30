@@ -96,6 +96,7 @@ const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
    black side bars when the html element has a dark background. Inner content wrappers
    may still use max-width + margin:auto — only html/body are reset here. */
 html,body{max-width:none!important;margin-left:0!important;margin-right:0!important;width:100%!important;}
+body{overflow-x:clip!important;}
 script,style,noscript,template{display:none!important;visibility:hidden!important;}
 *,*::before,*::after{cursor:auto!important}
 .cursor,.cursor-dot,.cursor-ring,.cursor-follower,.cursor-blob,
@@ -192,6 +193,12 @@ setTimeout(fix,600);
 // because it has no real base URL).
 const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){if(window.__editMode)return;var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
+// Slide scaler — only runs when __pdf-slide-constraints__ is present (PDF mode).
+// Web-mode slides are fluid (width:100%) and need no scaling.
+// For landscape (W=1280): scales down/up so slides fill the iframe width.
+// For portrait (W=720): scales up when vw>=720; lets slides be fluid when vw<720.
+const SLIDE_SCALER_SCRIPT = `<script id="__slide-scaler__">(function(){var cs=document.getElementById('__pdf-slide-constraints__');if(!cs)return;var css=cs.textContent||'';var isPortrait=css.indexOf('aspect-ratio')!==-1;var W=isPortrait?720:1280;var H=isPortrait?1280:720;function sc(){var vw=window.innerWidth||document.documentElement.clientWidth;if(!vw){setTimeout(sc,300);return;}var vs=vw/W;var small=vs<1;if(isPortrait&&small){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.removeProperty('transform');el.style.removeProperty('margin-bottom');el.style.setProperty('overflow','hidden','important');});return;}if(small){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}if(!document.querySelector('[data-section-id]')){document.querySelectorAll('section:not([data-pdf-hide])').forEach(function(el,i){el.setAttribute('data-section-id',el.id||('slide-'+(i+1)));});}var found=document.querySelectorAll('[data-section-id]');found.forEach(function(el){el.style.setProperty('width',W+'px','important');el.style.setProperty('height',H+'px','important');el.style.setProperty('max-height',H+'px','important');el.style.setProperty('overflow','hidden','important');el.style.setProperty('transform-origin',small?'top left':'top center','important');if(Math.abs(vs-1)<0.005){el.style.removeProperty('transform');el.style.removeProperty('margin-bottom');}else{el.style.setProperty('transform','scale('+vs+')','important');el.style.setProperty('margin-bottom',Math.round(H*(vs-1))+'px','important');}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);window.addEventListener('load',sc);setTimeout(sc,300);setTimeout(sc,700);}());<\/script>`;
+
 // IDs of all elements injected by normalizeMicrositeHtml / injectBridgeScript.
 // Used to strip stale saved copies before re-injecting the latest code.
 const PREVIEW_INJECTION_IDS = [
@@ -200,6 +207,7 @@ const PREVIEW_INJECTION_IDS = [
   '__preview-reveal-fix',
   '__microsite-iframe-edit',
   '__scroll-restore',
+  '__slide-scaler__',
 ] as const;
 
 // Strip any previously-saved preview injections so stale code is never reused.
@@ -235,11 +243,12 @@ export function normalizeMicrositeHtml(html: string): string {
     out = NAV_FIX_SCRIPT + out;
   }
 
-  // 3. JS reveal fallback → before </body> (needs DOM to exist first)
+  // 3. Slide scaler + JS reveal fallback → before </body> (needs DOM to exist first)
   const bodyClose = out.lastIndexOf('</body>');
+  const beforeClose = SLIDE_SCALER_SCRIPT + PREVIEW_REVEAL_SCRIPT;
   out = bodyClose !== -1
-    ? out.slice(0, bodyClose) + PREVIEW_REVEAL_SCRIPT + out.slice(bodyClose)
-    : out + PREVIEW_REVEAL_SCRIPT;
+    ? out.slice(0, bodyClose) + beforeClose + out.slice(bodyClose)
+    : out + beforeClose;
 
   return out;
 }
