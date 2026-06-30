@@ -92,6 +92,10 @@ export function buildInstruction(selected: BridgeMessage | null, userText: strin
 
 // ── Cursor reset CSS (injected always) ─────────────────────────────────────
 const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
+/* Prevent LLM-generated microsites from centering body with max-width, which creates
+   black side bars when the html element has a dark background. Inner content wrappers
+   may still use max-width + margin:auto — only html/body are reset here. */
+html,body{max-width:none!important;margin-left:0!important;margin-right:0!important;width:100%!important;}
 *,*::before,*::after{cursor:auto!important}
 .cursor,.cursor-dot,.cursor-ring,.cursor-follower,.cursor-blob,
 .custom-cursor,.mouse-cursor,.pointer-cursor,.cursor-inner,.cursor-outer,

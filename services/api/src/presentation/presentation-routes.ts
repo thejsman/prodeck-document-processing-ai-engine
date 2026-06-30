@@ -2480,6 +2480,13 @@ NAV INTEGRITY RULE — always enforce this:
 - Never wire multiple nav items to the same section ID just because that section is the closest match
 - After writing all sections, do a final mental check: for each nav href, confirm its target id exists in the HTML
 
+FULL-WIDTH RULE — CRITICAL, never violate:
+- <html> and <body> must ALWAYS be full-viewport-width — never set max-width, margin:auto, or padding on html or body
+- Put max-width constraints ONLY on inner content wrapper divs (e.g. <div style="max-width:1200px;margin:0 auto;padding:0 40px">)
+- Sections and their background colors/images must always span the FULL viewport width — never a narrower column
+- Violation example (FORBIDDEN): body { max-width: 1280px; margin: 0 auto; }
+- Correct pattern: body { width: 100%; } with inner <div style="max-width:1280px;margin:0 auto">
+
 MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every output:
 - Always include <meta name="viewport" content="width=device-width, initial-scale=1"> in <head>
 - Write base styles for 320px–768px first, then layer on desktop enhancements with min-width media queries
