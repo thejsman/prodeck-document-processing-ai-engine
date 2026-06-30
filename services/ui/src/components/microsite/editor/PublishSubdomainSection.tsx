@@ -185,7 +185,7 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
               <input
                 type={showNewPassword ? 'text' : 'password'}
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(e) => setNewPassword(e.target.value.replace(/\s/g, ''))}
                 placeholder="New password (leave blank to remove)"
                 style={{
                   width: '100%',
@@ -373,7 +373,7 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
             <input
               type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => setPassword(e.target.value.replace(/\s/g, ''))}
               placeholder="Set a password (min. 6 characters)"
               disabled={publish.status === 'publishing'}
               autoComplete="new-password"

@@ -145,7 +145,7 @@ function VoiceContextCard({
   const hasDocs = docs.length > 0;
 
   return (
-    <div style={{ borderRadius: 12, padding: 20, background: '#fff', display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ borderRadius: 12, padding: 20, background: 'var(--panel)', display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <FileText size={13} strokeWidth={1.5} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -253,7 +253,7 @@ function DesignKitCard({
   const hasAssets = assets.length > 0;
 
   return (
-    <div style={{ borderRadius: 12, padding: 20, background: '#fff', display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ borderRadius: 12, padding: 20, background: 'var(--panel)', display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Layers size={13} strokeWidth={1.5} style={{ color: 'var(--muted)', flexShrink: 0 }} />
