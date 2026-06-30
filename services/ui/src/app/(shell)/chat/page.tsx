@@ -2267,6 +2267,16 @@ export default function ChatPage() {
                             </a>
                           </div>
                         )}
+                        {!isStreaming && doneActions?.openDocumentUrl && (
+                          <div className="proposal-done-actions" style={{ marginTop: 12 }}>
+                            <a
+                              href={`${doneActions.openDocumentUrl}&from=chat`}
+                              className="proposal-done-link proposal-done-link--primary"
+                            >
+                              View Document ↗
+                            </a>
+                          </div>
+                        )}
                         {/* ── Confirmation block for active stream ── */}
                         {!isStreaming && confirmationRequest && (
                           <ConfirmationBlock

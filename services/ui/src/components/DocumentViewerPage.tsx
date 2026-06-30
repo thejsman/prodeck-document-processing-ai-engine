@@ -33,8 +33,12 @@ export function DocumentViewerPage() {
   const [loading, setLoading] = useState(true);
   const [showFormatMenu, setShowFormatMenu] = useState(false);
 
+  const isHtml = content !== null && (/^\s*<!DOCTYPE\s+html/i.test(content) || /^\s*<html[\s>]/i.test(content));
+
   const docTitle = content
-    ? content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "Document"
+    ? (isHtml
+        ? (content.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? "Presentation")
+        : (content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? "Document"))
     : "Loading…";
 
   useEffect(() => {
@@ -209,9 +213,9 @@ export function DocumentViewerPage() {
       <div
         style={{
           flex: 1,
-          maxWidth: 780,
-          margin: "0 auto",
-          padding: "40px 24px 80px",
+          maxWidth: isHtml ? "100%" : 780,
+          margin: isHtml ? 0 : "0 auto",
+          padding: isHtml ? 0 : "40px 24px 80px",
           width: "100%",
         }}
       >
@@ -225,11 +229,18 @@ export function DocumentViewerPage() {
             {error}
           </div>
         )}
-        {content && (
+        {content && (isHtml ? (
+          <iframe
+            srcDoc={content}
+            style={{ width: '100%', height: 'calc(100vh - 57px)', border: 'none', display: 'block' }}
+            title={docTitle}
+            sandbox="allow-scripts"
+          />
+        ) : (
           <div className="proposal-markdown">
             <ReactMarkdown>{content}</ReactMarkdown>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
