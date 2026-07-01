@@ -3013,13 +3013,14 @@ Use a DIFFERENT layout on every slide. Available options:
 
 ═══ FREE-FORM SLIDE DESIGN — technical constraints ═══
 NON-NEGOTIABLE layout rules (creativity must never break these):
-  • Slide is 1280×720px (16:9), overflow:hidden, all content must stay within bounds
+  • Slide is 1280×720px (16:9), overflow:hidden, all content must stay within bounds — content that overflows is INVISIBLE
   • CRITICAL: every slide wrapper MUST have BOTH id="slide-N" AND data-section-id="slide-N"
   • data-ls-content="1" on the main content element — CSS forces flex:1 (fills available height)
   • data-ls-callout="1" on the bottom accent/callout bar — CSS forces margin-top:auto + flex-shrink:0 (pinned to bottom)
   • Font minimums: body text ≥12px, card/row titles ≥14px, section headlines ≥28px
   • No CSS animations, no transitions, no JS, no fixed/sticky positioned children
-  • Dark background → white or rgba(255,255,255,0.92+) for all text
+  • Dark background → white or rgba(255,255,255,0.92+) for ALL text — this includes table labels, spec row keys, list item text, card descriptions, tag text, and captions. NEVER use a dark or mid-tone color for text on a dark background — it becomes invisible in PDF export
+  • Accent color (gold, teal, etc.) is for decorative elements ONLY (borders, icons, eyebrow labels, stat numbers) — never the primary text color for body copy or table content on dark backgrounds
   • Light background → near-black (#111827) for text — never mid-gray
   • Every grid cell containing text MUST have min-width:0 to prevent overflow
   • Grid columns MUST use fr units — never fixed px widths
@@ -3028,6 +3029,25 @@ NON-NEGOTIABLE layout rules (creativity must never break these):
   • NEVER margin:0 auto inside a slide — use flex justify-content or grid instead
   • The rendering engine controls section sizing — do NOT set width or height on the section wrapper element itself; do NOT set a fixed width on the body element
   • NEVER use vw, clamp(), em, rem for font-size, padding, or gap — px only
+
+HEIGHT BUDGET — do the math before writing each slide:
+  Total height: 720px
+  Section padding (top + bottom): 96px → working area: 624px
+  Section header (eyebrow ~20px + gap ~8px + title ~38px + gap ~28px): ~94px → card area: ~530px
+  Callout bar (if used): ~50px → net card area: ~480px
+  Card internal padding (24px top + 24px bottom): ~48px per card
+
+  Per-layout maximums (these are HARD LIMITS — exceeding them clips content invisibly):
+    3-column grid, 1 row (3 cards):  each card body ≤ 5 lines at 13px (≤ 55 words)
+    3-column grid, 2 rows (6 cards): each card body ≤ 2 lines at 13px (≤ 25 words) — use 2 bullets max
+    2-column grid, 2 rows (4 cards): each card body ≤ 3 lines at 13px (≤ 40 words)
+    2-column grid, 1 row (2 cards):  each card body ≤ 6 lines at 13px (≤ 70 words)
+    List rows (≤4 items):            each row ≤ 1 line description (≤ 15 words)
+    Stat block (3–4 numbers):        label ≤ 3 words, supporting note ≤ 10 words
+
+  RULE: If your card text needs more words than the limit allows, split the slide into two slides.
+  RULE: Prefer 2-3 short bullet points (<li> or ● characters) over a prose paragraph — bullets are shorter per visual line.
+  RULE: Never write card body text as a multi-sentence paragraph — write 1 crisp sentence OR 2-3 short bullets.
 
 VISUAL VARIATION — randomize across slides:
   • Background: vary slightly (hue shift, lightness shift, gradient direction) — never 12 identical backgrounds
@@ -3045,9 +3065,10 @@ ANIMATION-READY STRUCTURE — add these class names to elements for future use (
 
 CONTENT DENSITY — one idea per slide, never overpack:
   • A slide holds ONE composition: header + card grid, OR header + stat block, OR header + list — never all three
-  • Max 4 cards in a grid; max 4 list rows; max 3 step cards
+  • Max 6 cards in a grid (3×2); max 4 list rows; max 3 step cards — split to a new slide if more
   • Split into two slides if content exceeds one clean composition
   • Card grids MUST span full width using display:grid with width:100%
+  • CRITICAL: card body text is capped by the HEIGHT BUDGET above — shorter text beats clipped text
 
 HERO SLIDE (slide-1): Use hero layout from HERO LAYOUT MENU above.
 Must always contain: full-bleed or strong visual background · large headline (40–52px, 3+ lines) · eyebrow label · CTA button · stats row or social proof

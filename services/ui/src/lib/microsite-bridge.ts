@@ -102,6 +102,14 @@ script,style,noscript,template{display:none!important;visibility:hidden!importan
 .cursor,.cursor-dot,.cursor-ring,.cursor-follower,.cursor-blob,
 .custom-cursor,.mouse-cursor,.pointer-cursor,.cursor-inner,.cursor-outer,
 [class*="cursor-"],[id*="cursor"],[class*="custom-cursor"]{display:none!important}
+/* PDF slide preview — let sections expand to their content height.
+   Removes the fixed 720px/aspect-ratio constraint so content never clips or
+   overflows into the next slide. flex:none stops flex:1 children collapsing
+   when the parent loses its fixed height. No scrollbars — height:auto expands
+   the element rather than adding a scroll track. */
+[data-section-id]{height:auto!important;max-height:none!important;min-height:0!important;overflow:visible!important;aspect-ratio:auto!important;}
+[data-section-id]>div:not([data-pdf-hide]){flex:none!important;height:auto!important;overflow:visible!important;}
+[data-ls-content],[data-portrait-body]{flex:none!important;height:auto!important;overflow:visible!important;}
 /* Layer 1 — disable CSS keyframe animations (the usual way LLMs hide content
    until scroll/reveal). Transitions are kept so interactive elements like
    hamburger menus, hover effects, and accordions still work. */
@@ -193,14 +201,9 @@ setTimeout(fix,600);
 // because it has no real base URL).
 const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){if(window.__editMode)return;var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
-// Slide scaler — only runs when __pdf-slide-constraints__ is present (PDF mode).
-// Web-mode slides are fluid (width:100%) and need no scaling.
-// For landscape (W=1280): scales down/up so slides fill the iframe width.
-// For portrait (W=720): scales up when vw>=720; lets slides be fluid when vw<720.
-const SLIDE_SCALER_SCRIPT = `<script id="__slide-scaler__">(function(){var cs=document.getElementById('__pdf-slide-constraints__');if(!cs)return;var css=cs.textContent||'';var isPortrait=css.indexOf('aspect-ratio')!==-1;var W=isPortrait?720:1280;var H=isPortrait?1280:720;function sc(){var vw=window.innerWidth||document.documentElement.clientWidth;if(!vw){setTimeout(sc,300);return;}var vs=vw/W;var small=vs<1;if(isPortrait&&small){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.removeProperty('transform');el.style.removeProperty('margin-bottom');el.style.setProperty('overflow','hidden','important');});return;}if(small){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}if(!document.querySelector('[data-section-id]')){document.querySelectorAll('section:not([data-pdf-hide])').forEach(function(el,i){el.setAttribute('data-section-id',el.id||('slide-'+(i+1)));});}var found=document.querySelectorAll('[data-section-id]');found.forEach(function(el){el.style.setProperty('width',W+'px','important');el.style.setProperty('height',H+'px','important');el.style.setProperty('max-height',H+'px','important');el.style.setProperty('overflow','hidden','important');el.style.setProperty('transform-origin',small?'top left':'top center','important');if(Math.abs(vs-1)<0.005){el.style.removeProperty('transform');el.style.removeProperty('margin-bottom');}else{el.style.setProperty('transform','scale('+vs+')','important');el.style.setProperty('margin-bottom',Math.round(H*(vs-1))+'px','important');}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);window.addEventListener('load',sc);setTimeout(sc,300);setTimeout(sc,700);}());<\/script>`;
-
 // IDs of all elements injected by normalizeMicrositeHtml / injectBridgeScript.
 // Used to strip stale saved copies before re-injecting the latest code.
+// '__slide-scaler__' is included so any old server-baked scaler is stripped on load.
 const PREVIEW_INJECTION_IDS = [
   '__preview-cursor-reset',
   '__nav-anchor-fix',
@@ -243,12 +246,20 @@ export function normalizeMicrositeHtml(html: string): string {
     out = NAV_FIX_SCRIPT + out;
   }
 
-  // 3. Slide scaler + JS reveal fallback → before </body> (needs DOM to exist first)
+  // 3. JS reveal fallback → before </body> (needs DOM to exist first).
+  // Guard: close any unclosed <textarea> tags first — if our <script> injection
+  // lands inside a <textarea>, the browser renders script content as visible text.
+  const taOpen = (out.match(/<textarea[\s>]/gi) || []).length;
+  const taClose = (out.match(/<\/textarea>/gi) || []).length;
+  if (taOpen > taClose) {
+    const closes = '</textarea>'.repeat(taOpen - taClose);
+    const bc = out.lastIndexOf('</body>');
+    out = bc !== -1 ? out.slice(0, bc) + closes + out.slice(bc) : out + closes;
+  }
   const bodyClose = out.lastIndexOf('</body>');
-  const beforeClose = SLIDE_SCALER_SCRIPT + PREVIEW_REVEAL_SCRIPT;
   out = bodyClose !== -1
-    ? out.slice(0, bodyClose) + beforeClose + out.slice(bodyClose)
-    : out + beforeClose;
+    ? out.slice(0, bodyClose) + PREVIEW_REVEAL_SCRIPT + out.slice(bodyClose)
+    : out + PREVIEW_REVEAL_SCRIPT;
 
   return out;
 }
