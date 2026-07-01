@@ -307,7 +307,7 @@ function UploadMessageCard({ uploadId, docs }: { uploadId: string; docs: SuperCl
   // Advance through processing steps on a timer to show believable progress
   const [processingStep, setProcessingStep] = useState(0);
   const isProcessingState = entry && entry.status !== 'uploading' && entry.status !== 'failed';
-  const docForEntry = entry ? docs.find((d) => d.fileName === entry.fileName) : undefined;
+  const docForEntry = entry ? docs.find((d) => d.fileName === (entry.storedFileName ?? entry.fileName)) : undefined;
   const isProcessing = isProcessingState && (!docForEntry || docForEntry.status === 'processing');
 
   useEffect(() => {
@@ -327,7 +327,7 @@ function UploadMessageCard({ uploadId, docs }: { uploadId: string; docs: SuperCl
 
   const isUploading = entry.status === 'uploading';
   const isFailed = entry.status === 'failed';
-  const doc = !isUploading ? docs.find((d) => d.fileName === entry.fileName) : undefined;
+  const doc = !isUploading ? docs.find((d) => d.fileName === (entry.storedFileName ?? entry.fileName)) : undefined;
   const docStatus = doc?.status;
   const isDone = !isUploading && !isFailed && docStatus === 'extracted';
   const isDocFailed = !isUploading && !isFailed && docStatus === 'failed';
@@ -855,7 +855,8 @@ export default function SuperClientPage() {
             }
           }
         }
-        // Re-inject capsule messages for any active/complete generations for this client
+        // Re-inject capsule messages for all generations — completed cards stay visible
+        // across refreshes; the old "too many cards" bug was from localStorage (now removed)
         const activeGens = generationStore.forClient(name);
         const genMsgs: Message[] = activeGens.map((gen) => ({
           id: `gen-msg-${gen.id}`,
@@ -871,7 +872,7 @@ export default function SuperClientPage() {
           role: 'user' as const,
           content: '',
           uploadId: u.id,
-          createdAt: new Date(u.addedAt).toISOString(),
+          createdAt: new Date().toISOString(),
         }));
         // Merge and sort chronologically so generation/upload cards land in the right position
         const allMsgs = [...historyMsgs, ...uploadMsgs, ...genMsgs].sort((a, b) => {
@@ -942,14 +943,14 @@ export default function SuperClientPage() {
     };
   }, [apiKey, name]);
 
-  // Poll the server for any 'generating' entries that were loaded from another tab/browser.
-  // Stops as soon as there are none left.
+  // Poll the server for any 'generating' entries — both remote (other tab) and local
+  // ones where the stream may have disconnected before the completion event arrived.
   useEffect(() => {
     if (!name) return;
-    const remoteGenerating = generations.filter(
-      (g) => g.clientSlug === name && g.phase === 'generating' && !localGenIdsRef.current.has(g.id),
+    const stillGenerating = generations.filter(
+      (g) => g.clientSlug === name && g.phase === 'generating',
     );
-    if (remoteGenerating.length === 0) return;
+    if (stillGenerating.length === 0) return;
     const intervalId = setInterval(async () => {
       try {
         const serverGens = await getSuperClientGenerations(apiKey, name);
@@ -1031,7 +1032,7 @@ export default function SuperClientPage() {
     );
     if (justExtracted.length === 0) return;
     for (const d of justExtracted) summarizedDocsRef.current.add(d.fileName);
-    const names = justExtracted.map((d) => d.fileName);
+    const names = justExtracted.map((d) => d.originalName ?? d.fileName);
     const label =
       names.length === 1
         ? `**${names[0]}**`
@@ -1201,6 +1202,10 @@ export default function SuperClientPage() {
       await deleteSuperClientDocument(apiKey, name, fileName);
       setDocs((prev) => prev.filter((d) => d.fileName !== fileName));
       setMemoryKey((k) => k + 1);
+      // Dismiss any upload card whose stored file was just deleted
+      uploadStore.forClient(name).forEach((e) => {
+        if ((e.storedFileName ?? e.fileName) === fileName) uploadStore.dismiss(e.id);
+      });
     } catch (err) {
       console.error('Delete failed', err);
     }
@@ -5467,7 +5472,7 @@ export default function SuperClientPage() {
                                 cursor: 'default',
                               }}
                             >
-                              <span className="client-panel-row-name">{doc.fileName}</span>
+                              <span className="client-panel-row-name">{doc.originalName ?? doc.fileName}</span>
                               {doc.status === 'processing' && (
                                 <span
                                   style={{
@@ -6045,7 +6050,7 @@ export default function SuperClientPage() {
       {confirmDeleteDoc && (
         <ConfirmDialog
           title="Delete document"
-          message={`Delete "${confirmDeleteDoc}"? This will remove it from the knowledge base and cannot be undone.`}
+          message={`Delete "${docs.find(d => d.fileName === confirmDeleteDoc)?.originalName ?? confirmDeleteDoc}"? This will remove it from the knowledge base and cannot be undone.`}
           confirmLabel="Delete"
           onConfirm={async () => {
             await handleDeleteDoc(confirmDeleteDoc);
