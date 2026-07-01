@@ -92,10 +92,24 @@ export function buildInstruction(selected: BridgeMessage | null, userText: strin
 
 // ── Cursor reset CSS (injected always) ─────────────────────────────────────
 const CURSOR_RESET_CSS = `<style id="__preview-cursor-reset">
+/* Prevent LLM-generated microsites from centering body with max-width, which creates
+   black side bars when the html element has a dark background. Inner content wrappers
+   may still use max-width + margin:auto — only html/body are reset here. */
+html,body{max-width:none!important;margin-left:0!important;margin-right:0!important;width:100%!important;}
+body{overflow-x:clip!important;}
+script,style,noscript,template{display:none!important;visibility:hidden!important;}
 *,*::before,*::after{cursor:auto!important}
 .cursor,.cursor-dot,.cursor-ring,.cursor-follower,.cursor-blob,
 .custom-cursor,.mouse-cursor,.pointer-cursor,.cursor-inner,.cursor-outer,
 [class*="cursor-"],[id*="cursor"],[class*="custom-cursor"]{display:none!important}
+/* PDF slide preview — let sections expand to their content height.
+   Removes the fixed 720px/aspect-ratio constraint so content never clips or
+   overflows into the next slide. flex:none stops flex:1 children collapsing
+   when the parent loses its fixed height. No scrollbars — height:auto expands
+   the element rather than adding a scroll track. */
+[data-section-id]{height:auto!important;max-height:none!important;min-height:0!important;overflow:visible!important;aspect-ratio:auto!important;}
+[data-section-id]>div:not([data-pdf-hide]){flex:none!important;height:auto!important;overflow:visible!important;}
+[data-ls-content],[data-portrait-body]{flex:none!important;height:auto!important;overflow:visible!important;}
 /* Layer 1 — disable CSS keyframe animations (the usual way LLMs hide content
    until scroll/reveal). Transitions are kept so interactive elements like
    hamburger menus, hover effects, and accordions still work. */
@@ -189,12 +203,14 @@ const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener(
 
 // IDs of all elements injected by normalizeMicrositeHtml / injectBridgeScript.
 // Used to strip stale saved copies before re-injecting the latest code.
+// '__slide-scaler__' is included so any old server-baked scaler is stripped on load.
 const PREVIEW_INJECTION_IDS = [
   '__preview-cursor-reset',
   '__nav-anchor-fix',
   '__preview-reveal-fix',
   '__microsite-iframe-edit',
   '__scroll-restore',
+  '__slide-scaler__',
 ] as const;
 
 // Strip any previously-saved preview injections so stale code is never reused.
@@ -230,7 +246,16 @@ export function normalizeMicrositeHtml(html: string): string {
     out = NAV_FIX_SCRIPT + out;
   }
 
-  // 3. JS reveal fallback → before </body> (needs DOM to exist first)
+  // 3. JS reveal fallback → before </body> (needs DOM to exist first).
+  // Guard: close any unclosed <textarea> tags first — if our <script> injection
+  // lands inside a <textarea>, the browser renders script content as visible text.
+  const taOpen = (out.match(/<textarea[\s>]/gi) || []).length;
+  const taClose = (out.match(/<\/textarea>/gi) || []).length;
+  if (taOpen > taClose) {
+    const closes = '</textarea>'.repeat(taOpen - taClose);
+    const bc = out.lastIndexOf('</body>');
+    out = bc !== -1 ? out.slice(0, bc) + closes + out.slice(bc) : out + closes;
+  }
   const bodyClose = out.lastIndexOf('</body>');
   out = bodyClose !== -1
     ? out.slice(0, bodyClose) + PREVIEW_REVEAL_SCRIPT + out.slice(bodyClose)

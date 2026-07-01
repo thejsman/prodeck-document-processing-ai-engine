@@ -125,6 +125,26 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         // Extra settle for web fonts and CSS transitions
         await new Promise<void>(r => setTimeout(r, 1500));
 
+        // Kill animations and force all scroll-reveal elements visible before hiding
+        // nav bars. LLM-generated HTML often starts elements at opacity:0 and only
+        // reveals them on scroll (IntersectionObserver / scroll event). Puppeteer never
+        // fires those events so content stays invisible → blank slide screenshots.
+        await page.evaluate(() => {
+          const style = document.createElement('style');
+          style.innerHTML = [
+            '*{animation-play-state:paused!important;animation-delay:0s!important;animation-duration:0.001s!important;transition:none!important;}',
+            '.word,.reveal,.reveal-text,.reveal-item,.reveal-card,.reveal-image,',
+            '.reveal-up,.reveal-down,.reveal-left,.reveal-right,',
+            '.fade-in,.fade-up,.fade-down,.fade-left,.fade-right,',
+            '.slide-in,.slide-up,.slide-down,.slide-left,.slide-right,',
+            '.zoom-in,.zoom-out,.scale-in,.scale-up,',
+            '[data-aos],[data-sal],[data-scroll],[data-motion],',
+            '[class*="scroll-reveal"],[class*="js-reveal"],',
+            '[class*="animate-"]{opacity:1!important;transform:none!important;visibility:visible!important;clip-path:none!important;}',
+          ].join('');
+          document.head.appendChild(style);
+        });
+
         // Hide fixed-position elements (nav bars, cookie banners) so they don't overlay
         // every slide screenshot — fixed elements follow scroll and land inside each section's
         // clip rect when Puppeteer scrolls the page before capturing.
