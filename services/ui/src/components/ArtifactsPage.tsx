@@ -35,6 +35,7 @@ interface ArtifactProposal {
   key: string;
   title: string;
   date: string;
+  rawDate: string;
   clientName: string;
   clientSlug: string;
   navUrl: string;
@@ -48,6 +49,7 @@ interface ArtifactMicrosite {
   key: string;
   title: string;
   date: string;
+  rawDate: string;
   clientSlug: string;
   version?: number;
   type?: string;
@@ -62,6 +64,7 @@ interface ArtifactDocument {
   key: string;
   title: string;
   date: string;
+  rawDate: string;
   documentType?: string;
   clientName: string;
   clientSlug: string;
@@ -72,6 +75,7 @@ interface ArtifactSlide {
   key: string;
   title: string;
   date: string;
+  rawDate: string;
   slideCount: number;
   clientName: string;
   clientSlug: string;
@@ -386,6 +390,7 @@ export function ArtifactsPage() {
               key: `sc-${clientName}-${p.fileName}`,
               title: p.title || fileNameToTitle(p.fileName),
               date: formatDate(p.savedAt),
+              rawDate: p.savedAt,
               clientName: slugToDisplayName(clientName),
               clientSlug: clientName,
               navUrl: `/proposal?artifact=${encodeURIComponent(p.fileName)}&namespace=${encodeURIComponent('sc-' + clientName)}&from=chat`,
@@ -411,6 +416,7 @@ export function ArtifactsPage() {
             key: `reg-${p.client}-${p.fileName}`,
             title: fileNameToTitle(file || p.fileName),
             date: formatDate(p.createdAt),
+            rawDate: p.createdAt,
             clientName: slugToDisplayName(p.client),
             clientSlug: p.client,
             navUrl,
@@ -418,7 +424,7 @@ export function ArtifactsPage() {
           });
         });
 
-      allProposals.sort((a, b) => b.date.localeCompare(a.date));
+      allProposals.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
       setProposals(allProposals);
 
       // ── Microsites ─────────────────────────────────────────────────────────
@@ -432,6 +438,7 @@ export function ArtifactsPage() {
               key: `sc-ms-${clientName}-${m.id}`,
               title: m.title || m.proposalTitle || 'Untitled Microsite',
               date: formatDate(m.savedAt),
+              rawDate: m.savedAt,
               clientSlug: clientName,
               type: m.pdfPresentation ? (m.pdfOrientation === 'portrait' ? 'PDF 9:16' : 'PDF 16:9') : undefined,
               navUrl: `/microsite-view/${encodeURIComponent('sc-' + clientName)}/${encodeURIComponent(m.id)}?scClient=${encodeURIComponent(clientName)}&scId=${encodeURIComponent(m.id)}`,
@@ -448,6 +455,7 @@ export function ArtifactsPage() {
             key: `hist-${m.namespace}-${m.id}`,
             title: m.title || slugToDisplayName(m.namespace),
             date: formatDate(m.savedAt),
+            rawDate: m.savedAt,
             clientSlug: m.namespace,
             version: m.version,
             type: m.type,
@@ -457,7 +465,7 @@ export function ArtifactsPage() {
           });
         });
 
-      allMicrosites.sort((a, b) => b.date.localeCompare(a.date));
+      allMicrosites.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
       setMicrosites(allMicrosites);
 
       // ── Documents ──────────────────────────────────────────────────────────
@@ -468,13 +476,14 @@ export function ArtifactsPage() {
             key: `doc-${clientName}-${d.id}`,
             title: d.title,
             date: formatDate(d.createdAt),
+            rawDate: d.createdAt,
             documentType: d.documentType,
             clientName: displayName,
             clientSlug: clientName,
             id: d.id,
           })),
         );
-      allDocs.sort((a, b) => b.date.localeCompare(a.date));
+      allDocs.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
       setDocuments(allDocs);
 
       // ── Slides ─────────────────────────────────────────────────────────────
@@ -485,12 +494,13 @@ export function ArtifactsPage() {
             key: `slide-${clientName}-${s.id}`,
             title: s.title || 'Untitled Presentation',
             date: formatDate(s.savedAt),
+            rawDate: s.savedAt,
             slideCount: s.slideCount,
             clientName: displayName,
             clientSlug: clientName,
           })),
         );
-      allSlides.sort((a, b) => b.date.localeCompare(a.date));
+      allSlides.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
       setSlides(allSlides);
     } finally {
       setLoading(false);
