@@ -75,7 +75,6 @@ import {
   generateMicrositeV2Stream,
   prepareImages,
   type PreparedImage,
-  exportSuperClientMicrositeAsPdf,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
   type SuperClientChatEvent,
@@ -653,23 +652,18 @@ export default function SuperClientPage() {
   const [editModeActive, setEditModeActive] = useState(false);
   const [micrositeStripVisible, setMicrositeStripVisible] = useState(true);
   const [proposalStripVisible, setProposalStripVisible] = useState(true);
-  // PDF viewport scaling — computed outside JSX so iframes are never remounted.
-  // Scales the iframe element itself; content inside is untouched.
+  // Both orientations use CSS aspect-ratio — no JS scaling, no letterboxing, no
+  // ratio constants in the viewer. Portrait sections use max-width:calc(100vh*9/16)
+  // in the HTML so they self-size to one slide per viewport and center via margin:auto.
   const _pdfAst = lastMicrositeRef.current?.ast;
-  const _isPdf = !!_pdfAst?.pdfPresentation && !editModeActive;
   const _pdfPortrait = _pdfAst?.pdfOrientation === "portrait";
-  const _SW = _isPdf ? (_pdfPortrait ? 720 : 1280) : 0;
-  const _SH = _isPdf ? (_pdfPortrait ? 1280 : 720) : 0;
-  const _canScale = _isPdf && iframeContainerW > 10 && iframeContainerH > 10;
-  // Floor to 3dp so scaled content is always strictly inside the container (no sub-pixel clip).
-  const _pdfScale = _canScale
-    ? Math.min(
-        Math.floor((iframeContainerW / _SW) * 1000) / 1000,
-        Math.floor((iframeContainerH / _SH) * 1000) / 1000,
-      )
-    : 1;
-  const _pdfOx = _canScale ? Math.max(0, Math.floor((iframeContainerW - _SW * _pdfScale) / 2)) : 0;
-  const _pdfOy = _canScale ? Math.max(0, Math.floor((iframeContainerH - _SH * _pdfScale) / 2)) : 0;
+  const _isPdf = false;
+  const _SW = 0;
+  const _SH = 0;
+  const _canScale = false;
+  const _pdfScale = 1;
+  const _pdfOx = 0;
+  const _pdfOy = 0;
   // Double-buffer: two stacked iframes. Edits load into the invisible background
   // slot; when it signals ready the slots swap instantly — no white flash.
   const iframeARef = useRef<HTMLIFrameElement>(null);
@@ -1519,33 +1513,34 @@ export default function SuperClientPage() {
   }
 
   async function handleDownloadPresentationPDF() {
-    if (!viewingMicrosite || !apiKey) return;
+    if (!viewingMicrosite) return;
     setPdfDownloading(true);
     showToast("Generating PDF…");
+
     try {
-      const orientation = viewingMicrosite.ast?.pdfOrientation === "portrait" ? "portrait" : "landscape";
-      const blob = await exportSuperClientMicrositeAsPdf(
-        apiKey,
-        name,
-        viewingMicrosite.id,
-        orientation,
+      const isPortrait = viewingMicrosite.ast?.pdfOrientation === "portrait";
+      const orientation = isPortrait ? "portrait" : "landscape";
+
+      const res = await fetch(
+        `/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(viewingMicrosite.id)}/export-pdf?orientation=${orientation}`,
+        { headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined },
       );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+        throw new Error(err.error ?? "PDF generation failed");
+      }
+
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
+      const title = (viewingMicrosite.ast?.meta as { title?: string } | undefined)?.title ?? name;
+      const safe = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       a.href = url;
-      a.style.display = "none";
-      const title =
-        (viewingMicrosite.ast?.meta as { title?: string } | undefined)?.title ??
-        name;
-      a.download = `${title
-        .replace(/[^a-z0-9]+/gi, "-")
-        .replace(/^-|-$/g, "")
-        .toLowerCase()}-presentation.pdf`;
-      document.body.appendChild(a);
+      a.download = `${safe}.pdf`;
       a.click();
-      document.body.removeChild(a);
-      // Delay revoke so the browser has time to start reading the blob
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      URL.revokeObjectURL(url);
+
       showToast("PDF downloaded");
     } catch (err) {
       showToast((err as Error).message ?? "PDF generation failed", "error");
@@ -5290,9 +5285,8 @@ export default function SuperClientPage() {
                   overflow: "hidden",
                 }}
               >
-                {/* Slot A — PDF mode: iframe is sized to slide dimensions and scaled
-                    via CSS transform so slides fill the panel without any content manipulation.
-                    Web mode: fills container as normal. */}
+                {/* Both orientations: iframe fills the container. Portrait sections
+                    self-center via max-width:calc(100vh*9/16)+margin:auto in their CSS. */}
                 <iframe
                   ref={iframeARef}
                   srcDoc={iframeSrcDocA}
@@ -5302,11 +5296,12 @@ export default function SuperClientPage() {
                     colorScheme: "light",
                     opacity: activeSlot === "A" ? 1 : 0,
                     pointerEvents: activeSlot === "A" ? "auto" : "none",
-                    ...(_canScale
-                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _SH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
-                      : { top: 0, left: 0, width: "100%", height: "100%" }),
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
                   }}
-                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms allow-modals"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                 />
                 {/* Slot B — background loading slot */}
@@ -5319,11 +5314,12 @@ export default function SuperClientPage() {
                     colorScheme: "light",
                     opacity: activeSlot === "B" ? 1 : 0,
                     pointerEvents: activeSlot === "B" ? "auto" : "none",
-                    ...(_canScale
-                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _SH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
-                      : { top: 0, left: 0, width: "100%", height: "100%" }),
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
                   }}
-                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms allow-modals"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                 />
                 {/* Video loading overlay — shown while Vimeo/YouTube buffers after a URL swap */}
@@ -6893,7 +6889,7 @@ export default function SuperClientPage() {
                 height: `calc(100% - ${FS_BAR}px)`,
                 border: "none",
               }}
-              sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms allow-modals"
               allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             />
           </div>

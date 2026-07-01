@@ -2,7 +2,6 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import puppeteer from 'puppeteer';
-import { PDFDocument } from 'pdf-lib';
 
 // Fetch all external image URLs found in src attributes and CSS url() and replace
 // them with base64 data URIs so Puppeteer never needs to make outbound requests.
@@ -35,6 +34,73 @@ async function inlineExternalImages(html: string): Promise<string> {
   for (const [url, dataUri] of replacements) {
     result = result.split(url).join(dataUri);
   }
+  return result;
+}
+
+// Chrome UA so Google Fonts returns woff2 (smaller, embeds cleanly in the PDF).
+const CHROME_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+// Replace `@import url('https://fonts.googleapis.com/...')` with a fully self-contained
+// <style> block: fetch the remote Fonts CSS, then inline every referenced font file as a
+// data: URI. This keeps the real fonts (correct typography + metrics) while removing all
+// outbound requests — so DOMContentLoaded never stalls (the reason imports were stripped
+// before) and the fonts embed into the exported PDF, keeping text editable in Acrobat/AI.
+async function inlineGoogleFonts(html: string): Promise<string> {
+  const importRe = /@import\s+url\((['"]?)(https:\/\/fonts\.googleapis\.com\/[^'")]+)\1\)\s*;/gi;
+  const imports: Array<{ raw: string; url: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = importRe.exec(html)) !== null) {
+    imports.push({ raw: m[0], url: m[2] });
+  }
+  if (imports.length === 0) return html;
+
+  let result = html;
+
+  await Promise.all(
+    imports.map(async ({ raw, url }) => {
+      try {
+        // 1. Fetch the Google Fonts stylesheet (woff2 variant via Chrome UA).
+        const cssResp = await fetch(url, {
+          headers: { 'User-Agent': CHROME_UA },
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (!cssResp.ok) {
+          // Fall back to stripping so a broken font URL never stalls the render.
+          result = result.split(raw).join('');
+          return;
+        }
+        let css = await cssResp.text();
+
+        // 2. Inline every font-file URL referenced in the stylesheet.
+        const fontUrls = new Set<string>();
+        const fontUrlRe = /url\((https:\/\/[^)]+\.woff2?)\)/gi;
+        let fm: RegExpExecArray | null;
+        while ((fm = fontUrlRe.exec(css)) !== null) fontUrls.add(fm[1]);
+
+        await Promise.all(
+          Array.from(fontUrls).map(async (fontUrl) => {
+            try {
+              const fResp = await fetch(fontUrl, { signal: AbortSignal.timeout(12_000) });
+              if (!fResp.ok) return;
+              const ct = fResp.headers.get('content-type') ?? 'font/woff2';
+              const buf = await fResp.arrayBuffer();
+              const dataUri = `data:${ct.split(';')[0]};base64,${Buffer.from(buf).toString('base64')}`;
+              css = css.split(fontUrl).join(dataUri);
+            } catch { /* skip unreachable font file */ }
+          }),
+        );
+
+        // 3. Swap the @import line for the resolved @font-face CSS. The import lives inside
+        //    an existing <style> block, so inject the raw CSS in place (no wrapper tags).
+        result = result.split(raw).join(`\n${css}\n`);
+      } catch {
+        // Network failure — strip the import rather than hang.
+        result = result.split(raw).join('');
+      }
+    }),
+  );
+
   return result;
 }
 
@@ -94,9 +160,11 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         // Pre-fetch all external images and embed as base64 data URIs so Puppeteer
         // never needs outbound requests. source.unsplash.com uses 302 redirects that
         // headless Chrome drops; Node.js fetch follows them reliably.
-        // Also strip CSS @import font CDN rules that can stall DOMContentLoaded.
-        const strippedHtml = html.replace(/@import\s+url\([^)]+\)\s*;/g, '');
-        const exportHtml = await inlineExternalImages(strippedHtml);
+        // Also resolve Google Fonts @import rules into self-contained @font-face CSS with
+        // data-URI font files — keeps correct typography/metrics, embeds fonts in the PDF
+        // (so text stays editable), and removes the outbound request that could stall load.
+        const withFonts = await inlineGoogleFonts(html);
+        const exportHtml = await inlineExternalImages(withFonts);
 
         // Inject HTML via document.write() instead of page.setContent() to bypass
         // Puppeteer 24.x's navigation lifecycle tracking — setContent() can hang
@@ -120,6 +188,13 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
             )
           ).catch(() => {}),
           new Promise<void>((r) => setTimeout(r, 5_000)),
+        ]);
+
+        // Wait for the embedded (data-URI) fonts to finish loading so text is laid out with
+        // correct metrics before capture. Timeout-raced so a font that never resolves can't hang.
+        await Promise.race([
+          page.evaluate(() => (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => {})).catch(() => {}),
+          new Promise<void>((r) => setTimeout(r, 4_000)),
         ]);
 
         // Extra settle for web fonts and CSS transitions
@@ -161,45 +236,48 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           });
         });
 
-        // Expand viewport to the tallest section so content-dense slides render fully.
-        // Without this, browser rendering culls off-screen content and screenshots
-        // of sections taller than vpH capture blank space at the bottom.
-        const maxSectionH = await page.evaluate(() => {
-          const sections = document.querySelectorAll<HTMLElement>('section[data-section-id]');
-          return sections.length > 0
-            ? Math.max(...Array.from(sections).map(s => Math.ceil(s.getBoundingClientRect().height)))
-            : 0;
-        });
-        if (maxSectionH > vpH) {
-          await page.setViewport({ width: vpW, height: maxSectionH, deviceScaleFactor: 1 });
-          await new Promise<void>(r => setTimeout(r, 400));
-        }
-
-        // Collect slide handles — match sections by data-section-id so the selector works
-        // regardless of whether sections are direct <body> children or wrapped in a container div.
-        const sectionHandles = await page.$$('section[data-section-id]');
-        const handles = sectionHandles.length > 0
-          ? sectionHandles
-          : await page.$$('body > section').then(r => r.length ? r : page.$$('body'));
-
-        if (handles.length === 0) {
+        // Verify slides exist before generating
+        const slideCount = await page.$eval('section[data-section-id]', () => null)
+          .then(() => page.$$eval('section[data-section-id]', s => s.length))
+          .catch(() => 0);
+        if (slideCount === 0) {
           return reply.code(500).send({ error: 'No slide sections found in microsite' });
         }
 
-        const pdfDoc = await PDFDocument.create();
+        // Inject @page rules so each section becomes exactly one PDF page with no margins.
+        // page.pdf() uses the browser's print engine — text stays real PDF text (selectable,
+        // copyable) rather than rasterised JPEG. printBackground:true preserves colours/images.
+        await page.evaluate((w, h) => {
+          const style = document.createElement('style');
+          style.textContent = [
+            `@page { size: ${w}px ${h}px; margin: 0; }`,
+            `body { margin: 0 !important; padding: 0 !important; width: ${w}px !important; }`,
+            `section[data-section-id] {`,
+            `  width: ${w}px !important; height: ${h}px !important;`,
+            `  overflow: hidden !important; display: block !important;`,
+            `  margin: 0 !important; padding: 0 !important;`,
+            `  page-break-after: always !important; break-after: page !important;`,
+            `}`,
+            `section[data-section-id]:last-of-type {`,
+            `  page-break-after: auto !important; break-after: auto !important;`,
+            `}`,
+          ].join('\n');
+          document.head.appendChild(style);
+        }, vpW, vpH);
 
-        for (const handle of handles) {
-          const screenshot = await handle.screenshot({ type: 'jpeg', quality: 92 }) as Buffer;
-          const img = await pdfDoc.embedJpg(screenshot);
-          // Derive PDF page height from actual screenshot aspect ratio so content-dense
-          // slides (taller than 16:9) are never squished to fit a hardcoded page size.
-          const scale = pdfW / img.width;
-          const pageH = img.height * scale;
-          const pdfPage = pdfDoc.addPage([pdfW, pageH]);
-          pdfPage.drawImage(img, { x: 0, y: 0, width: pdfW, height: pageH });
-        }
+        // Render with screen media so the PDF matches the on-screen design (page.pdf()
+        // defaults to print media, which would apply any print-only CSS behavior).
+        await page.emulateMediaType('screen');
 
-        const pdfBytes = await pdfDoc.save();
+        // pageRanges caps output at exactly one page per slide, so any sub-pixel overflow
+        // can't emit trailing blank pages.
+        const pdfBytes = await page.pdf({
+          width: `${vpW}px`,
+          height: `${vpH}px`,
+          printBackground: true,
+          margin: { top: '0', right: '0', bottom: '0', left: '0' },
+          pageRanges: `1-${slideCount}`,
+        });
 
         const safeName = name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
         void reply.header('Content-Type', 'application/pdf');
