@@ -30,7 +30,9 @@ export function Topbar({ onMenuClick }: Props) {
     pathname?.startsWith("/presentation") ||
     pathname?.startsWith("/super-client") ||
     pathname?.startsWith("/skills") ||
-    pathname?.startsWith("/inspiration-context")
+    pathname?.startsWith("/inspiration-context") ||
+    pathname?.startsWith("/artifacts") ||
+    pathname?.startsWith("/document")
   ) {
     return null;
   }
