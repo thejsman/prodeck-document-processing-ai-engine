@@ -9,10 +9,11 @@
  */
 
 import { writeFile, mkdir, unlink, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ConfigResolver } from '@ai-engine/core';
-import { createNodeConfigLoader, getStorageProvider } from '@ai-engine/runtime';
+import { createNodeConfigLoader, getStorageProvider, getMimeType } from '@ai-engine/runtime';
 import { type AuthContext, isWildcard } from '../auth.js';
 import {
   loadFilesIndex,
@@ -230,6 +231,50 @@ export function registerKnowledgeRoutes(
     await removeFileEntry(workdir, namespace, sanitized);
 
     return reply.send({ ok: true });
+  });
+
+  // GET /knowledge/files/:fileName/download?namespace=<ns>
+  app.get('/knowledge/files/:fileName/download', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { fileName } = req.params as { fileName: string };
+    const { namespace } = req.query as { namespace?: string };
+
+    if (!namespace) {
+      return reply.code(400).send({ error: 'Missing required query param: namespace' });
+    }
+
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const sanitized = sanitizeFileName(fileName);
+    if (!sanitized || sanitized === '_') {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    const uploadsDir = path.join(workdir, 'namespaces', namespace, 'uploads');
+    const filePath = path.join(uploadsDir, fileName);
+    const resolved = path.resolve(filePath);
+
+    if (!resolved.startsWith(path.resolve(uploadsDir))) {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    try {
+      const fileStat = await stat(resolved);
+      if (!fileStat.isFile()) {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+      throw err;
+    }
+
+    const mimeType = getMimeType(fileName);
+    const encodedName = encodeURIComponent(fileName);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `inline; filename="${encodedName}"; filename*=UTF-8''${encodedName}`);
+    return reply.send(createReadStream(resolved));
   });
 
   // POST /knowledge/reindex

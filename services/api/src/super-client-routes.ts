@@ -1,11 +1,12 @@
 import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
-import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir } from '@ai-engine/runtime';
+import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -1111,6 +1112,43 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     await memService.removeKnowledgeByDocument(name, fileName);
 
     return reply.send({ ok: true });
+  });
+
+  // GET /super-clients/:name/documents/:fileName/download
+  app.get('/super-clients/:name/documents/:fileName/download', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, fileName } = req.params as { name: string; fileName: string };
+    const dir = path.join(superClientsRoot, name);
+
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+
+    const uploadsDir = path.join(dir, 'uploads');
+    const filePath = path.join(uploadsDir, fileName);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(uploadsDir))) {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    try {
+      const fileStat = await stat(resolved);
+      if (!fileStat.isFile()) {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+      throw err;
+    }
+
+    const mimeType = getMimeType(fileName);
+    const encodedName = encodeURIComponent(fileName);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `inline; filename="${encodedName}"; filename*=UTF-8''${encodedName}`);
+    return reply.send(createReadStream(resolved));
   });
 
   // GET /super-clients/:name/proposals
