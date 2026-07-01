@@ -116,11 +116,12 @@ function ArtifactCard({
   const isMicrosite = gen.type === "microsite";
   const isGenerating = gen.phase === "generating";
   const isComplete = gen.phase === "complete";
-  // Progress 0–92% while generating (charCount-driven), snaps to 100 on complete.
-  // Assumes a typical microsite is ~32k HTML chars.
+  // Progress 0→99% while generating using an asymptotic curve so it always
+  // increments with each new streamed char instead of plateauing at a fixed cap.
+  // At 32k chars ≈ 86%, at 50k ≈ 96%; snaps to 100 on complete.
   const progressPct = isComplete
     ? 100
-    : Math.min(((gen.charCount ?? 0) / 32000) * 100, 92);
+    : Math.round(99 * (1 - Math.exp(-(gen.charCount ?? 0) / 16000)));
   return (
     <div
       onClick={isComplete ? () => onView(gen) : undefined}
@@ -580,15 +581,19 @@ export default function SuperClientPage() {
     startWidth: number;
   } | null>(null);
   const splitContainerRef = useRef<HTMLDivElement>(null);
-  const iframeContainerRef = useRef<HTMLDivElement>(null);
   const [iframeContainerH, setIframeContainerH] = useState(0);
   const [iframeContainerW, setIframeContainerW] = useState(0);
   const MICROSITE_MIN_WIDTH = 500;
   const CHAT_MIN_WIDTH = 360;
 
-  // Track iframe container dimensions so InlineEditPanel can flip above/below and clamp horizontally
-  useEffect(() => {
-    const el = iframeContainerRef.current;
+  // Callback ref: the container div is conditionally rendered, so a useRef+useEffect([])
+  // would fire before the element mounts and silently do nothing. A callback ref fires
+  // exactly when the element enters/leaves the DOM, guaranteeing the ResizeObserver
+  // is wired up as soon as the first microsite opens.
+  const _iframeContainerRoRef = useRef<ResizeObserver | null>(null);
+  const iframeContainerRef = useCallback((el: HTMLDivElement | null) => {
+    _iframeContainerRoRef.current?.disconnect();
+    _iframeContainerRoRef.current = null;
     if (!el) return;
     const ro = new ResizeObserver(() => {
       setIframeContainerH(el.offsetHeight);
@@ -597,9 +602,8 @@ export default function SuperClientPage() {
     ro.observe(el);
     setIframeContainerH(el.offsetHeight);
     setIframeContainerW(el.offsetWidth);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    _iframeContainerRoRef.current = ro;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clamp chatPanelWidth whenever the container resizes (e.g. left nav opens/closes)
   useEffect(() => {
@@ -649,6 +653,23 @@ export default function SuperClientPage() {
   const [editModeActive, setEditModeActive] = useState(false);
   const [micrositeStripVisible, setMicrositeStripVisible] = useState(true);
   const [proposalStripVisible, setProposalStripVisible] = useState(true);
+  // PDF viewport scaling — computed outside JSX so iframes are never remounted.
+  // Scales the iframe element itself; content inside is untouched.
+  const _pdfAst = lastMicrositeRef.current?.ast;
+  const _isPdf = !!_pdfAst?.pdfPresentation && !editModeActive;
+  const _pdfPortrait = _pdfAst?.pdfOrientation === "portrait";
+  const _SW = _isPdf ? (_pdfPortrait ? 720 : 1280) : 0;
+  const _SH = _isPdf ? (_pdfPortrait ? 1280 : 720) : 0;
+  const _canScale = _isPdf && iframeContainerW > 10 && iframeContainerH > 10;
+  // Floor to 3dp so scaled content is always strictly inside the container (no sub-pixel clip).
+  const _pdfScale = _canScale
+    ? Math.min(
+        Math.floor((iframeContainerW / _SW) * 1000) / 1000,
+        Math.floor((iframeContainerH / _SH) * 1000) / 1000,
+      )
+    : 1;
+  const _pdfOx = _canScale ? Math.max(0, Math.floor((iframeContainerW - _SW * _pdfScale) / 2)) : 0;
+  const _pdfOy = _canScale ? Math.max(0, Math.floor((iframeContainerH - _SH * _pdfScale) / 2)) : 0;
   // Double-buffer: two stacked iframes. Edits load into the invisible background
   // slot; when it signals ready the slots swap instantly — no white flash.
   const iframeARef = useRef<HTMLIFrameElement>(null);
@@ -1152,13 +1173,17 @@ export default function SuperClientPage() {
       names.length === 1
         ? `**${names[0]}**`
         : `**${names[0]}** and ${names.length - 1} other file${names.length > 2 ? "s" : ""}`;
+    const indexedContent = `${label} has been indexed and added to the knowledge base. Ask me anything about it, or say "generate proposal" to create one based on this context.`;
     setMessages((prev) => [
       ...prev,
       {
         id: genId(),
         role: "assistant",
-        content: `${label} has been indexed and added to the knowledge base. Ask me anything about it, or say "generate proposal" to create one based on this context.`,
+        content: indexedContent,
       },
+    ]);
+    void appendSuperClientHistory(apiKey, name, [
+      { role: "assistant", content: indexedContent },
     ]);
   }, [docs]);
 
@@ -1182,6 +1207,21 @@ export default function SuperClientPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canUndo, canRedo]);
+
+  // Prevent body/html scroll while full screen is open.
+  // Must target both body AND documentElement — some browsers show the scrollbar
+  // on <html>, others on <body>. The fixed overlay doesn't suppress it on its own.
+  useEffect(() => {
+    if (!fullscreenMicrosite) return;
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
+    };
+  }, [fullscreenMicrosite]);
 
   // Reset strip visibility when a new microsite/proposal is opened
   useEffect(() => {
@@ -1611,6 +1651,33 @@ export default function SuperClientPage() {
           // Generic image URL, no element → global replacement
           instruction = `__IMAGE_INJECT__:${url}`;
         }
+      }
+      if (isVideo) {
+        const STOP_WORDS =
+          /^(this|the|a|an|that|my|our|your|it|its|there|here|any|some|new|old)$/i;
+        const sectionM =
+          micrositeEditInput.match(/\bin\s+(?:the\s+)?(\w[\w-]*)\s+section\b/i) ??
+          micrositeEditInput.match(/\b(\w[\w-]*)\s+section\b/i);
+        const sectionKeyword =
+          sectionM?.[1] && !STOP_WORDS.test(sectionM[1])
+            ? sectionM[1].toLowerCase()
+            : "";
+        if (!selectedElement?.path) {
+          // No element selected → route through __VIDEO_IN_SECTION__ with the parsed keyword
+          // (prevents automatic hero background injection when no section is named).
+          instruction = `__VIDEO_IN_SECTION__:||${sectionKeyword}||${url}||${micrositeEditInput.trim()}`;
+        } else if (selectedElement.tag?.toLowerCase() === "section") {
+          // A <section> is selected: use the named keyword from the prompt if given,
+          // otherwise fall back to the selected section's own id/class so the video
+          // lands in the right section with preserved params + class="video-embed".
+          const selectedSectionId =
+            sectionKeyword ||
+            selectedElement.path.match(/section#([\w-]+)/)?.[1] ||
+            selectedElement.path.match(/section\.([\w-]+)/)?.[1] ||
+            "";
+          instruction = `__VIDEO_IN_SECTION__:||${selectedSectionId}||${url}||${micrositeEditInput.trim()}`;
+        }
+        // else: non-section element selected → __ELEMENT_EDIT__ flow handles it
       }
       // Video URL: server's Vimeo/YouTube detection fires on any matching URL.
     }
@@ -2834,6 +2901,18 @@ export default function SuperClientPage() {
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         generationStore.error(msGenId, (err as Error).message);
+        void appendSuperClientHistory(apiKey, name, [
+          {
+            role: "user",
+            content: `Generate microsite for "${proposalTitle}"${composerPresentationMode !== "web" ? ` (PDF ${composerPresentationMode === "pdf-portrait" ? "9:16" : "16:9"})` : ""}`,
+            createdAt: generationStartedAt,
+          },
+          {
+            role: "assistant",
+            content: `Microsite generation failed: ${(err as Error).message}`,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
       }
     }
   }
@@ -2853,9 +2932,11 @@ export default function SuperClientPage() {
           : proposals.length === 1
             ? "Pick a proposal below to generate its microsite."
             : "Pick a proposal below to generate its microsite.";
+      const intentNow = new Date().toISOString();
+      const intentAssistantTs = new Date(Date.now() + 1).toISOString();
       setMessages((prev) => [
         ...prev,
-        { id: genId(), role: "user", content: text },
+        { id: genId(), role: "user", content: text, createdAt: intentNow },
       ]);
       setInput("");
       // Extract any context the user included alongside the trigger word and pre-fill instructions
@@ -2875,9 +2956,13 @@ export default function SuperClientPage() {
       } else {
         setMessages((prev) => [
           ...prev,
-          { id: genId(), role: "assistant", content: reply },
+          { id: genId(), role: "assistant", content: reply, createdAt: intentAssistantTs },
         ]);
       }
+      void appendSuperClientHistory(apiKey, name, [
+        { role: "user", content: text, createdAt: intentNow },
+        { role: "assistant", content: reply, createdAt: intentAssistantTs },
+      ]);
       return;
     }
 
@@ -4713,7 +4798,9 @@ export default function SuperClientPage() {
                       )}
                       {viewingMicrosite && (
                         <button
+                          disabled={micrositeEditing}
                           onClick={() => {
+                            if (micrositeEditing) return;
                             const next = !editModeActive;
                             setEditModeActive(next);
                             if (next) {
@@ -4733,9 +4820,11 @@ export default function SuperClientPage() {
                             });
                           }}
                           title={
-                            editModeActive
-                              ? "Exit smart edit mode"
-                              : "Smart edit — click any element to target it"
+                            micrositeEditing
+                              ? "Applying edit…"
+                              : editModeActive
+                                ? "Exit smart edit mode"
+                                : "Smart edit — click any element to target it"
                           }
                           className="theme-toggle"
                           style={{
@@ -4748,6 +4837,8 @@ export default function SuperClientPage() {
                               : undefined,
                             transition:
                               "background 0.15s, color 0.15s, border-color 0.15s",
+                            opacity: micrositeEditing ? 0.4 : 1,
+                            cursor: micrositeEditing ? "not-allowed" : "pointer",
                           }}
                         >
                           <Pencil size={16} />
@@ -5196,22 +5287,24 @@ export default function SuperClientPage() {
                   minHeight: 0,
                   background: "#fff",
                   position: "relative",
+                  overflow: "hidden",
                 }}
               >
-                {/* Slot A */}
+                {/* Slot A — PDF mode: iframe is sized to slide dimensions and scaled
+                    via CSS transform so slides fill the panel without any content manipulation.
+                    Web mode: fills container as normal. */}
                 <iframe
                   ref={iframeARef}
                   srcDoc={iframeSrcDocA}
                   style={{
                     position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
                     border: "none",
                     colorScheme: "light",
                     opacity: activeSlot === "A" ? 1 : 0,
                     pointerEvents: activeSlot === "A" ? "auto" : "none",
+                    ...(_canScale
+                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _SH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
+                      : { top: 0, left: 0, width: "100%", height: "100%" }),
                   }}
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
@@ -5222,14 +5315,13 @@ export default function SuperClientPage() {
                   srcDoc={iframeSrcDocB}
                   style={{
                     position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
                     border: "none",
                     colorScheme: "light",
                     opacity: activeSlot === "B" ? 1 : 0,
                     pointerEvents: activeSlot === "B" ? "auto" : "none",
+                    ...(_canScale
+                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _SH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
+                      : { top: 0, left: 0, width: "100%", height: "100%" }),
                   }}
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
@@ -5275,8 +5367,8 @@ export default function SuperClientPage() {
                     </div>
                   </>
                 )}
-                {/* Figma-style selection overlay — only in smart edit mode */}
-                {editModeActive && (
+                {/* Figma-style selection overlay — in smart edit mode OR while a global edit is processing */}
+                {(editModeActive || micrositeEditing) && (
                   <SelectionOverlay
                     hovered={hoveredElement}
                     selected={selectedElement}
@@ -6761,22 +6853,52 @@ export default function SuperClientPage() {
         />
       )}
 
-      {/* MicrositeV2 full-screen viewer */}
-      {fullscreenMicrosite && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 40000,
-            background: "var(--panel)",
-          }}
-        >
-          <MicrositeV2
-            ast={fullscreenMicrosite}
-            onBack={() => setFullscreenMicrosite(null)}
-          />
-        </div>
-      )}
+      {/* Full-screen viewer — raw HTML so it matches the published URL exactly.
+          The landscape HTML already contains __slide-scaler__ which reads
+          window.innerWidth inside the iframe and applies transform:scale() to
+          every slide automatically. We just give it a full-viewport iframe and
+          let it do its job — no external CSS transform needed. */}
+      {fullscreenMicrosite && (() => {
+        const rawHtml = buildHtml(fullscreenMicrosite);
+        const bodyOpen = rawHtml.search(/<body[^>]*>/i);
+        // Keep body as display:block regardless of what __slide-scaler__ sets (it uses
+        // flex+align-items:center when vs≥1, which can shift after a scrollbar appears).
+        // Centering slides via margin:auto gives the same result but is stable across
+        // resize events because the centering lives in CSS, not the scaler's inline style.
+        const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}[data-section-id]{margin-left:auto!important;margin-right:auto!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+        const tagEnd = bodyOpen !== -1 ? rawHtml.indexOf('>', bodyOpen) + 1 : -1;
+        const fsHtml = tagEnd > 0
+          ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd)
+          : rawHtml;
+        const FS_BAR = 40;
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 40000, background: "#000", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: FS_BAR, background: "#0a0a0a", display: "flex", alignItems: "center", padding: "0 12px", zIndex: 1 }}>
+              <button
+                onClick={() => setFullscreenMicrosite(null)}
+                style={{ background: "none", border: "1px solid #333", color: "#ccc", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 13 }}
+              >
+                ← Back
+              </button>
+            </div>
+            <iframe
+              srcDoc={fsHtml}
+              style={{
+                position: "absolute",
+                top: FS_BAR,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: "100%",
+                height: `calc(100% - ${FS_BAR}px)`,
+                border: "none",
+              }}
+              sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            />
+          </div>
+        );
+      })()}
 
       {/* Toast notification */}
       {toastMsg && (
