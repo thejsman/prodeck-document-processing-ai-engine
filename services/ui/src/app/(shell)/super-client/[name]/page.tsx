@@ -661,15 +661,24 @@ export default function SuperClientPage() {
   const _SW = _isPdf ? (_pdfPortrait ? 720 : 1280) : 0;
   const _SH = _isPdf ? (_pdfPortrait ? 1280 : 720) : 0;
   const _canScale = _isPdf && iframeContainerW > 10 && iframeContainerH > 10;
-  // Floor to 3dp so scaled content is always strictly inside the container (no sub-pixel clip).
+  // Portrait PDF: scale to fill container WIDTH so slides use the full panel (no white bar on
+  // the right). Iframe height = ceil(containerH / scale) so the scaled element covers the
+  // container exactly — the iframe document then scrolls within that window.
+  // Landscape PDF: scale to fit (min of both dimensions), centered.
   const _pdfScale = _canScale
-    ? Math.min(
-        Math.floor((iframeContainerW / _SW) * 1000) / 1000,
-        Math.floor((iframeContainerH / _SH) * 1000) / 1000,
-      )
+    ? _pdfPortrait
+      ? Math.floor((iframeContainerW / _SW) * 1000) / 1000
+      : Math.min(
+          Math.floor((iframeContainerW / _SW) * 1000) / 1000,
+          Math.floor((iframeContainerH / _SH) * 1000) / 1000,
+        )
     : 1;
-  const _pdfOx = _canScale ? Math.max(0, Math.floor((iframeContainerW - _SW * _pdfScale) / 2)) : 0;
-  const _pdfOy = _canScale ? Math.max(0, Math.floor((iframeContainerH - _SH * _pdfScale) / 2)) : 0;
+  const _pdfOx = _canScale && !_pdfPortrait ? Math.max(0, Math.floor((iframeContainerW - _SW * _pdfScale) / 2)) : 0;
+  const _pdfOy = _canScale && !_pdfPortrait ? Math.max(0, Math.floor((iframeContainerH - _SH * _pdfScale) / 2)) : 0;
+  // Portrait: dynamic iframe height so the scaled element exactly covers the container height.
+  const _pdfIframeH = _canScale && _pdfPortrait && _pdfScale > 0
+    ? Math.ceil(iframeContainerH / _pdfScale)
+    : _SH;
   // Double-buffer: two stacked iframes. Edits load into the invisible background
   // slot; when it signals ready the slots swap instantly — no white flash.
   const iframeARef = useRef<HTMLIFrameElement>(null);
@@ -5285,7 +5294,7 @@ export default function SuperClientPage() {
                 style={{
                   flex: 1,
                   minHeight: 0,
-                  background: "#fff",
+                  background: _isPdf ? "#111" : "#fff",
                   position: "relative",
                   overflow: "hidden",
                 }}
@@ -5303,7 +5312,7 @@ export default function SuperClientPage() {
                     opacity: activeSlot === "A" ? 1 : 0,
                     pointerEvents: activeSlot === "A" ? "auto" : "none",
                     ...(_canScale
-                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _SH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
+                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _pdfIframeH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
                       : { top: 0, left: 0, width: "100%", height: "100%" }),
                   }}
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
@@ -5320,7 +5329,7 @@ export default function SuperClientPage() {
                     opacity: activeSlot === "B" ? 1 : 0,
                     pointerEvents: activeSlot === "B" ? "auto" : "none",
                     ...(_canScale
-                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _SH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
+                      ? { top: _pdfOy, left: _pdfOx, width: _SW, height: _pdfIframeH, transform: `scale(${_pdfScale})`, transformOrigin: "top left" }
                       : { top: 0, left: 0, width: "100%", height: "100%" }),
                   }}
                   sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
@@ -6861,7 +6870,11 @@ export default function SuperClientPage() {
       {fullscreenMicrosite && (() => {
         const rawHtml = buildHtml(fullscreenMicrosite);
         const bodyOpen = rawHtml.search(/<body[^>]*>/i);
-        const NAV_FIX = `<script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+        // Keep body as display:block regardless of what __slide-scaler__ sets (it uses
+        // flex+align-items:center when vs≥1, which can shift after a scrollbar appears).
+        // Centering slides via margin:auto gives the same result but is stable across
+        // resize events because the centering lives in CSS, not the scaler's inline style.
+        const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}[data-section-id]{margin-left:auto!important;margin-right:auto!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
         const tagEnd = bodyOpen !== -1 ? rawHtml.indexOf('>', bodyOpen) + 1 : -1;
         const fsHtml = tagEnd > 0
           ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd)
