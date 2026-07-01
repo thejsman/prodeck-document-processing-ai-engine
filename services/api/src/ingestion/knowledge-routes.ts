@@ -75,7 +75,7 @@ export function registerKnowledgeRoutes(
 
     let namespace = 'default';
     let classification: import('../chat/context.types.js').DocumentClassification | undefined;
-    const accepted: { fileName: string; buffer: Buffer; size: number }[] = [];
+    const accepted: { fileName: string; originalName: string; buffer: Buffer; size: number }[] = [];
     const rejected: string[] = [];
 
     for await (const part of parts) {
@@ -90,9 +90,9 @@ export function registerKnowledgeRoutes(
       }
 
       const rawName = part.filename ?? 'unnamed';
-      const safeName = sanitizeFileName(rawName);
+      const sanitizedName = sanitizeFileName(rawName);
 
-      if (!safeName || safeName === '_' || !isAllowedExtension(safeName)) {
+      if (!sanitizedName || sanitizedName === '_' || !isAllowedExtension(sanitizedName)) {
         rejected.push(rawName);
         await part.toBuffer();
         continue;
@@ -106,7 +106,10 @@ export function registerKnowledgeRoutes(
         });
       }
 
-      accepted.push({ fileName: safeName, buffer, size: buffer.length });
+      const ext = path.extname(sanitizedName);
+      const sanitizedBase = sanitizedName.slice(0, sanitizedName.length - ext.length);
+      const fileName = `${sanitizedBase}-${Date.now()}${ext}`;
+      accepted.push({ fileName, originalName: rawName, buffer, size: buffer.length });
     }
 
     if (rejected.length > 0 && accepted.length === 0) {
@@ -153,6 +156,7 @@ export function registerKnowledgeRoutes(
       // Add/update entry in files.json
       const entry: IngestionFile = {
         fileName: file.fileName,
+        originalName: file.originalName,
         size: file.size,
         uploadedAt: now,
         indexingStatus: 'pending',

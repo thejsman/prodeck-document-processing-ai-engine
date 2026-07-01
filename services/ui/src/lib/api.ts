@@ -330,6 +330,7 @@ export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extractin
 
 export interface IngestionFile {
   fileName: string;
+  originalName?: string;
   size: number;
   uploadedAt: string;
   status: IngestionStatus;
@@ -2372,6 +2373,7 @@ export async function deleteSuperClient(apiKey: string, name: string): Promise<v
 
 export interface SuperClientFile {
   fileName: string;
+  originalName?: string;
   size: number;
   uploadedAt: string;
   status: 'processing' | 'extracted' | 'failed';

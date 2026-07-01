@@ -486,7 +486,7 @@ export function ClientPanel({ namespace, collectionStatus, onAskField, onMicrosi
                   cursor: 'default',
                 }}
               >
-                <span className="client-panel-row-name">{f.fileName}</span>
+                <span className="client-panel-row-name">{f.originalName ?? f.fileName}</span>
                 {f.status === 'processing' && (
                   <span
                     style={{
@@ -797,7 +797,7 @@ export function ClientPanel({ namespace, collectionStatus, onAskField, onMicrosi
               <div style={{ height: 1, background: 'var(--border)' }} />
               <div style={{ padding: 24 }}>
                 <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-                  Delete <strong>"{confirmFile}"</strong>?
+                  Delete <strong>"{files.find(f => f.fileName === confirmFile)?.originalName ?? confirmFile}"</strong>?
                 </p>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button

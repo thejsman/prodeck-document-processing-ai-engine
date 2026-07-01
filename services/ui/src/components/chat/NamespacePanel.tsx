@@ -730,7 +730,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
                           color: 'var(--text)',
                         }}
                       >
-                        {f.fileName}
+                        {f.originalName ?? f.fileName}
                       </span>
                       {f.status === 'processing' && (
                         <span
@@ -1019,7 +1019,7 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
               <div style={{ height: 1, background: 'var(--border)' }} />
               <div style={{ padding: 24 }}>
                 <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-                  Delete <strong>"{confirmFile}"</strong> from the knowledge base?
+                  Delete <strong>"{files.find(f => f.fileName === confirmFile)?.originalName ?? confirmFile}"</strong> from the knowledge base?
                 </p>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button

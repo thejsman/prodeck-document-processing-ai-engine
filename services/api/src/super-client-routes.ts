@@ -65,6 +65,7 @@ interface HistoryEntry {
 
 interface ScFile {
   fileName: string;
+  originalName?: string;
   size: number;
   uploadedAt: string;
   status: 'processing' | 'extracted' | 'failed';
@@ -1048,12 +1049,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         continue;
       }
 
-      const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sanitizedName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_');
       const buffer = await part.toBuffer();
 
       if (buffer.length > MAX_SIZE) {
         return reply.code(400).send({ error: `File "${rawName}" exceeds the 50 MB limit` });
       }
+
+      const sanitizedExt = path.extname(sanitizedName);
+      const sanitizedBase = sanitizedName.slice(0, sanitizedName.length - sanitizedExt.length);
+      const safeName = `${sanitizedBase}-${Date.now()}${sanitizedExt}`;
 
       const destPath = path.join(uploadsDir, safeName);
       const resolved = path.resolve(destPath);
@@ -1063,7 +1068,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       await writeFile(destPath, buffer);
 
-      const entry: ScFile = { fileName: safeName, size: buffer.length, uploadedAt: new Date().toISOString(), status: 'processing' };
+      const entry: ScFile = { fileName: safeName, originalName: rawName, size: buffer.length, uploadedAt: new Date().toISOString(), status: 'processing' };
       const existing = await readScFiles(dir);
       const idx = existing.findIndex((f) => f.fileName === safeName);
       if (idx !== -1) existing[idx] = entry; else existing.push(entry);
