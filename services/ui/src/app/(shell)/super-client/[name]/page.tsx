@@ -1652,6 +1652,33 @@ export default function SuperClientPage() {
           instruction = `__IMAGE_INJECT__:${url}`;
         }
       }
+      if (isVideo) {
+        const STOP_WORDS =
+          /^(this|the|a|an|that|my|our|your|it|its|there|here|any|some|new|old)$/i;
+        const sectionM =
+          micrositeEditInput.match(/\bin\s+(?:the\s+)?(\w[\w-]*)\s+section\b/i) ??
+          micrositeEditInput.match(/\b(\w[\w-]*)\s+section\b/i);
+        const sectionKeyword =
+          sectionM?.[1] && !STOP_WORDS.test(sectionM[1])
+            ? sectionM[1].toLowerCase()
+            : "";
+        if (!selectedElement?.path) {
+          // No element selected → route through __VIDEO_IN_SECTION__ with the parsed keyword
+          // (prevents automatic hero background injection when no section is named).
+          instruction = `__VIDEO_IN_SECTION__:||${sectionKeyword}||${url}||${micrositeEditInput.trim()}`;
+        } else if (selectedElement.tag?.toLowerCase() === "section") {
+          // A <section> is selected: use the named keyword from the prompt if given,
+          // otherwise fall back to the selected section's own id/class so the video
+          // lands in the right section with preserved params + class="video-embed".
+          const selectedSectionId =
+            sectionKeyword ||
+            selectedElement.path.match(/section#([\w-]+)/)?.[1] ||
+            selectedElement.path.match(/section\.([\w-]+)/)?.[1] ||
+            "";
+          instruction = `__VIDEO_IN_SECTION__:||${selectedSectionId}||${url}||${micrositeEditInput.trim()}`;
+        }
+        // else: non-section element selected → __ELEMENT_EDIT__ flow handles it
+      }
       // Video URL: server's Vimeo/YouTube detection fires on any matching URL.
     }
     // Snapshot label for chat messages before clearing input
@@ -4771,7 +4798,9 @@ export default function SuperClientPage() {
                       )}
                       {viewingMicrosite && (
                         <button
+                          disabled={micrositeEditing}
                           onClick={() => {
+                            if (micrositeEditing) return;
                             const next = !editModeActive;
                             setEditModeActive(next);
                             if (next) {
@@ -4791,9 +4820,11 @@ export default function SuperClientPage() {
                             });
                           }}
                           title={
-                            editModeActive
-                              ? "Exit smart edit mode"
-                              : "Smart edit — click any element to target it"
+                            micrositeEditing
+                              ? "Applying edit…"
+                              : editModeActive
+                                ? "Exit smart edit mode"
+                                : "Smart edit — click any element to target it"
                           }
                           className="theme-toggle"
                           style={{
@@ -4806,6 +4837,8 @@ export default function SuperClientPage() {
                               : undefined,
                             transition:
                               "background 0.15s, color 0.15s, border-color 0.15s",
+                            opacity: micrositeEditing ? 0.4 : 1,
+                            cursor: micrositeEditing ? "not-allowed" : "pointer",
                           }}
                         >
                           <Pencil size={16} />
@@ -5334,8 +5367,8 @@ export default function SuperClientPage() {
                     </div>
                   </>
                 )}
-                {/* Figma-style selection overlay — only in smart edit mode */}
-                {editModeActive && (
+                {/* Figma-style selection overlay — in smart edit mode OR while a global edit is processing */}
+                {(editModeActive || micrositeEditing) && (
                   <SelectionOverlay
                     hovered={hoveredElement}
                     selected={selectedElement}
