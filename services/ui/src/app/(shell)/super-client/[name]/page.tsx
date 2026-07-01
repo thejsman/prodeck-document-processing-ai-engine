@@ -569,12 +569,19 @@ export default function SuperClientPage() {
   const _SW = _isPdf ? (_pdfPortrait ? 720 : 1280) : 0;
   const _SH = _isPdf ? (_pdfPortrait ? 1280 : 720) : 0;
   const _canScale = _isPdf && iframeContainerW > 10 && iframeContainerH > 10;
-  // Floor to 3dp so scaled content is always strictly inside the container (no sub-pixel clip).
+  // Portrait PDF: scale to fill container WIDTH so slides use the full panel (no white bar on
+  // the right). Iframe height = ceil(containerH / scale) so the scaled element covers the
+  // container exactly — the iframe document then scrolls within that window.
+  // Landscape PDF: scale to fit (min of both dimensions), centered.
   const _pdfScale = _canScale
-    ? Math.min(Math.floor((iframeContainerW / _SW) * 1000) / 1000, Math.floor((iframeContainerH / _SH) * 1000) / 1000)
+    ? _pdfPortrait
+      ? Math.floor((iframeContainerW / _SW) * 1000) / 1000
+      : Math.min(Math.floor((iframeContainerW / _SW) * 1000) / 1000, Math.floor((iframeContainerH / _SH) * 1000) / 1000)
     : 1;
-  const _pdfOx = _canScale ? Math.max(0, Math.floor((iframeContainerW - _SW * _pdfScale) / 2)) : 0;
-  const _pdfOy = _canScale ? Math.max(0, Math.floor((iframeContainerH - _SH * _pdfScale) / 2)) : 0;
+  const _pdfOx = _canScale && !_pdfPortrait ? Math.max(0, Math.floor((iframeContainerW - _SW * _pdfScale) / 2)) : 0;
+  const _pdfOy = _canScale && !_pdfPortrait ? Math.max(0, Math.floor((iframeContainerH - _SH * _pdfScale) / 2)) : 0;
+  // Portrait: dynamic iframe height so the scaled element exactly covers the container height.
+  const _pdfIframeH = _canScale && _pdfPortrait && _pdfScale > 0 ? Math.ceil(iframeContainerH / _pdfScale) : _SH;
   // Double-buffer: two stacked iframes. Edits load into the invisible background
   // slot; when it signals ready the slots swap instantly — no white flash.
   const iframeARef = useRef<HTMLIFrameElement>(null);
@@ -4718,7 +4725,7 @@ export default function SuperClientPage() {
                 style={{
                   flex: 1,
                   minHeight: 0,
-                  background: '#fff',
+                  background: _isPdf ? '#111' : '#fff',
                   position: 'relative',
                   overflow: 'hidden',
                 }}
@@ -4740,7 +4747,7 @@ export default function SuperClientPage() {
                           top: _pdfOy,
                           left: _pdfOx,
                           width: _SW,
-                          height: _SH,
+                          height: _pdfIframeH,
                           transform: `scale(${_pdfScale})`,
                           transformOrigin: 'top left',
                         }
@@ -4764,7 +4771,7 @@ export default function SuperClientPage() {
                           top: _pdfOy,
                           left: _pdfOx,
                           width: _SW,
-                          height: _SH,
+                          height: _pdfIframeH,
                           transform: `scale(${_pdfScale})`,
                           transformOrigin: 'top left',
                         }

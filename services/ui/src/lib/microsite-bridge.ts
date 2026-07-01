@@ -126,6 +126,12 @@ script,style,noscript,template{display:none!important;visibility:hidden!importan
   opacity:1!important;transform:none!important;
   visibility:visible!important;clip-path:none!important
 }
+/* Thin modern scrollbar — replaces the OS-default chunky scrollbar that appears
+   in the portrait preview iframe (the iframe scrolls its content, not the page). */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(140,140,140,0.55);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(140,140,140,0.85);}
 </style>`;
 
 // Layer 3 — JS fallback for future microsites with unknown class names.
