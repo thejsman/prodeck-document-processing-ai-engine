@@ -612,7 +612,7 @@ export function ArtifactsPage() {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '28px 64px' }}>
+      <div className="artifacts-content" style={{ flex: 1, overflow: 'auto', padding: '28px 64px' }}>
         {loading ? (
           <div style={{ color: 'var(--muted)', fontSize: 14, marginTop: 48, textAlign: 'center' }}>
             Loading…
