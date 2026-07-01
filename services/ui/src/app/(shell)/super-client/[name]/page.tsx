@@ -62,6 +62,7 @@ import {
   listSuperClientDocuments,
   uploadSuperClientDocument,
   deleteSuperClientDocument,
+  openSuperClientDocument,
   listSuperClientProposals,
   getSuperClientProposal,
   deleteSuperClientProposal,
@@ -6634,11 +6635,33 @@ export default function SuperClientPage() {
                 position: "fixed",
                 top: menuDocPos.top,
                 right: menuDocPos.right,
-                minWidth: 120,
+                minWidth: 140,
                 padding: "4px 0",
                 zIndex: 99999,
               }}
             >
+              <button
+                className="btn btn-sm"
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  borderRadius: 0,
+                  border: "none",
+                  justifyContent: "flex-start",
+                  padding: "8px 14px",
+                  fontSize: 14,
+                  gap: 8,
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  const id = menuDocId;
+                  setMenuDocId(null);
+                  if (id) void openSuperClientDocument(apiKey, name, id);
+                }}
+              >
+                <Icon icon={ExternalLink} size="sm" />
+                <span>View / Download</span>
+              </button>
               <button
                 className="btn btn-sm"
                 style={{

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ExternalLink, Loader2, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -10,6 +10,7 @@ import {
   fetchAllMicrositeHistory,
   fetchKnowledgeFiles,
   deleteKnowledgeFile,
+  openKnowledgeFile,
   deleteProposal,
   deleteMicrositeHistoryFromServer,
   type IngestionFile,
@@ -208,6 +209,10 @@ export function ClientPanel({
       setConfirmFile(null);
     }
   };
+
+  const handleViewFile = useCallback(async (fileName: string) => {
+    await openKnowledgeFile(apiKey, namespace, fileName);
+  }, [apiKey, namespace]);
 
   const handleDeleteProposalConfirmed = async () => {
     if (!confirmProposal) return;
@@ -511,7 +516,12 @@ export function ClientPanel({
 
       {/* ── Portalled dropdowns ── */}
       {menuFile && createPortal(
-        <div ref={fileDropdownRef} className="card" style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}>
+        <div ref={fileDropdownRef} className="card" style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, minWidth: 140, padding: '4px 0', zIndex: 99999 }}>
+          <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, gap: 8 }}
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => { const f = menuFile; setMenuFile(null); void handleViewFile(f); }}>
+            <Icon icon={ExternalLink} size="sm" /><span>View / Download</span>
+          </button>
           <button className="btn btn-sm" style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
             onMouseDown={e => e.preventDefault()}
             onClick={() => { const f = menuFile; setMenuFile(null); setConfirmFile(f); }}>

@@ -419,6 +419,32 @@ export async function deleteKnowledgeFile(apiKey: string, namespace: string, fil
   await handleResponse<{ ok: boolean }>(res);
 }
 
+export async function openSuperClientDocument(apiKey: string, name: string, fileName: string): Promise<void> {
+  const res = await fetch(
+    `/api/super-clients/${encodeURIComponent(name)}/documents/${encodeURIComponent(fileName)}/download`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+  );
+  if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const tab = window.open(url, '_blank');
+  if (!tab) URL.revokeObjectURL(url);
+  else tab.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+}
+
+export async function openKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
+  const res = await fetch(
+    `/api/knowledge/files/${encodeURIComponent(fileName)}/download?namespace=${encodeURIComponent(namespace)}`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+  );
+  if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const tab = window.open(url, '_blank');
+  if (!tab) URL.revokeObjectURL(url);
+  else tab.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+}
+
 export async function reindexKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
   const res = await fetch('/api/knowledge/reindex', {
     method: 'POST',
