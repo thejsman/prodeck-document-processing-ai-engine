@@ -37,6 +37,12 @@ textarea {
 
 /* ── Base ──────────────────────────────────────────────────────── */
 
+/* Global thin scrollbar — consistent across all panels and pages */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
 html,
 body {
   height: 100%;
@@ -8779,6 +8785,7 @@ html {
 .brief-side-panel-body::-webkit-scrollbar { width: 3px; }
 .brief-side-panel-body::-webkit-scrollbar-track { background: transparent; }
 .brief-side-panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
 
 .brief-side-panel-section {
   padding: 12px 12px 6px;
