@@ -27,7 +27,6 @@ import { MemorySection } from './MemorySection';
 
 // ── Helpers — same as VersionHistory ─────────────────────────────
 
-
 export function parseMicrositeInfo(proposalId: string): { name: string; version: number | null } {
   const raw = proposalId.includes('::') ? proposalId.split('::').slice(1).join('::') : proposalId;
   const withoutExt = raw.replace(/\.[^.]+$/, '');
@@ -59,14 +58,28 @@ export function Section({ label, loading, children, badge }: SectionProps) {
     <div>
       <div
         className="sidebar-link"
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{ cursor: 'pointer' }}
       >
-        <span className="sidebar-label ns-section-title" style={{ flex: 1 }}>{label}</span>
+        <span className="sidebar-label ns-section-title" style={{ flex: 1 }}>
+          {label}
+        </span>
         {badge ? (
-          <span style={{ flexShrink: 0, background: 'var(--warning, #f59e0b)', color: '#000', borderRadius: 100, fontSize: 10, fontWeight: 700, padding: '1px 6px', lineHeight: 1.5, marginRight: 4 }}>
+          <span
+            style={{
+              flexShrink: 0,
+              background: 'var(--warning, #f59e0b)',
+              color: '#000',
+              borderRadius: 100,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '1px 6px',
+              lineHeight: 1.5,
+              marginRight: 4,
+            }}
+          >
             {badge}
           </span>
         ) : null}
@@ -82,20 +95,22 @@ export function Section({ label, loading, children, badge }: SectionProps) {
         />
       </div>
 
-      {open && (
-        loading ? (
+      {open &&
+        (loading ? (
           <div style={{ padding: '2px 8px 8px' }}>
-            <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.45, fontSize: 13 }}>Loading…</span>
+            <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.45, fontSize: 13 }}>
+              Loading…
+            </span>
           </div>
-        ) : <div style={{ padding: '2px 0 4px' }}>{children}</div>
-      )}
+        ) : (
+          <div style={{ padding: '2px 0 4px' }}>{children}</div>
+        ))}
     </div>
   );
 }
 
 const newestFirst = (files: IngestionFile[]) =>
   [...files].sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
-
 
 // ── Panel ─────────────────────────────────────────────────────────
 
@@ -111,19 +126,26 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   const router = useRouter();
 
   // Read from persisted store — survives page reloads (proposals only)
-  const panelData = useNamespacePanelStore((s: { byNamespace: Record<string, { proposals: import('@/lib/api').ProposalFile[]; microsites: import('@/lib/api').Presentation[] }> }) => s.byNamespace[namespace]);
-  const setProposals = useNamespacePanelStore((s: { setProposals: (ns: string, p: import('@/lib/api').ProposalFile[]) => void }) => s.setProposals);
+  const panelData = useNamespacePanelStore(
+    (s: {
+      byNamespace: Record<
+        string,
+        { proposals: import('@/lib/api').ProposalFile[]; microsites: import('@/lib/api').Presentation[] }
+      >;
+    }) => s.byNamespace[namespace],
+  );
+  const setProposals = useNamespacePanelStore(
+    (s: { setProposals: (ns: string, p: import('@/lib/api').ProposalFile[]) => void }) => s.setProposals,
+  );
 
   // Microsite history entries — fetched fresh from server (not stored in panel store)
   const [micrositeEntries, setMicrositeEntries] = useState<MicrositeHistoryServerEntry[]>([]);
 
-  const proposals = [...(panelData?.proposals ?? [])]
-    .sort((a, b) => {
-      const vDiff = (b.version ?? -1) - (a.version ?? -1);
-      if (vDiff !== 0) return vDiff;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-
+  const proposals = [...(panelData?.proposals ?? [])].sort((a, b) => {
+    const vDiff = (b.version ?? -1) - (a.version ?? -1);
+    if (vDiff !== 0) return vDiff;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 
   const proposalClientMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -136,16 +158,18 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   }, [proposals]);
 
   // Microsites sorted newest-first, each entry has its server-assigned version
-  const micrositesWithMeta = useMemo(() =>
-    [...micrositeEntries]
-      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
-      .map(entry => ({
-        entry,
-        displayName: (entry.ast as LayoutAST)?.brand?.companyName || 'Untitled',
-        version: entry.version ?? 1,
-        isPro: (entry.ast as LayoutAST)?.generationMode !== 'classic',
-      })),
-  [micrositeEntries]);
+  const micrositesWithMeta = useMemo(
+    () =>
+      [...micrositeEntries]
+        .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+        .map((entry) => ({
+          entry,
+          displayName: (entry.ast as LayoutAST)?.brand?.companyName || 'Untitled',
+          version: entry.version ?? 1,
+          isPro: (entry.ast as LayoutAST)?.generationMode !== 'classic',
+        })),
+    [micrositeEntries],
+  );
 
   // Ingested files stay local — no cross-session caching needed
   const [files, setFiles] = useState<IngestionFile[]>([]);
@@ -187,11 +211,14 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   const [hoveredMicrosite, setHoveredMicrosite] = useState<string | null>(null);
   const [menuMicrosite, setMenuMicrosite] = useState<{ id: string; proposalId: string } | null>(null);
   const [micrositeMenuPos, setMicrositeMenuPos] = useState({ top: 0, right: 0 });
-  const [confirmMicrosite, setConfirmMicrosite] = useState<{ id: string; proposalId: string; displayName: string } | null>(null);
+  const [confirmMicrosite, setConfirmMicrosite] = useState<{
+    id: string;
+    proposalId: string;
+    displayName: string;
+  } | null>(null);
   const [deletingMicrosite, setDeletingMicrosite] = useState(false);
   const micrositeMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const micrositeDropdownRef = useRef<HTMLDivElement | null>(null);
-
 
   const openFileMenu = useCallback((fileName: string) => {
     const btn = menuBtnRefs.current[fileName];
@@ -206,9 +233,12 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     const handler = (e: MouseEvent) => {
       const btn = menuBtnRefs.current[menuFile];
       if (
-        dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
-        btn && !btn.contains(e.target as Node)
-      ) setMenuFile(null);
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node) &&
+        btn &&
+        !btn.contains(e.target as Node)
+      )
+        setMenuFile(null);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -218,7 +248,13 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     if (!menuProposal) return;
     const handler = (e: MouseEvent) => {
       const btn = proposalMenuBtnRefs.current[menuProposal.fileName];
-      if (proposalDropdownRef.current && !proposalDropdownRef.current.contains(e.target as Node) && btn && !btn.contains(e.target as Node)) setMenuProposal(null);
+      if (
+        proposalDropdownRef.current &&
+        !proposalDropdownRef.current.contains(e.target as Node) &&
+        btn &&
+        !btn.contains(e.target as Node)
+      )
+        setMenuProposal(null);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -228,24 +264,34 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     if (!menuMicrosite) return;
     const handler = (e: MouseEvent) => {
       const btn = micrositeMenuBtnRefs.current[menuMicrosite.id];
-      if (micrositeDropdownRef.current && !micrositeDropdownRef.current.contains(e.target as Node) && btn && !btn.contains(e.target as Node)) setMenuMicrosite(null);
+      if (
+        micrositeDropdownRef.current &&
+        !micrositeDropdownRef.current.contains(e.target as Node) &&
+        btn &&
+        !btn.contains(e.target as Node)
+      )
+        setMenuMicrosite(null);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuMicrosite]);
 
-  const handleViewFile = useCallback(async (fileName: string) => {
-    await openKnowledgeFile(apiKey, namespace, fileName);
-  }, [apiKey, namespace]);
+  const handleViewFile = useCallback(
+    async (fileName: string) => {
+      await openKnowledgeFile(apiKey, namespace, fileName);
+    },
+    [apiKey, namespace],
+  );
 
   const handleDeleteConfirmed = async () => {
     if (!confirmFile) return;
     setDeleting(true);
     try {
       await deleteKnowledgeFile(apiKey, namespace, confirmFile);
-      setFiles(prev => prev.filter(f => f.fileName !== confirmFile));
-    } catch { /* silently ignore */ }
-    finally {
+      setFiles((prev) => prev.filter((f) => f.fileName !== confirmFile));
+    } catch {
+      /* silently ignore */
+    } finally {
       setDeleting(false);
       setConfirmFile(null);
     }
@@ -260,8 +306,13 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     setDeletingProposal(true);
     try {
       await deleteProposal(apiKey, ns, file);
-      setProposals(namespace, proposals.filter(x => x.fileName !== p.fileName));
-    } catch { /* ignore */ } finally {
+      setProposals(
+        namespace,
+        proposals.filter((x) => x.fileName !== p.fileName),
+      );
+    } catch {
+      /* ignore */
+    } finally {
       setDeletingProposal(false);
       setConfirmProposal(null);
     }
@@ -272,8 +323,10 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     setDeletingMicrosite(true);
     try {
       await deleteMicrositeHistoryFromServer(apiKey, namespace, confirmMicrosite.id);
-      setMicrositeEntries(prev => prev.filter(e => e.id !== confirmMicrosite.id));
-    } catch { /* ignore */ } finally {
+      setMicrositeEntries((prev) => prev.filter((e) => e.id !== confirmMicrosite.id));
+    } catch {
+      /* ignore */
+    } finally {
       setDeletingMicrosite(false);
       setConfirmMicrosite(null);
     }
@@ -286,57 +339,61 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
     // Only show spinner if we have no cached data yet
     if (!panelData?.proposals) setLoadingProposals(true);
     fetchProposals(apiKey)
-      .then(all => {
+      .then((all) => {
         // Filter to this namespace using the "namespace::file.md" prefix (same as VersionHistory source)
-        const filtered = all.filter(p => p.fileName.startsWith(`${namespace}::`));
+        const filtered = all.filter((p) => p.fileName.startsWith(`${namespace}::`));
         setProposals(namespace, filtered);
       })
       .catch(() => {})
       .finally(() => setLoadingProposals(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, apiKey]);
 
   const loadMicrositeEntries = useCallback(() => {
     if (!namespace || !apiKey) return;
     setLoadingMicrosites(true);
     fetchAllMicrositeHistory(apiKey)
-      .then(all => setMicrositeEntries(all.filter(e => e.namespace === namespace)))
+      .then((all) => setMicrositeEntries(all.filter((e) => e.namespace === namespace)))
       .catch(() => {})
       .finally(() => setLoadingMicrosites(false));
   }, [namespace, apiKey]);
 
-  useEffect(() => { loadMicrositeEntries(); }, [loadMicrositeEntries]);
+  useEffect(() => {
+    loadMicrositeEntries();
+  }, [loadMicrositeEntries]);
 
   useEffect(() => {
     if (!apiKey) return;
     setLoadingDesignSkills(true);
     listDesignSkillsApi(apiKey)
-      .then(skills => setDesignSkills(skills))
+      .then((skills) => setDesignSkills(skills))
       .catch(() => setDesignSkills([]))
       .finally(() => setLoadingDesignSkills(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey]);
 
   useEffect(() => {
     if (!namespace || !apiKey) return;
     setLoadingFiles(true);
     fetchKnowledgeFiles(apiKey, namespace)
-      .then(f => setFiles(newestFirst(f)))
+      .then((f) => setFiles(newestFirst(f)))
       .catch(() => setFiles([]))
       .finally(() => setLoadingFiles(false));
-  // fileRefreshTick intentionally triggers a re-fetch after upload
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // fileRefreshTick intentionally triggers a re-fetch after upload
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, apiKey, fileRefreshTick]);
 
   // Poll while files are uploading or processing — mirrors ChatUploadDrawer polling
-  const hasActiveIngestion = files.some(f => ['uploaded', 'processing', 'extracting'].includes(f.status ?? ''));
+  const hasActiveIngestion = files.some((f) => ['uploaded', 'processing', 'extracting'].includes(f.status ?? ''));
   useEffect(() => {
     if (!hasActiveIngestion || !namespace || !apiKey) return;
     const timer = setInterval(async () => {
       try {
         const fetched = await fetchKnowledgeFiles(apiKey, namespace);
         setFiles(newestFirst(fetched));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }, 3000);
     return () => clearInterval(timer);
   }, [hasActiveIngestion, namespace, apiKey]);
@@ -346,12 +403,12 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
   // transitions to 'completed', re-fetch the relevant list and push it into
   // the persisted store — no polling, no timers.
 
-  const allExecutions = useExecutionStore(s => s.executions);
+  const allExecutions = useExecutionStore((s) => s.executions);
   const seenCompletedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const justCompleted = Object.values(allExecutions).filter(
-      e =>
+      (e) =>
         (e.type === 'proposal' || e.type === 'microsite') &&
         e.status === 'completed' &&
         !seenCompletedRef.current.has(e.id),
@@ -359,21 +416,21 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
 
     // Advance the seen-set so future renders don't re-trigger
     Object.values(allExecutions)
-      .filter(e => e.status === 'completed' || e.status === 'failed')
-      .forEach(e => seenCompletedRef.current.add(e.id));
+      .filter((e) => e.status === 'completed' || e.status === 'failed')
+      .forEach((e) => seenCompletedRef.current.add(e.id));
 
     if (!justCompleted.length || !namespace || !apiKey) return;
 
-    if (justCompleted.some(e => e.type === 'proposal')) {
+    if (justCompleted.some((e) => e.type === 'proposal')) {
       fetchProposals(apiKey)
-        .then(all => {
-          const filtered = all.filter(p => p.fileName.startsWith(`${namespace}::`));
+        .then((all) => {
+          const filtered = all.filter((p) => p.fileName.startsWith(`${namespace}::`));
           setProposals(namespace, filtered);
         })
         .catch(() => {});
     }
 
-    if (justCompleted.some(e => e.type === 'microsite')) {
+    if (justCompleted.some((e) => e.type === 'microsite')) {
       loadMicrositeEntries();
     }
   }, [allExecutions, namespace, apiKey, setProposals, loadMicrositeEntries]);
@@ -390,11 +447,16 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
 
   const statusBadgeClass = (status: string | null) => {
     switch (status) {
-      case 'approved': return 'badge--approved';
-      case 'finalized': return 'badge--finalized';
-      case 'under_review': return 'badge--under-review';
-      case 'draft': return 'badge--draft';
-      default: return null;
+      case 'approved':
+        return 'badge--approved';
+      case 'finalized':
+        return 'badge--finalized';
+      case 'under_review':
+        return 'badge--under-review';
+      case 'draft':
+        return 'badge--draft';
+      default:
+        return null;
     }
   };
 
@@ -405,382 +467,839 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
 
   return (
     <>
-    <aside className="chat-ctx-panel">
-      <div style={{ padding: '0 8px' }}>
-
-        {/* ── Microsites ── */}
-        <Section label="Microsites" loading={effectiveLoadingMicrosites}>
-          {micrositeEntries.length === 0 ? (
-            <div style={{ padding: '2px 8px 4px 12px' }}>
-              <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No microsites yet</span>
-            </div>
-          ) : (
-            micrositesWithMeta.map(({ entry, displayName, version, isPro }) => {
-              const itemId = entry.id;
-              const ast = entry.ast as LayoutAST;
-              const pid = ast?.proposalId || namespace;
-              const isHov = hoveredMicrosite === itemId;
-              return (
-                <div
-                  key={itemId}
-                  className="sidebar-link"
-                  onClick={() => onMicrositeClick?.({ entryId: entry.id, namespace, proposalId: pid, displayName })}
-                  onMouseEnter={() => setHoveredMicrosite(itemId)}
-                  onMouseLeave={() => setHoveredMicrosite(null)}
-                  style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
-                >
-                  <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                    {displayName}
-                  </span>
-                  <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                    v{version}
-                  </span>
-                  <button
-                    ref={el => { micrositeMenuBtnRefs.current[itemId] = el; }}
-                    className="btn btn-sm"
-                    title="Options"
-                    onClick={e => {
-                      e.stopPropagation();
-                      const btn = micrositeMenuBtnRefs.current[itemId];
-                      if (!btn) return;
-                      const rect = btn.getBoundingClientRect();
-                      setMicrositeMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-                      setMenuMicrosite({ id: itemId, proposalId: entry.id });
-                    }}
-                    style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHov || menuMicrosite?.id === itemId ? 1 : 0, pointerEvents: isHov || menuMicrosite?.id === itemId ? 'auto' : 'none', transition: 'opacity 0.15s' }}
-                  >
-                    <Icon icon={MoreHorizontal} size="sm" />
-                  </button>
-                </div>
-              );
-            })
-          )}
-        </Section>
-
-        {/* ── Proposals ── */}
-        <Section label="Proposals" loading={effectiveLoadingProposals}>
-          {proposals.length === 0 ? (
-            <div style={{ padding: '2px 8px 4px 12px' }}>
-              <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No proposals yet</span>
-            </div>
-          ) : (
-            proposals.map(p => {
-              const [ns, ...fileParts] = p.fileName.split('::');
-              const file = fileParts.join('::') || ns;
-              const href = fileParts.length
-                ? `/proposal?artifact=${encodeURIComponent(file)}&namespace=${encodeURIComponent(ns)}&from=chat`
-                : `/proposal?artifact=${encodeURIComponent(file)}&from=chat`;
-              const badgeClass = statusBadgeClass(p.status);
-              const isHov = hoveredProposal === p.fileName;
-              return (
-              <div
-                key={p.fileName}
-                className="sidebar-link"
-                onClick={() => router.push(href)}
-                onMouseEnter={() => setHoveredProposal(p.fileName)}
-                onMouseLeave={() => setHoveredProposal(null)}
-                style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: isHov || menuProposal?.fileName === p.fileName ? 36 : 6, transition: 'padding-right 0.15s', position: 'relative' }}
-              >
-                <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                  {p.client}
+      <aside className="chat-ctx-panel">
+        <div style={{ padding: '0 8px' }}>
+          {/* ── Microsites ── */}
+          <Section label="Microsites" loading={effectiveLoadingMicrosites}>
+            {micrositeEntries.length === 0 ? (
+              <div style={{ padding: '2px 8px 4px 12px' }}>
+                <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>
+                  No microsites yet
                 </span>
-                {badgeClass && (
-                  <span className={badgeClass} style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}>
-                    {statusLabel(p.status)}
-                  </span>
-                )}
-                <span style={{ flexShrink: 0, display: 'inline-block', background: 'var(--primary-soft)', color: 'var(--primary)', borderRadius: 100, fontSize: 10, fontWeight: 600, padding: '2px 8px', letterSpacing: '0.06em', lineHeight: 1.4 }}>
-                  v{p.version ?? 1}
-                </span>
-                <button
-                  ref={el => { proposalMenuBtnRefs.current[p.fileName] = el; }}
-                  className="btn btn-sm"
-                  title="Options"
-                  onClick={e => {
-                    e.stopPropagation();
-                    const btn = proposalMenuBtnRefs.current[p.fileName];
-                    if (!btn) return;
-                    const rect = btn.getBoundingClientRect();
-                    setProposalMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-                    setMenuProposal(p);
-                  }}
-                  style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', padding: '1px 5px', border: 'none', lineHeight: 1, opacity: isHov || menuProposal?.fileName === p.fileName ? 1 : 0, pointerEvents: isHov || menuProposal?.fileName === p.fileName ? 'auto' : 'none', transition: 'opacity 0.15s' }}
-                >
-                  <Icon icon={MoreHorizontal} size="sm" />
-                </button>
               </div>
-              );
-            })
-          )}
-        </Section>
-
-        {/* ── Ingested Files ── */}
-        <Section label="Ingested Files" loading={loadingFiles}>
-          {files.length === 0 ? (
-            <div style={{ padding: '2px 8px 4px 12px' }}>
-              <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No files yet</span>
-            </div>
-          ) : (
-            files.map(f => {
-              const isHovered = hoveredFile === f.fileName && (menuFile === null || menuFile === f.fileName);
-              const isMenuOpen = menuFile === f.fileName;
-              const isActive = f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting';
-              return (
-                <div
-                  key={f.fileName}
-                  style={{ position: 'relative' }}
-                  onMouseEnter={() => { if (menuFile === null || menuFile === f.fileName) setHoveredFile(f.fileName); }}
-                  onMouseLeave={() => setHoveredFile(null)}
-                >
+            ) : (
+              micrositesWithMeta.map(({ entry, displayName, version, isPro }) => {
+                const itemId = entry.id;
+                const ast = entry.ast as LayoutAST;
+                const pid = ast?.proposalId || namespace;
+                const isHov = hoveredMicrosite === itemId;
+                return (
                   <div
+                    key={itemId}
                     className="sidebar-link"
+                    onClick={() => onMicrositeClick?.({ entryId: entry.id, namespace, proposalId: pid, displayName })}
+                    onMouseEnter={() => setHoveredMicrosite(itemId)}
+                    onMouseLeave={() => setHoveredMicrosite(null)}
                     style={{
-                      cursor: 'default',
+                      cursor: 'pointer',
                       height: 32,
                       minWidth: 0,
                       margin: '0 0 2px',
-                      background: isActive ? 'color-mix(in srgb, var(--primary) 12%, var(--panel-item))' : 'var(--panel-item)',
+                      background: 'var(--panel-item)',
                       paddingLeft: 12,
-                      paddingRight: isHovered || isMenuOpen ? 36 : 12,
-                      transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease, transform 0.2s ease',
+                      paddingRight: isHov || menuMicrosite?.id === itemId ? 36 : 6,
+                      transition: 'padding-right 0.15s',
+                      position: 'relative',
                     }}
                   >
-                    <span className="sidebar-label" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, color: 'var(--text)' }}>{f.fileName}</span>
-                    {f.status === 'processing' && (
-                      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, color: 'var(--primary)' }}>
-                        <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }} />
-                        Indexing
-                      </span>
-                    )}
-                    {f.status === 'extracting' && (
-                      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, color: 'var(--primary)' }}>
-                        <Icon icon={Loader2} size="sm" style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }} />
-                        Extracting
-                      </span>
-                    )}
-                    {f.status === 'uploaded' && (
-                      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 500, color: 'var(--muted)' }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--muted)', flexShrink: 0, animation: 'pulse 1.6s ease-in-out infinite' }} />
-                        Queued
-                      </span>
-                    )}
-                    {(f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed') && (
-                      <span className={`ingestion-badge--${f.status}`} style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, background: 'transparent', border: 'none' }}>
-                        {f.status.toUpperCase()}
-                      </span>
-                    )}
+                    <span
+                      className="sidebar-label"
+                      style={{
+                        color: 'var(--text)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 13,
+                      }}
+                    >
+                      {displayName}
+                    </span>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        display: 'inline-block',
+                        background: 'var(--primary-soft)',
+                        color: 'var(--primary)',
+                        borderRadius: 100,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        letterSpacing: '0.06em',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      v{version}
+                    </span>
+                    <button
+                      ref={(el) => {
+                        micrositeMenuBtnRefs.current[itemId] = el;
+                      }}
+                      className="btn btn-sm"
+                      title="Options"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const btn = micrositeMenuBtnRefs.current[itemId];
+                        if (!btn) return;
+                        const rect = btn.getBoundingClientRect();
+                        setMicrositeMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                        setMenuMicrosite({ id: itemId, proposalId: entry.id });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: 16,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        padding: '1px 5px',
+                        border: 'none',
+                        lineHeight: 1,
+                        opacity: isHov || menuMicrosite?.id === itemId ? 1 : 0,
+                        pointerEvents: isHov || menuMicrosite?.id === itemId ? 'auto' : 'none',
+                        transition: 'opacity 0.15s',
+                      }}
+                    >
+                      <Icon icon={MoreHorizontal} size="sm" />
+                    </button>
                   </div>
-                  <button
-                    ref={el => { menuBtnRefs.current[f.fileName] = el; }}
-                    className="btn btn-sm"
-                    title="Options"
-                    style={{
-                      position: 'absolute',
-                      right: 16,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      padding: '1px 5px',
-                      border: 'none',
-                      lineHeight: 1,
-                      opacity: isHovered || isMenuOpen ? 1 : 0,
-                      pointerEvents: isHovered || isMenuOpen ? 'auto' : 'none',
-                      transition: 'opacity 0.15s',
-                    }}
-                    onClick={e => { e.stopPropagation(); isMenuOpen ? setMenuFile(null) : openFileMenu(f.fileName); }}
-                  >
-                    <Icon icon={MoreHorizontal} size="sm" />
-                  </button>
-                </div>
-              );
-            })
-          )}
-        </Section>
-
-        {/* ── Design Skills ── */}
-        {(loadingDesignSkills || designSkills.length > 0) && (
-          <Section label="Design Skills" loading={loadingDesignSkills}>
-            {designSkills.length === 0 ? (
-              <div style={{ padding: '2px 8px 4px 12px' }}>
-                <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>No design skills yet</span>
-              </div>
-            ) : (
-              designSkills.map(ds => (
-                <div
-                  key={ds.slug}
-                  className="sidebar-link"
-                  onClick={() => router.push('/skills?mode=design')}
-                  style={{ cursor: 'pointer', height: 32, minWidth: 0, margin: '0 0 2px', background: 'var(--panel-item)', paddingLeft: 12, paddingRight: 6 }}
-                >
-                  <span style={{ flexShrink: 0, width: 10, height: 10, borderRadius: '50%', background: ds.colorPalette.primary, border: '1px solid rgba(255,255,255,0.15)', marginRight: 6 }} />
-                  <span className="sidebar-label" style={{ color: 'var(--text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-                    {ds.displayName}
-                  </span>
-                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, color: 'var(--muted)', opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}>
-                    {ds.aestheticTone}
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </Section>
+
+          {/* ── Proposals ── */}
+          <Section label="Proposals" loading={effectiveLoadingProposals}>
+            {proposals.length === 0 ? (
+              <div style={{ padding: '2px 8px 4px 12px' }}>
+                <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>
+                  No proposals yet
+                </span>
+              </div>
+            ) : (
+              proposals.map((p) => {
+                const [ns, ...fileParts] = p.fileName.split('::');
+                const file = fileParts.join('::') || ns;
+                const href = fileParts.length
+                  ? `/proposal?artifact=${encodeURIComponent(file)}&namespace=${encodeURIComponent(ns)}&from=chat`
+                  : `/proposal?artifact=${encodeURIComponent(file)}&from=chat`;
+                const badgeClass = statusBadgeClass(p.status);
+                const isHov = hoveredProposal === p.fileName;
+                return (
+                  <div
+                    key={p.fileName}
+                    className="sidebar-link"
+                    onClick={() => router.push(href)}
+                    onMouseEnter={() => setHoveredProposal(p.fileName)}
+                    onMouseLeave={() => setHoveredProposal(null)}
+                    style={{
+                      cursor: 'pointer',
+                      height: 32,
+                      minWidth: 0,
+                      margin: '0 0 2px',
+                      background: 'var(--panel-item)',
+                      paddingLeft: 12,
+                      paddingRight: isHov || menuProposal?.fileName === p.fileName ? 36 : 6,
+                      transition: 'padding-right 0.15s',
+                      position: 'relative',
+                    }}
+                  >
+                    <span
+                      className="sidebar-label"
+                      style={{
+                        color: 'var(--text)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 13,
+                      }}
+                    >
+                      {p.client}
+                    </span>
+                    {badgeClass && (
+                      <span
+                        className={badgeClass}
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 10,
+                          fontWeight: 500,
+                          background: 'transparent',
+                          border: 'none',
+                        }}
+                      >
+                        {statusLabel(p.status)}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        display: 'inline-block',
+                        background: 'var(--primary-soft)',
+                        color: 'var(--primary)',
+                        borderRadius: 100,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        letterSpacing: '0.06em',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      v{p.version ?? 1}
+                    </span>
+                    <button
+                      ref={(el) => {
+                        proposalMenuBtnRefs.current[p.fileName] = el;
+                      }}
+                      className="btn btn-sm"
+                      title="Options"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const btn = proposalMenuBtnRefs.current[p.fileName];
+                        if (!btn) return;
+                        const rect = btn.getBoundingClientRect();
+                        setProposalMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                        setMenuProposal(p);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: 16,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        padding: '1px 5px',
+                        border: 'none',
+                        lineHeight: 1,
+                        opacity: isHov || menuProposal?.fileName === p.fileName ? 1 : 0,
+                        pointerEvents: isHov || menuProposal?.fileName === p.fileName ? 'auto' : 'none',
+                        transition: 'opacity 0.15s',
+                      }}
+                    >
+                      <Icon icon={MoreHorizontal} size="sm" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </Section>
+
+          {/* ── Ingested Files ── */}
+          <Section label="Ingested Files" loading={loadingFiles}>
+            {files.length === 0 ? (
+              <div style={{ padding: '2px 8px 4px 12px' }}>
+                <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>
+                  No files yet
+                </span>
+              </div>
+            ) : (
+              files.map((f) => {
+                const isHovered = hoveredFile === f.fileName && (menuFile === null || menuFile === f.fileName);
+                const isMenuOpen = menuFile === f.fileName;
+                const isActive = f.status === 'uploaded' || f.status === 'processing' || f.status === 'extracting';
+                return (
+                  <div
+                    key={f.fileName}
+                    style={{ position: 'relative' }}
+                    onMouseEnter={() => {
+                      if (menuFile === null || menuFile === f.fileName) setHoveredFile(f.fileName);
+                    }}
+                    onMouseLeave={() => setHoveredFile(null)}
+                  >
+                    <div
+                      className="sidebar-link"
+                      style={{
+                        cursor: 'default',
+                        height: 32,
+                        minWidth: 0,
+                        margin: '0 0 2px',
+                        background: isActive
+                          ? 'color-mix(in srgb, var(--primary) 12%, var(--panel-item))'
+                          : 'var(--panel-item)',
+                        paddingLeft: 12,
+                        paddingRight: isHovered || isMenuOpen ? 36 : 12,
+                        transition: 'padding-right 0.15s, background 0.2s ease, color 0.2s ease, transform 0.2s ease',
+                      }}
+                    >
+                      <span
+                        className="sidebar-label"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          fontSize: 13,
+                          color: 'var(--text)',
+                        }}
+                      >
+                        {f.fileName}
+                      </span>
+                      {f.status === 'processing' && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            color: 'var(--primary)',
+                          }}
+                        >
+                          <Icon
+                            icon={Loader2}
+                            size="sm"
+                            style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }}
+                          />
+                          Indexing
+                        </span>
+                      )}
+                      {f.status === 'extracting' && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            color: 'var(--primary)',
+                          }}
+                        >
+                          <Icon
+                            icon={Loader2}
+                            size="sm"
+                            style={{ animation: 'spin 1s linear infinite', width: 10, height: 10 }}
+                          />
+                          Extracting
+                        </span>
+                      )}
+                      {f.status === 'uploaded' && (
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              background: 'var(--muted)',
+                              flexShrink: 0,
+                              animation: 'pulse 1.6s ease-in-out infinite',
+                            }}
+                          />
+                          Queued
+                        </span>
+                      )}
+                      {(f.status === 'indexed' || f.status === 'extracted' || f.status === 'failed') && (
+                        <span
+                          className={`ingestion-badge--${f.status}`}
+                          style={{
+                            flexShrink: 0,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            background: 'transparent',
+                            border: 'none',
+                          }}
+                        >
+                          {f.status.toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      ref={(el) => {
+                        menuBtnRefs.current[f.fileName] = el;
+                      }}
+                      className="btn btn-sm"
+                      title="Options"
+                      style={{
+                        position: 'absolute',
+                        right: 16,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        padding: '1px 5px',
+                        border: 'none',
+                        lineHeight: 1,
+                        opacity: isHovered || isMenuOpen ? 1 : 0,
+                        pointerEvents: isHovered || isMenuOpen ? 'auto' : 'none',
+                        transition: 'opacity 0.15s',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        isMenuOpen ? setMenuFile(null) : openFileMenu(f.fileName);
+                      }}
+                    >
+                      <Icon icon={MoreHorizontal} size="sm" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </Section>
+
+          {/* ── Design Skills ── */}
+          {(loadingDesignSkills || designSkills.length > 0) && (
+            <Section label="Design Skills" loading={loadingDesignSkills}>
+              {designSkills.length === 0 ? (
+                <div style={{ padding: '2px 8px 4px 12px' }}>
+                  <span className="sidebar-label" style={{ color: 'var(--muted)', opacity: 0.4, fontSize: 13 }}>
+                    No design skills yet
+                  </span>
+                </div>
+              ) : (
+                designSkills.map((ds) => (
+                  <div
+                    key={ds.slug}
+                    className="sidebar-link"
+                    onClick={() => router.push('/skills?mode=design')}
+                    style={{
+                      cursor: 'pointer',
+                      height: 32,
+                      minWidth: 0,
+                      margin: '0 0 2px',
+                      background: 'var(--panel-item)',
+                      paddingLeft: 12,
+                      paddingRight: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        background: ds.colorPalette.primary,
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        marginRight: 6,
+                      }}
+                    />
+                    <span
+                      className="sidebar-label"
+                      style={{
+                        color: 'var(--text)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontSize: 13,
+                      }}
+                    >
+                      {ds.displayName}
+                    </span>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 10,
+                        fontWeight: 500,
+                        color: 'var(--muted)',
+                        opacity: 0.7,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        maxWidth: 80,
+                      }}
+                    >
+                      {ds.aestheticTone}
+                    </span>
+                  </div>
+                ))
+              )}
+            </Section>
+          )}
+
+          <MemorySection namespace={namespace} onHasMemory={setHasMemory} onLoadingChange={setLoadingMemory} />
+        </div>
+      </aside>
+
+      {/* File options dropdown — portalled to avoid clipping */}
+      {menuFile &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="card"
+            style={{
+              position: 'fixed',
+              top: menuPos.top,
+              right: menuPos.right,
+              minWidth: 140,
+              padding: '4px 0',
+              zIndex: 99999,
+            }}
+          >
+            <button
+              className="btn btn-sm"
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                borderRadius: 0,
+                border: 'none',
+                justifyContent: 'flex-start',
+                padding: '8px 14px',
+                fontSize: 14,
+                gap: 8,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const f = menuFile;
+                setMenuFile(null);
+                void handleViewFile(f);
+              }}
+            >
+              <Icon icon={ExternalLink} size="sm" />
+              <span>View</span>
+            </button>
+            <button
+              className="btn btn-sm"
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                borderRadius: 0,
+                border: 'none',
+                justifyContent: 'flex-start',
+                padding: '8px 14px',
+                fontSize: 14,
+                color: 'var(--danger)',
+                gap: 8,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const f = menuFile;
+                setMenuFile(null);
+                setConfirmFile(f);
+              }}
+            >
+              <Icon icon={Trash2} size="sm" />
+              <span>Delete</span>
+            </button>
+          </div>,
+          document.body,
         )}
 
-        <MemorySection namespace={namespace} onHasMemory={setHasMemory} onLoadingChange={setLoadingMemory} />
-
-      </div>
-    </aside>
-
-    {/* File options dropdown — portalled to avoid clipping */}
-    {menuFile && createPortal(
-      <div
-        ref={dropdownRef}
-        className="card"
-        style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, minWidth: 140, padding: '4px 0', zIndex: 99999 }}
-      >
-        <button
-          className="btn btn-sm"
-          style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, gap: 8 }}
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => { const f = menuFile; setMenuFile(null); void handleViewFile(f); }}
-        >
-          <Icon icon={ExternalLink} size="sm" /><span>View / Download</span>
-        </button>
-        <button
-          className="btn btn-sm"
-          style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => { const f = menuFile; setMenuFile(null); setConfirmFile(f); }}
-        >
-          <Icon icon={Trash2} size="sm" /><span>Delete</span>
-        </button>
-      </div>,
-      document.body,
-    )}
-
-    {/* Confirm delete dialog */}
-    {confirmFile && createPortal(
-      <div
-        style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-        onMouseDown={e => { if (e.target === e.currentTarget && !deleting) setConfirmFile(null); }}
-      >
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px 0' }}>
-            <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.5 }}>Delete file</p>
-          </div>
-          <div style={{ height: 1, background: 'var(--border)' }} />
-          <div style={{ padding: 24 }}>
-            <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-              Delete <strong>"{confirmFile}"</strong> from the knowledge base?
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setConfirmFile(null)}
-                disabled={deleting}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deleting ? 'not-allowed' : 'pointer' }}
-              >Cancel</button>
-              <button
-                onClick={handleDeleteConfirmed}
-                disabled={deleting}
-                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.7 : 1 }}
-              >{deleting ? 'Deleting…' : 'Delete'}</button>
+      {/* Confirm delete dialog */}
+      {confirmFile &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 20000,
+              background: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget && !deleting) setConfirmFile(null);
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                width: '100%',
+                maxWidth: 420,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ padding: '20px 24px 0' }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.5 }}>
+                  Delete file
+                </p>
+              </div>
+              <div style={{ height: 1, background: 'var(--border)' }} />
+              <div style={{ padding: 24 }}>
+                <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+                  Delete <strong>"{confirmFile}"</strong> from the knowledge base?
+                </p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setConfirmFile(null)}
+                    disabled={deleting}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--panel-soft)',
+                      color: 'var(--text)',
+                      fontSize: 14,
+                      cursor: deleting ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirmed}
+                    disabled={deleting}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: 'var(--danger)',
+                      color: '#fff',
+                      fontSize: 14,
+                      cursor: deleting ? 'not-allowed' : 'pointer',
+                      opacity: deleting ? 0.7 : 1,
+                    }}
+                  >
+                    {deleting ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>,
-      document.body,
-    )}
+          </div>,
+          document.body,
+        )}
 
-    {/* Proposal overflow dropdown */}
-    {menuProposal && createPortal(
-      <div
-        ref={proposalDropdownRef}
-        className="card"
-        style={{ position: 'fixed', top: proposalMenuPos.top, right: proposalMenuPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}
-      >
-        <button
-          className="btn btn-sm"
-          style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => { const p = menuProposal; setMenuProposal(null); setConfirmProposal(p); }}
-        >
-          <Icon icon={Trash2} size="sm" /><span>Delete</span>
-        </button>
-      </div>,
-      document.body,
-    )}
+      {/* Proposal overflow dropdown */}
+      {menuProposal &&
+        createPortal(
+          <div
+            ref={proposalDropdownRef}
+            className="card"
+            style={{
+              position: 'fixed',
+              top: proposalMenuPos.top,
+              right: proposalMenuPos.right,
+              minWidth: 120,
+              padding: '4px 0',
+              zIndex: 99999,
+            }}
+          >
+            <button
+              className="btn btn-sm"
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                borderRadius: 0,
+                border: 'none',
+                justifyContent: 'flex-start',
+                padding: '8px 14px',
+                fontSize: 14,
+                color: 'var(--danger)',
+                gap: 8,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const p = menuProposal;
+                setMenuProposal(null);
+                setConfirmProposal(p);
+              }}
+            >
+              <Icon icon={Trash2} size="sm" />
+              <span>Delete</span>
+            </button>
+          </div>,
+          document.body,
+        )}
 
-    {/* Proposal confirm delete dialog */}
-    {confirmProposal && createPortal(
-      <div
-        style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-        onMouseDown={e => { if (e.target === e.currentTarget && !deletingProposal) setConfirmProposal(null); }}
-      >
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px 0' }}>
-            <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>Delete proposal</p>
-          </div>
-          <div style={{ height: 1, background: 'var(--border)' }} />
-          <div style={{ padding: 24 }}>
-            <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-              Delete the proposal for <strong>"{confirmProposal.client || confirmProposal.fileName}"</strong>?
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmProposal(null)} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer' }}>Cancel</button>
-              <button onClick={handleDeleteProposalConfirmed} disabled={deletingProposal} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingProposal ? 'not-allowed' : 'pointer', opacity: deletingProposal ? 0.7 : 1 }}>{deletingProposal ? 'Deleting…' : 'Delete'}</button>
+      {/* Proposal confirm delete dialog */}
+      {confirmProposal &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 20000,
+              background: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget && !deletingProposal) setConfirmProposal(null);
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                width: '100%',
+                maxWidth: 420,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ padding: '20px 24px 0' }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>
+                  Delete proposal
+                </p>
+              </div>
+              <div style={{ height: 1, background: 'var(--border)' }} />
+              <div style={{ padding: 24 }}>
+                <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+                  Delete the proposal for <strong>"{confirmProposal.client || confirmProposal.fileName}"</strong>?
+                </p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setConfirmProposal(null)}
+                    disabled={deletingProposal}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--panel-soft)',
+                      color: 'var(--text)',
+                      fontSize: 14,
+                      cursor: deletingProposal ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteProposalConfirmed}
+                    disabled={deletingProposal}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: 'var(--danger)',
+                      color: '#fff',
+                      fontSize: 14,
+                      cursor: deletingProposal ? 'not-allowed' : 'pointer',
+                      opacity: deletingProposal ? 0.7 : 1,
+                    }}
+                  >
+                    {deletingProposal ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>,
-      document.body,
-    )}
+          </div>,
+          document.body,
+        )}
 
-    {/* Microsite overflow dropdown */}
-    {menuMicrosite && createPortal(
-      <div
-        ref={micrositeDropdownRef}
-        className="card"
-        style={{ position: 'fixed', top: micrositeMenuPos.top, right: micrositeMenuPos.right, minWidth: 120, padding: '4px 0', zIndex: 99999 }}
-      >
-        <button
-          className="btn btn-sm"
-          style={{ width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', justifyContent: 'flex-start', padding: '8px 14px', fontSize: 14, color: 'var(--danger)', gap: 8 }}
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => {
-            const ms = menuMicrosite;
-            setMenuMicrosite(null);
-            const meta = micrositesWithMeta.find(x => x.entry.id === ms.id);
-            setConfirmMicrosite({ ...ms, displayName: meta?.displayName ?? ms.proposalId });
-          }}
-        >
-          <Icon icon={Trash2} size="sm" /><span>Delete</span>
-        </button>
-      </div>,
-      document.body,
-    )}
+      {/* Microsite overflow dropdown */}
+      {menuMicrosite &&
+        createPortal(
+          <div
+            ref={micrositeDropdownRef}
+            className="card"
+            style={{
+              position: 'fixed',
+              top: micrositeMenuPos.top,
+              right: micrositeMenuPos.right,
+              minWidth: 120,
+              padding: '4px 0',
+              zIndex: 99999,
+            }}
+          >
+            <button
+              className="btn btn-sm"
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                borderRadius: 0,
+                border: 'none',
+                justifyContent: 'flex-start',
+                padding: '8px 14px',
+                fontSize: 14,
+                color: 'var(--danger)',
+                gap: 8,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const ms = menuMicrosite;
+                setMenuMicrosite(null);
+                const meta = micrositesWithMeta.find((x) => x.entry.id === ms.id);
+                setConfirmMicrosite({ ...ms, displayName: meta?.displayName ?? ms.proposalId });
+              }}
+            >
+              <Icon icon={Trash2} size="sm" />
+              <span>Delete</span>
+            </button>
+          </div>,
+          document.body,
+        )}
 
-    {/* Microsite confirm delete dialog */}
-    {confirmMicrosite && createPortal(
-      <div
-        style={{ position: 'fixed', inset: 0, zIndex: 20000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-        onMouseDown={e => { if (e.target === e.currentTarget && !deletingMicrosite) setConfirmMicrosite(null); }}
-      >
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px 0' }}>
-            <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>Delete microsite</p>
-          </div>
-          <div style={{ height: 1, background: 'var(--border)' }} />
-          <div style={{ padding: 24 }}>
-            <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
-              Delete the microsite for <strong>"{confirmMicrosite.displayName}"</strong>?
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmMicrosite(null)} disabled={deletingMicrosite} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel-soft)', color: 'var(--text)', fontSize: 14, cursor: deletingMicrosite ? 'not-allowed' : 'pointer' }}>Cancel</button>
-              <button onClick={handleDeleteMicrositeConfirmed} disabled={deletingMicrosite} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: '#fff', fontSize: 14, cursor: deletingMicrosite ? 'not-allowed' : 'pointer', opacity: deletingMicrosite ? 0.7 : 1 }}>{deletingMicrosite ? 'Deleting…' : 'Delete'}</button>
+      {/* Microsite confirm delete dialog */}
+      {confirmMicrosite &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 20000,
+              background: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget && !deletingMicrosite) setConfirmMicrosite(null);
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                width: '100%',
+                maxWidth: 420,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ padding: '20px 24px 0' }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: '0 0 16px' }}>
+                  Delete microsite
+                </p>
+              </div>
+              <div style={{ height: 1, background: 'var(--border)' }} />
+              <div style={{ padding: 24 }}>
+                <p style={{ fontSize: 14, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+                  Delete the microsite for <strong>"{confirmMicrosite.displayName}"</strong>?
+                </p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setConfirmMicrosite(null)}
+                    disabled={deletingMicrosite}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--panel-soft)',
+                      color: 'var(--text)',
+                      fontSize: 14,
+                      cursor: deletingMicrosite ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteMicrositeConfirmed}
+                    disabled={deletingMicrosite}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: 'var(--danger)',
+                      color: '#fff',
+                      fontSize: 14,
+                      cursor: deletingMicrosite ? 'not-allowed' : 'pointer',
+                      opacity: deletingMicrosite ? 0.7 : 1,
+                    }}
+                  >
+                    {deletingMicrosite ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>,
-      document.body,
-    )}
-  </>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
